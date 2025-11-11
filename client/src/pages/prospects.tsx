@@ -23,7 +23,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Plus, Search, Edit, Trash2, Mail, Calendar, User, Send, Download, ChevronDown, ChevronRight, Users, FileText, ExternalLink, Play, CheckCircle, XCircle } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Mail, Calendar, User, Send, Download, ChevronDown, ChevronRight, Users, FileText, ExternalLink, Play, CheckCircle, XCircle, Bell, FileUp } from "lucide-react";
 import { insertMerchantProspectSchema, type MerchantProspectWithAgent, type Agent, type ProspectApplicationWithDetails, type Acquirer, type AcquirerApplicationTemplate } from "@shared/schema";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -54,6 +54,8 @@ export default function Prospects() {
   const [expandedAgents, setExpandedAgents] = useState<Set<number>>(new Set());
   const [selectedProspectForApplications, setSelectedProspectForApplications] = useState<MerchantProspectWithAgent | null>(null);
   const [isApplicationsDialogOpen, setIsApplicationsDialogOpen] = useState(false);
+  const [notificationDialogProspect, setNotificationDialogProspect] = useState<MerchantProspectWithAgent | null>(null);
+  const [documentRequestDialogProspect, setDocumentRequestDialogProspect] = useState<MerchantProspectWithAgent | null>(null);
 
   const { toast } = useToast();
   const { user } = useAuth();
@@ -152,6 +154,36 @@ export default function Prospects() {
         variant: "destructive",
       });
       setResendingEmail(null);
+    },
+  });
+
+  // Send notification mutation
+  const sendNotificationMutation = useMutation({
+    mutationFn: async ({ prospectId, subject, message, type }: { prospectId: number; subject: string; message: string; type: string }) => {
+      const response = await fetch(`/api/prospects/${prospectId}/notifications`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ subject, message, type }),
+      });
+      if (!response.ok) throw new Error('Failed to send notification');
+      return response.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/prospects', variables.prospectId, 'notifications'] });
+      toast({
+        title: "Success",
+        description: "Notification sent successfully",
+      });
+      setNotificationDialogProspect(null);
+      setDocumentRequestDialogProspect(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to send notification",
+        variant: "destructive",
+      });
     },
   });
 
@@ -548,6 +580,24 @@ export default function Prospects() {
                                         <Button
                                           variant="ghost"
                                           size="sm"
+                                          onClick={() => setNotificationDialogProspect(prospect)}
+                                          title="Send notification"
+                                          data-testid={`button-send-notification-${prospect.id}`}
+                                        >
+                                          <Bell className="w-4 h-4" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => setDocumentRequestDialogProspect(prospect)}
+                                          title="Request document"
+                                          data-testid={`button-request-document-${prospect.id}`}
+                                        >
+                                          <FileUp className="w-4 h-4" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
                                           onClick={() => handleResendInvitation(prospect)}
                                           disabled={resendingEmail === prospect.id || resendInvitationMutation.isPending}
                                           title="Resend invitation email"
@@ -694,6 +744,24 @@ export default function Prospects() {
                             <Button
                               variant="ghost"
                               size="sm"
+                              onClick={() => setNotificationDialogProspect(prospect)}
+                              title="Send notification"
+                              data-testid={`button-send-notification-${prospect.id}`}
+                            >
+                              <Bell className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDocumentRequestDialogProspect(prospect)}
+                              title="Request document"
+                              data-testid={`button-request-document-${prospect.id}`}
+                            >
+                              <FileUp className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               onClick={() => handleResendInvitation(prospect)}
                               disabled={resendingEmail === prospect.id || resendInvitationMutation.isPending}
                               title="Resend invitation email"
@@ -761,6 +829,22 @@ export default function Prospects() {
         acquirers={acquirers}
         onCreateApplication={createApplicationMutation.mutate}
         isCreatingApplication={createApplicationMutation.isPending}
+      />
+
+      <NotificationDialog
+        prospect={notificationDialogProspect}
+        isOpen={!!notificationDialogProspect}
+        onClose={() => setNotificationDialogProspect(null)}
+        onSend={sendNotificationMutation.mutate}
+        isPending={sendNotificationMutation.isPending}
+      />
+
+      <DocumentRequestDialog
+        prospect={documentRequestDialogProspect}
+        isOpen={!!documentRequestDialogProspect}
+        onClose={() => setDocumentRequestDialogProspect(null)}
+        onSend={sendNotificationMutation.mutate}
+        isPending={sendNotificationMutation.isPending}
       />
     </div>
   );
@@ -1587,6 +1671,242 @@ function ApplicationsManagementDialog({
             Close
           </Button>
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Notification Dialog Component
+const notificationFormSchema = z.object({
+  subject: z.string().min(1, "Subject is required").max(200, "Subject must be less than 200 characters"),
+  message: z.string().min(1, "Message is required").max(2000, "Message must be less than 2000 characters"),
+  type: z.enum(["general", "reminder", "urgent"], { required_error: "Type is required" }),
+});
+
+type NotificationFormData = z.infer<typeof notificationFormSchema>;
+
+interface NotificationDialogProps {
+  prospect: MerchantProspectWithAgent | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onSend: (data: { prospectId: number; subject: string; message: string; type: string }) => void;
+  isPending: boolean;
+}
+
+function NotificationDialog({ prospect, isOpen, onClose, onSend, isPending }: NotificationDialogProps) {
+  const form = useForm<NotificationFormData>({
+    resolver: zodResolver(notificationFormSchema),
+    defaultValues: {
+      subject: "",
+      message: "",
+      type: "general",
+    },
+  });
+
+  useEffect(() => {
+    if (!isOpen) {
+      form.reset();
+    }
+  }, [isOpen, form]);
+
+  const onSubmit = (data: NotificationFormData) => {
+    if (!prospect) return;
+    onSend({
+      prospectId: prospect.id,
+      subject: data.subject,
+      message: data.message,
+      type: data.type,
+    });
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[500px]">
+        <DialogHeader>
+          <DialogTitle>Send Notification</DialogTitle>
+          <DialogDescription>
+            Send a notification to {prospect?.firstName} {prospect?.lastName}
+          </DialogDescription>
+        </DialogHeader>
+
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField
+              control={form.control}
+              name="subject"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Subject</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Enter notification subject" {...field} data-testid="input-notification-subject" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="message"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Message</FormLabel>
+                  <FormControl>
+                    <Textarea 
+                      placeholder="Enter notification message" 
+                      rows={5}
+                      {...field} 
+                      data-testid="textarea-notification-message"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="type"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Type</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger data-testid="select-notification-type">
+                        <SelectValue placeholder="Select notification type" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="general">General</SelectItem>
+                      <SelectItem value="reminder">Reminder</SelectItem>
+                      <SelectItem value="urgent">Urgent</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isPending} data-testid="button-send-notification">
+                {isPending ? "Sending..." : "Send Notification"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Document Request Dialog Component
+const documentRequestFormSchema = z.object({
+  documents: z.string().min(1, "Please specify which documents are needed"),
+  instructions: z.string().optional(),
+});
+
+type DocumentRequestFormData = z.infer<typeof documentRequestFormSchema>;
+
+interface DocumentRequestDialogProps {
+  prospect: MerchantProspectWithAgent | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onSend: (data: { prospectId: number; subject: string; message: string; type: string }) => void;
+  isPending: boolean;
+}
+
+function DocumentRequestDialog({ prospect, isOpen, onClose, onSend, isPending }: DocumentRequestDialogProps) {
+  const form = useForm<DocumentRequestFormData>({
+    resolver: zodResolver(documentRequestFormSchema),
+    defaultValues: {
+      documents: "",
+      instructions: "",
+    },
+  });
+
+  useEffect(() => {
+    if (!isOpen) {
+      form.reset();
+    }
+  }, [isOpen, form]);
+
+  const onSubmit = (data: DocumentRequestFormData) => {
+    if (!prospect) return;
+    
+    // Compose message from documents and instructions
+    const message = `Please upload the following documents:\n\n${data.documents}\n\n${data.instructions ? `Additional Instructions:\n${data.instructions}` : ''}`;
+    
+    onSend({
+      prospectId: prospect.id,
+      subject: "Document Request",
+      message: message.trim(),
+      type: "document_request",
+    });
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[500px]">
+        <DialogHeader>
+          <DialogTitle>Request Documents</DialogTitle>
+          <DialogDescription>
+            Request documents from {prospect?.firstName} {prospect?.lastName}
+          </DialogDescription>
+        </DialogHeader>
+
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField
+              control={form.control}
+              name="documents"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Required Documents</FormLabel>
+                  <FormControl>
+                    <Textarea 
+                      placeholder="List required documents (e.g., Business License, Tax Returns, Bank Statements)" 
+                      rows={4}
+                      {...field} 
+                      data-testid="textarea-required-documents"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="instructions"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Additional Instructions (Optional)</FormLabel>
+                  <FormControl>
+                    <Textarea 
+                      placeholder="Enter any additional instructions or requirements" 
+                      rows={3}
+                      {...field} 
+                      data-testid="textarea-document-instructions"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isPending} data-testid="button-request-documents">
+                {isPending ? "Sending..." : "Send Request"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );
