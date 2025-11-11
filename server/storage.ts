@@ -1,4 +1,4 @@
-import { companies, merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, signatureCaptures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, equipmentItems, campaignEquipment, campaignApplicationTemplates, acquirerApplicationTemplates, apiKeys, apiRequestLogs, emailWrappers, emailTemplates, emailActivity, emailTriggers, actionTemplates, triggerCatalog, triggerActions, userAlerts, acquirers, type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type InsertProspectSignature, type SignatureCapture, type InsertSignatureCapture, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type CampaignApplicationTemplate, type InsertCampaignApplicationTemplate, type AcquirerApplicationTemplate, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailWrapper, type InsertEmailWrapper, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type ActionTemplate, type InsertActionTemplate, type TriggerCatalog, type InsertTriggerCatalog, type TriggerAction, type InsertTriggerAction, type UserAlert, type InsertUserAlert } from "@shared/schema";
+import { companies, merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, signatureCaptures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, equipmentItems, campaignEquipment, campaignApplicationTemplates, acquirerApplicationTemplates, apiKeys, apiRequestLogs, emailWrappers, emailTemplates, emailActivity, emailTriggers, actionTemplates, triggerCatalog, triggerActions, userAlerts, acquirers, type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type ProspectDocument, type InsertProspectDocument, type ProspectNotification, type InsertProspectNotification, type InsertProspectSignature, type SignatureCapture, type InsertSignatureCapture, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type CampaignApplicationTemplate, type InsertCampaignApplicationTemplate, type AcquirerApplicationTemplate, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailWrapper, type InsertEmailWrapper, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type ActionTemplate, type InsertActionTemplate, type TriggerCatalog, type InsertTriggerCatalog, type TriggerAction, type InsertTriggerAction, type UserAlert, type InsertUserAlert } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, or, and, gte, sql, desc, inArray, like, ilike, not } from "drizzle-orm";
 
@@ -35,6 +35,28 @@ export interface IStorage {
   updateMerchantProspect(id: number, updates: Partial<MerchantProspect>): Promise<MerchantProspect | undefined>;
   deleteMerchantProspect(id: number): Promise<boolean>;
   searchMerchantProspects(query: string): Promise<MerchantProspectWithAgent[]>;
+
+  // Prospect Portal Account operations
+  createProspectPortalAccount(prospectId: number): Promise<{ user: User; resetToken: string; resetExpires: Date }>;
+  linkUserToProspect(userId: string, prospectId: number): Promise<MerchantProspect | undefined>;
+  getProspectByUserId(userId: string): Promise<MerchantProspect | undefined>;
+  setProspectPasswordResetToken(userId: string, token: string, expiresAt: Date): Promise<User | undefined>;
+
+  // Prospect Document operations
+  getProspectDocuments(prospectId: number): Promise<ProspectDocument[]>;
+  getProspectDocument(id: number): Promise<ProspectDocument | undefined>;
+  createProspectDocument(document: InsertProspectDocument): Promise<ProspectDocument>;
+  updateProspectDocument(id: number, updates: Partial<InsertProspectDocument>): Promise<ProspectDocument | undefined>;
+  deleteProspectDocument(id: number): Promise<boolean>;
+
+  // Prospect Notification operations
+  getProspectNotifications(prospectId: number): Promise<ProspectNotification[]>;
+  getProspectNotification(id: number): Promise<ProspectNotification | undefined>;
+  getUnreadProspectNotifications(prospectId: number): Promise<ProspectNotification[]>;
+  createProspectNotification(notification: InsertProspectNotification): Promise<ProspectNotification>;
+  updateProspectNotification(id: number, updates: Partial<InsertProspectNotification>): Promise<ProspectNotification | undefined>;
+  markProspectNotificationAsRead(id: number): Promise<ProspectNotification | undefined>;
+  deleteProspectNotification(id: number): Promise<boolean>;
 
   // Transaction operations
   getTransaction(id: number): Promise<Transaction | undefined>;
@@ -2969,6 +2991,116 @@ export class DatabaseStorage implements IStorage {
   async deleteTriggerAction(id: number): Promise<boolean> {
     const result = await this.db.delete(triggerActions).where(eq(triggerActions.id, id)).returning();
     return result.length > 0;
+  }
+
+  async createProspectPortalAccount(prospectId: number): Promise<{ user: User; resetToken: string; resetExpires: Date }> {
+    const crypto = await import('crypto');
+    const prospect = await this.getMerchantProspect(prospectId);
+    if (!prospect) {
+      throw new Error('Prospect not found');
+    }
+    
+    if (prospect.userId) {
+      const existingUser = await this.getUser(prospect.userId);
+      if (existingUser) {
+        const resetToken = crypto.randomUUID();
+        const resetExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        await this.setProspectPasswordResetToken(existingUser.id, resetToken, resetExpires);
+        return { user: existingUser, resetToken, resetExpires };
+      }
+    }
+    
+    const userId = crypto.randomUUID();
+    const resetToken = crypto.randomUUID();
+    const resetExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    
+    const user = await this.createUser({
+      id: userId,
+      email: prospect.email,
+      username: prospect.email,
+      passwordHash: null as any,
+      firstName: prospect.firstName,
+      lastName: prospect.lastName,
+      roles: ['prospect'],
+      status: 'pending_password',
+      passwordResetToken: resetToken,
+      passwordResetExpires: resetExpires,
+      emailVerified: true,
+    });
+    
+    await this.linkUserToProspect(userId, prospectId);
+    
+    return { user, resetToken, resetExpires };
+  }
+  
+  async linkUserToProspect(userId: string, prospectId: number): Promise<MerchantProspect | undefined> {
+    return this.updateMerchantProspect(prospectId, { userId });
+  }
+  
+  async getProspectByUserId(userId: string): Promise<MerchantProspect | undefined> {
+    const [prospect] = await this.db.select().from(merchantProspects).where(eq(merchantProspects.userId, userId));
+    return prospect || undefined;
+  }
+  
+  async setProspectPasswordResetToken(userId: string, token: string, expiresAt: Date): Promise<User | undefined> {
+    return this.setPasswordResetToken(userId, token, expiresAt);
+  }
+  
+  async getProspectDocuments(prospectId: number): Promise<ProspectDocument[]> {
+    return this.db.select().from(prospectDocuments).where(eq(prospectDocuments.prospectId, prospectId));
+  }
+  
+  async getProspectDocument(id: number): Promise<ProspectDocument | undefined> {
+    const [doc] = await this.db.select().from(prospectDocuments).where(eq(prospectDocuments.id, id));
+    return doc || undefined;
+  }
+  
+  async createProspectDocument(document: InsertProspectDocument): Promise<ProspectDocument> {
+    const [created] = await this.db.insert(prospectDocuments).values(document).returning();
+    return created;
+  }
+  
+  async updateProspectDocument(id: number, updates: Partial<InsertProspectDocument>): Promise<ProspectDocument | undefined> {
+    const [updated] = await this.db.update(prospectDocuments).set(updates).where(eq(prospectDocuments.id, id)).returning();
+    return updated || undefined;
+  }
+  
+  async deleteProspectDocument(id: number): Promise<boolean> {
+    const result = await this.db.delete(prospectDocuments).where(eq(prospectDocuments.id, id));
+    return (result.rowCount || 0) > 0;
+  }
+  
+  async getProspectNotifications(prospectId: number): Promise<ProspectNotification[]> {
+    return this.db.select().from(prospectNotifications).where(eq(prospectNotifications.prospectId, prospectId)).orderBy(desc(prospectNotifications.createdAt));
+  }
+  
+  async getProspectNotification(id: number): Promise<ProspectNotification | undefined> {
+    const [notification] = await this.db.select().from(prospectNotifications).where(eq(prospectNotifications.id, id));
+    return notification || undefined;
+  }
+  
+  async getUnreadProspectNotifications(prospectId: number): Promise<ProspectNotification[]> {
+    return this.db.select().from(prospectNotifications).where(and(eq(prospectNotifications.prospectId, prospectId), eq(prospectNotifications.isRead, false))).orderBy(desc(prospectNotifications.createdAt));
+  }
+  
+  async createProspectNotification(notification: InsertProspectNotification): Promise<ProspectNotification> {
+    const [created] = await this.db.insert(prospectNotifications).values(notification).returning();
+    return created;
+  }
+  
+  async updateProspectNotification(id: number, updates: Partial<InsertProspectNotification>): Promise<ProspectNotification | undefined> {
+    const [updated] = await this.db.update(prospectNotifications).set(updates).where(eq(prospectNotifications.id, id)).returning();
+    return updated || undefined;
+  }
+  
+  async markProspectNotificationAsRead(id: number): Promise<ProspectNotification | undefined> {
+    const [updated] = await this.db.update(prospectNotifications).set({ isRead: true, readAt: new Date() }).where(eq(prospectNotifications.id, id)).returning();
+    return updated || undefined;
+  }
+  
+  async deleteProspectNotification(id: number): Promise<boolean> {
+    const result = await this.db.delete(prospectNotifications).where(eq(prospectNotifications.id, id));
+    return (result.rowCount || 0) > 0;
   }
 }
 
