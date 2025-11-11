@@ -50,6 +50,15 @@ interface PasswordResetEmailData {
   dbEnv?: string;
 }
 
+interface ProspectPasswordSetupData {
+  prospectName: string;
+  prospectEmail: string;
+  companyName: string;
+  passwordSetupUrl: string;
+  expiresAt: Date;
+  dbEnv?: string;
+}
+
 export class EmailService {
   private getBaseUrl(): string {
     // Use the deployed domain or localhost for development
@@ -588,6 +597,149 @@ This email was sent to ${data.email}
         'failed',
         error instanceof Error ? error.message : 'Unknown error',
         'password_reset_request'
+      );
+      
+      return false;
+    }
+  }
+
+  async sendProspectPasswordSetup(data: ProspectPasswordSetupData): Promise<boolean> {
+    try {
+      const expirationDate = new Date(data.expiresAt).toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+      });
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Set Up Your Prospect Portal Access - CoreCRM</title>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background-color: #10b981; color: white; padding: 20px; text-align: center; }
+            .content { padding: 30px 20px; background-color: #f9f9f9; }
+            .button { display: inline-block; background-color: #10b981; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
+            .footer { background-color: #333; color: #ccc; padding: 20px; text-align: center; font-size: 12px; }
+            .info-box { background-color: #ecfdf5; border-left: 4px solid #10b981; padding: 15px; margin: 20px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Application Submitted Successfully!</h1>
+              <p>Set Up Your Prospect Portal Access</p>
+            </div>
+            
+            <div class="content">
+              <h2>Hello ${data.prospectName},</h2>
+              
+              <p>Thank you for submitting your merchant processing application for <strong>${data.companyName}</strong>!</p>
+              
+              <p>We've created a secure portal account for you to:</p>
+              <ul>
+                <li>Track your application status in real-time</li>
+                <li>Upload additional documents as requested</li>
+                <li>Receive and read notifications from our underwriting team</li>
+                <li>Communicate securely with your assigned agent</li>
+              </ul>
+              
+              <p>To activate your account and set your password, click the button below:</p>
+              
+              <div style="text-align: center;">
+                <a href="${data.passwordSetupUrl}" class="button">Set Up Portal Access</a>
+              </div>
+              
+              <div class="info-box">
+                <strong>Important:</strong> This link will expire on ${expirationDate} for security reasons.
+              </div>
+              
+              <p>Once your password is set, you can log in to the prospect portal anytime to check on your application progress.</p>
+              
+              <p>If you didn't submit this application or have any questions, please contact your assigned agent immediately.</p>
+              
+              ${data.dbEnv && data.dbEnv !== 'production' ? `<p><em>Note: This account is for the ${data.dbEnv} database environment.</em></p>` : ''}
+            </div>
+            
+            <div class="footer">
+              <p>CoreCRM - Secure Payment Management Platform</p>
+              <p>This email was sent to ${data.prospectEmail}</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      const textContent = `
+Application Submitted Successfully! - Set Up Your Prospect Portal Access
+
+Hello ${data.prospectName},
+
+Thank you for submitting your merchant processing application for ${data.companyName}!
+
+We've created a secure portal account for you to:
+- Track your application status in real-time
+- Upload additional documents as requested
+- Receive and read notifications from our underwriting team
+- Communicate securely with your assigned agent
+
+To activate your account and set your password, visit:
+${data.passwordSetupUrl}
+
+IMPORTANT: This link will expire on ${expirationDate} for security reasons.
+
+Once your password is set, you can log in to the prospect portal anytime to check on your application progress.
+
+If you didn't submit this application or have any questions, please contact your assigned agent immediately.
+
+${data.dbEnv && data.dbEnv !== 'production' ? `Note: This account is for the ${data.dbEnv} database environment.` : ''}
+
+CoreCRM - Secure Payment Management Platform
+This email was sent to ${data.prospectEmail}
+      `;
+
+      await mailService.send({
+        to: data.prospectEmail,
+        from: process.env.SENDGRID_FROM_EMAIL!,
+        subject: `Welcome to Your Merchant Portal - ${data.companyName}`,
+        text: textContent,
+        html: htmlContent,
+      });
+
+      // Log email activity to database
+      await this.logEmailActivity(
+        'prospect_password_setup',
+        data.prospectEmail,
+        `Welcome to Your Merchant Portal - ${data.companyName}`,
+        'sent',
+        undefined,
+        'application_submission',
+        {
+          prospectName: data.prospectName,
+          companyName: data.companyName,
+          dbEnv: data.dbEnv,
+          expiresAt: data.expiresAt
+        }
+      );
+
+      console.log(`Prospect password setup email sent successfully to ${data.prospectEmail}`);
+      return true;
+    } catch (error) {
+      console.error('Failed to send prospect password setup email:', error);
+      
+      // Log failed email activity
+      await this.logEmailActivity(
+        'prospect_password_setup',
+        data.prospectEmail,
+        `Welcome to Your Merchant Portal - ${data.companyName}`,
+        'failed',
+        error instanceof Error ? error.message : 'Unknown error',
+        'application_submission'
       );
       
       return false;
