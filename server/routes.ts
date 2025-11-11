@@ -12,6 +12,8 @@ import connectPg from "connect-pg-simple";
 import multer from "multer";
 import { pdfFormParser } from "./pdfParser";
 import { emailService } from "./emailService";
+import { ObjectStorageService, AccessDeniedError } from "./objectStorage";
+import { checkObjectAccess } from "./objectAcl";
 import { v4 as uuidv4 } from "uuid";
 // Legacy import kept for gradual migration
 import { dbEnvironmentMiddleware, adminDbMiddleware, getRequestDB, createStorageForRequest, type RequestWithDB } from "./dbMiddleware";
@@ -2483,6 +2485,315 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: false, 
         message: "Login failed. Please try again." 
       });
+    }
+  });
+
+  // Prospect Document Management Endpoints
+  
+  // Middleware to verify prospect owns the resource or is authorized
+  const requireProspectAuth = async (req: RequestWithDB, res: Response, next: any) => {
+    if (!req.session?.userId) {
+      return res.status(401).json({ success: false, message: "Authentication required" });
+    }
+    
+    const user = await storage.getUser(req.session.userId);
+    if (!user || !user.roles.includes('prospect')) {
+      return res.status(403).json({ success: false, message: "Prospect access only" });
+    }
+    
+    // Get prospect record
+    const prospect = await storage.getProspectByUserId(user.id);
+    if (!prospect) {
+      return res.status(404).json({ success: false, message: "Prospect record not found" });
+    }
+    
+    // Attach prospect to request for use in handlers
+    (req as any).prospect = prospect;
+    next();
+  };
+  
+  // Get presigned upload URL for document
+  app.post("/api/prospects/:id/documents/upload-url", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const prospect = (req as any).prospect;
+      
+      // Verify prospect owns this resource
+      if (prospect.id !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      const { fileName, fileType, fileSize } = req.body;
+      
+      if (!fileName || !fileType) {
+        return res.status(400).json({ success: false, message: "fileName and fileType are required" });
+      }
+      
+      // Generate unique storage key
+      const storageKey = `prospects/${prospectId}/documents/${Date.now()}-${fileName}`;
+      
+      // Get presigned upload URL
+      const objectStorageService = new ObjectStorageService();
+      const uploadUrl = await objectStorageService.getUploadUrl(storageKey, {
+        contentType: fileType,
+        ownerId: prospect.userId!,
+        acl: 'PROSPECT_OWNER'
+      });
+      
+      res.json({ 
+        success: true, 
+        uploadUrl,
+        storageKey
+      });
+    } catch (error) {
+      console.error("Error generating upload URL:", error);
+      res.status(500).json({ success: false, message: "Failed to generate upload URL" });
+    }
+  });
+  
+  // Create document metadata after successful upload
+  app.post("/api/prospects/:id/documents", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const prospect = (req as any).prospect;
+      
+      // Verify prospect owns this resource
+      if (prospect.id !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      const { fileName, originalFileName, fileType, fileSize, storageKey, category, notes } = req.body;
+      
+      if (!fileName || !fileType || !storageKey) {
+        return res.status(400).json({ success: false, message: "fileName, fileType, and storageKey are required" });
+      }
+      
+      // Set ACL on uploaded file
+      const objectStorageService = new ObjectStorageService();
+      await objectStorageService.setFileAcl(storageKey, {
+        visibility: 'private',
+        ownerId: prospect.userId!,
+        acl: 'PROSPECT_OWNER'
+      });
+      
+      // Create document record
+      const document = await storage.createProspectDocument({
+        prospectId,
+        fileName,
+        originalFileName: originalFileName || fileName,
+        fileType,
+        fileSize: fileSize || 0,
+        storageKey,
+        category: category || 'general',
+        uploadedBy: prospect.userId,
+        notes: notes || null
+      });
+      
+      res.json({ success: true, document });
+    } catch (error) {
+      console.error("Error creating document:", error);
+      res.status(500).json({ success: false, message: "Failed to create document" });
+    }
+  });
+  
+  // List prospect documents
+  app.get("/api/prospects/:id/documents", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const prospect = (req as any).prospect;
+      
+      // Verify prospect owns this resource
+      if (prospect.id !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      const documents = await storage.getProspectDocuments(prospectId);
+      res.json({ success: true, documents });
+    } catch (error) {
+      console.error("Error fetching documents:", error);
+      res.status(500).json({ success: false, message: "Failed to fetch documents" });
+    }
+  });
+  
+  // Get presigned download URL for document
+  app.get("/api/prospects/:id/documents/:docId/download-url", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const docId = parseInt(req.params.docId);
+      const prospect = (req as any).prospect;
+      
+      // Verify prospect owns this resource
+      if (prospect.id !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      // Get document metadata
+      const document = await storage.getProspectDocument(docId);
+      if (!document) {
+        return res.status(404).json({ success: false, message: "Document not found" });
+      }
+      
+      // Verify document belongs to this prospect
+      if (document.prospectId !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      // Get presigned download URL
+      const objectStorageService = new ObjectStorageService();
+      const downloadUrl = await objectStorageService.getDownloadUrl(document.storageKey, {
+        userId: prospect.userId!,
+        acl: 'PROSPECT_OWNER'
+      });
+      
+      res.json({ success: true, downloadUrl, document });
+    } catch (error) {
+      if (error instanceof AccessDeniedError) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      console.error("Error generating download URL:", error);
+      res.status(500).json({ success: false, message: "Failed to generate download URL" });
+    }
+  });
+  
+  // Delete document
+  app.delete("/api/prospects/:id/documents/:docId", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const docId = parseInt(req.params.docId);
+      const prospect = (req as any).prospect;
+      
+      // Verify prospect owns this resource
+      if (prospect.id !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      // Get document metadata
+      const document = await storage.getProspectDocument(docId);
+      if (!document) {
+        return res.status(404).json({ success: false, message: "Document not found" });
+      }
+      
+      // Verify document belongs to this prospect
+      if (document.prospectId !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      // Delete from storage
+      const objectStorageService = new ObjectStorageService();
+      await objectStorageService.deleteFile(document.storageKey);
+      
+      // Delete metadata from database
+      await storage.deleteProspectDocument(docId);
+      
+      res.json({ success: true, message: "Document deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting document:", error);
+      res.status(500).json({ success: false, message: "Failed to delete document" });
+    }
+  });
+
+  // Prospect Notification Endpoints
+  
+  // Get all notifications for a prospect
+  app.get("/api/prospects/:id/notifications", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const prospect = (req as any).prospect;
+      
+      // Verify prospect owns this resource
+      if (prospect.id !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      const notifications = await storage.getProspectNotifications(prospectId);
+      res.json({ success: true, notifications });
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+      res.status(500).json({ success: false, message: "Failed to fetch notifications" });
+    }
+  });
+  
+  // Get unread notification count for a prospect
+  app.get("/api/prospects/:id/notifications/unread-count", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const prospect = (req as any).prospect;
+      
+      // Verify prospect owns this resource
+      if (prospect.id !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      const unreadNotifications = await storage.getUnreadProspectNotifications(prospectId);
+      res.json({ success: true, count: unreadNotifications.length });
+    } catch (error) {
+      console.error("Error fetching unread count:", error);
+      res.status(500).json({ success: false, message: "Failed to fetch unread count" });
+    }
+  });
+  
+  // Mark notification as read
+  app.patch("/api/prospects/:id/notifications/:notificationId/read", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const notificationId = parseInt(req.params.notificationId);
+      const prospect = (req as any).prospect;
+      
+      // Verify prospect owns this resource
+      if (prospect.id !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      // Get notification to verify ownership
+      const notification = await storage.getProspectNotification(notificationId);
+      if (!notification) {
+        return res.status(404).json({ success: false, message: "Notification not found" });
+      }
+      
+      // Verify notification belongs to this prospect
+      if (notification.prospectId !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      // Mark as read
+      const updatedNotification = await storage.markProspectNotificationAsRead(notificationId);
+      res.json({ success: true, notification: updatedNotification });
+    } catch (error) {
+      console.error("Error marking notification as read:", error);
+      res.status(500).json({ success: false, message: "Failed to mark notification as read" });
+    }
+  });
+  
+  // Create notification (admin/agent endpoint - for task 14, added here for completeness)
+  app.post("/api/prospects/:id/notifications", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'agent']), async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const { subject, message, type, metadata } = req.body;
+      
+      if (!subject || !message) {
+        return res.status(400).json({ success: false, message: "subject and message are required" });
+      }
+      
+      // Verify prospect exists
+      const prospect = await storage.getMerchantProspect(prospectId);
+      if (!prospect) {
+        return res.status(404).json({ success: false, message: "Prospect not found" });
+      }
+      
+      // Create notification
+      const notification = await storage.createProspectNotification({
+        prospectId,
+        subject,
+        message,
+        type: type || 'info',
+        createdBy: req.session.userId!,
+        metadata: metadata || null
+      });
+      
+      res.json({ success: true, notification });
+    } catch (error) {
+      console.error("Error creating notification:", error);
+      res.status(500).json({ success: false, message: "Failed to create notification" });
     }
   });
 
