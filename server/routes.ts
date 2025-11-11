@@ -2797,6 +2797,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get current prospect (for logged-in prospect portal)
+  app.get("/api/prospects/me", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospect = (req as any).prospect;
+      res.json({ success: true, prospect });
+    } catch (error) {
+      console.error("Error fetching prospect:", error);
+      res.status(500).json({ success: false, message: "Failed to fetch prospect data" });
+    }
+  });
+
+  // Update prospect profile
+  app.patch("/api/prospects/:id", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const prospect = (req as any).prospect;
+      
+      // Verify prospect owns this resource
+      if (prospect.id !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      const { contactEmail, contactPhone } = req.body;
+      
+      // Update prospect
+      const updatedProspect = await storage.updateMerchantProspect(prospectId, {
+        contactEmail: contactEmail || null,
+        contactPhone: contactPhone || null,
+      });
+      
+      res.json({ success: true, prospect: updatedProspect });
+    } catch (error) {
+      console.error("Error updating prospect:", error);
+      res.status(500).json({ success: false, message: "Failed to update profile" });
+    }
+  });
+
+  // Change prospect password
+  app.post("/api/prospects/auth/change-password", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospect = (req as any).prospect;
+      const { currentPassword, newPassword } = req.body;
+      
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ success: false, message: "currentPassword and newPassword are required" });
+      }
+      
+      // Validate password strength
+      const passwordValidation = validatePasswordStrength(newPassword);
+      if (!passwordValidation.valid) {
+        return res.status(400).json({ 
+          success: false, 
+          message: `Password not strong enough: ${passwordValidation.errors.join(', ')}` 
+        });
+      }
+      
+      // Get user account
+      const user = await storage.getUser(prospect.userId!);
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User account not found" });
+      }
+      
+      // Verify current password
+      const isPasswordValid = await bcrypt.compare(currentPassword, user.passwordHash);
+      if (!isPasswordValid) {
+        return res.status(401).json({ success: false, message: "Current password is incorrect" });
+      }
+      
+      // Hash new password
+      const passwordHash = await bcrypt.hash(newPassword, 10);
+      
+      // Update user password
+      await storage.updateUser(user.id, { passwordHash });
+      
+      res.json({ success: true, message: "Password changed successfully" });
+    } catch (error) {
+      console.error("Error changing password:", error);
+      res.status(500).json({ success: false, message: "Failed to change password" });
+    }
+  });
+
   // Get prospect by token (for starting application)
   app.get("/api/prospects/token/:token", async (req: RequestWithDB, res) => {
     try {
