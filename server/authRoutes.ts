@@ -125,10 +125,13 @@ export function setupAuthRoutes(app: Express) {
       
       // Use dynamic database consistent with session environment
       const dynamicDB = getRequestDB(req);
+      const { users } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      
       const user = await dynamicDB
         .select()
-        .from(await import("@shared/schema").then(m => m.usersTable))
-        .where((await import("drizzle-orm").then(m => m.eq))((await import("@shared/schema").then(m => m.usersTable)).id, userId))
+        .from(users)
+        .where(eq(users.id, userId))
         .limit(1)
         .then((rows: any) => rows[0]);
       
