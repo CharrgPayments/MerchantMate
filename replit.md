@@ -37,7 +37,8 @@ Preferred communication style: Simple, everyday language.
 - **SOC2 Compliance Features**: Comprehensive audit trail, logging, security events, login attempt tracking.
 - **Generic Trigger/Action Catalog System**: Extensible event-driven action system supporting multi-channel notifications and action chaining.
 - **User Profile Management**: Self-service profile/settings page.
-- **Unified Communications Management**: Consolidated dashboard for all communications features (Templates, Triggers, Activity & Analytics) accessed via `/communications` route, replacing separate email-management and action-templates pages.
+- **Unified Communications Management**: Consolidated dashboard for all communications features (Templates, Triggers, Activity & Analytics, Settings) accessed via `/communications` route, replacing separate email-management and action-templates pages.
+- **Email Configuration & Testing**: Settings tab in Communications Manager displays current SendGrid sender configuration, provides instructions for changing sender email via environment variables, and includes test email functionality for all email templates (prospect validation, signature request, application submission, password reset) with live delivery testing.
 
 ### System Design Choices
 - **Testing Framework**: TDD-style with Jest and React Testing Library.
