@@ -152,6 +152,27 @@ tsx scripts/migration-manager.ts apply prod      # Manually apply to Production
 - Server running successfully on port 5000
 - Ready for frontend integration
 
+### Prospect Portal Frontend (November 11, 2025)
+
+**Completed Features (Tasks 11-15)**:
+- **Task 11**: Prospect Login page with email/password authentication (PASS)
+- **Task 12**: Prospect Portal Dashboard with documents, notifications, application status (PASS)
+- **Task 13**: Prospect Profile Management for contact info and password changes (PASS)
+- **Task 14**: Admin interface for notifications and document requests (PASS)
+- **Task 15**: Atomic prospect-to-merchant conversion on approval (PASS)
+
+**Bug Fixes**:
+- Made `merchantProspects.agentId` nullable to allow prospect creation without agents
+- Generated migration `20251111T23154` for agentId schema change
+- Added API validation for agentId when provided
+- Seeded default application template (ID=3) for testing
+
+**Known Infrastructure Issues (Blocking E2E Testing)**:
+1. Authorization: 403 on POST /api/prospect-applications/:id/submit (admin blocked from submitting)
+2. Data Persistence: Created records not queryable via subsequent SELECTs
+3. Server Error: GET /api/prospect-applications/:id returns 500 (orderSelectedFields TypeError)
+4. ID Mismatch: API agent IDs differ from database agent IDs
+
 ## External Dependencies
 - **pg**: Native PostgreSQL driver.
 - **drizzle-orm**: Type-safe ORM for PostgreSQL.

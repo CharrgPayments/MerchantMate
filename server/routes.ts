@@ -1918,6 +1918,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid prospect data", errors: result.error.errors });
       }
 
+      // Validate agentId if provided
+      if (result.data.agentId) {
+        const agent = await storage.getAgent(result.data.agentId);
+        if (!agent) {
+          return res.status(400).json({ message: `Invalid agent ID: ${result.data.agentId}. Agent not found.` });
+        }
+      }
+
       // Generate validation token for the prospect
       const crypto = await import('crypto');
       const validationToken = crypto.randomUUID();
