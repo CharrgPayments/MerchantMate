@@ -7769,7 +7769,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return acc;
       }, {} as Record<number, number>);
       
-      console.log(`Found application counts for ${applicationCounts.length} templates`);
+      console.log(`Found application counts for ${applicationCounts.length} templates in ${req.dbEnv} environment`);
+      console.log(`Application counts map:`, countsMap);
       res.json(countsMap);
     } catch (error) {
       console.error('Error fetching application counts:', error);
