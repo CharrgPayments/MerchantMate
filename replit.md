@@ -21,6 +21,7 @@ Preferred communication style: Simple, everyday language.
 - **Authentication**: Session-based with `express-session`, PostgreSQL session store, and 2FA.
 - **Email Service**: SendGrid for transactional emails with webhook integration, including a WYSIWYG editor (React Quill).
 - **File Handling**: Multer for PDF form uploads.
+- **Object Storage**: Replit Object Storage (GCS-backed) with presigned URLs for secure file uploads/downloads, ACL-based access control, and owner-only file isolation.
 
 ### Feature Specifications
 - **Company-Centric Data Architecture**: Companies as the root entity.
@@ -39,6 +40,15 @@ Preferred communication style: Simple, everyday language.
 - **User Profile Management**: Self-service profile/settings page.
 - **Unified Communications Management**: Consolidated dashboard for all communications features (Templates, Triggers, Activity & Analytics, Settings) accessed via `/communications` route, replacing separate email-management and action-templates pages.
 - **Email Configuration & Testing**: Settings tab in Communications Manager displays current SendGrid sender configuration, provides instructions for changing sender email via environment variables, and includes test email functionality for all email templates (prospect validation, signature request, application submission, password reset) with live delivery testing.
+- **Prospect Self-Service Portal**: Comprehensive portal for prospects to manage their application lifecycle including:
+  - **Automatic Account Creation**: User accounts auto-created on application submission with role='prospect' and status='pending_password'
+  - **Password Setup Workflow**: 24-hour UUID reset tokens sent via email for secure password initialization
+  - **Prospect Authentication**: Dedicated login endpoints with prospect-only access and session management
+  - **Document Management**: Upload/download/delete functionality using Replit Object Storage with presigned URLs and owner-only ACL enforcement
+  - **Notification System**: Real-time notifications from agents/underwriters with read/unread tracking and message history
+  - **Status Tracking**: View application status, uploaded documents, and communication history
+  - **Profile Management**: Update contact information and change password
+  - **Merchant Conversion**: Automatic role transition from 'prospect' to 'merchant' upon application approval
 
 ### System Design Choices
 - **Testing Framework**: TDD-style with Jest and React Testing Library.
@@ -98,6 +108,50 @@ tsx scripts/migration-manager.ts apply prod      # Manually apply to Production
 - **Checksum Validation**: Prevents file tampering
 - **Environment-Specific**: Each environment tracks its own migration history
 
+## Recent Changes (November 2025)
+
+### Prospect Portal Backend Implementation
+**Date**: November 11, 2025
+
+**Schema Changes**:
+- Added `userId` field to `merchantProspects` table (nullable, links to users table)
+- Created `prospectDocuments` table for file metadata tracking (prospectId, fileName, fileType, fileSize, uploadedAt, category, storageKey, uploadedBy)
+- Created `prospectNotifications` table for agent/underwriter messaging (prospectId, subject, message, type, isRead, readAt, createdBy, createdAt)
+- Migration: `migrations/0001_migration_20251111T22192.sql` applied to development database
+
+**Authentication & Authorization**:
+- Implemented automatic user account creation on application submission (role='prospect', status='pending_password')
+- Password setup workflow with 24-hour UUID reset tokens and email notifications
+- Prospect-only authentication endpoints (`POST /api/prospects/auth/set-password`, `POST /api/prospects/auth/login`)
+- `requireProspectAuth` middleware for prospect-scoped route protection
+
+**Document Management** (Replit Object Storage Integration):
+- Upload workflow: Generate presigned URL → client uploads → server sets ACL → create metadata
+- Download workflow: Verify ownership → check ACL → generate presigned download URL
+- Delete workflow: Verify ownership → delete from storage → remove metadata
+- ACL enforcement: Owner-only access with prospect.userId validation
+- Storage paths: `prospects/{prospectId}/documents/{timestamp}-{fileName}`
+- Error handling: 403 for AccessDeniedError, 404 for ObjectNotFoundError
+
+**Notification System**:
+- List all notifications for prospect (`GET /api/prospects/:id/notifications`)
+- Unread count endpoint (`GET /api/prospects/:id/notifications/unread-count`)
+- Mark as read functionality (`PATCH /api/prospects/:id/notifications/:notificationId/read`)
+- Admin/agent notification creation (`POST /api/prospects/:id/notifications`)
+
+**ObjectStorageService Methods** (`server/objectStorage.ts`):
+- `getUploadUrl(storageKey)`: Generate presigned upload URL (15min expiry)
+- `setFileAcl(storageKey, aclPolicy)`: Set ACL after upload completes
+- `getDownloadUrl(storageKey, options)`: Generate presigned download URL with ACL verification (1hr expiry)
+- `deleteFile(storageKey)`: Delete file from GCS with existence check
+- Custom errors: `ObjectNotFoundError`, `AccessDeniedError`
+
+**Testing & Validation**:
+- All 10 backend tasks completed and architect-approved with PASS ratings
+- No security vulnerabilities identified
+- Server running successfully on port 5000
+- Ready for frontend integration
+
 ## External Dependencies
 - **pg**: Native PostgreSQL driver.
 - **drizzle-orm**: Type-safe ORM for PostgreSQL.
@@ -112,3 +166,4 @@ tsx scripts/migration-manager.ts apply prod      # Manually apply to Production
 - **multer**: Middleware for handling `multipart/form-data`.
 - **react-quill**: WYSIWYG rich text editor.
 - **google-maps-services-js**: Google Maps Geocoding and Places APIs.
+- **@google-cloud/storage**: Google Cloud Storage client for Replit Object Storage integration.
