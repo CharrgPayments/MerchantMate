@@ -38,6 +38,14 @@ export class ObjectNotFoundError extends Error {
   }
 }
 
+export class AccessDeniedError extends Error {
+  constructor(message: string = "Access denied") {
+    super(message);
+    this.name = "AccessDeniedError";
+    Object.setPrototypeOf(this, AccessDeniedError.prototype);
+  }
+}
+
 export class ObjectStorageService {
   constructor() {}
 
@@ -217,6 +225,101 @@ export class ObjectStorageService {
       objectFile,
       requestedPermission: requestedPermission ?? ObjectPermission.READ,
     });
+  }
+
+  async getUploadUrl(
+    storageKey: string,
+    options?: {
+      contentType?: string;
+      ownerId?: string;
+      acl?: string;
+    }
+  ): Promise<string> {
+    const privateObjectDir = this.getPrivateObjectDir();
+    const fullPath = `${privateObjectDir}/${storageKey}`;
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    
+    return signObjectURL({
+      bucketName,
+      objectName,
+      method: "PUT",
+      ttlSec: 900
+    });
+  }
+
+  async setFileAcl(
+    storageKey: string,
+    aclPolicy: ObjectAclPolicy
+  ): Promise<void> {
+    const privateObjectDir = this.getPrivateObjectDir();
+    const fullPath = `${privateObjectDir}/${storageKey}`;
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    
+    const file = objectStorageClient.bucket(bucketName).file(objectName);
+    
+    // Check if file exists
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new ObjectNotFoundError();
+    }
+    
+    await setObjectAclPolicy(file, aclPolicy);
+  }
+
+  async getDownloadUrl(
+    storageKey: string,
+    options?: {
+      userId?: string;
+      acl?: string;
+    }
+  ): Promise<string> {
+    const privateObjectDir = this.getPrivateObjectDir();
+    const fullPath = `${privateObjectDir}/${storageKey}`;
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    
+    const file = objectStorageClient.bucket(bucketName).file(objectName);
+    
+    // Check if file exists
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new ObjectNotFoundError();
+    }
+    
+    // Verify ACL if userId is provided
+    if (options?.userId) {
+      const hasAccess = await canAccessObject({
+        userId: options.userId,
+        objectFile: file,
+        requestedPermission: ObjectPermission.READ
+      });
+      
+      if (!hasAccess) {
+        throw new AccessDeniedError();
+      }
+    }
+    
+    return signObjectURL({
+      bucketName,
+      objectName,
+      method: "GET",
+      ttlSec: 3600
+    });
+  }
+
+  async deleteFile(storageKey: string): Promise<void> {
+    const privateObjectDir = this.getPrivateObjectDir();
+    const fullPath = `${privateObjectDir}/${storageKey}`;
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    
+    const file = objectStorageClient.bucket(bucketName).file(objectName);
+    
+    // Check if file exists before attempting delete
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new ObjectNotFoundError();
+    }
+    
+    await file.delete();
   }
 }
 
