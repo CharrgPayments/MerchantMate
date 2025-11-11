@@ -2281,6 +2281,211 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Prospect Authentication Endpoints
+  
+  // Set password for prospect portal (public, uses reset token)
+  app.post("/api/prospects/auth/set-password", async (req: RequestWithDB, res) => {
+    try {
+      const { token, password } = req.body;
+      
+      if (!token || !password) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Token and password are required" 
+        });
+      }
+      
+      // Validate password strength
+      if (password.length < 8) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Password must be at least 8 characters long" 
+        });
+      }
+      
+      // Find user by password reset token
+      const dynamicDB = getRequestDB(req);
+      const { users } = await import('@shared/schema');
+      const { eq, and, gt } = await import('drizzle-orm');
+      const bcrypt = await import('bcrypt');
+      
+      const [user] = await dynamicDB
+        .select()
+        .from(users)
+        .where(
+          and(
+            eq(users.passwordResetToken, token),
+            gt(users.passwordResetExpires, new Date())
+          )
+        )
+        .limit(1);
+      
+      if (!user) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Invalid or expired token" 
+        });
+      }
+      
+      // Verify user has prospect role
+      if (!user.roles || !user.roles.includes('prospect')) {
+        return res.status(403).json({ 
+          success: false, 
+          message: "This endpoint is only for prospect accounts" 
+        });
+      }
+      
+      // Hash password and update user
+      const passwordHash = await bcrypt.hash(password, 10);
+      
+      await dynamicDB
+        .update(users)
+        .set({
+          passwordHash,
+          status: 'active',
+          passwordResetToken: null,
+          passwordResetExpires: null
+        })
+        .where(eq(users.id, user.id));
+      
+      console.log(`Prospect ${user.email} successfully set password`);
+      
+      res.json({ 
+        success: true, 
+        message: "Password set successfully. You can now log in to the prospect portal." 
+      });
+    } catch (error) {
+      console.error("Prospect password setup error:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: "Failed to set password" 
+      });
+    }
+  });
+  
+  // Prospect portal login (public)
+  app.post("/api/prospects/auth/login", async (req: RequestWithDB, res) => {
+    try {
+      const { email, password } = req.body;
+      
+      if (!email || !password) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Email and password are required" 
+        });
+      }
+      
+      // Find user by email
+      const dynamicDB = getRequestDB(req);
+      const { users } = await import('@shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const bcrypt = await import('bcrypt');
+      
+      const [user] = await dynamicDB
+        .select()
+        .from(users)
+        .where(eq(users.email, email))
+        .limit(1);
+      
+      if (!user || !user.passwordHash) {
+        return res.status(401).json({ 
+          success: false, 
+          message: "Invalid email or password" 
+        });
+      }
+      
+      // Verify user has prospect role
+      if (!user.roles || !user.roles.includes('prospect')) {
+        return res.status(403).json({ 
+          success: false, 
+          message: "This login is only for prospect accounts. Please use the main login page." 
+        });
+      }
+      
+      // Check user status
+      if (user.status === 'pending_password') {
+        return res.status(403).json({ 
+          success: false, 
+          message: "Please set your password first using the link sent to your email." 
+        });
+      }
+      
+      if (user.status === 'suspended') {
+        return res.status(403).json({ 
+          success: false, 
+          message: "Your account has been suspended. Please contact support." 
+        });
+      }
+      
+      if (user.status !== 'active') {
+        return res.status(403).json({ 
+          success: false, 
+          message: "Your account is not active. Please contact support." 
+        });
+      }
+      
+      // Verify password
+      const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+      
+      if (!isPasswordValid) {
+        return res.status(401).json({ 
+          success: false, 
+          message: "Invalid email or password" 
+        });
+      }
+      
+      // Get prospect record linked to this user
+      const prospect = await storage.getProspectByUserId(user.id);
+      
+      if (!prospect) {
+        return res.status(404).json({ 
+          success: false, 
+          message: "Prospect record not found. Please contact support." 
+        });
+      }
+      
+      // Create session
+      req.session.userId = user.id;
+      req.session.sessionId = `prospect-${Date.now()}`;
+      req.session.dbEnv = req.dbEnv;
+      
+      console.log(`Prospect login successful: ${user.email}, prospectId: ${prospect.id}`);
+      
+      // Force session save before responding
+      req.session.save((err: any) => {
+        if (err) {
+          console.error("Session save error:", err);
+          return res.status(500).json({ 
+            success: false, 
+            message: "Login failed. Please try again." 
+          });
+        }
+        
+        res.json({ 
+          success: true, 
+          message: "Login successful",
+          user: {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            roles: user.roles
+          },
+          prospect: {
+            id: prospect.id,
+            status: prospect.status
+          }
+        });
+      });
+    } catch (error) {
+      console.error("Prospect login error:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: "Login failed. Please try again." 
+      });
+    }
+  });
+
   // Get prospect by token (for starting application)
   app.get("/api/prospects/token/:token", async (req: RequestWithDB, res) => {
     try {
@@ -3697,6 +3902,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
         formData: JSON.stringify(mappedFormData),
         status: 'submitted'
       });
+
+      // Create prospect portal account with password reset token
+      let portalAccountCreated = false;
+      let resetToken: string | undefined;
+      try {
+        const accountResult = await storage.createProspectPortalAccount(prospectId);
+        resetToken = accountResult.resetToken;
+        portalAccountCreated = true;
+        console.log(`Created portal account for prospect ${prospectId}, userId: ${accountResult.user.id}`);
+        
+        // Send password setup email to prospect
+        try {
+          const passwordSetupUrl = `${req.protocol}://${req.get('host')}/prospect-portal/set-password?token=${resetToken}`;
+          await emailService.sendProspectPasswordSetup({
+            prospectName: `${prospect.firstName} ${prospect.lastName}`,
+            prospectEmail: prospect.email,
+            companyName: formData.companyName || 'Unknown Company',
+            passwordSetupUrl,
+            expiresAt: accountResult.resetExpires,
+            dbEnv: (req as any).dbEnv
+          });
+          console.log(`Sent password setup email to ${prospect.email}`);
+        } catch (emailError) {
+          console.error('Password setup email failed:', emailError);
+          // Continue - portal account is created, they can request password reset
+        }
+      } catch (accountError) {
+        console.error('Portal account creation failed:', accountError);
+        // Continue with submission - account creation is optional
+      }
 
       // Generate PDF document
       let pdfBuffer: Buffer | undefined;
