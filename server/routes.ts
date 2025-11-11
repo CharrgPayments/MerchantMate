@@ -9035,17 +9035,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Update status to approved
-      const [updatedApplication] = await dbToUse.update(prospectApplications)
-        .set({ 
-          status: 'approved',
-          approvedAt: new Date(),
-          updatedAt: new Date()
-        })
-        .where(eq(prospectApplications.id, applicationId))
-        .returning();
+      const { merchantProspects, users } = await import("@shared/schema");
       
-      console.log(`Application ${applicationId} status updated to approved`);
+      // Get the prospect associated with this application before starting transaction
+      const [prospect] = await dbToUse.select()
+        .from(merchantProspects)
+        .where(eq(merchantProspects.id, currentApp.prospectId))
+        .limit(1);
+      
+      if (!prospect) {
+        return res.status(404).json({ error: "Prospect not found for this application" });
+      }
+      
+      // Perform all updates in a transaction to ensure atomicity
+      const updatedApplication = await dbToUse.transaction(async (tx) => {
+        // 1. Update application status to approved
+        const [appResult] = await tx.update(prospectApplications)
+          .set({ 
+            status: 'approved',
+            approvedAt: new Date(),
+            updatedAt: new Date()
+          })
+          .where(eq(prospectApplications.id, applicationId))
+          .returning();
+        
+        console.log(`Application ${applicationId} status updated to approved`);
+        
+        // 2. Convert prospect to merchant if they have a user account
+        if (prospect.userId) {
+          console.log(`Converting prospect ${prospect.id} to merchant (userId: ${prospect.userId})`);
+          
+          // Update user role from 'prospect' to 'merchant'
+          await tx.update(users)
+            .set({ role: 'merchant' })
+            .where(eq(users.id, prospect.userId));
+          
+          console.log(`User ${prospect.userId} role updated to merchant`);
+        } else {
+          console.log(`Prospect ${prospect.id} does not have a user account, skipping user conversion`);
+        }
+        
+        // 3. Update prospect status to 'approved'
+        await tx.update(merchantProspects)
+          .set({ status: 'approved' })
+          .where(eq(merchantProspects.id, prospect.id));
+        
+        console.log(`Prospect ${prospect.id} status updated to approved`);
+        
+        return appResult;
+      });
+      
+      console.log(`Successfully completed approval and conversion for application ${applicationId}`);
       res.json(updatedApplication);
       
     } catch (error) {
