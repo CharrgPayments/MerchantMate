@@ -106,11 +106,12 @@ export const agents = pgTable("agents", {
 
 export const merchantProspects = pgTable("merchant_prospects", {
   id: serial("id").primaryKey(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }), // Linked user account (created on application submission)
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   email: text("email").notNull().unique(),
   agentId: integer("agent_id").notNull().references(() => agents.id),
-  status: text("status").notNull().default("pending"), // pending, contacted, in_progress, applied, approved, rejected
+  status: text("status").notNull().default("pending"), // pending, contacted, in_progress, applied, approved, rejected, converted
   validationToken: text("validation_token").unique(), // Token for email validation
   validatedAt: timestamp("validated_at"),
   applicationStartedAt: timestamp("application_started_at"),
@@ -120,6 +121,35 @@ export const merchantProspects = pgTable("merchant_prospects", {
   agentSignatureType: text("agent_signature_type"), // 'canvas' or 'typed'
   agentSignedAt: timestamp("agent_signed_at"), // When the agent signed
   notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const prospectDocuments = pgTable("prospect_documents", {
+  id: serial("id").primaryKey(),
+  prospectId: integer("prospect_id").notNull().references(() => merchantProspects.id, { onDelete: "cascade" }),
+  fileName: text("file_name").notNull(),
+  originalFileName: text("original_file_name").notNull(),
+  fileType: text("file_type").notNull(), // application/pdf, image/jpeg, etc
+  fileSize: integer("file_size").notNull(), // Size in bytes
+  storageKey: text("storage_key").notNull().unique(), // Object storage key
+  category: text("category").notNull().default("general"), // general, tax_documents, bank_statements, business_license, etc
+  uploadedBy: varchar("uploaded_by").references(() => users.id), // Who uploaded (prospect or admin)
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const prospectNotifications = pgTable("prospect_notifications", {
+  id: serial("id").primaryKey(),
+  prospectId: integer("prospect_id").notNull().references(() => merchantProspects.id, { onDelete: "cascade" }),
+  subject: text("subject").notNull(),
+  message: text("message").notNull(),
+  type: text("type").notNull().default("info"), // info, warning, action_required, document_request
+  isRead: boolean("is_read").notNull().default(false),
+  readAt: timestamp("read_at"),
+  createdBy: varchar("created_by").notNull().references(() => users.id), // Agent or admin who created the notification
+  metadata: jsonb("metadata"), // Additional data like requested document types
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -713,6 +743,26 @@ export const insertMerchantProspectSchema = createInsertSchema(merchantProspects
 // Merchant Prospect types
 export type MerchantProspect = typeof merchantProspects.$inferSelect;
 export type InsertMerchantProspect = z.infer<typeof insertMerchantProspectSchema>;
+
+// Prospect Documents schemas
+export const insertProspectDocumentSchema = createInsertSchema(prospectDocuments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type ProspectDocument = typeof prospectDocuments.$inferSelect;
+export type InsertProspectDocument = z.infer<typeof insertProspectDocumentSchema>;
+
+// Prospect Notifications schemas
+export const insertProspectNotificationSchema = createInsertSchema(prospectNotifications).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type ProspectNotification = typeof prospectNotifications.$inferSelect;
+export type InsertProspectNotification = z.infer<typeof insertProspectNotificationSchema>;
 
 // Business Ownership table for tracking ownership percentages and signatures
 export const businessOwnership = pgTable("business_ownership", {
