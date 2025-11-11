@@ -315,14 +315,14 @@ export const users = pgTable("users", {
   id: varchar("id").primaryKey().notNull(),
   email: varchar("email").unique().notNull(),
   username: varchar("username").unique().notNull(),
-  passwordHash: varchar("password_hash").notNull(),
+  passwordHash: varchar("password_hash"), // Nullable to support pending_password state for prospects
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   phone: varchar("phone"), // Optional phone number to avoid data loss on existing users
   profileImageUrl: varchar("profile_image_url"),
   communicationPreference: text("communication_preference").default("email"), // email, sms, or both
-  roles: text("roles").array().notNull().default(sql`ARRAY['merchant']`), // Array of roles: merchant, agent, admin, corporate, super_admin
-  status: text("status").notNull().default("active"), // active, suspended, inactive
+  roles: text("roles").array().notNull().default(sql`ARRAY['merchant']`), // Array of roles: merchant, agent, admin, corporate, super_admin, prospect
+  status: text("status").notNull().default("active"), // active, pending_password, locked, suspended, inactive
   permissions: jsonb("permissions").default("{}"),
   lastLoginAt: timestamp("last_login_at"),
   lastLoginIp: varchar("last_login_ip"),
