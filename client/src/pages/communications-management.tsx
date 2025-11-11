@@ -24,11 +24,229 @@ import {
   XCircle,
   Pencil,
   Plus,
-  Bell
+  Bell,
+  Settings
 } from "lucide-react";
 
 // Import existing action templates page as a component
 import ActionTemplatesPage from "./action-templates";
+
+// Email Settings Component
+function EmailSettings() {
+  const [testEmailForm, setTestEmailForm] = useState({
+    templateType: 'prospect-validation',
+    recipientEmail: '',
+    firstName: 'Test',
+    lastName: 'User'
+  });
+  const [isSending, setIsSending] = useState(false);
+  const { toast } = useToast();
+
+  const { data: emailConfig } = useQuery({
+    queryKey: ['/api/email-config'],
+    queryFn: async () => {
+      const response = await fetch('/api/email-config', {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch email config');
+      return response.json();
+    }
+  });
+
+  const handleSendTestEmail = async () => {
+    if (!testEmailForm.recipientEmail) {
+      toast({
+        title: "Missing Recipient",
+        description: "Please enter a recipient email address",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      const response = await fetch('/api/test-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(testEmailForm)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to send test email');
+      }
+
+      toast({
+        title: "Test Email Sent",
+        description: `Successfully sent ${testEmailForm.templateType} template to ${testEmailForm.recipientEmail}`
+      });
+
+      // Reset recipient email
+      setTestEmailForm({ ...testEmailForm, recipientEmail: '' });
+    } catch (error: any) {
+      toast({
+        title: "Failed to Send",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Current Email Configuration */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Settings className="w-5 h-5" />
+            Email Configuration
+          </CardTitle>
+          <CardDescription>
+            Current sender settings and SMTP configuration
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4">
+            <div className="space-y-2">
+              <Label>Default Sender Email</Label>
+              <div className="flex items-center gap-2">
+                <Input 
+                  value={emailConfig?.fromEmail || 'Loading...'} 
+                  readOnly 
+                  className="bg-muted"
+                />
+                <Badge variant="outline" className="text-green-600 border-green-600">
+                  Active
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                This email is configured via the <code className="bg-muted px-1 rounded">SENDGRID_FROM_EMAIL</code> environment variable
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Email Service Provider</Label>
+              <Input value="SendGrid" readOnly className="bg-muted" />
+              <p className="text-xs text-muted-foreground">
+                Using SendGrid API for reliable email delivery
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 p-4 rounded-lg">
+            <h4 className="font-medium text-blue-900 dark:text-blue-100 mb-2">How to Change Sender Email</h4>
+            <p className="text-sm text-blue-800 dark:text-blue-200">
+              To update the default sender email, modify the <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">SENDGRID_FROM_EMAIL</code> 
+              environment variable in your Replit Secrets and restart the application.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Test Email Template */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Send className="w-5 h-5" />
+            Test Email Templates
+          </CardTitle>
+          <CardDescription>
+            Send test emails to verify template formatting and delivery
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="template-type">Email Template</Label>
+              <Select 
+                value={testEmailForm.templateType}
+                onValueChange={(value) => setTestEmailForm({ ...testEmailForm, templateType: value })}
+              >
+                <SelectTrigger id="template-type" data-testid="select-template-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="prospect-validation">Prospect Validation Email</SelectItem>
+                  <SelectItem value="signature-request">Owner Signature Request</SelectItem>
+                  <SelectItem value="application-submission">Application Submission Notification</SelectItem>
+                  <SelectItem value="password-reset">Password Reset Email</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="recipient-email">Recipient Email *</Label>
+              <Input
+                id="recipient-email"
+                data-testid="input-recipient-email"
+                type="email"
+                placeholder="test@example.com"
+                value={testEmailForm.recipientEmail}
+                onChange={(e) => setTestEmailForm({ ...testEmailForm, recipientEmail: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Test email will be sent to this address
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="first-name">First Name (for template)</Label>
+                <Input
+                  id="first-name"
+                  data-testid="input-first-name"
+                  value={testEmailForm.firstName}
+                  onChange={(e) => setTestEmailForm({ ...testEmailForm, firstName: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="last-name">Last Name (for template)</Label>
+                <Input
+                  id="last-name"
+                  data-testid="input-last-name"
+                  value={testEmailForm.lastName}
+                  onChange={(e) => setTestEmailForm({ ...testEmailForm, lastName: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+
+          <Button 
+            onClick={handleSendTestEmail} 
+            disabled={isSending || !testEmailForm.recipientEmail}
+            data-testid="button-send-test-email"
+            className="w-full"
+          >
+            {isSending ? (
+              <>
+                <Clock className="mr-2 h-4 w-4 animate-spin" />
+                Sending...
+              </>
+            ) : (
+              <>
+                <Send className="mr-2 h-4 w-4" />
+                Send Test Email
+              </>
+            )}
+          </Button>
+
+          <div className="bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 p-4 rounded-lg">
+            <h4 className="font-medium text-yellow-900 dark:text-yellow-100 mb-2 flex items-center gap-2">
+              <Bell className="w-4 h-4" />
+              Note
+            </h4>
+            <p className="text-sm text-yellow-800 dark:text-yellow-200">
+              Test emails use dummy data and temporary tokens. Links in test emails may not work as they reference non-existent records.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
 // Triggers Management Component
 function TriggersManagement() {
@@ -925,7 +1143,7 @@ export default function CommunicationsManagement() {
 
       {/* Main Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="templates" className="flex items-center gap-2">
             <Mail className="w-4 h-4" />
             Templates
@@ -937,6 +1155,10 @@ export default function CommunicationsManagement() {
           <TabsTrigger value="activity" className="flex items-center gap-2">
             <Activity className="w-4 h-4" />
             Activity & Analytics
+          </TabsTrigger>
+          <TabsTrigger value="settings" className="flex items-center gap-2">
+            <Settings className="w-4 h-4" />
+            Settings
           </TabsTrigger>
         </TabsList>
 
@@ -950,6 +1172,10 @@ export default function CommunicationsManagement() {
 
         <TabsContent value="activity" className="space-y-6">
           <ActivityAnalytics />
+        </TabsContent>
+
+        <TabsContent value="settings" className="space-y-6">
+          <EmailSettings />
         </TabsContent>
       </Tabs>
     </div>
