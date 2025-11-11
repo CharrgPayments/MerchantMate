@@ -10260,6 +10260,108 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // EMAIL CONFIGURATION & TESTING ENDPOINTS
+  // ============================================================================
+
+  // Get email configuration
+  app.get("/api/email-config", requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      res.json({
+        fromEmail: process.env.SENDGRID_FROM_EMAIL || 'Not configured',
+        provider: 'SendGrid',
+        isConfigured: !!process.env.SENDGRID_API_KEY && !!process.env.SENDGRID_FROM_EMAIL
+      });
+    } catch (error) {
+      console.error("Error fetching email config:", error);
+      res.status(500).json({ message: "Failed to fetch email configuration" });
+    }
+  });
+
+  // Send test email
+  app.post("/api/test-email", requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const { templateType, recipientEmail, firstName, lastName } = req.body;
+
+      if (!recipientEmail) {
+        return res.status(400).json({ error: "Recipient email is required" });
+      }
+
+      const { EmailService } = await import("./emailService");
+      const emailService = new EmailService();
+      const dbEnv = req.session?.dbEnvironment || 'development';
+
+      let success = false;
+      
+      switch (templateType) {
+        case 'prospect-validation':
+          success = await emailService.sendProspectValidationEmail({
+            firstName: firstName || 'Test',
+            lastName: lastName || 'User',
+            email: recipientEmail,
+            validationToken: 'test-token-' + Date.now(),
+            agentName: 'Test Agent',
+            dbEnv
+          });
+          break;
+          
+        case 'signature-request':
+          success = await emailService.sendSignatureRequestEmail({
+            ownerName: `${firstName || 'Test'} ${lastName || 'User'}`,
+            ownerEmail: recipientEmail,
+            companyName: 'Test Company LLC',
+            ownershipPercentage: '25',
+            signatureToken: 'test-signature-' + Date.now(),
+            requesterName: 'Test Requester',
+            agentName: 'Test Agent',
+            dbEnv
+          });
+          break;
+          
+        case 'application-submission':
+          success = await emailService.sendApplicationSubmissionNotification({
+            companyName: 'Test Company LLC',
+            applicantName: `${firstName || 'Test'} ${lastName || 'User'}`,
+            applicantEmail: recipientEmail,
+            agentName: 'Test Agent',
+            agentEmail: 'agent@example.com',
+            submissionDate: new Date().toLocaleDateString(),
+            applicationToken: 'test-app-' + Date.now(),
+            dbEnv
+          });
+          break;
+          
+        case 'password-reset':
+          success = await emailService.sendPasswordResetEmail({
+            email: recipientEmail,
+            resetToken: 'test-reset-' + Date.now(),
+            dbEnv
+          });
+          break;
+          
+        default:
+          return res.status(400).json({ error: "Invalid template type" });
+      }
+
+      if (success) {
+        res.json({ 
+          success: true, 
+          message: `Test email sent to ${recipientEmail}`,
+          templateType,
+          note: 'Test emails contain dummy data and temporary tokens. Links may not work as they reference non-existent records.'
+        });
+      } else {
+        throw new Error("Email service returned false");
+      }
+    } catch (error: any) {
+      console.error("Error sending test email:", error);
+      res.status(500).json({ 
+        error: error.message || "Failed to send test email",
+        details: error.toString()
+      });
+    }
+  });
+
+  // ============================================================================
   // SENDGRID WEBHOOK ENDPOINTS
   // ============================================================================
 
