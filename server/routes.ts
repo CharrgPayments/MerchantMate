@@ -2507,6 +2507,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Middleware to verify prospect owns the resource or is authorized
   const requireProspectAuth = async (req: RequestWithDB, res: Response, next: any) => {
     console.log(`🔐 requireProspectAuth - Session userId: ${req.session?.userId}, dbEnv: ${req.dbEnv}`);
+    console.log(`🔐 req.db exists: ${!!req.db}, req.dynamicDB exists: ${!!req.dynamicDB}`);
     
     if (!req.session?.userId) {
       console.log("❌ No session userId");
@@ -2514,7 +2515,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Use request-specific storage to respect database environment
-    const requestStorage = createStorageForRequest(req.db);
+    // If req.db is not set, use getDynamicDatabase with the correct environment
+    const dbToUse = req.db || getDynamicDatabase(req.dbEnv || 'development');
+    console.log(`🔐 Using database for environment: ${req.dbEnv}`);
+    const requestStorage = createStorageForRequest(dbToUse);
     
     const user = await requestStorage.getUser(req.session.userId);
     console.log(`👤 User found: ${!!user}, roles: ${user?.roles}, dbEnv: ${req.dbEnv}`);
