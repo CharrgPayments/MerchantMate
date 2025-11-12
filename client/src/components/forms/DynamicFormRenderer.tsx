@@ -12,11 +12,12 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
 import { AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { MCCAutocompleteInput } from './MCCAutocompleteInput';
+import { UserAccountInput } from './UserAccountInput';
 
 // Types for field configuration
 interface FieldConfig {
   id: string;
-  type: 'text' | 'email' | 'tel' | 'url' | 'date' | 'number' | 'select' | 'checkbox' | 'textarea' | 'mcc-select' | 'zipcode';
+  type: 'text' | 'email' | 'tel' | 'url' | 'date' | 'number' | 'select' | 'checkbox' | 'textarea' | 'mcc-select' | 'zipcode' | 'user_account';
   label: string;
   required?: boolean;
   pattern?: string;
@@ -26,6 +27,7 @@ interface FieldConfig {
   sensitive?: boolean;
   placeholder?: string;
   description?: string;
+  validation?: any; // For user_account config and other complex validations
 }
 
 interface SectionConfig {
@@ -109,12 +111,23 @@ function createDynamicSchema(configuration: FormConfiguration, requiredFields: s
             'Please enter a valid date'
           );
           break;
+        case 'user_account':
+          fieldSchema = z.object({
+            email: z.string().email('Please enter a valid email address'),
+            username: z.string().optional(),
+            password: z.string().optional(),
+            confirmPassword: z.string().optional(),
+            role: z.string().optional(),
+            firstName: z.string().optional(),
+            lastName: z.string().optional()
+          });
+          break;
         default:
           fieldSchema = z.string();
       }
 
-      // Apply pattern validation if specified
-      if (field.pattern && field.type !== 'number' && field.type !== 'checkbox' && field.type !== 'zipcode') {
+      // Apply pattern validation if specified (only for string fields)
+      if (field.pattern && field.type !== 'number' && field.type !== 'checkbox' && field.type !== 'zipcode' && field.type !== 'user_account') {
         fieldSchema = (fieldSchema as z.ZodString).regex(
           new RegExp(field.pattern),
           `Please enter a valid ${field.label.toLowerCase()}`
@@ -123,10 +136,14 @@ function createDynamicSchema(configuration: FormConfiguration, requiredFields: s
 
       // Apply required validation
       const isRequired = field.required || requiredFields.includes(field.id);
-      if (!isRequired && field.type !== 'checkbox') {
+      const isObjectField = field.type === 'user_account';
+      
+      if (!isRequired && field.type !== 'checkbox' && !isObjectField) {
         fieldSchema = fieldSchema.optional();
-      } else if (isRequired && field.type !== 'checkbox') {
+      } else if (isRequired && field.type !== 'checkbox' && !isObjectField) {
         fieldSchema = (fieldSchema as z.ZodString).min(1, `${field.label} is required`);
+      } else if (!isRequired && isObjectField) {
+        fieldSchema = fieldSchema.optional();
       }
 
       schemaObject[field.id] = fieldSchema;
@@ -325,6 +342,24 @@ export default function DynamicFormRenderer({
                     form.setValue('selectedMCC', mccCode.mcc);
                     form.setValue('selectedMCCDescription', mccCode.description);
                   }}
+                />
+              ) : field.type === 'user_account' ? (
+                <UserAccountInput
+                  config={(() => {
+                    try {
+                      const validationData = typeof field.validation === 'string' 
+                        ? JSON.parse(field.validation) 
+                        : field.validation;
+                      return validationData?.userAccount || { roles: ['prospect'], usernameGeneration: 'email', passwordType: 'reset_token' };
+                    } catch (e) {
+                      console.error('Failed to parse user account config:', e);
+                      return { roles: ['prospect'], usernameGeneration: 'email', passwordType: 'reset_token' };
+                    }
+                  })()}
+                  fieldId={field.id}
+                  formValue={formField.value || {}}
+                  onChange={formField.onChange}
+                  dataTestId={testId}
                 />
               ) : field.type === 'select' ? (
                 <Select

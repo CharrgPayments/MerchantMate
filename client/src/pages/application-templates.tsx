@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -77,7 +78,7 @@ const templateFormSchema = z.object({
       description: z.string().optional(),
       fields: z.array(z.object({
         id: z.string(),
-        type: z.enum(['text', 'email', 'tel', 'url', 'date', 'number', 'select', 'checkbox', 'textarea', 'radio', 'currency', 'zipcode', 'phone', 'ein', 'address']),
+        type: z.enum(['text', 'email', 'tel', 'url', 'date', 'number', 'select', 'checkbox', 'textarea', 'radio', 'currency', 'zipcode', 'phone', 'ein', 'address', 'user_account']),
         label: z.string(),
         required: z.boolean().optional(),
         pattern: z.string().optional(),
@@ -86,7 +87,8 @@ const templateFormSchema = z.object({
         options: z.array(z.string()).optional(),
         sensitive: z.boolean().optional(),
         placeholder: z.string().optional(),
-        description: z.string().optional()
+        description: z.string().optional(),
+        validation: z.any().optional()
       }))
     }))
   }),
@@ -1419,7 +1421,8 @@ function FieldConfigurationDialog({
     { value: 'zipcode', label: 'US Zip Code' },
     { value: 'phone', label: 'Phone (Formatted)' },
     { value: 'ein', label: 'EIN/Tax ID' },
-    { value: 'address', label: 'Address (Google Autocomplete)' }
+    { value: 'address', label: 'Address (Google Autocomplete)' },
+    { value: 'user_account', label: 'User Account (Auto-create)' }
   ];
 
   const sensors = useSensors(
@@ -1532,18 +1535,61 @@ function FieldConfigurationDialog({
   const openFieldEditor = (sectionIndex: number, fieldIndex: number) => {
     setEditingSectionIndex(sectionIndex);
     setEditingFieldIndex(fieldIndex);
-    setEditingField({ ...sections[sectionIndex].fields[fieldIndex] });
+    
+    const field = { ...sections[sectionIndex].fields[fieldIndex] };
+    
+    // Hydrate user account config from validation field if this is a user_account field
+    if (field.type === 'user_account' && field.validation) {
+      try {
+        const validationObj = typeof field.validation === 'string' 
+          ? JSON.parse(field.validation) 
+          : field.validation;
+        
+        if (validationObj.userAccount) {
+          field.userAccountConfig = validationObj.userAccount;
+        }
+      } catch (e) {
+        console.error('Failed to parse user account config:', e);
+      }
+    }
+    
+    setEditingField(field);
   };
 
   const saveFieldEdit = () => {
     if (editingSectionIndex >= 0 && editingFieldIndex >= 0 && editingField) {
+      // Serialize user account config into validation field before saving
+      const fieldToSave = { ...editingField };
+      if (fieldToSave.type === 'user_account' && fieldToSave.userAccountConfig) {
+        // Parse existing validation if it's a string, or use as object
+        let validationObj = {};
+        if (typeof fieldToSave.validation === 'string') {
+          try {
+            validationObj = JSON.parse(fieldToSave.validation);
+          } catch (e) {
+            validationObj = {};
+          }
+        } else if (fieldToSave.validation && typeof fieldToSave.validation === 'object') {
+          validationObj = fieldToSave.validation;
+        }
+        
+        // Merge user account config into validation
+        fieldToSave.validation = JSON.stringify({
+          ...validationObj,
+          userAccount: fieldToSave.userAccountConfig
+        });
+        
+        // Remove transient UI-only property
+        delete fieldToSave.userAccountConfig;
+      }
+      
       // Create deep copy to avoid mutation
       const newSections = sections.map((section: any, idx: number) => {
         if (idx === editingSectionIndex) {
           return {
             ...section,
             fields: section.fields.map((field: any, fIdx: number) => 
-              fIdx === editingFieldIndex ? { ...editingField } : field
+              fIdx === editingFieldIndex ? fieldToSave : field
             )
           };
         }
@@ -2067,6 +2113,146 @@ function FieldConfigurationDialog({
                       <Plus className="h-4 w-4 mr-2" />
                       Add Option
                     </Button>
+                  </div>
+                )}
+
+                {/* User Account Field Configuration */}
+                {editingField.type === 'user_account' && (
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">User Account Configuration</label>
+                    <div className="space-y-4 border rounded-md p-4">
+                      {/* Roles to Assign */}
+                      <div>
+                        <label className="text-xs text-muted-foreground">Roles to Assign</label>
+                        <Input
+                          value={(editingField.userAccountConfig?.roles || []).join(', ')}
+                          onChange={(e) => {
+                            const roles = e.target.value.split(',').map(r => r.trim()).filter(r => r);
+                            setEditingField({ 
+                              ...editingField, 
+                              userAccountConfig: { 
+                                ...(editingField.userAccountConfig || {}), 
+                                roles 
+                              } 
+                            });
+                          }}
+                          placeholder="e.g., prospect, merchant"
+                          className="text-xs"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">Comma-separated list of roles</p>
+                      </div>
+
+                      {/* Username Generation */}
+                      <div>
+                        <label className="text-xs text-muted-foreground">Username Generation</label>
+                        <Select
+                          value={editingField.userAccountConfig?.usernameGeneration || 'email'}
+                          onValueChange={(value) => {
+                            setEditingField({ 
+                              ...editingField, 
+                              userAccountConfig: { 
+                                ...(editingField.userAccountConfig || {}), 
+                                usernameGeneration: value 
+                              } 
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="email">From Email Address</SelectItem>
+                            <SelectItem value="firstLastName">First + Last Name</SelectItem>
+                            <SelectItem value="manual">Manual Entry</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Password Type */}
+                      <div>
+                        <label className="text-xs text-muted-foreground">Password Setup</label>
+                        <Select
+                          value={editingField.userAccountConfig?.passwordType || 'reset_token'}
+                          onValueChange={(value) => {
+                            setEditingField({ 
+                              ...editingField, 
+                              userAccountConfig: { 
+                                ...(editingField.userAccountConfig || {}), 
+                                passwordType: value 
+                              } 
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="reset_token">Send Reset Email</SelectItem>
+                            <SelectItem value="manual">User Sets Password</SelectItem>
+                            <SelectItem value="auto">Auto-Generate Password</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Initial Status */}
+                      <div>
+                        <label className="text-xs text-muted-foreground">Initial User Status</label>
+                        <Input
+                          value={editingField.userAccountConfig?.status || 'pending_password'}
+                          onChange={(e) => {
+                            setEditingField({ 
+                              ...editingField, 
+                              userAccountConfig: { 
+                                ...(editingField.userAccountConfig || {}), 
+                                status: e.target.value 
+                              } 
+                            });
+                          }}
+                          placeholder="e.g., active, pending_password"
+                          className="text-xs"
+                        />
+                      </div>
+
+                      {/* Email Notification Options */}
+                      <div className="space-y-2">
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="notifyUser"
+                            checked={editingField.userAccountConfig?.notifyUser !== false}
+                            onCheckedChange={(checked) => {
+                              setEditingField({ 
+                                ...editingField, 
+                                userAccountConfig: { 
+                                  ...(editingField.userAccountConfig || {}), 
+                                  notifyUser: checked as boolean 
+                                } 
+                              });
+                            }}
+                          />
+                          <label htmlFor="notifyUser" className="text-xs text-muted-foreground cursor-pointer">
+                            Send welcome email to user
+                          </label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="requireEmailValidation"
+                            checked={editingField.userAccountConfig?.requireEmailValidation === true}
+                            onCheckedChange={(checked) => {
+                              setEditingField({ 
+                                ...editingField, 
+                                userAccountConfig: { 
+                                  ...(editingField.userAccountConfig || {}), 
+                                  requireEmailValidation: checked as boolean 
+                                } 
+                              });
+                            }}
+                          />
+                          <label htmlFor="requireEmailValidation" className="text-xs text-muted-foreground cursor-pointer">
+                            Require email validation
+                          </label>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
