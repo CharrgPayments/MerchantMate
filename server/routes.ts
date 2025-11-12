@@ -2506,24 +2506,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Middleware to verify prospect owns the resource or is authorized
   const requireProspectAuth = async (req: RequestWithDB, res: Response, next: any) => {
-    console.log(`🔐 requireProspectAuth - Session userId: ${req.session?.userId}`);
+    console.log(`🔐 requireProspectAuth - Session userId: ${req.session?.userId}, dbEnv: ${req.dbEnv}`);
     
     if (!req.session?.userId) {
       console.log("❌ No session userId");
       return res.status(401).json({ success: false, message: "Authentication required" });
     }
     
-    const user = await storage.getUser(req.session.userId);
-    console.log(`👤 User found: ${!!user}, roles: ${user?.roles}`);
+    // Use request-specific storage to respect database environment
+    const requestStorage = createStorageForRequest(req.db);
+    
+    const user = await requestStorage.getUser(req.session.userId);
+    console.log(`👤 User found: ${!!user}, roles: ${user?.roles}, dbEnv: ${req.dbEnv}`);
     
     if (!user || !user.roles.includes('prospect')) {
       console.log(`❌ User not found or missing prospect role`);
       return res.status(403).json({ success: false, message: "Prospect access only" });
     }
     
-    // Get prospect record
-    const prospect = await storage.getProspectByUserId(user.id);
-    console.log(`📋 Prospect found: ${!!prospect}, id: ${prospect?.id}`);
+    // Get prospect record using request-specific storage
+    const prospect = await requestStorage.getProspectByUserId(user.id);
+    console.log(`📋 Prospect found: ${!!prospect}, id: ${prospect?.id}, dbEnv: ${req.dbEnv}`);
     
     if (!prospect) {
       console.log("❌ Prospect record not found");
