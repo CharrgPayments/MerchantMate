@@ -119,12 +119,14 @@ tsx scripts/migration-manager.ts apply prod      # Manually apply to Production
   - All other users → `/` (dashboard)
 - **Fixed React Query Caching Issue**: Added `staleTime: 0` and `refetchOnMount: 'always'` to prospect portal query to prevent cached `null` responses from blocking data fetch after login
 - **Removed Redundant Endpoint**: Kept `/api/prospects/auth/login` for backwards compatibility but prospects can now use main `/api/auth/login` endpoint
+- **Fixed Database Environment Bug in requireProspectAuth**: Middleware was using wrong `createStorageForRequest` function from `dbMiddleware.ts` (expects RequestWithDB) instead of `createStorage` from `storage.ts` (expects database instance). This caused it to query production database instead of development, resulting in "Prospect access only" errors even with valid credentials.
 
 **Benefits**:
 - Simplified user experience with single login URL for all user types
 - Eliminated confusion about which login page to use
 - Cleaner codebase with less duplication
 - Smart redirect ensures users land on appropriate portal automatically
+- Prospect authentication now correctly respects session database environment
 
 ### Prospect Portal Backend Implementation
 **Date**: November 11, 2025
