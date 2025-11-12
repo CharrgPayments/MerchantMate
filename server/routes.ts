@@ -1,6 +1,6 @@
 import type { Express, Request as ExpressRequest, Response } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
+import { storage, createStorage } from "./storage";
 import { setupAuthRoutes } from "./authRoutes";
 import { insertMerchantSchema, insertAgentSchema, insertTransactionSchema, insertLocationSchema, insertAddressSchema, insertPdfFormSchema, insertApiKeySchema, insertAcquirerSchema, insertAcquirerApplicationTemplateSchema, insertProspectApplicationSchema } from "@shared/schema";
 import { authenticateApiKey, requireApiPermission, logApiRequest, generateApiKey } from "./apiAuth";
@@ -2520,7 +2520,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const dbEnv = req.dbEnv || 'development';
     const correctDb = getDynamicDatabase(dbEnv);
     console.log(`🔐 Using database for environment: ${dbEnv}`);
-    const requestStorage = createStorageForRequest(correctDb);
+    const requestStorage = createStorage(correctDb);
     
     const user = await requestStorage.getUser(req.session.userId);
     console.log(`👤 User found: ${!!user}, roles: ${user?.roles}, dbEnv: ${req.dbEnv}`);
