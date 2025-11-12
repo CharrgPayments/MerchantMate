@@ -2378,7 +2378,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { email, password } = req.body;
       
+      console.log(`🔐 Prospect login attempt: ${email}`);
+      
       if (!email || !password) {
+        console.log("❌ Missing email or password");
         return res.status(400).json({ 
           success: false, 
           message: "Email and password are required" 
@@ -2387,6 +2390,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Find user by email
       const dynamicDB = getRequestDB(req);
+      console.log(`🗄️  Database environment: ${req.dbEnv || 'undefined'}`);
+      
       const { users } = await import('@shared/schema');
       const { eq } = await import('drizzle-orm');
       const bcrypt = await import('bcrypt');
@@ -2397,7 +2402,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(eq(users.email, email))
         .limit(1);
       
+      console.log(`👤 User found: ${!!user}, hasPasswordHash: ${!!user?.passwordHash}`);
+      console.log(`👤 User roles: ${user?.roles}, status: ${user?.status}`);
+      
       if (!user || !user.passwordHash) {
+        console.log("❌ User not found or no password hash");
         return res.status(401).json({ 
           success: false, 
           message: "Invalid email or password" 
@@ -2406,6 +2415,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Verify user has prospect role
       if (!user.roles || !user.roles.includes('prospect')) {
+        console.log("❌ User does not have prospect role");
         return res.status(403).json({ 
           success: false, 
           message: "This login is only for prospect accounts. Please use the main login page." 
@@ -2414,6 +2424,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Check user status
       if (user.status === 'pending_password') {
+        console.log("❌ User status is pending_password");
         return res.status(403).json({ 
           success: false, 
           message: "Please set your password first using the link sent to your email." 
@@ -2421,6 +2432,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       if (user.status === 'suspended') {
+        console.log("❌ User status is suspended");
         return res.status(403).json({ 
           success: false, 
           message: "Your account has been suspended. Please contact support." 
@@ -2428,6 +2440,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       if (user.status !== 'active') {
+        console.log(`❌ User status is not active: ${user.status}`);
         return res.status(403).json({ 
           success: false, 
           message: "Your account is not active. Please contact support." 
@@ -2435,9 +2448,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Verify password
+      console.log(`🔑 Verifying password...`);
       const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+      console.log(`🔑 Password valid: ${isPasswordValid}`);
       
       if (!isPasswordValid) {
+        console.log("❌ Invalid password");
         return res.status(401).json({ 
           success: false, 
           message: "Invalid email or password" 
