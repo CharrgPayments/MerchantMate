@@ -144,6 +144,7 @@ export default function Auth() {
         });
         
         if (!userResponse.ok) {
+          console.error("🔴 Failed to fetch user data after login:", userResponse.status);
           toast({
             title: "Login Successful",
             description: "Welcome! Redirecting...",
@@ -153,16 +154,21 @@ export default function Auth() {
         }
         
         const userData = await userResponse.json();
+        console.log("🔍 User data after login:", userData);
+        console.log("🔍 User role:", userData?.role);
+        console.log("🔍 Is prospect?:", userData?.role === "prospect");
         
         // Determine redirect based on user role
         let redirectUrl = "/";
         if (userData && userData.role === "prospect") {
           redirectUrl = "/prospect-portal";
+          console.log("✅ Redirecting prospect to:", redirectUrl);
           toast({
             title: "Login Successful",
             description: "Welcome to your application portal!",
           });
         } else {
+          console.log("✅ Redirecting non-prospect to:", redirectUrl);
           toast({
             title: "Login Successful",
             description: "Welcome to CoreCRM!",
