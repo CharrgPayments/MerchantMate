@@ -138,13 +138,39 @@ export default function Auth() {
           description: data.message,
         });
       } else if (data.success) {
-        toast({
-          title: "Login Successful",
-          description: "Welcome to CoreCRM!",
+        // Fetch user data to determine redirect location based on role
+        const userResponse = await fetch("/api/auth/user", {
+          credentials: "include"
         });
         
+        if (!userResponse.ok) {
+          toast({
+            title: "Login Successful",
+            description: "Welcome! Redirecting...",
+          });
+          window.location.href = "/";
+          return;
+        }
+        
+        const userData = await userResponse.json();
+        
+        // Determine redirect based on user role
+        let redirectUrl = "/";
+        if (userData && userData.role === "prospect") {
+          redirectUrl = "/prospect-portal";
+          toast({
+            title: "Login Successful",
+            description: "Welcome to your application portal!",
+          });
+        } else {
+          toast({
+            title: "Login Successful",
+            description: "Welcome to CoreCRM!",
+          });
+        }
+        
         // Force complete page reload to ensure proper state management
-        window.location.href = "/";
+        window.location.href = redirectUrl;
       }
     },
     onError: (error: any) => {
@@ -243,9 +269,9 @@ export default function Auth() {
           <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-blue-600 flex items-center justify-center">
             <Shield className="h-6 w-6 text-white" />
           </div>
-          <CardTitle className="text-2xl font-bold">CoreCRM</CardTitle>
+          <CardTitle className="text-2xl font-bold">Welcome Back</CardTitle>
           <CardDescription>
-            Secure payment management platform
+            Sign in to access your account
           </CardDescription>
         </CardHeader>
 
