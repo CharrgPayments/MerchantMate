@@ -3,6 +3,30 @@ import { sql, eq } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// User Account Field Configuration for Application Templates
+export interface UserAccountFieldConfig {
+  roles: string[]; // Roles to assign to the created user (e.g., ['prospect'], ['merchant'])
+  usernameGeneration: 'email' | 'firstLastName' | 'manual'; // How to generate username
+  passwordType: 'auto' | 'manual' | 'reset_token'; // Whether user sets password or it's auto-generated/sent via email
+  status?: string; // Initial user status (default: 'active')
+  requireEmailValidation?: boolean; // Whether to send email validation (default: false)
+  notifyUser?: boolean; // Whether to send welcome email (default: true)
+  allowedRoles?: string[]; // If manual role selection, which roles can be selected
+  defaultRole?: string; // If manual role selection, which role is selected by default
+}
+
+// Validation schema for user account field configuration
+export const userAccountFieldConfigSchema = z.object({
+  roles: z.array(z.string()).min(1, "At least one role must be assigned"),
+  usernameGeneration: z.enum(['email', 'firstLastName', 'manual']),
+  passwordType: z.enum(['auto', 'manual', 'reset_token']),
+  status: z.string().optional(),
+  requireEmailValidation: z.boolean().optional(),
+  notifyUser: z.boolean().optional(),
+  allowedRoles: z.array(z.string()).optional(),
+  defaultRole: z.string().optional(),
+});
+
 // Trigger Events - Single source of truth for all system trigger events
 export const TRIGGER_EVENTS = [
   'user_registered',
