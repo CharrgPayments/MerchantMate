@@ -102,7 +102,7 @@ export default function ProspectPortal() {
         title: "Logged Out",
         description: "You have been successfully logged out",
       });
-      window.location.href = "/prospect-login";
+      window.location.href = "/";
     },
   });
 
@@ -251,7 +251,7 @@ export default function ProspectPortal() {
             <CardDescription>Unable to load your application</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button onClick={() => setLocation("/prospect-login")} className="w-full">
+            <Button onClick={() => window.location.href = "/"} className="w-full">
               Back to Login
             </Button>
           </CardContent>
