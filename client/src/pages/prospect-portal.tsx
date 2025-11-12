@@ -60,11 +60,12 @@ export default function ProspectPortal() {
   const [isUploading, setIsUploading] = useState(false);
 
   // Fetch prospect data
-  const { data: prospectData, isLoading: prospectLoading } = useQuery<{ prospect: Prospect }>({
+  const { data: prospectData, isLoading: prospectLoading, error: prospectError } = useQuery<{ prospect: Prospect }>({
     queryKey: ['/api/prospects/me'],
     staleTime: 0, // Always fetch fresh data
     refetchOnMount: 'always', // Always refetch when component mounts
     refetchInterval: 30000, // Refresh every 30 seconds
+    retry: false, // Don't retry on failure
   });
 
   const prospect = prospectData?.prospect;
@@ -250,7 +251,23 @@ export default function ProspectPortal() {
             <CardTitle>Access Denied</CardTitle>
             <CardDescription>Unable to load your application</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            {prospectError && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Error: {prospectError instanceof Error ? prospectError.message : 'Unknown error'}
+                </AlertDescription>
+              </Alert>
+            )}
+            {!prospectError && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  No prospect record found for your account. Please contact support.
+                </AlertDescription>
+              </Alert>
+            )}
             <Button onClick={() => window.location.href = "/"} className="w-full">
               Back to Login
             </Button>
