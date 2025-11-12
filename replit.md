@@ -110,6 +110,22 @@ tsx scripts/migration-manager.ts apply prod      # Manually apply to Production
 
 ## Recent Changes (November 2025)
 
+### Unified Authentication System (November 12, 2025)
+
+**Changes**:
+- **Consolidated Login Pages**: Removed duplicate `/prospect-login` page; all users now authenticate through the unified `/` (auth.tsx) page
+- **Role-Based Redirect**: After successful login, users are automatically redirected based on their role:
+  - Prospects (role='prospect') → `/prospect-portal`
+  - All other users → `/` (dashboard)
+- **Fixed React Query Caching Issue**: Added `staleTime: 0` and `refetchOnMount: 'always'` to prospect portal query to prevent cached `null` responses from blocking data fetch after login
+- **Removed Redundant Endpoint**: Kept `/api/prospects/auth/login` for backwards compatibility but prospects can now use main `/api/auth/login` endpoint
+
+**Benefits**:
+- Simplified user experience with single login URL for all user types
+- Eliminated confusion about which login page to use
+- Cleaner codebase with less duplication
+- Smart redirect ensures users land on appropriate portal automatically
+
 ### Prospect Portal Backend Implementation
 **Date**: November 11, 2025
 

@@ -54,7 +54,6 @@ import ProfilePage from "@/pages/profile";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import Auth from "@/pages/auth";
-import ProspectLogin from "@/pages/prospect-login";
 import ProspectPortal from "@/pages/prospect-portal";
 import ProspectProfile from "@/pages/prospect-profile";
 import { useState, useEffect, createContext, useContext } from "react";
@@ -729,9 +728,6 @@ function AppContent() {
         <Switch>
           <Route path="/form/:token">
             {(params) => <PublicForm />}
-          </Route>
-          <Route path="/prospect-login">
-            {() => <ProspectLogin />}
           </Route>
           <Route path="/prospect-portal">
             {() => <ProspectPortal />}
