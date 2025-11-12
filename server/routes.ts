@@ -2515,10 +2515,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Use request-specific storage to respect database environment
-    // If req.db is not set, use getDynamicDatabase with the correct environment
-    const dbToUse = req.db || getDynamicDatabase(req.dbEnv || 'development');
-    console.log(`🔐 Using database for environment: ${req.dbEnv}`);
-    const requestStorage = createStorageForRequest(dbToUse);
+    // IMPORTANT: Don't use req.db - it may be bound to wrong connection pool
+    // Always call getDynamicDatabase with the session's dbEnv to get correct pool
+    const dbEnv = req.dbEnv || 'development';
+    const correctDb = getDynamicDatabase(dbEnv);
+    console.log(`🔐 Using database for environment: ${dbEnv}`);
+    const requestStorage = createStorageForRequest(correctDb);
     
     const user = await requestStorage.getUser(req.session.userId);
     console.log(`👤 User found: ${!!user}, roles: ${user?.roles}, dbEnv: ${req.dbEnv}`);
