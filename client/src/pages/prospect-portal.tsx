@@ -62,6 +62,8 @@ export default function ProspectPortal() {
   // Fetch prospect data
   const { data: prospectData, isLoading: prospectLoading } = useQuery<{ prospect: Prospect }>({
     queryKey: ['/api/prospects/me'],
+    staleTime: 0, // Always fetch fresh data
+    refetchOnMount: 'always', // Always refetch when component mounts
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
