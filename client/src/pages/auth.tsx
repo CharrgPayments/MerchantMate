@@ -155,12 +155,12 @@ export default function Auth() {
         
         const userData = await userResponse.json();
         console.log("🔍 User data after login:", userData);
-        console.log("🔍 User role:", userData?.role);
-        console.log("🔍 Is prospect?:", userData?.role === "prospect");
+        console.log("🔍 User roles:", userData?.roles);
+        console.log("🔍 Is prospect?:", userData?.roles?.includes("prospect"));
         
-        // Determine redirect based on user role
+        // Determine redirect based on user role (roles is an array)
         let redirectUrl = "/";
-        if (userData && userData.role === "prospect") {
+        if (userData && userData.roles && userData.roles.includes("prospect")) {
           redirectUrl = "/prospect-portal";
           console.log("✅ Redirecting prospect to:", redirectUrl);
           toast({
