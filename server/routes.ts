@@ -9011,6 +9011,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
+      // Process user_account fields if present in the template
+      if (applicationData && currentApp.templateId) {
+        try {
+          const { acquirerApplicationTemplates } = await import("@shared/schema");
+          const { eq: eqOp } = await import("drizzle-orm");
+          const [template] = await dbToUse.select()
+            .from(acquirerApplicationTemplates)
+            .where(eqOp(acquirerApplicationTemplates.id, currentApp.templateId))
+            .limit(1);
+          
+          if (template && template.fieldConfiguration) {
+            const config = typeof template.fieldConfiguration === 'string' 
+              ? JSON.parse(template.fieldConfiguration)
+              : template.fieldConfiguration;
+            
+            // Scan all sections for user_account fields
+            for (const section of (config.sections || [])) {
+              for (const field of (section.fields || [])) {
+                if (field.type === 'user_account' && applicationData[field.id]) {
+                  try {
+                    const { createUserFromFormField } = await import('./services/userAccountService');
+                    const userAccountData = applicationData[field.id];
+                    const validationData = typeof field.validation === 'string' 
+                      ? JSON.parse(field.validation)
+                      : field.validation;
+                    const userAccountConfig = validationData?.userAccount;
+                    
+                    if (userAccountConfig) {
+                      const userId = await createUserFromFormField(
+                        userAccountData,
+                        userAccountConfig,
+                        dbToUse
+                      );
+                      console.log(`Created user account ${userId} from field ${field.id}`);
+                    }
+                  } catch (userError: any) {
+                    console.error(`Error creating user account from field ${field.id}:`, userError);
+                    // Check for specific errors
+                    if (userError.name === 'DuplicateEmailError' || userError.name === 'DuplicateUsernameError') {
+                      return res.status(400).json({ error: userError.message });
+                    }
+                    // Log other errors but continue submission
+                    console.error('User account creation failed, continuing with submission');
+                  }
+                }
+              }
+            }
+          }
+        } catch (templateError) {
+          console.error('Error processing user account fields:', templateError);
+          // Continue with submission even if user account creation fails
+        }
+      }
+      
       // Update application with submission
       const updateData: any = {
         status: 'submitted',
