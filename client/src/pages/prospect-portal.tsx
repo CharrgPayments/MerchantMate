@@ -62,6 +62,16 @@ export default function ProspectPortal() {
   // Fetch prospect data
   const { data: prospectData, isLoading: prospectLoading, error: prospectError } = useQuery<{ prospect: Prospect }>({
     queryKey: ['/api/prospects/me'],
+    queryFn: async () => {
+      const res = await fetch('/api/prospects/me', {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || 'Failed to fetch prospect data');
+      }
+      return res.json();
+    },
     staleTime: 0, // Always fetch fresh data
     refetchOnMount: 'always', // Always refetch when component mounts
     refetchInterval: 30000, // Refresh every 30 seconds
