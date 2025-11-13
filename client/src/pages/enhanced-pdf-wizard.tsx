@@ -3648,11 +3648,7 @@ export default function EnhancedPdfWizard() {
                 const stateField = possibleStateFields.find(f => formData.hasOwnProperty(f));
                 const zipField = possibleZipFields.find(f => formData.hasOwnProperty(f));
                 
-                // Unlock address fields and update formData directly to bypass async state issues
-                setAddressFieldsLocked(false);
-                setAddressOverrideActive(false);
-                
-                // Update formData directly instead of calling handleFieldChange to avoid state timing issues
+                // Update formData directly to bypass the locking check
                 const updates: Record<string, any> = {};
                 if (cityField) updates[cityField] = address.city;
                 if (stateField) updates[stateField] = address.state;
@@ -3661,6 +3657,10 @@ export default function EnhancedPdfWizard() {
                 if (Object.keys(updates).length > 0) {
                   setFormData(prev => ({ ...prev, ...updates }));
                 }
+                
+                // Lock the address fields after selection to enforce autocomplete usage
+                setAddressFieldsLocked(true);
+                setAddressOverrideActive(true);
               }}
               placeholder="Start typing an address..."
               dataTestId={`input-${field.fieldName}`}
@@ -3725,11 +3725,7 @@ export default function EnhancedPdfWizard() {
                 street2: street2Val
               }}
               onAddressSelect={(address) => {
-                // Unlock address fields and update formData directly to bypass async state issues
-                setAddressFieldsLocked(false);
-                setAddressOverrideActive(false);
-                
-                // Update formData directly instead of calling handleFieldChange to avoid state timing issues
+                // Update formData directly to bypass the locking check
                 const updates: Record<string, any> = {};
                 if (street1FieldId) updates[street1FieldId] = address.street || '';
                 if (street2FieldId) updates[street2FieldId] = address.street2 || '';
@@ -3741,6 +3737,10 @@ export default function EnhancedPdfWizard() {
                 if (Object.keys(updates).length > 0) {
                   setFormData(prev => ({ ...prev, ...updates }));
                 }
+                
+                // Lock the address fields after selection to enforce autocomplete usage
+                setAddressFieldsLocked(true);
+                setAddressOverrideActive(true);
               }}
               onCityChange={(value) => {
                 if (cityFieldId) handleFieldChange(cityFieldId, value);
