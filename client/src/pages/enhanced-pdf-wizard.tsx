@@ -3648,6 +3648,12 @@ export default function EnhancedPdfWizard() {
                 const stateField = possibleStateFields.find(f => formData.hasOwnProperty(f));
                 const zipField = possibleZipFields.find(f => formData.hasOwnProperty(f));
                 
+                // Unlock address fields before updating to allow changes
+                if (addressFieldsLocked) {
+                  setAddressFieldsLocked(false);
+                  setAddressOverrideActive(false);
+                }
+                
                 if (cityField) handleFieldChange(cityField, address.city);
                 if (stateField) handleFieldChange(stateField, address.state);
                 if (zipField) handleFieldChange(zipField, address.zipCode);
@@ -3715,6 +3721,12 @@ export default function EnhancedPdfWizard() {
                 street2: street2Val
               }}
               onAddressSelect={(address) => {
+                // Unlock address fields before updating to allow changes
+                if (addressFieldsLocked) {
+                  setAddressFieldsLocked(false);
+                  setAddressOverrideActive(false);
+                }
+                
                 // Update all address fields using their actual field IDs
                 if (street1FieldId) handleFieldChange(street1FieldId, address.street || '');
                 if (street2FieldId) handleFieldChange(street2FieldId, address.street2 || '');
