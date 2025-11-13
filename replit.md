@@ -50,6 +50,29 @@ Preferred communication style: Simple, everyday language.
 - **User-Company Association Pattern**: All agent and merchant lookups MUST use the generic pattern: `User → user_company_associations → Company → Agent/Merchant`.
 - **CRITICAL: Database Schema Change Workflow**: After every change to `shared/schema.ts`, a migration **MUST** be immediately generated using `tsx scripts/migration-manager.ts generate`.
 
+## Recent Changes (November 2025)
+
+### Prospect Application Auto-Save Fix (November 13, 2025)
+
+**Issue**: Prospect application forms only saved data when users clicked "Next" or "Previous" buttons. If users filled out fields but closed the browser without navigating between steps, all their data was lost.
+
+**Solution**: Implemented auto-save functionality with debounced saves:
+- **Auto-Save Effect**: Added useEffect that monitors `formData` changes and automatically saves after 2.5 seconds of inactivity
+- **Smart Guards**: Only triggers in prospect mode with valid prospect ID and after initial data load
+- **Debouncing**: Uses timeout-based debouncing to prevent excessive server requests
+- **Visual Feedback**: Added `isAutoSaving` state for future UI indicators
+- **Error Handling**: Displays user-friendly error messages if auto-save fails
+- **Concurrent Save Prevention**: Skips saves when mutation is already pending
+
+**Technical Details**:
+- File modified: `client/src/pages/enhanced-pdf-wizard.tsx`
+- Added state: `isAutoSaving`, `autoSaveTimeoutRef`
+- Updated mutation: `saveFormDataMutation` with onMutate/onSettled callbacks
+- Auto-save triggers on formData changes in prospect mode
+- Cleanup on unmount prevents memory leaks
+
+**Impact**: Prospects can now safely close and reopen their applications without losing progress, significantly improving user experience and reducing frustration.
+
 ## External Dependencies
 - **pg**: Native PostgreSQL driver.
 - **drizzle-orm**: Type-safe ORM for PostgreSQL.
