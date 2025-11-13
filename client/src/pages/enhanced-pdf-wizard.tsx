@@ -60,6 +60,8 @@ export default function EnhancedPdfWizard() {
   const [visitedSections, setVisitedSections] = useState(new Set<number>());
   const [initialDataLoaded, setInitialDataLoaded] = useState(false);
   const [addressFieldsLocked, setAddressFieldsLocked] = useState(false);
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isInitialRender, setIsInitialRender] = useState(true);
   const [addressValidationStatus, setAddressValidationStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -263,6 +265,20 @@ export default function EnhancedPdfWizard() {
       }
       
       return response.json();
+    },
+    onMutate: () => {
+      setIsAutoSaving(true);
+    },
+    onSettled: () => {
+      setIsAutoSaving(false);
+    },
+    onError: (error: any) => {
+      console.error('Failed to save form data:', error);
+      toast({
+        title: "Auto-save failed",
+        description: "Your changes couldn't be saved automatically. Please try clicking Next to save manually.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -961,6 +977,40 @@ export default function EnhancedPdfWizard() {
       }, 500);
     }
   }, [prospectData, isProspectMode, initialDataLoaded]);
+
+  // Auto-save form data for prospects with debounce
+  useEffect(() => {
+    // Only auto-save in prospect mode with valid prospect ID and after initial load
+    if (!isProspectMode || !prospectData?.prospect?.id || !initialDataLoaded) {
+      return;
+    }
+
+    // Skip if formData is empty or if save is already pending
+    if (Object.keys(formData).length === 0 || saveFormDataMutation.isPending) {
+      return;
+    }
+
+    // Clear any existing timeout
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+
+    // Set new timeout to auto-save after 2.5 seconds of inactivity
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      console.log('Auto-saving form data...');
+      saveFormDataMutation.mutate({
+        formData,
+        currentStep
+      });
+    }, 2500);
+
+    // Cleanup on unmount or when dependencies change
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+  }, [formData, isProspectMode, prospectData?.prospect?.id, initialDataLoaded, currentStep]);
 
   // Create hardcoded form sections for prospect mode
   const createProspectFormSections = (): FormSection[] => {
