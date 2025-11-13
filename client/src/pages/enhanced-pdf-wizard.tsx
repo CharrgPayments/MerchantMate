@@ -3648,15 +3648,19 @@ export default function EnhancedPdfWizard() {
                 const stateField = possibleStateFields.find(f => formData.hasOwnProperty(f));
                 const zipField = possibleZipFields.find(f => formData.hasOwnProperty(f));
                 
-                // Unlock address fields before updating to allow changes
-                if (addressFieldsLocked) {
-                  setAddressFieldsLocked(false);
-                  setAddressOverrideActive(false);
-                }
+                // Unlock address fields and update formData directly to bypass async state issues
+                setAddressFieldsLocked(false);
+                setAddressOverrideActive(false);
                 
-                if (cityField) handleFieldChange(cityField, address.city);
-                if (stateField) handleFieldChange(stateField, address.state);
-                if (zipField) handleFieldChange(zipField, address.zipCode);
+                // Update formData directly instead of calling handleFieldChange to avoid state timing issues
+                const updates: Record<string, any> = {};
+                if (cityField) updates[cityField] = address.city;
+                if (stateField) updates[stateField] = address.state;
+                if (zipField) updates[zipField] = address.zipCode;
+                
+                if (Object.keys(updates).length > 0) {
+                  setFormData(prev => ({ ...prev, ...updates }));
+                }
               }}
               placeholder="Start typing an address..."
               dataTestId={`input-${field.fieldName}`}
@@ -3721,19 +3725,22 @@ export default function EnhancedPdfWizard() {
                 street2: street2Val
               }}
               onAddressSelect={(address) => {
-                // Unlock address fields before updating to allow changes
-                if (addressFieldsLocked) {
-                  setAddressFieldsLocked(false);
-                  setAddressOverrideActive(false);
-                }
+                // Unlock address fields and update formData directly to bypass async state issues
+                setAddressFieldsLocked(false);
+                setAddressOverrideActive(false);
                 
-                // Update all address fields using their actual field IDs
-                if (street1FieldId) handleFieldChange(street1FieldId, address.street || '');
-                if (street2FieldId) handleFieldChange(street2FieldId, address.street2 || '');
-                if (cityFieldId) handleFieldChange(cityFieldId, address.city || '');
-                if (stateFieldId) handleFieldChange(stateFieldId, address.state || '');
-                if (postalCodeFieldId) handleFieldChange(postalCodeFieldId, address.zipCode || '');
-                if (countryFieldId) handleFieldChange(countryFieldId, 'US');
+                // Update formData directly instead of calling handleFieldChange to avoid state timing issues
+                const updates: Record<string, any> = {};
+                if (street1FieldId) updates[street1FieldId] = address.street || '';
+                if (street2FieldId) updates[street2FieldId] = address.street2 || '';
+                if (cityFieldId) updates[cityFieldId] = address.city || '';
+                if (stateFieldId) updates[stateFieldId] = address.state || '';
+                if (postalCodeFieldId) updates[postalCodeFieldId] = address.zipCode || '';
+                if (countryFieldId) updates[countryFieldId] = 'US';
+                
+                if (Object.keys(updates).length > 0) {
+                  setFormData(prev => ({ ...prev, ...updates }));
+                }
               }}
               onCityChange={(value) => {
                 if (cityFieldId) handleFieldChange(cityFieldId, value);
