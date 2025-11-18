@@ -720,6 +720,12 @@ export default function EnhancedPdfWizard() {
   // Check if a section has validation issues
   const getSectionValidationStatus = (sectionIndex: number) => {
     const section = sections[sectionIndex];
+    
+    // Defensive check: ensure section exists and has fields
+    if (!section || !section.fields) {
+      return false; // No validation errors if section doesn't exist
+    }
+    
     let hasErrors = false;
 
     // Check required fields in this section
