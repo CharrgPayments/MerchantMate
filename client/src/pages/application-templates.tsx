@@ -2213,6 +2213,55 @@ function FieldConfigurationDialog({
                         />
                       </div>
 
+                      {/* Allowed Roles for Manual Selection */}
+                      <div>
+                        <label className="text-xs text-muted-foreground">Allowed Roles (Manual Selection)</label>
+                        <Input
+                          value={(editingField.userAccountConfig?.allowedRoles || []).join(', ')}
+                          onChange={(e) => {
+                            const allowedRoles = e.target.value.split(',').map(r => r.trim()).filter(r => r);
+                            setEditingField({ 
+                              ...editingField, 
+                              userAccountConfig: { 
+                                ...(editingField.userAccountConfig || {}), 
+                                allowedRoles: allowedRoles.length > 0 ? allowedRoles : undefined
+                              } 
+                            });
+                          }}
+                          placeholder="e.g., prospect, merchant, agent"
+                          className="text-xs"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">Leave empty to hide role selection. Comma-separated list.</p>
+                      </div>
+
+                      {/* Default Role */}
+                      {editingField.userAccountConfig?.allowedRoles && editingField.userAccountConfig.allowedRoles.length > 0 && (
+                        <div>
+                          <label className="text-xs text-muted-foreground">Default Role</label>
+                          <Select
+                            value={editingField.userAccountConfig?.defaultRole || ''}
+                            onValueChange={(value) => {
+                              setEditingField({ 
+                                ...editingField, 
+                                userAccountConfig: { 
+                                  ...(editingField.userAccountConfig || {}), 
+                                  defaultRole: value || undefined
+                                } 
+                              });
+                            }}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue placeholder="Select default role" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {editingField.userAccountConfig.allowedRoles.map((role: string) => (
+                                <SelectItem key={role} value={role}>{role}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
                       {/* Email Notification Options */}
                       <div className="space-y-2">
                         <div className="flex items-center space-x-2">

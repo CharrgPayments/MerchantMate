@@ -452,16 +452,452 @@ export default function ApiDocumentation() {
                     No endpoints found matching "{endpointSearch}"
                   </div>
                 )}
-              </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/merchants</code>
+                      </div>
+                      <p className="text-xs text-gray-600">List all merchants</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/merchants/all</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Get all merchants (admin)</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">POST</Badge>
+                        <code className="text-xs">/api/merchants</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Create new merchant</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/merchants/:id/user</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Get merchant's associated user</p>
+                    </div>
+                  </div>
+                </div>
 
-              {!endpointSearch && (
-                  <Alert className="mt-4">
-                  <AlertDescription>
-                    <strong>Complete Endpoint Reference:</strong> All {totalEndpointCount} endpoints are now displayed above. 
-                    Use the search feature to quickly find specific endpoints by path, method, or description.
-                  </AlertDescription>
-                </Alert>
-              )}
+                {/* Agents */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2 sticky top-0 bg-white">Agents</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/agents</code>
+                      </div>
+                      <p className="text-xs text-gray-600">List all agents</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">POST</Badge>
+                        <code className="text-xs">/api/agents</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Create new agent</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-yellow-50 text-yellow-700 text-xs">PUT</Badge>
+                        <code className="text-xs">/api/agents/:id</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Update agent</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/agents/:agentId/merchants</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Get agent's assigned merchants</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Prospects */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2 sticky top-0 bg-white">Prospects & Applications</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/prospects</code>
+                      </div>
+                      <p className="text-xs text-gray-600">List all prospects</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">POST</Badge>
+                        <code className="text-xs">/api/prospects</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Create prospect</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">POST</Badge>
+                        <code className="text-xs">/api/prospects/auth/login</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Prospect portal login</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">POST</Badge>
+                        <code className="text-xs">/api/prospects/auth/set-password</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Set prospect password</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/prospects/:id/documents</code>
+                      </div>
+                      <p className="text-xs text-gray-600">List prospect documents</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">POST</Badge>
+                        <code className="text-xs">/api/prospects/:id/documents/upload-url</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Generate upload URL for documents</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/prospects/:id/notifications</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Get prospect notifications</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">POST</Badge>
+                        <code className="text-xs">/api/prospects/:id/save-form-data</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Save prospect application data</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Locations & Addresses */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2 sticky top-0 bg-white">Locations & Addresses</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/merchants/:merchantId/locations</code>
+                      </div>
+                      <p className="text-xs text-gray-600">List merchant locations</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">POST</Badge>
+                        <code className="text-xs">/api/merchants/:merchantId/locations</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Create location</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">POST</Badge>
+                        <code className="text-xs">/api/address-autocomplete</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Google Maps address autocomplete</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">POST</Badge>
+                        <code className="text-xs">/api/validate-address</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Validate address with Google</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Transactions */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2 sticky top-0 bg-white">Transactions</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/transactions</code>
+                      </div>
+                      <p className="text-xs text-gray-600">List transactions (role-based)</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">POST</Badge>
+                        <code className="text-xs">/api/transactions</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Create transaction</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/transactions/mid/:mid</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Get transactions by MID</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Campaigns & Pricing */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2 sticky top-0 bg-white">Campaigns, Pricing & Fees</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/campaigns</code>
+                      </div>
+                      <p className="text-xs text-gray-600">List all campaigns</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">POST</Badge>
+                        <code className="text-xs">/api/campaigns</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Create campaign</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/pricing-types</code>
+                      </div>
+                      <p className="text-xs text-gray-600">List pricing types</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/fee-groups</code>
+                      </div>
+                      <p className="text-xs text-gray-600">List fee groups</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/equipment-items</code>
+                      </div>
+                      <p className="text-xs text-gray-600">List equipment items</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Dashboard & Analytics */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2 sticky top-0 bg-white">Dashboard & Analytics</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/dashboard/metrics</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Get dashboard metrics</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/dashboard/revenue</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Get revenue analytics</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/dashboard/widgets</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Get user's dashboard widgets</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/analytics/dashboard</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Get analytics dashboard data</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Communications & Email */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2 sticky top-0 bg-white">Communications & Email</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/admin/email-templates</code>
+                      </div>
+                      <p className="text-xs text-gray-600">List email templates</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">POST</Badge>
+                        <code className="text-xs">/api/admin/email-templates/:id/test</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Test email template</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/admin/email-activity</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Get email activity logs</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/admin/trigger-catalog</code>
+                      </div>
+                      <p className="text-xs text-gray-600">List trigger catalog</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/admin/action-templates</code>
+                      </div>
+                      <p className="text-xs text-gray-600">List action templates</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* PDF Forms & Signatures */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2 sticky top-0 bg-white">PDF Forms, Signatures & Applications</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/pdf-forms</code>
+                      </div>
+                      <p className="text-xs text-gray-600">List PDF forms</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">POST</Badge>
+                        <code className="text-xs">/api/pdf-forms/upload</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Upload PDF form</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">POST</Badge>
+                        <code className="text-xs">/api/signature-requests</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Create signature request</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/acquirer-application-templates</code>
+                      </div>
+                      <p className="text-xs text-gray-600">List application templates</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Security & Audit */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2 sticky top-0 bg-white">Security & Audit</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/security/audit-logs</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Get audit logs</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/security/login-attempts</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Get login attempts</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/security/metrics</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Get security metrics</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Admin & System */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2 sticky top-0 bg-white">Admin & System</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/admin/api-keys</code>
+                      </div>
+                      <p className="text-xs text-gray-600">List API keys</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">POST</Badge>
+                        <code className="text-xs">/api/admin/api-keys</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Create API key</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/admin/db-environment</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Get DB environment</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 text-xs">POST</Badge>
+                        <code className="text-xs">/api/webhooks/sendgrid</code>
+                      </div>
+                      <p className="text-xs text-gray-600">SendGrid webhook handler</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Alerts */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2 sticky top-0 bg-white">Alerts & Notifications</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/alerts</code>
+                      </div>
+                      <p className="text-xs text-gray-600">List user alerts</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">GET</Badge>
+                        <code className="text-xs">/api/alerts/count</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Get unread alert count</p>
+                    </div>
+                    <div className="border rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-orange-50 text-orange-700 text-xs">PATCH</Badge>
+                        <code className="text-xs">/api/alerts/:alertId/read</code>
+                      </div>
+                      <p className="text-xs text-gray-600">Mark alert as read</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <Alert className="mt-4">
+                <AlertDescription>
+                  <strong>Note:</strong> This documentation shows key endpoints from each category. The system has 275+ total endpoints. 
+                  For complete API reference including request/response schemas, authentication details, and examples, please refer to the 
+                  OpenAPI/Swagger documentation or contact your system administrator.
+                </AlertDescription>
+              </Alert>
             </CardContent>
           </Card>
         </TabsContent>
