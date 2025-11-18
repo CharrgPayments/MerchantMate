@@ -27,6 +27,22 @@ export const userAccountFieldConfigSchema = z.object({
   defaultRole: z.string().optional(),
 });
 
+// Union type for all field validation configurations
+// Covers all persisted shapes: direct config, wrapped in userAccount, JSON string, or null
+export type FieldValidationConfig = 
+  | UserAccountFieldConfig
+  | { userAccount: UserAccountFieldConfig }
+  | string  // JSON string of above
+  | null;
+
+// Zod schema for field validation (used in forms)
+export const fieldValidationConfigSchema = z.union([
+  userAccountFieldConfigSchema,
+  z.object({ userAccount: userAccountFieldConfigSchema }),
+  z.string(),
+  z.null()
+]).optional();
+
 // Trigger Events - Single source of truth for all system trigger events
 export const TRIGGER_EVENTS = [
   'user_registered',

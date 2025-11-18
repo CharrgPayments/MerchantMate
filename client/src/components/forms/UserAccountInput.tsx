@@ -169,7 +169,7 @@ export function UserAccountInput({
       )}
 
       {/* Role Selection - Only if allowed roles specified */}
-      {hasRoleSelection && (
+      {hasRoleSelection && config.allowedRoles && (
         <div>
           <Label htmlFor={`${fieldId}_role`}>Account Type *</Label>
           <Select
