@@ -13,6 +13,7 @@ import { Separator } from '@/components/ui/separator';
 import { AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { MCCAutocompleteInput } from './MCCAutocompleteInput';
 import { UserAccountInput } from './UserAccountInput';
+import { FieldValidationConfig, UserAccountFieldConfig } from '@shared/schema';
 
 // Types for field configuration
 interface FieldConfig {
@@ -27,7 +28,7 @@ interface FieldConfig {
   sensitive?: boolean;
   placeholder?: string;
   description?: string;
-  validation?: any; // For user_account config and other complex validations
+  validation?: FieldValidationConfig; // Properly typed validation config
 }
 
 interface SectionConfig {
@@ -112,14 +113,60 @@ function createDynamicSchema(configuration: FormConfiguration, requiredFields: s
           );
           break;
         case 'user_account':
-          fieldSchema = z.object({
+          // Extract user account configuration from field.validation
+          // The config might be wrapped in a userAccount property or be the direct value
+          let userAccountConfig: UserAccountFieldConfig | undefined;
+          if (field.validation) {
+            if (typeof field.validation === 'string') {
+              try {
+                const parsed = JSON.parse(field.validation);
+                userAccountConfig = parsed.userAccount || parsed;
+              } catch (e) {
+                console.error('Failed to parse user account validation config:', e);
+              }
+            } else if (typeof field.validation === 'object') {
+              // Check if it's wrapped in userAccount property
+              userAccountConfig = (field.validation as any).userAccount || field.validation as UserAccountFieldConfig;
+            }
+          }
+          
+          // Build schema object based on configuration
+          const userAccountSchemaFields: Record<string, z.ZodTypeAny> = {
             email: z.string().email('Please enter a valid email address'),
-            username: z.string().optional(),
-            password: z.string().optional(),
-            confirmPassword: z.string().optional(),
-            role: z.string().optional(),
-            firstName: z.string().optional(),
-            lastName: z.string().optional()
+          };
+
+          // Username - required if manual, optional if auto-generated
+          if (userAccountConfig?.usernameGeneration === 'manual') {
+            userAccountSchemaFields.username = z.string().min(3, 'Username must be at least 3 characters');
+          } else if (userAccountConfig?.usernameGeneration === 'firstLastName') {
+            userAccountSchemaFields.firstName = z.string().min(1, 'First name is required');
+            userAccountSchemaFields.lastName = z.string().min(1, 'Last name is required');
+          }
+
+          // Password - required if manual, optional otherwise
+          if (userAccountConfig?.passwordType === 'manual') {
+            userAccountSchemaFields.password = z.string().min(8, 'Password must be at least 8 characters');
+            userAccountSchemaFields.confirmPassword = z.string();
+          }
+
+          // Role selection - enforce allowed roles if specified (SECURITY: prevents privilege escalation)
+          if (userAccountConfig?.allowedRoles && userAccountConfig.allowedRoles.length > 0) {
+            // Use enum to restrict to exact allowed values - prevents unauthorized role submission
+            userAccountSchemaFields.role = z.enum(
+              userAccountConfig.allowedRoles as [string, ...string[]], 
+              { errorMap: () => ({ message: 'Invalid role selection' }) }
+            );
+          }
+
+          // Password confirmation validation
+          fieldSchema = z.object(userAccountSchemaFields).superRefine((data, ctx) => {
+            if (userAccountConfig?.passwordType === 'manual' && data.password !== data.confirmPassword) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'Passwords do not match',
+                path: ['confirmPassword']
+              });
+            }
           });
           break;
         default:
