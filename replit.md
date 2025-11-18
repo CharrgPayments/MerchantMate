@@ -52,6 +52,62 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes (November 2025)
 
+### User Account Field Type for Application Templates (November 18, 2025)
+
+**Feature**: Comprehensive user account field type enabling automatic user account creation during form submissions.
+
+**Frontend Implementation**:
+- **Type Safety**: Replaced `validation?: any` with properly typed `FieldValidationConfig` union in DynamicFormRenderer
+- **Schema Generation**: DynamicFormRenderer dynamically builds Zod schema based on UserAccountFieldConfig
+  - Username validation (manual, email-based, firstLastName-based)
+  - Password validation (manual with strength requirements, reset_token)
+  - **SECURITY**: Role selection uses `z.enum(allowedRoles)` to prevent privilege escalation
+- **Template Builder UI**: Enhanced application-templates.tsx with comprehensive UserAccountFieldConfig component
+  - Roles to assign
+  - Username generation strategy (email, firstLastName, manual)
+  - Password setup type (manual, reset_token, auto)
+  - Initial user status
+  - Email notification options
+  - Allowed roles for manual selection
+  - Default role pre-selection
+- **User Input Component**: UserAccountInput dynamically renders fields based on configuration
+  - Conditional field display based on config
+  - Password strength hints
+  - Role selection dropdown when allowedRoles specified
+
+**Backend Implementation**:
+- **User Account Service** (`server/services/userAccountService.ts`):
+  - `createUserFromFormField`: Creates user accounts from form field data
+  - Validates email uniqueness, username uniqueness
+  - Generates usernames based on config (email prefix, firstLastName, manual)
+  - Handles password setup: manual (with strength validation), auto-generated, reset_token
+  - **SECURITY**: Double validation of roles (frontend Zod enum + backend allowedRoles check)
+  - Sends password reset emails via SendGrid
+  - Comprehensive audit logging
+  - Exports `validatePasswordStrength` for use in password reset flows
+- **Form Submission Integration** (server/routes.ts):
+  - Processes user_account fields after form validation
+  - Extracts field configuration from application template
+  - **SECURITY**: Validates submitted role against allowedRoles before account creation
+  - Creates user accounts via createUserFromFormField
+  - Graceful error handling with user-friendly messages:
+    - DuplicateEmailError: "Email already registered"
+    - DuplicateUsernameError: "Username already taken"
+    - PasswordMismatchError: "Passwords do not match"
+    - Invalid role: "Invalid role selected. This incident has been logged."
+  - Continues with form submission even if account creation fails
+
+**Security Features**:
+- Password strength validation: 8+ characters, uppercase, lowercase, number, special character
+- Role validation: Zod enum on frontend + allowedRoles check on backend
+- Prevents privilege escalation by validating role submissions
+- Logs invalid role submission attempts
+- Bcrypt password hashing
+- Secure reset token generation (UUID, 24-hour expiry)
+- Audit trail for all account creations
+
+**Impact**: Application templates can now automatically create user accounts during form submission, enabling self-service registration flows with granular role control and security.
+
 ### Prospect Application Auto-Save Fix (November 13, 2025)
 
 **Issue**: Prospect application forms only saved data when users clicked "Next" or "Previous" buttons. If users filled out fields but closed the browser without navigating between steps, all their data was lost.

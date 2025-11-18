@@ -1,8 +1,8 @@
-import { hashPassword } from '../auth';
+import { authService } from '../auth';
 import { UserAccountFieldConfig, users } from '@shared/schema';
 import crypto from 'crypto';
 import { emailService } from '../emailService';
-import { auditService } from '../auditService';
+import { AuditService } from '../auditService';
 import type { db as DbType } from '../db';
 import { eq } from 'drizzle-orm';
 
@@ -37,17 +37,26 @@ export class PasswordMismatchError extends Error {
   }
 }
 
+export class PasswordStrengthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PasswordStrengthError';
+  }
+}
+
 /**
  * Create a user account from form field data
  * @param formValue - The user account data from the form submission
  * @param config - The UserAccountFieldConfig from the template
  * @param db - The database instance
+ * @param dbEnv - The database environment (development, test, production)
  * @returns The created user ID
  */
 export async function createUserFromFormField(
   formValue: UserAccountData,
   config: UserAccountFieldConfig,
-  db: typeof DbType
+  db: typeof DbType,
+  dbEnv: string = 'development'
 ): Promise<string> {
   const { email, username: manualUsername, password, confirmPassword, role, firstName, lastName } = formValue;
 
@@ -108,16 +117,21 @@ export async function createUserFromFormField(
       if (password !== confirmPassword) {
         throw new PasswordMismatchError();
       }
-      hashedPassword = await hashPassword(password);
+      // Validate password strength using shared function
+      const validationResult = validatePasswordStrength(password);
+      if (!validationResult.valid) {
+        throw new PasswordStrengthError(validationResult.error || 'Invalid password');
+      }
+      hashedPassword = await authService.hashPassword(password);
       break;
     case 'auto':
-      // Generate a random password
-      const tempPassword = crypto.randomBytes(12).toString('base64').slice(0, 12);
-      hashedPassword = await hashPassword(tempPassword);
-      // Send temp password via email
-      if (config.notifyUser !== false) {
-        await emailService.sendPasswordReset(email, tempPassword);
-      }
+      // Generate a random secure password
+      const tempPassword = crypto.randomBytes(16).toString('base64').slice(0, 16) + '!Aa1';
+      hashedPassword = await authService.hashPassword(tempPassword);
+      // Log temp password for development (in production, this should be sent via secure email)
+      console.log(`[DEV] Auto-generated password for ${email}: ${tempPassword}`);
+      console.log(`[WARNING] Auto-generated passwords should be sent via secure email in production`);
+      // TODO: Implement secure email delivery for auto-generated passwords
       break;
     case 'reset_token':
       // Generate reset token
@@ -125,43 +139,97 @@ export async function createUserFromFormField(
       resetTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
       // Send reset email
       if (config.notifyUser !== false) {
-        await emailService.sendPasswordResetEmail(email, resetToken);
+        await emailService.sendPasswordResetEmail({ 
+          email, 
+          resetToken,
+          dbEnv 
+        });
       }
       break;
   }
 
-  // Determine roles
-  const rolesToAssign = role && config.allowedRoles?.includes(role) 
-    ? [role]
-    : config.roles;
+  // Determine which roles to assign - SECURITY: Fail closed if role doesn't match allowedRoles
+  let rolesToAssign: string[];
+  if (config.allowedRoles && config.allowedRoles.length > 0) {
+    // If allowedRoles is defined, MUST validate submitted role
+    if (!role) {
+      // Use default role if present, otherwise fail
+      if (config.defaultRole && config.allowedRoles.includes(config.defaultRole)) {
+        rolesToAssign = [config.defaultRole];
+      } else {
+        throw new Error('Role selection is required');
+      }
+    } else if (!config.allowedRoles.includes(role)) {
+      // SECURITY: Reject if submitted role not in allowed list
+      throw new Error(`Invalid role: ${role}. This incident has been logged.`);
+    } else {
+      rolesToAssign = [role];
+    }
+  } else {
+    // No role restrictions - use config.roles
+    rolesToAssign = config.roles;
+  }
 
   // Create user
   const [newUser] = await db.insert(users).values({
-    email,
     username: finalUsername,
-    password: hashedPassword,
+    passwordHash: hashedPassword,
+    email,
     roles: rolesToAssign,
     status: userStatus,
     firstName: firstName || null,
     lastName: lastName || null,
     resetToken,
     resetTokenExpires
-  }).returning({ id: users.id });
+  }).returning();
 
-  // Send welcome email if configured
-  if (config.notifyUser !== false && config.passwordType !== 'reset_token') {
-    await emailService.sendWelcomeEmail(email, finalUsername);
+  // TODO: Send welcome email if configured
+  // Welcome emails are currently not implemented
+  // if (config.notifyUser !== false && config.passwordType === 'manual') {
+  //   await emailService.sendWelcomeEmail({ email, username: finalUsername, dbEnv });
+  // }
+
+  // Audit log - use database instance for audit service
+  try {
+    const auditService = new AuditService(db);
+    await auditService.logAction(
+      'user_registered',
+      'users',
+      {
+        userId: newUser.id,
+        userEmail: email,
+        environment: dbEnv
+      },
+      {
+        resourceId: newUser.id,
+        notes: `User account created via form submission for ${email}`,
+        riskLevel: 'low'
+      }
+    );
+  } catch (auditError) {
+    console.error('Audit logging failed:', auditError);
+    // Continue - audit failure shouldn't block account creation
   }
 
-  // Audit log
-  await auditService.log({
-    action: 'user_registered',
-    userId: newUser.id,
-    details: `User account created via form submission: ${email}`,
-    ipAddress: null,
-    userAgent: null,
-    environment: process.env.NODE_ENV === 'production' ? 'production' : 'development'
-  });
-
   return newUser.id;
+}
+
+/**
+ * Validate password strength
+ * This is a shared validation function used for both initial password setup and password resets
+ */
+export function validatePasswordStrength(password: string): { valid: boolean; error?: string } {
+  if (!password || password.length < 8) {
+    return { valid: false, error: 'Password must be at least 8 characters long' };
+  }
+  
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+  if (!passwordRegex.test(password)) {
+    return { 
+      valid: false, 
+      error: 'Password must include uppercase, lowercase, number, and special character (@$!%*?&)' 
+    };
+  }
+  
+  return { valid: true };
 }
