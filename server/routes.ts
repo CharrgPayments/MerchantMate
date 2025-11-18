@@ -2311,11 +2311,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Validate password strength
-      if (password.length < 8) {
+      // Validate password strength using shared validation function
+      const { validatePasswordStrength } = await import('./services/userAccountService');
+      const validationResult = validatePasswordStrength(password);
+      if (!validationResult.valid) {
         return res.status(400).json({ 
           success: false, 
-          message: "Password must be at least 8 characters long" 
+          message: validationResult.error || "Password does not meet strength requirements"
         });
       }
       
@@ -4322,6 +4324,99 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Process user_account fields and create user accounts if present
+      const accountCreationResults: any[] = [];
+      if (templateForMapping) {
+        try {
+          const { createUserFromFormField } = await import('./services/userAccountService');
+          const dynamicDB = await getDynamicDatabase((req as any).dbEnv);
+          
+          // Get template fields to find user_account types
+          const templateFields = templateForMapping.formSections || [];
+          
+          for (const section of templateFields) {
+            if (!section.fields) continue;
+            
+            for (const field of section.fields) {
+              if (field.fieldType !== 'user_account') continue;
+              
+              // Check if this field has data in the submission
+              const fieldData = formData[field.fieldId];
+              if (!fieldData || typeof fieldData !== 'object') continue;
+              
+              // Parse field configuration
+              let userAccountConfig: any = null;
+              if (field.validation) {
+                try {
+                  const validationObj = typeof field.validation === 'string'
+                    ? JSON.parse(field.validation)
+                    : field.validation;
+                  userAccountConfig = validationObj.userAccount || validationObj;
+                } catch (e) {
+                  console.error('Failed to parse user account config:', e);
+                  accountCreationResults.push({
+                    fieldId: field.fieldId,
+                    success: false,
+                    error: 'Invalid field configuration'
+                  });
+                  continue;
+                }
+              }
+              
+              if (!userAccountConfig) {
+                console.warn(`User account field ${field.fieldId} has no configuration`);
+                accountCreationResults.push({
+                  fieldId: field.fieldId,
+                  success: false,
+                  error: 'Missing field configuration'
+                });
+                continue;
+              }
+              
+              // Create user account
+              try {
+                const userId = await createUserFromFormField(
+                  fieldData,
+                  userAccountConfig,
+                  dynamicDB,
+                  (req as any).dbEnv || 'development'
+                );
+                console.log(`Created user account ${userId} from form submission field ${field.fieldId}`);
+                accountCreationResults.push({
+                  fieldId: field.fieldId,
+                  success: true,
+                  userId
+                });
+              } catch (userError: any) {
+                console.error(`Failed to create user account from field ${field.fieldId}:`, userError);
+                // Collect error but continue with form submission
+                let errorMessage = 'Account creation failed';
+                if (userError.name === 'DuplicateEmailError') {
+                  errorMessage = 'Email address is already registered';
+                } else if (userError.name === 'DuplicateUsernameError') {
+                  errorMessage = 'Username is already taken';
+                } else if (userError.name === 'PasswordMismatchError') {
+                  errorMessage = 'Passwords do not match';
+                } else if (userError.name === 'PasswordStrengthError') {
+                  errorMessage = userError.message;
+                } else if (userError.message) {
+                  errorMessage = userError.message;
+                }
+                
+                accountCreationResults.push({
+                  fieldId: field.fieldId,
+                  success: false,
+                  error: errorMessage
+                });
+              }
+            }
+          }
+        } catch (error) {
+          console.error('User account creation processing failed:', error);
+          // Continue with submission - user account creation is optional
+        }
+      }
+
       // Update prospect with final form data and status
       const updatedProspect = await storage.updateMerchantProspect(prospectId, {
         formData: JSON.stringify(mappedFormData),
@@ -4396,7 +4491,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: true, 
         message: "Application submitted successfully",
         prospect: updatedProspect,
-        statusUrl: `/application-status/${prospect.validationToken}`
+        statusUrl: `/application-status/${prospect.validationToken}`,
+        accountCreationResults: accountCreationResults.length > 0 ? accountCreationResults : undefined
       });
     } catch (error) {
       console.error("Error submitting prospect application:", error);
