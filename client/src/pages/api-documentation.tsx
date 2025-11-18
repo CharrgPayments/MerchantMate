@@ -12,9 +12,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Copy, Eye, EyeOff, Key, Plus, Trash2, AlertTriangle, CheckCircle, Clock, Activity, Book, Code, Shield, BarChart3, Search } from "lucide-react";
+import { Copy, Eye, EyeOff, Key, Plus, Trash2, AlertTriangle, CheckCircle, Clock, Activity, Book, Code, Shield, BarChart3, Search, ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiEndpoints, searchEndpoints, getAllEndpoints } from "@/data/apiEndpoints";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 interface ApiKey {
   id: number;
@@ -422,27 +423,94 @@ export default function ApiDocumentation() {
                     <h3 className="text-lg font-semibold border-b pb-2 sticky top-0 bg-white">
                       {category}
                     </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {endpoints.map((endpoint, idx) => (
-                        <div key={`${endpoint.method}-${endpoint.path}-${idx}`} className="border rounded-lg p-3">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Badge
-                              variant="outline"
-                              className={`text-xs ${
-                                endpoint.method === 'GET' ? 'bg-green-50 text-green-700' :
-                                endpoint.method === 'POST' ? 'bg-blue-50 text-blue-700' :
-                                endpoint.method === 'PUT' ? 'bg-yellow-50 text-yellow-700' :
-                                endpoint.method === 'PATCH' ? 'bg-orange-50 text-orange-700' :
-                                'bg-red-50 text-red-700'
-                              }`}
-                            >
-                              {endpoint.method}
-                            </Badge>
-                            <code className="text-xs">{endpoint.path}</code>
-                          </div>
-                          <p className="text-xs text-gray-600">{endpoint.description}</p>
-                        </div>
-                      ))}
+                    <div className="space-y-2">
+                      {endpoints.map((endpoint, idx) => {
+                        const hasExamples = endpoint.requestExample || endpoint.responseExample;
+                        
+                        if (!hasExamples) {
+                          // Simple card for endpoints without examples
+                          return (
+                            <div key={`${endpoint.method}-${endpoint.path}-${idx}`} className="border rounded-lg p-3">
+                              <div className="flex items-center gap-2 mb-1">
+                                <Badge
+                                  variant="outline"
+                                  className={`text-xs ${
+                                    endpoint.method === 'GET' ? 'bg-green-50 text-green-700' :
+                                    endpoint.method === 'POST' ? 'bg-blue-50 text-blue-700' :
+                                    endpoint.method === 'PUT' ? 'bg-yellow-50 text-yellow-700' :
+                                    endpoint.method === 'PATCH' ? 'bg-orange-50 text-orange-700' :
+                                    'bg-red-50 text-red-700'
+                                  }`}
+                                >
+                                  {endpoint.method}
+                                </Badge>
+                                <code className="text-xs">{endpoint.path}</code>
+                              </div>
+                              <p className="text-xs text-gray-600">{endpoint.description}</p>
+                            </div>
+                          );
+                        }
+                        
+                        // Accordion card for endpoints with examples
+                        return (
+                          <Accordion key={`${endpoint.method}-${endpoint.path}-${idx}`} type="single" collapsible>
+                            <AccordionItem value="item-1" className="border rounded-lg">
+                              <AccordionTrigger className="px-3 py-2 hover:no-underline" data-testid={`endpoint-${endpoint.method.toLowerCase()}-${endpoint.path.replace(/[/:]/g, '-')}`}>
+                                <div className="flex items-center gap-2 text-left w-full">
+                                  <Badge
+                                    variant="outline"
+                                    className={`text-xs ${
+                                      endpoint.method === 'GET' ? 'bg-green-50 text-green-700' :
+                                      endpoint.method === 'POST' ? 'bg-blue-50 text-blue-700' :
+                                      endpoint.method === 'PUT' ? 'bg-yellow-50 text-yellow-700' :
+                                      endpoint.method === 'PATCH' ? 'bg-orange-50 text-orange-700' :
+                                      'bg-red-50 text-red-700'
+                                    }`}
+                                  >
+                                    {endpoint.method}
+                                  </Badge>
+                                  <div className="flex-1">
+                                    <code className="text-xs">{endpoint.path}</code>
+                                    <p className="text-xs text-gray-600 mt-1">{endpoint.description}</p>
+                                  </div>
+                                </div>
+                              </AccordionTrigger>
+                              <AccordionContent className="px-3 pb-3">
+                                <div className="space-y-3 pt-2">
+                                  {endpoint.requestExample && (
+                                    <div>
+                                      <h4 className="text-xs font-semibold mb-1 flex items-center gap-1">
+                                        <Code className="w-3 h-3" />
+                                        Request Example
+                                      </h4>
+                                      {endpoint.requestDescription && (
+                                        <p className="text-xs text-gray-600 mb-2">{endpoint.requestDescription}</p>
+                                      )}
+                                      <pre className="bg-gray-50 dark:bg-gray-800 p-2 rounded text-xs overflow-x-auto">
+                                        <code>{JSON.stringify(endpoint.requestExample, null, 2)}</code>
+                                      </pre>
+                                    </div>
+                                  )}
+                                  {endpoint.responseExample && (
+                                    <div>
+                                      <h4 className="text-xs font-semibold mb-1 flex items-center gap-1">
+                                        <CheckCircle className="w-3 h-3" />
+                                        Response Example
+                                      </h4>
+                                      {endpoint.responseDescription && (
+                                        <p className="text-xs text-gray-600 mb-2">{endpoint.responseDescription}</p>
+                                      )}
+                                      <pre className="bg-gray-50 dark:bg-gray-800 p-2 rounded text-xs overflow-x-auto">
+                                        <code>{JSON.stringify(endpoint.responseExample, null, 2)}</code>
+                                      </pre>
+                                    </div>
+                                  )}
+                                </div>
+                              </AccordionContent>
+                            </AccordionItem>
+                          </Accordion>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}

@@ -3,26 +3,134 @@ export interface ApiEndpoint {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   path: string;
   description: string;
+  requestExample?: any;
+  responseExample?: any;
+  requestDescription?: string;
+  responseDescription?: string;
 }
 
 export const apiEndpoints: Record<string, ApiEndpoint[]> = {
   'Authentication & Users': [
-    { method: 'GET', path: '/api/auth/user', description: 'Get current authenticated user' },
-    { method: 'GET', path: '/api/users', description: 'List all users' },
+    { 
+      method: 'GET', 
+      path: '/api/auth/user', 
+      description: 'Get current authenticated user',
+      responseExample: {
+        id: "user_123",
+        username: "john.doe",
+        email: "john.doe@example.com",
+        roles: ["merchant"],
+        status: "active",
+        createdAt: "2025-01-15T10:30:00Z"
+      },
+      responseDescription: 'Returns the currently authenticated user object'
+    },
+    { 
+      method: 'GET', 
+      path: '/api/users', 
+      description: 'List all users',
+      responseExample: [
+        {
+          id: "user_123",
+          username: "john.doe",
+          email: "john.doe@example.com",
+          roles: ["merchant"],
+          status: "active"
+        },
+        {
+          id: "user_456",
+          username: "jane.smith",
+          email: "jane.smith@example.com",
+          roles: ["agent"],
+          status: "active"
+        }
+      ],
+      responseDescription: 'Returns array of all users in the system'
+    },
     { method: 'DELETE', path: '/api/users/:id', description: 'Delete user' },
-    { method: 'PATCH', path: '/api/users/:id', description: 'Update user' },
+    { 
+      method: 'PATCH', 
+      path: '/api/users/:id', 
+      description: 'Update user',
+      requestExample: {
+        email: "newemail@example.com",
+        status: "inactive"
+      },
+      requestDescription: 'Provide fields to update',
+      responseExample: {
+        id: "user_123",
+        username: "john.doe",
+        email: "newemail@example.com",
+        roles: ["merchant"],
+        status: "inactive"
+      },
+      responseDescription: 'Returns the updated user object'
+    },
     { method: 'PATCH', path: '/api/users/:id/role', description: 'Update user role (super_admin only)' },
     { method: 'PATCH', path: '/api/users/:id/status', description: 'Update user status' },
     { method: 'POST', path: '/api/users/:id/reset-password', description: 'Reset user password' },
   ],
   
   'Merchants': [
-    { method: 'GET', path: '/api/merchants', description: 'List all merchants' },
+    { 
+      method: 'GET', 
+      path: '/api/merchants', 
+      description: 'List all merchants',
+      responseExample: [
+        {
+          id: 1,
+          firstName: "John",
+          lastName: "Doe",
+          email: "john@business.com",
+          companyId: 5,
+          status: "active",
+          dbaName: "John's Coffee Shop",
+          legalName: "John Doe LLC"
+        }
+      ],
+      responseDescription: 'Returns array of merchants'
+    },
     { method: 'GET', path: '/api/merchants/all', description: 'Get all merchants (admin)' },
     { method: 'GET', path: '/api/merchants/:id/user', description: 'Get merchant\'s associated user' },
     { method: 'GET', path: '/api/merchants/:merchantId/locations', description: 'List merchant locations' },
-    { method: 'GET', path: '/api/merchants/:merchantId/mtd-revenue', description: 'Get merchant month-to-date revenue' },
-    { method: 'POST', path: '/api/merchants', description: 'Create new merchant' },
+    { 
+      method: 'GET', 
+      path: '/api/merchants/:merchantId/mtd-revenue', 
+      description: 'Get merchant month-to-date revenue',
+      responseExample: {
+        totalRevenue: "15000.00",
+        last24Hours: "500.00",
+        monthToDate: "12000.00",
+        yearToDate: "180000.00"
+      },
+      responseDescription: 'Returns revenue metrics for the merchant'
+    },
+    { 
+      method: 'POST', 
+      path: '/api/merchants', 
+      description: 'Create new merchant',
+      requestExample: {
+        firstName: "Jane",
+        lastName: "Smith",
+        email: "jane@retail.com",
+        phone: "555-0123",
+        dbaName: "Jane's Retail Store",
+        legalName: "Jane Smith Inc",
+        federalTaxId: "12-3456789",
+        businessType: "retail",
+        agentId: 1
+      },
+      requestDescription: 'Merchant creation data',
+      responseExample: {
+        id: 2,
+        firstName: "Jane",
+        lastName: "Smith",
+        email: "jane@retail.com",
+        status: "pending",
+        companyId: 10
+      },
+      responseDescription: 'Returns the created merchant object'
+    },
     { method: 'POST', path: '/api/merchants/:id/reset-password', description: 'Reset merchant password' },
     { method: 'POST', path: '/api/merchants/:merchantId/locations', description: 'Create merchant location' },
     { method: 'GET', path: '/api/v1/merchants', description: 'List merchants (API v1)' },
@@ -48,8 +156,44 @@ export const apiEndpoints: Record<string, ApiEndpoint[]> = {
   ],
   
   'Prospects & Applications': [
-    { method: 'GET', path: '/api/prospects', description: 'List all prospects' },
-    { method: 'GET', path: '/api/prospects/me', description: 'Get current prospect (self-service)' },
+    { 
+      method: 'GET', 
+      path: '/api/prospects', 
+      description: 'List all prospects',
+      responseExample: [
+        {
+          id: 1,
+          firstName: "Bob",
+          lastName: "Johnson",
+          email: "bob@startup.com",
+          companyName: "Bob's Startup",
+          status: "in_progress",
+          agentId: 1,
+          createdAt: "2025-11-15T14:20:00Z"
+        }
+      ],
+      responseDescription: 'Returns array of prospects'
+    },
+    { 
+      method: 'GET', 
+      path: '/api/prospects/me', 
+      description: 'Get current prospect (self-service)',
+      responseExample: {
+        prospect: {
+          id: 1,
+          firstName: "Bob",
+          lastName: "Johnson",
+          email: "bob@startup.com",
+          status: "in_progress",
+          hasPassword: true
+        },
+        formData: {
+          companyName: "Bob's Startup",
+          companyEmail: "contact@bobstartup.com"
+        }
+      },
+      responseDescription: 'Returns current prospect with application data'
+    },
     { method: 'GET', path: '/api/prospects/view/:id', description: 'View prospect details' },
     { method: 'GET', path: '/api/prospects/:id/documents', description: 'List prospect documents' },
     { method: 'GET', path: '/api/prospects/:id/documents/:docId/download-url', description: 'Get document download URL' },
