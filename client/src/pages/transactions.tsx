@@ -20,7 +20,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Filter, Download, Eye, RotateCcw } from "lucide-react";
+import { Search, Filter, Download, Eye, RotateCcw, Receipt, Plus } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { transactionsApi } from "@/lib/api";
 
 export default function Transactions() {
@@ -196,8 +197,24 @@ export default function Transactions() {
                   ))
                 ) : filteredTransactions.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-gray-500">
-                      {searchQuery || statusFilter !== "all" ? "No transactions found matching your filters" : "No transactions found"}
+                    <TableCell colSpan={8} className="p-0">
+                      {searchQuery || statusFilter !== "all" ? (
+                        <div className="text-center py-8 text-gray-500">
+                          No transactions found matching your filters
+                        </div>
+                      ) : (
+                        <EmptyState
+                          icon={Receipt}
+                          title="No Transactions Yet"
+                          description="Once merchants start processing payments, their transactions will appear here. Track revenue, monitor payment methods, and analyze transaction patterns."
+                          suggestions={[
+                            "Connect merchant payment processors",
+                            "Set up test transaction data",
+                            "Configure transaction monitoring"
+                          ]}
+                          actions={[]}
+                        />
+                      )}
                     </TableCell>
                   </TableRow>
                 ) : (
