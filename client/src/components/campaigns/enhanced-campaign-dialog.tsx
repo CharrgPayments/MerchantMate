@@ -7,10 +7,10 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { DollarSign, AlertCircle } from 'lucide-react';
+import { DollarSign, AlertCircle, HelpCircle, Package } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { queryClient } from '@/lib/queryClient';
@@ -518,13 +518,89 @@ export function EnhancedCampaignDialog({
             {formData.pricingTypeId && selectedPricingTypeFeeGroups && (
               <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center">
-                    <DollarSign className="h-4 w-4 mr-2" />
-                    Fee Configuration
-                  </CardTitle>
-                  <CardDescription>
-                    Configure fee values for {selectedPricingTypeFeeGroups.pricingType.name} pricing type.
-                  </CardDescription>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-base flex items-center">
+                        <DollarSign className="h-4 w-4 mr-2" />
+                        Fee Configuration
+                      </CardTitle>
+                      <CardDescription>
+                        Configure fee values for {selectedPricingTypeFeeGroups.pricingType.name} pricing type.
+                      </CardDescription>
+                    </div>
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          className="gap-1 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800 h-8"
+                          data-testid="button-fee-config-help"
+                        >
+                          <HelpCircle className="h-4 w-4" />
+                          <span className="text-xs">Help</span>
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                        <DialogHeader>
+                          <DialogTitle>Fee Configuration Guide</DialogTitle>
+                          <DialogDescription>
+                            Learn how to configure fees for your campaign based on the selected pricing type.
+                          </DialogDescription>
+                        </DialogHeader>
+                        
+                        <div className="space-y-4 text-sm">
+                          <div>
+                            <h3 className="font-semibold text-base mb-2">Understanding Fee Configuration</h3>
+                            <p className="text-muted-foreground">
+                              Fees are organized into groups (e.g., "Transaction Fees", "Monthly Fees"). Each group contains specific fee items that define the pricing structure for your campaign.
+                            </p>
+                          </div>
+
+                          <div className="space-y-3">
+                            <h3 className="font-semibold">Fee Value Types</h3>
+                            
+                            <div className="bg-blue-50 p-3 rounded-md border border-blue-200">
+                              <h4 className="font-medium text-blue-900 mb-1">Percentage Fees</h4>
+                              <p className="text-sm text-blue-800">
+                                Enter values like <code className="bg-blue-100 px-1 py-0.5 rounded">2.50</code> for 2.50%. Used for transaction fees that scale with amount (e.g., 2.5% per transaction).
+                              </p>
+                            </div>
+
+                            <div className="bg-green-50 p-3 rounded-md border border-green-200">
+                              <h4 className="font-medium text-green-900 mb-1">Fixed Fees</h4>
+                              <p className="text-sm text-green-800">
+                                Enter dollar amounts like <code className="bg-green-100 px-1 py-0.5 rounded">25.00</code> for $25. Used for flat fees (e.g., $25 monthly gateway fee).
+                              </p>
+                            </div>
+
+                            <div className="bg-purple-50 p-3 rounded-md border border-purple-200">
+                              <h4 className="font-medium text-purple-900 mb-1">Basis Points</h4>
+                              <p className="text-sm text-purple-800">
+                                Enter values like <code className="bg-purple-100 px-1 py-0.5 rounded">250</code> for 2.50% (250 basis points). Used in financial calculations where 100 basis points = 1%.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div>
+                            <h3 className="font-semibold mb-2">Required vs Optional Fees</h3>
+                            <p className="text-muted-foreground">
+                              Fees marked with a red asterisk (<span className="text-destructive">*</span>) are required. The system will prevent you from creating a campaign without values for required fees.
+                            </p>
+                          </div>
+
+                          <div>
+                            <h3 className="font-semibold mb-2">Best Practices</h3>
+                            <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
+                              <li>Review the default values - they may be pre-filled based on your pricing type</li>
+                              <li>Double-check percentage vs fixed fee values to avoid pricing errors</li>
+                              <li>Optional fees can be left empty if not applicable to this campaign</li>
+                              <li>Fee configurations apply to all merchants enrolled in this campaign</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {feeGroupsLoading ? (
@@ -618,10 +694,103 @@ export function EnhancedCampaignDialog({
             {/* Equipment Selection */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Equipment Selection</CardTitle>
-                <CardDescription>
-                  Select equipment items to include with this campaign.
-                </CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base flex items-center">
+                      <Package className="h-4 w-4 mr-2" />
+                      Equipment Selection
+                    </CardTitle>
+                    <CardDescription>
+                      Select equipment items to include with this campaign.
+                    </CardDescription>
+                  </div>
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="gap-1 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800 h-8"
+                        data-testid="button-equipment-help"
+                      >
+                        <HelpCircle className="h-4 w-4" />
+                        <span className="text-xs">Help</span>
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle>Equipment Selection Guide</DialogTitle>
+                        <DialogDescription>
+                          Learn how to select and configure equipment for your campaign.
+                        </DialogDescription>
+                      </DialogHeader>
+                      
+                      <div className="space-y-4 text-sm">
+                        <div>
+                          <h3 className="font-semibold text-base mb-2">What is Equipment Selection?</h3>
+                          <p className="text-muted-foreground">
+                            Equipment items are physical hardware (e.g., card readers, terminals, PIN pads) that merchants receive as part of their campaign enrollment. Selecting equipment here determines which devices are available to merchants in this campaign.
+                          </p>
+                        </div>
+
+                        <div className="space-y-3">
+                          <h3 className="font-semibold">How to Select Equipment</h3>
+                          
+                          <div className="bg-blue-50 p-3 rounded-md border border-blue-200">
+                            <h4 className="font-medium text-blue-900 mb-1 flex items-center gap-2">
+                              <span className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">1</span>
+                              Browse Available Equipment
+                            </h4>
+                            <p className="text-sm text-blue-800 ml-8">
+                              Review the list of equipment items. Each item shows its name, description, and specifications.
+                            </p>
+                          </div>
+
+                          <div className="bg-green-50 p-3 rounded-md border border-green-200">
+                            <h4 className="font-medium text-green-900 mb-1 flex items-center gap-2">
+                              <span className="w-6 h-6 rounded-full bg-green-600 text-white flex items-center justify-center text-xs font-bold">2</span>
+                              Check Equipment Boxes
+                            </h4>
+                            <p className="text-sm text-green-800 ml-8">
+                              Click the checkbox next to each equipment item you want to include in this campaign. You can select multiple items.
+                            </p>
+                          </div>
+
+                          <div className="bg-purple-50 p-3 rounded-md border border-purple-200">
+                            <h4 className="font-medium text-purple-900 mb-1 flex items-center gap-2">
+                              <span className="w-6 h-6 rounded-full bg-purple-600 text-white flex items-center justify-center text-xs font-bold">3</span>
+                              Review Your Selection
+                            </h4>
+                            <p className="text-sm text-purple-800 ml-8">
+                              Selected equipment items will be highlighted. Merchants enrolling in this campaign can choose from these devices.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div>
+                          <h3 className="font-semibold mb-2">Equipment vs Fees</h3>
+                          <p className="text-muted-foreground mb-2">
+                            Equipment selection is separate from fee configuration. Equipment costs may be:
+                          </p>
+                          <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
+                            <li><strong>Included in fees:</strong> Equipment cost is part of the monthly or setup fee</li>
+                            <li><strong>Separate charge:</strong> Equipment billed separately from processing fees</li>
+                            <li><strong>Free with contract:</strong> Equipment provided at no cost with commitment</li>
+                          </ul>
+                        </div>
+
+                        <div>
+                          <h3 className="font-semibold mb-2">Best Practices</h3>
+                          <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
+                            <li>Select equipment that matches your target merchant type (retail, mobile, e-commerce)</li>
+                            <li>Ensure selected equipment is compatible with the chosen acquirer/processor</li>
+                            <li>Consider offering multiple device options to accommodate different merchant needs</li>
+                            <li>Keep equipment selection up-to-date as new devices become available</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </CardHeader>
               <CardContent>
                 {equipmentLoading ? (

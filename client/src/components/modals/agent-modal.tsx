@@ -7,6 +7,8 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import {
   Form,
@@ -30,7 +32,7 @@ import { agentsApi } from "@/lib/api";
 import type { Agent, InsertAgent } from "@shared/schema";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ArrowLeft, ArrowRight, User, Building, UserCheck, CheckCircle, MapPin, Loader2, Wand2, Check } from "lucide-react";
+import { ArrowLeft, ArrowRight, User, Building, UserCheck, CheckCircle, MapPin, Loader2, Wand2, Check, HelpCircle } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import React from "react";
 import { formatPhoneNumber, unformatPhoneNumber, formatEIN, unformatEIN, generatePassword } from "@/lib/utils";
@@ -1151,6 +1153,125 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
 
   const renderUserAccountSection = () => (
     <div className="space-y-6">
+      {/* User Account Help Dialog */}
+      <div className="flex items-center justify-between pb-2 border-b">
+        <div>
+          <h3 className="text-sm font-medium flex items-center gap-2">
+            <UserCheck className="h-4 w-4" />
+            User Account Setup
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Configure login credentials and communication preferences
+          </p>
+        </div>
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button 
+              variant="outline" 
+              size="sm"
+              className="gap-1 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800 h-8"
+              data-testid="button-user-account-help-agent"
+            >
+              <HelpCircle className="h-4 w-4" />
+              <span className="text-xs">Help</span>
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>User Account Setup Guide</DialogTitle>
+              <DialogDescription>
+                Learn how to create secure user accounts for agents with proper credentials and communication preferences.
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4 text-sm">
+              <div>
+                <h3 className="font-semibold text-base mb-2">Overview</h3>
+                <p className="text-muted-foreground">
+                  Every agent needs a user account to log in to the system. This section allows you to set up secure credentials and configure how the agent receives notifications.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="font-semibold">Username Guidelines</h3>
+                
+                <div className="bg-blue-50 p-3 rounded-md border border-blue-200">
+                  <h4 className="font-medium text-blue-900 mb-1">Choosing a Username</h4>
+                  <ul className="list-disc pl-5 space-y-1 text-sm text-blue-800">
+                    <li>Use the agent's email address (e.g., john.doe@company.com)</li>
+                    <li>Or create a unique identifier (e.g., jdoe, john.doe)</li>
+                    <li>Usernames must be unique across all users</li>
+                    <li>Cannot be changed after account creation</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="font-semibold">Password Management</h3>
+                
+                <div className="bg-green-50 p-3 rounded-md border border-green-200">
+                  <h4 className="font-medium text-green-900 mb-1">Generate Password Button</h4>
+                  <p className="text-sm text-green-800 mb-2">
+                    Click "Generate Password" to create a strong, random password that meets all security requirements:
+                  </p>
+                  <ul className="list-disc pl-5 space-y-1 text-sm text-green-800">
+                    <li><strong>12 characters</strong> long for maximum security</li>
+                    <li>Includes uppercase letters, lowercase, numbers, and symbols</li>
+                    <li><strong>Automatically copied to clipboard</strong> - paste it to share with the agent</li>
+                    <li>Password is also displayed in the success message after creation</li>
+                  </ul>
+                </div>
+
+                <div className="bg-purple-50 p-3 rounded-md border border-purple-200">
+                  <h4 className="font-medium text-purple-900 mb-1">Manual Password Entry</h4>
+                  <p className="text-sm text-purple-800 mb-2">
+                    If you prefer to set your own password, it must meet these requirements:
+                  </p>
+                  <ul className="list-disc pl-5 space-y-1 text-sm text-purple-800">
+                    <li>At least <strong>8 characters</strong> long</li>
+                    <li>At least one <strong>uppercase letter</strong> (A-Z)</li>
+                    <li>At least one <strong>lowercase letter</strong> (a-z)</li>
+                    <li>At least one <strong>number</strong> (0-9)</li>
+                    <li>At least one <strong>special character</strong> (!@#$%^&*)</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-semibold mb-2">Communication Preferences</h3>
+                <p className="text-muted-foreground mb-2">
+                  Choose how the agent will receive system notifications and alerts:
+                </p>
+                <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
+                  <li><strong>📧 Email Only:</strong> All notifications sent to their email address</li>
+                  <li><strong>📱 SMS Only:</strong> All notifications sent as text messages to their phone</li>
+                  <li><strong>📧📱 Both:</strong> Receive notifications through both email and SMS (recommended for critical updates)</li>
+                </ul>
+              </div>
+
+              <div>
+                <h3 className="font-semibold mb-2">Security Best Practices</h3>
+                <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
+                  <li>Always use the "Generate Password" button for strongest security</li>
+                  <li>Never share passwords via email - use a secure channel</li>
+                  <li>Agents should change their password after first login</li>
+                  <li>Enable two-factor authentication (2FA) for additional security</li>
+                </ul>
+              </div>
+
+              <div className="bg-amber-50 p-3 rounded-md border border-amber-200">
+                <h3 className="font-semibold text-amber-900 mb-2">⚠️ Important Notes</h3>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-amber-800">
+                  <li>Store the generated password securely before submitting the form</li>
+                  <li>The password will be shown once in the success message after creation</li>
+                  <li>If lost, you'll need to use the "Reset Password" feature on the Agents page</li>
+                </ul>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+      
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <FormField
           control={form.control}
