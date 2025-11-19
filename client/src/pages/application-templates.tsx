@@ -2124,12 +2124,13 @@ function FieldConfigurationDialog({
                       <Dialog>
                         <DialogTrigger asChild>
                           <Button 
-                            variant="ghost" 
+                            variant="outline" 
                             size="sm" 
-                            className="h-6 w-6 p-0"
+                            className="h-7 px-2 gap-1"
                             data-testid="button-user-account-help"
                           >
-                            <HelpCircle className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                            <HelpCircle className="h-4 w-4" />
+                            <span className="text-xs">Help</span>
                           </Button>
                         </DialogTrigger>
                         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
