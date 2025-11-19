@@ -23,7 +23,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Plus, Search, Edit, Trash2, Mail, Calendar, User, Send, Download, ChevronDown, ChevronRight, Users, FileText, ExternalLink, Play, CheckCircle, XCircle, Bell, FileUp } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Mail, Calendar, User, Send, Download, ChevronDown, ChevronRight, Users, FileText, ExternalLink, Play, CheckCircle, XCircle, Bell, FileUp, UserPlus, Upload } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { insertMerchantProspectSchema, type MerchantProspectWithAgent, type Agent, type ProspectApplicationWithDetails, type Acquirer, type AcquirerApplicationTemplate } from "@shared/schema";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -464,9 +465,30 @@ export default function Prospects() {
                   </Card>
                 ))
               ) : agentProspectSummaries.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  {searchQuery || statusFilter !== "all" ? "No prospects found matching your filters" : "No prospects found"}
-                </div>
+                searchQuery || statusFilter !== "all" ? (
+                  <div className="text-center py-8 text-gray-500">
+                    No prospects found matching your filters
+                  </div>
+                ) : (
+                  <EmptyState
+                    icon={UserPlus}
+                    title="No Prospects Yet"
+                    description="Start building your pipeline by adding prospects. Track leads, manage applications, and convert prospects into merchants."
+                    suggestions={[
+                      "Create a new prospect manually",
+                      "Import prospects from a spreadsheet",
+                      "Invite prospects via email"
+                    ]}
+                    actions={[
+                      {
+                        label: "Create First Prospect",
+                        onClick: () => setIsModalOpen(true),
+                        icon: Plus,
+                        variant: "default"
+                      }
+                    ]}
+                  />
+                )
               ) : (
                 agentProspectSummaries.map((summary) => (
                   <Collapsible
@@ -685,8 +707,31 @@ export default function Prospects() {
                     ))
                   ) : filteredProspects.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
-                        {searchQuery || statusFilter !== "all" ? "No prospects found matching your filters" : "No prospects found"}
+                      <TableCell colSpan={7} className="p-0">
+                        {searchQuery || statusFilter !== "all" ? (
+                          <div className="text-center py-8 text-gray-500">
+                            No prospects found matching your filters
+                          </div>
+                        ) : (
+                          <EmptyState
+                            icon={UserPlus}
+                            title="No Prospects Yet"
+                            description="Start building your pipeline by adding prospects. Track leads, manage applications, and convert prospects into merchants."
+                            suggestions={[
+                              "Create a new prospect manually",
+                              "Import prospects from a spreadsheet",
+                              "Invite prospects via email"
+                            ]}
+                            actions={[
+                              {
+                                label: "Create First Prospect",
+                                onClick: () => setIsModalOpen(true),
+                                icon: Plus,
+                                variant: "default"
+                              }
+                            ]}
+                          />
+                        )}
                       </TableCell>
                     </TableRow>
                   ) : (

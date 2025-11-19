@@ -21,7 +21,8 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Search, Edit, Trash2, ChevronDown, ChevronRight, Building2, Mail, Phone, MapPin, Key, User, UserX } from "lucide-react";
+import { Plus, Search, Edit, Trash2, ChevronDown, ChevronRight, Building2, Mail, Phone, MapPin, Key, User, UserX, Users, Upload } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { agentsApi } from "@/lib/api";
 import { AgentModal } from "@/components/modals/agent-modal";
 import type { Agent, Merchant } from "@shared/schema";
@@ -258,8 +259,31 @@ export default function Agents() {
                   ))
                 ) : filteredAgents.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-gray-500">
-                      {searchQuery || statusFilter !== "all" ? "No agents found matching your filters" : "No agents found"}
+                    <TableCell colSpan={8} className="p-0">
+                      {searchQuery || statusFilter !== "all" ? (
+                        <div className="text-center py-8 text-gray-500">
+                          No agents found matching your filters
+                        </div>
+                      ) : (
+                        <EmptyState
+                          icon={Users}
+                          title="No Agents Yet"
+                          description="Build your sales team by adding agents. Assign territories, manage commissions, and track their prospect pipeline."
+                          suggestions={[
+                            "Add a new agent manually",
+                            "Import agents from spreadsheet",
+                            "Assign territories and commission rates"
+                          ]}
+                          actions={[
+                            {
+                              label: "Add First Agent",
+                              onClick: () => setIsModalOpen(true),
+                              icon: Plus,
+                              variant: "default"
+                            }
+                          ]}
+                        />
+                      )}
                     </TableCell>
                   </TableRow>
                 ) : (
