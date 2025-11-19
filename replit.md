@@ -13,6 +13,8 @@ Preferred communication style: Simple, everyday language.
 - **Form Design**: React Hook Form with Zod validation.
 - **Responsive Design**: Radix UI and shadcn/ui with Tailwind CSS.
 - **Icon Color Coding**: Visual differentiation by user type (Agents: Blue, Merchants: Green, Prospects: Yellow).
+- **Empty States**: Reusable EmptyState component for contextual guidance and CTAs when pages have no data.
+- **Contextual Help**: Comprehensive contextual help system providing in-line guidance across major forms and modals using nested dialog components.
 
 ### Technical Implementations
 - **Frontend**: React with TypeScript and Vite, TanStack Query, Wouter for routing.
@@ -22,6 +24,7 @@ Preferred communication style: Simple, everyday language.
 - **Email Service**: SendGrid for transactional emails with webhook integration, including a WYSIWYG editor (React Quill).
 - **File Handling**: Multer for PDF form uploads.
 - **Object Storage**: Replit Object Storage (GCS-backed) with presigned URLs, ACL-based access control, and owner-only file isolation.
+- **User Account Field Type**: Enables automatic user account creation during form submissions with role and password management.
 
 ### Feature Specifications
 - **Company-Centric Data Architecture**: Companies as the root entity.
@@ -38,9 +41,10 @@ Preferred communication style: Simple, everyday language.
 - **SOC2 Compliance Features**: Comprehensive audit trail, logging, security events, login attempt tracking.
 - **Generic Trigger/Action Catalog System**: Extensible event-driven action system supporting multi-channel notifications and action chaining.
 - **User Profile Management**: Self-service profile/settings page.
-- **Unified Communications Management**: Consolidated dashboard for all communications features (Templates, Triggers, Activity & Analytics, Settings) accessed via `/communications` route.
-- **Email Configuration & Testing**: Settings tab in Communications Manager displays current SendGrid sender configuration, provides instructions for changing sender email via environment variables, and includes test email functionality for all email templates.
-- **Prospect Self-Service Portal**: Comprehensive portal for prospects to manage their application lifecycle, including automatic account creation, password setup, document management, notification system, status tracking, profile management, and automatic conversion to merchant upon approval.
+- **Unified Communications Management**: Consolidated dashboard for all communications features (Templates, Triggers, Activity & Analytics, Settings).
+- **Email Configuration & Testing**: Settings tab in Communications Manager displays current SendGrid sender configuration and includes test email functionality.
+- **Prospect Self-Service Portal**: Comprehensive portal for prospects to manage their application lifecycle, including auto-account creation, password setup, document management, notifications, status tracking, profile management, and automatic conversion to merchant.
+- **Prospect Application Auto-Save**: Auto-save functionality with debounced saves for prospect application forms.
 
 ### System Design Choices
 - **Testing Framework**: TDD-style with Jest and React Testing Library.
@@ -49,121 +53,6 @@ Preferred communication style: Simple, everyday language.
 - **Database Safety**: Strict protocols and wrapper scripts to prevent accidental production database modifications, including automatic backups and checksum validation for migrations.
 - **User-Company Association Pattern**: All agent and merchant lookups MUST use the generic pattern: `User → user_company_associations → Company → Agent/Merchant`.
 - **CRITICAL: Database Schema Change Workflow**: After every change to `shared/schema.ts`, a migration **MUST** be immediately generated using `tsx scripts/migration-manager.ts generate`.
-
-## Recent Changes (November 2025)
-
-### User Account Field Type for Application Templates (November 18, 2025)
-
-**Feature**: Comprehensive user account field type enabling automatic user account creation during form submissions.
-
-**Frontend Implementation**:
-- **Type Safety**: Replaced `validation?: any` with properly typed `FieldValidationConfig` union in DynamicFormRenderer
-- **Schema Generation**: DynamicFormRenderer dynamically builds Zod schema based on UserAccountFieldConfig
-  - Username validation (manual, email-based, firstLastName-based)
-  - Password validation (manual with strength requirements, reset_token)
-  - **SECURITY**: Role selection uses `z.enum(allowedRoles)` to prevent privilege escalation
-- **Template Builder UI**: Enhanced application-templates.tsx with comprehensive UserAccountFieldConfig component
-  - Roles to assign
-  - Username generation strategy (email, firstLastName, manual)
-  - Password setup type (manual, reset_token, auto)
-  - Initial user status
-  - Email notification options
-  - Allowed roles for manual selection
-  - Default role pre-selection
-- **User Input Component**: UserAccountInput dynamically renders fields based on configuration
-  - Conditional field display based on config
-  - Password strength hints
-  - Role selection dropdown when allowedRoles specified
-
-**Backend Implementation**:
-- **User Account Service** (`server/services/userAccountService.ts`):
-  - `createUserFromFormField`: Creates user accounts from form field data
-  - Validates email uniqueness, username uniqueness
-  - Generates usernames based on config (email prefix, firstLastName, manual)
-  - Handles password setup: manual (with strength validation), auto-generated, reset_token
-  - **SECURITY**: Double validation of roles (frontend Zod enum + backend allowedRoles check)
-  - Sends password reset emails via SendGrid
-  - Comprehensive audit logging
-  - Exports `validatePasswordStrength` for use in password reset flows
-- **Form Submission Integration** (server/routes.ts):
-  - Processes user_account fields after form validation
-  - Extracts field configuration from application template
-  - **SECURITY**: Validates submitted role against allowedRoles before account creation
-  - Creates user accounts via createUserFromFormField
-  - Graceful error handling with user-friendly messages:
-    - DuplicateEmailError: "Email already registered"
-    - DuplicateUsernameError: "Username already taken"
-    - PasswordMismatchError: "Passwords do not match"
-    - Invalid role: "Invalid role selected. This incident has been logged."
-  - Continues with form submission even if account creation fails
-
-**Security Features**:
-- Password strength validation: 8+ characters, uppercase, lowercase, number, special character
-- Role validation: Zod enum on frontend + allowedRoles check on backend
-- Prevents privilege escalation by validating role submissions
-- Logs invalid role submission attempts
-- Bcrypt password hashing
-- Secure reset token generation (UUID, 24-hour expiry)
-- Audit trail for all account creations
-
-**Impact**: Application templates can now automatically create user accounts during form submission, enabling self-service registration flows with granular role control and security.
-
-### Enhanced Empty States for Improved UX (November 19, 2025)
-
-**Feature**: Reusable EmptyState component providing contextual guidance and actionable CTAs when pages have no data.
-
-**Component Implementation** (`client/src/components/ui/empty-state.tsx`):
-- **Props**: icon (Lucide icon), title, description, optional suggestions array, optional actions array
-- **Design**: Clean, centered layout with large icon, clear typography, bullet-point suggestions, and prominent action buttons
-- **Accessibility**: All interactive elements include data-testid attributes for testing
-- **Responsive**: Adapts gracefully across screen sizes with proper spacing and padding
-
-**Page Integrations**:
-- **Prospects**: "No Prospects Yet" with CTAs to create/view application forms (UserPlus icon)
-- **Merchants**: "No Merchants Yet" with "Add First Merchant" action (Store icon)
-- **Agents**: "No Agents Yet" with "Add First Agent" action (Users icon)
-- **Transactions**: "No Transactions Yet" with informative guidance (Receipt icon)
-
-**Smart Filter-Aware Behavior**:
-- Enhanced EmptyState displays only when no data exists AND no filters active
-- When filters are active with no results, shows simple text: "No [items] found matching your filters"
-- Prevents confusion between "no data exists" vs "filters exclude all results"
-
-**Testing**:
-- E2E validation confirmed Merchants and Transactions empty states render correctly
-- Filter-specific empty message behavior verified on Prospects page
-- Architect review passed with no security concerns
-
-**Impact**: Significantly improved onboarding experience by replacing generic "No data" messages with helpful, actionable guidance that teaches users how to populate each section and what actions to take next.
-
-**Defensive Coding Fix (November 18, 2025)**:
-- **Issue**: Enhanced PDF wizard crashed with "Cannot read properties of undefined (reading 'fields')" error when validating sections
-- **Root Cause**: `getSectionValidationStatus` function accessed `section.fields` without checking if section exists
-- **Solution**: Added defensive null/undefined check before accessing section properties
-- **Code Change**: `if (!section || !section.fields) return false;` at line 728 in enhanced-pdf-wizard.tsx
-- **Impact**: Eliminated crashes during form validation, improving wizard stability and user experience
-- **Testing**: Verified via end-to-end test - wizard loads correctly, forms are interactive, and no runtime errors occur
-
-### Prospect Application Auto-Save Fix (November 13, 2025)
-
-**Issue**: Prospect application forms only saved data when users clicked "Next" or "Previous" buttons. If users filled out fields but closed the browser without navigating between steps, all their data was lost.
-
-**Solution**: Implemented auto-save functionality with debounced saves:
-- **Auto-Save Effect**: Added useEffect that monitors `formData` changes and automatically saves after 2.5 seconds of inactivity
-- **Smart Guards**: Only triggers in prospect mode with valid prospect ID and after initial data load
-- **Debouncing**: Uses timeout-based debouncing to prevent excessive server requests
-- **Visual Feedback**: Added `isAutoSaving` state for future UI indicators
-- **Error Handling**: Displays user-friendly error messages if auto-save fails
-- **Concurrent Save Prevention**: Skips saves when mutation is already pending
-
-**Technical Details**:
-- File modified: `client/src/pages/enhanced-pdf-wizard.tsx`
-- Added state: `isAutoSaving`, `autoSaveTimeoutRef`
-- Updated mutation: `saveFormDataMutation` with onMutate/onSettled callbacks
-- Auto-save triggers on formData changes in prospect mode
-- Cleanup on unmount prevents memory leaks
-
-**Impact**: Prospects can now safely close and reopen their applications without losing progress, significantly improving user experience and reducing frustration.
 
 ## External Dependencies
 - **pg**: Native PostgreSQL driver.
