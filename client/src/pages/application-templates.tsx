@@ -16,7 +16,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus, Pencil, Eye, Copy, Download, Upload, Trash2, Settings, Circle, CheckCircle, ChevronDown, ChevronRight, GripVertical, FlaskConical } from 'lucide-react';
+import { Plus, Pencil, Eye, Copy, Download, Upload, Trash2, Settings, Circle, CheckCircle, ChevronDown, ChevronRight, GripVertical, FlaskConical, HelpCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useLocation } from 'wouter';
 import {
@@ -2119,7 +2119,176 @@ function FieldConfigurationDialog({
                 {/* User Account Field Configuration */}
                 {editingField.type === 'user_account' && (
                   <div>
-                    <label className="text-sm font-medium mb-2 block">User Account Configuration</label>
+                    <div className="flex items-center gap-2 mb-2">
+                      <label className="text-sm font-medium">User Account Configuration</label>
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="h-6 w-6 p-0"
+                            data-testid="button-user-account-help"
+                          >
+                            <HelpCircle className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                          <DialogHeader>
+                            <DialogTitle>User Account Field Configuration Guide</DialogTitle>
+                            <DialogDescription>
+                              Understand how to configure automatic user account creation for your application templates.
+                            </DialogDescription>
+                          </DialogHeader>
+                          
+                          <div className="space-y-6 py-4">
+                            {/* Overview */}
+                            <div>
+                              <h3 className="font-semibold text-sm mb-2">Overview</h3>
+                              <p className="text-sm text-muted-foreground">
+                                The User Account field automatically creates user accounts when someone submits your application form. 
+                                You can configure it for full automation, semi-automation, or manual user input.
+                              </p>
+                            </div>
+
+                            <Separator />
+
+                            {/* Username Generation */}
+                            <div>
+                              <h3 className="font-semibold text-sm mb-2">Username Generation</h3>
+                              <div className="space-y-3">
+                                <div className="pl-3 border-l-2 border-green-500">
+                                  <p className="text-sm font-medium">From Email Address</p>
+                                  <p className="text-xs text-muted-foreground">Auto-generates username from email prefix (before @)</p>
+                                  <p className="text-xs text-muted-foreground mt-1">Example: john.doe@example.com → username: john.doe</p>
+                                </div>
+                                <div className="pl-3 border-l-2 border-blue-500">
+                                  <p className="text-sm font-medium">First + Last Name</p>
+                                  <p className="text-xs text-muted-foreground">Auto-generates username from first and last name fields</p>
+                                  <p className="text-xs text-muted-foreground mt-1">Example: John Doe → username: john.doe</p>
+                                </div>
+                                <div className="pl-3 border-l-2 border-orange-500">
+                                  <p className="text-sm font-medium">Manual Entry</p>
+                                  <p className="text-xs text-muted-foreground">User chooses their own username during form submission</p>
+                                  <p className="text-xs text-muted-foreground mt-1">Form displays: Username input field</p>
+                                </div>
+                              </div>
+                            </div>
+
+                            <Separator />
+
+                            {/* Password Setup */}
+                            <div>
+                              <h3 className="font-semibold text-sm mb-2">Password Setup</h3>
+                              <div className="space-y-3">
+                                <div className="pl-3 border-l-2 border-green-500">
+                                  <p className="text-sm font-medium">Send Reset Email (Recommended)</p>
+                                  <p className="text-xs text-muted-foreground">Most secure option - creates account and emails password reset link</p>
+                                  <p className="text-xs text-muted-foreground mt-1">User receives: Email with link to set their own password</p>
+                                  <p className="text-xs font-semibold mt-1 text-green-600">✓ Best for prospect self-registration</p>
+                                </div>
+                                <div className="pl-3 border-l-2 border-blue-500">
+                                  <p className="text-sm font-medium">User Sets Password</p>
+                                  <p className="text-xs text-muted-foreground">User enters password directly during form submission</p>
+                                  <p className="text-xs text-muted-foreground mt-1">Form displays: Password and Confirm Password fields</p>
+                                  <p className="text-xs text-muted-foreground mt-1">Requirements: 8+ characters, uppercase, lowercase, number, special character</p>
+                                </div>
+                                <div className="pl-3 border-l-2 border-orange-500">
+                                  <p className="text-sm font-medium">Auto-Generate Password</p>
+                                  <p className="text-xs text-muted-foreground">System generates random secure password</p>
+                                  <p className="text-xs text-muted-foreground mt-1">Password is logged to server console (requires admin access to retrieve)</p>
+                                  <p className="text-xs font-semibold mt-1 text-orange-600">⚠ Consider sending reset email instead</p>
+                                </div>
+                              </div>
+                            </div>
+
+                            <Separator />
+
+                            {/* Role Assignment */}
+                            <div>
+                              <h3 className="font-semibold text-sm mb-2">Role Assignment</h3>
+                              <div className="space-y-3">
+                                <div>
+                                  <p className="text-sm font-medium">Roles to Assign</p>
+                                  <p className="text-xs text-muted-foreground">Automatically assigned roles (always applied)</p>
+                                  <p className="text-xs text-muted-foreground mt-1">Example: prospect, merchant</p>
+                                </div>
+                                <div>
+                                  <p className="text-sm font-medium">Allowed Roles (Manual Selection)</p>
+                                  <p className="text-xs text-muted-foreground">If specified, user can choose from these roles during submission</p>
+                                  <p className="text-xs text-muted-foreground mt-1">Leave empty to hide role selection field</p>
+                                  <p className="text-xs text-muted-foreground mt-1">Security: User can only select from allowed roles</p>
+                                </div>
+                                <div>
+                                  <p className="text-sm font-medium">Default Role</p>
+                                  <p className="text-xs text-muted-foreground">Pre-selected role when manual selection is enabled</p>
+                                </div>
+                              </div>
+                            </div>
+
+                            <Separator />
+
+                            {/* Common Scenarios */}
+                            <div>
+                              <h3 className="font-semibold text-sm mb-2">Common Scenarios</h3>
+                              <div className="space-y-4">
+                                <div className="bg-green-50 dark:bg-green-950 p-3 rounded-md">
+                                  <p className="text-sm font-medium text-green-900 dark:text-green-100">Prospect Self-Registration (Recommended)</p>
+                                  <ul className="text-xs text-green-800 dark:text-green-200 mt-2 space-y-1 list-disc list-inside">
+                                    <li>Username: From Email Address</li>
+                                    <li>Password: Send Reset Email</li>
+                                    <li>Roles to Assign: prospect</li>
+                                    <li>Allowed Roles: Leave empty</li>
+                                  </ul>
+                                  <p className="text-xs text-green-700 dark:text-green-300 mt-2">
+                                    Result: Fully automatic, user receives email to set password
+                                  </p>
+                                </div>
+
+                                <div className="bg-blue-50 dark:bg-blue-950 p-3 rounded-md">
+                                  <p className="text-sm font-medium text-blue-900 dark:text-blue-100">Custom User Registration</p>
+                                  <ul className="text-xs text-blue-800 dark:text-blue-200 mt-2 space-y-1 list-disc list-inside">
+                                    <li>Username: Manual Entry</li>
+                                    <li>Password: User Sets Password</li>
+                                    <li>Roles to Assign: Leave empty</li>
+                                    <li>Allowed Roles: prospect, merchant, agent</li>
+                                  </ul>
+                                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-2">
+                                    Result: User controls everything during form submission
+                                  </p>
+                                </div>
+
+                                <div className="bg-orange-50 dark:bg-orange-950 p-3 rounded-md">
+                                  <p className="text-sm font-medium text-orange-900 dark:text-orange-100">Admin Bulk Import</p>
+                                  <ul className="text-xs text-orange-800 dark:text-orange-200 mt-2 space-y-1 list-disc list-inside">
+                                    <li>Username: First + Last Name</li>
+                                    <li>Password: Auto-Generate Password</li>
+                                    <li>Roles to Assign: merchant</li>
+                                    <li>Allowed Roles: Leave empty</li>
+                                  </ul>
+                                  <p className="text-xs text-orange-700 dark:text-orange-300 mt-2">
+                                    Result: Fully automatic, passwords logged to console
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+
+                            <Separator />
+
+                            {/* Security Notes */}
+                            <div className="bg-yellow-50 dark:bg-yellow-950 p-3 rounded-md">
+                              <h3 className="font-semibold text-sm mb-2 text-yellow-900 dark:text-yellow-100">Security Notes</h3>
+                              <ul className="text-xs text-yellow-800 dark:text-yellow-200 space-y-1 list-disc list-inside">
+                                <li>All passwords are bcrypt hashed before storage</li>
+                                <li>Manual passwords require: 8+ chars, uppercase, lowercase, number, special character</li>
+                                <li>Role validation prevents privilege escalation</li>
+                                <li>Reset tokens expire after 24 hours</li>
+                                <li>Email uniqueness is enforced</li>
+                              </ul>
+                            </div>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
                     <div className="space-y-4 border rounded-md p-4">
                       {/* Roles to Assign */}
                       <div>
