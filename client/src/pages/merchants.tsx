@@ -21,7 +21,8 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Search, Eye, Edit, Trash2, Filter, ChevronDown, ChevronRight, MapPin } from "lucide-react";
+import { Plus, Search, Eye, Edit, Trash2, Filter, ChevronDown, ChevronRight, MapPin, Store, Upload } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { merchantsApi } from "@/lib/api";
 import { MerchantModal } from "@/components/modals/merchant-modal";
 import { useAuth } from "@/hooks/useAuth";
@@ -279,8 +280,31 @@ export default function Merchants() {
                   ))
                 ) : filteredMerchants.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-gray-500">
-                      {searchQuery || statusFilter !== "all" ? "No merchants found matching your filters" : "No merchants found"}
+                    <TableCell colSpan={6} className="p-0">
+                      {searchQuery || statusFilter !== "all" ? (
+                        <div className="text-center py-8 text-gray-500">
+                          No merchants found matching your filters
+                        </div>
+                      ) : (
+                        <EmptyState
+                          icon={Store}
+                          title="No Merchants Yet"
+                          description="Build your merchant network by adding businesses. Manage their locations, track transactions, and monitor performance."
+                          suggestions={[
+                            "Add a new merchant manually",
+                            "Import merchants from CSV",
+                            "Convert approved prospects to merchants"
+                          ]}
+                          actions={[
+                            {
+                              label: "Add First Merchant",
+                              onClick: () => setIsModalOpen(true),
+                              icon: Plus,
+                              variant: "default"
+                            }
+                          ]}
+                        />
+                      )}
                     </TableCell>
                   </TableRow>
                 ) : (
