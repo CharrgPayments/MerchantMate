@@ -108,6 +108,34 @@ Preferred communication style: Simple, everyday language.
 
 **Impact**: Application templates can now automatically create user accounts during form submission, enabling self-service registration flows with granular role control and security.
 
+### Enhanced Empty States for Improved UX (November 19, 2025)
+
+**Feature**: Reusable EmptyState component providing contextual guidance and actionable CTAs when pages have no data.
+
+**Component Implementation** (`client/src/components/ui/empty-state.tsx`):
+- **Props**: icon (Lucide icon), title, description, optional suggestions array, optional actions array
+- **Design**: Clean, centered layout with large icon, clear typography, bullet-point suggestions, and prominent action buttons
+- **Accessibility**: All interactive elements include data-testid attributes for testing
+- **Responsive**: Adapts gracefully across screen sizes with proper spacing and padding
+
+**Page Integrations**:
+- **Prospects**: "No Prospects Yet" with CTAs to create/view application forms (UserPlus icon)
+- **Merchants**: "No Merchants Yet" with "Add First Merchant" action (Store icon)
+- **Agents**: "No Agents Yet" with "Add First Agent" action (Users icon)
+- **Transactions**: "No Transactions Yet" with informative guidance (Receipt icon)
+
+**Smart Filter-Aware Behavior**:
+- Enhanced EmptyState displays only when no data exists AND no filters active
+- When filters are active with no results, shows simple text: "No [items] found matching your filters"
+- Prevents confusion between "no data exists" vs "filters exclude all results"
+
+**Testing**:
+- E2E validation confirmed Merchants and Transactions empty states render correctly
+- Filter-specific empty message behavior verified on Prospects page
+- Architect review passed with no security concerns
+
+**Impact**: Significantly improved onboarding experience by replacing generic "No data" messages with helpful, actionable guidance that teaches users how to populate each section and what actions to take next.
+
 **Defensive Coding Fix (November 18, 2025)**:
 - **Issue**: Enhanced PDF wizard crashed with "Cannot read properties of undefined (reading 'fields')" error when validating sections
 - **Root Cause**: `getSectionValidationStatus` function accessed `section.fields` without checking if section exists
