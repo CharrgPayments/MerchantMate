@@ -5180,6 +5180,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Bulk status update for merchants
+  app.post("/api/merchants/bulk-status-update", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { ids, status } = req.body;
+      const dynamicDB = getRequestDB(req);
+      
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ message: "Invalid request: ids must be a non-empty array" });
+      }
+      
+      if (!status || !['active', 'inactive', 'suspended'].includes(status)) {
+        return res.status(400).json({ message: "Invalid status value" });
+      }
+      
+      // Update all merchants with the new status
+      const { merchants } = await import('@shared/schema');
+      const { inArray } = await import('drizzle-orm');
+      
+      const updatedMerchants = await dynamicDB
+        .update(merchants)
+        .set({ status })
+        .where(inArray(merchants.id, ids))
+        .returning();
+      
+      res.json({ 
+        success: true, 
+        updatedCount: updatedMerchants.length,
+        message: `Successfully updated ${updatedMerchants.length} of ${ids.length} merchants to ${status}`
+      });
+    } catch (error) {
+      console.error("Error updating merchant statuses in bulk:", error);
+      res.status(500).json({ message: "Failed to update merchant statuses" });
+    }
+  });
+
   // Current agent info (for logged-in agents)
   app.get("/api/current-agent", isAuthenticated, async (req: any, res) => {
     try {
@@ -5254,6 +5289,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching agents:", error);
       res.status(500).json({ message: "Failed to fetch agents" });
+    }
+  });
+
+  // Bulk status update for agents
+  app.post("/api/agents/bulk-status-update", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { ids, status } = req.body;
+      const dynamicDB = getRequestDB(req);
+      
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ message: "Invalid request: ids must be a non-empty array" });
+      }
+      
+      if (!status || !['active', 'inactive'].includes(status)) {
+        return res.status(400).json({ message: "Invalid status value" });
+      }
+      
+      // Update all agents with the new status
+      const { agents } = await import('@shared/schema');
+      const { inArray } = await import('drizzle-orm');
+      
+      const updatedAgents = await dynamicDB
+        .update(agents)
+        .set({ status })
+        .where(inArray(agents.id, ids))
+        .returning();
+      
+      res.json({ 
+        success: true, 
+        updatedCount: updatedAgents.length,
+        message: `Successfully updated ${updatedAgents.length} of ${ids.length} agents to ${status}`
+      });
+    } catch (error) {
+      console.error("Error updating agent statuses in bulk:", error);
+      res.status(500).json({ message: "Failed to update agent statuses" });
     }
   });
 

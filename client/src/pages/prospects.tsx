@@ -20,11 +20,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { Plus, Search, Edit, Trash2, Mail, Calendar, User, Send, Download, ChevronDown, ChevronRight, Users, FileText, ExternalLink, Play, CheckCircle, XCircle, Bell, FileUp, UserPlus, Upload } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { insertMerchantProspectSchema, type MerchantProspectWithAgent, type Agent, type ProspectApplicationWithDetails, type Acquirer, type AcquirerApplicationTemplate } from "@shared/schema";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,6 +39,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { prospectsApi } from "@/lib/api";
 
 // Interface for agent prospect summary
 interface AgentProspectSummary {
@@ -57,6 +60,7 @@ export default function Prospects() {
   const [isApplicationsDialogOpen, setIsApplicationsDialogOpen] = useState(false);
   const [notificationDialogProspect, setNotificationDialogProspect] = useState<MerchantProspectWithAgent | null>(null);
   const [documentRequestDialogProspect, setDocumentRequestDialogProspect] = useState<MerchantProspectWithAgent | null>(null);
+  const [selectedProspectIds, setSelectedProspectIds] = useState<Set<number>>(new Set());
 
   const { toast } = useToast();
   const { user } = useAuth();
@@ -130,6 +134,48 @@ export default function Prospects() {
       toast({
         title: "Error",
         description: "Failed to delete prospect",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      return await prospectsApi.bulkDelete(ids);
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prospects"] });
+      setSelectedProspectIds(new Set());
+      toast({
+        title: "Success",
+        description: result.message,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to delete prospects",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const bulkStatusUpdateMutation = useMutation({
+    mutationFn: async ({ ids, status }: { ids: number[]; status: string }) => {
+      return await prospectsApi.bulkStatusUpdate(ids, status);
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prospects"] });
+      setSelectedProspectIds(new Set());
+      toast({
+        title: "Success",
+        description: result.message,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update prospect status",
         variant: "destructive",
       });
     },
@@ -401,6 +447,39 @@ export default function Prospects() {
     });
   };
 
+  const toggleProspectSelection = (prospectId: number) => {
+    setSelectedProspectIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(prospectId)) {
+        newSet.delete(prospectId);
+      } else {
+        newSet.add(prospectId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleAllProspectsSelection = () => {
+    if (selectedProspectIds.size === filteredProspects.length) {
+      setSelectedProspectIds(new Set());
+    } else {
+      setSelectedProspectIds(new Set(filteredProspects.map(p => p.id)));
+    }
+  };
+
+  const handleBulkDelete = () => {
+    if (confirm(`Are you sure you want to delete ${selectedProspectIds.size} prospects?`)) {
+      bulkDeleteMutation.mutate(Array.from(selectedProspectIds));
+    }
+  };
+
+  const handleBulkStatusUpdate = (status: string) => {
+    bulkStatusUpdateMutation.mutate({ 
+      ids: Array.from(selectedProspectIds), 
+      status 
+    });
+  };
+
   return (
     <div className="p-6 space-y-6">
       <Card className="corecrm-card">
@@ -443,6 +522,35 @@ export default function Prospects() {
               </Select>
             </div>
           </div>
+
+          {/* Bulk Action Bar */}
+          {selectedProspectIds.size > 0 && (
+            <BulkActionBar
+              selectedCount={selectedProspectIds.size}
+              onClearSelection={() => setSelectedProspectIds(new Set())}
+              actions={[
+                {
+                  label: 'Delete Selected',
+                  onClick: handleBulkDelete,
+                  variant: 'destructive',
+                  icon: <Trash2 className="h-4 w-4 mr-2" />,
+                },
+              ]}
+              actionGroups={[
+                {
+                  label: 'Set Status',
+                  actions: [
+                    { label: 'Pending', onClick: () => handleBulkStatusUpdate('pending') },
+                    { label: 'Contacted', onClick: () => handleBulkStatusUpdate('contacted') },
+                    { label: 'In Progress', onClick: () => handleBulkStatusUpdate('in_progress') },
+                    { label: 'Applied', onClick: () => handleBulkStatusUpdate('applied') },
+                    { label: 'Approved', onClick: () => handleBulkStatusUpdate('approved') },
+                    { label: 'Rejected', onClick: () => handleBulkStatusUpdate('rejected') },
+                  ],
+                },
+              ]}
+            />
+          )}
 
           {/* Agent-based hierarchical view for admin users */}
           {userRoles.some(role => ['super_admin', 'admin', 'corporate'].includes(role)) ? (
@@ -542,6 +650,24 @@ export default function Prospects() {
                             <Table>
                               <TableHeader>
                                 <TableRow>
+                                  <TableHead className="w-12">
+                                    <Checkbox
+                                      checked={summary.prospects.every(p => selectedProspectIds.has(p.id))}
+                                      onCheckedChange={() => {
+                                        const allSelected = summary.prospects.every(p => selectedProspectIds.has(p.id));
+                                        const newSet = new Set(selectedProspectIds);
+                                        summary.prospects.forEach(p => {
+                                          if (allSelected) {
+                                            newSet.delete(p.id);
+                                          } else {
+                                            newSet.add(p.id);
+                                          }
+                                        });
+                                        setSelectedProspectIds(newSet);
+                                      }}
+                                      data-testid="checkbox-select-all-prospects"
+                                    />
+                                  </TableHead>
                                   <TableHead>Prospect</TableHead>
                                   <TableHead>Email</TableHead>
                                   <TableHead>Status</TableHead>
@@ -553,6 +679,13 @@ export default function Prospects() {
                               <TableBody>
                                 {summary.prospects.map((prospect) => (
                                   <TableRow key={prospect.id}>
+                                    <TableCell>
+                                      <Checkbox
+                                        checked={selectedProspectIds.has(prospect.id)}
+                                        onCheckedChange={() => toggleProspectSelection(prospect.id)}
+                                        data-testid={`checkbox-select-prospect-${prospect.id}`}
+                                      />
+                                    </TableCell>
                                     <TableCell>
                                       <div className="flex items-center space-x-3">
                                         <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
