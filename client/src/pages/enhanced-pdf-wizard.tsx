@@ -69,6 +69,7 @@ export default function EnhancedPdfWizard() {
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [activeOwnerSlots, setActiveOwnerSlots] = useState<Set<number>>(new Set([1])); // Start with owner1 active
+  const [totalOwnership, setTotalOwnership] = useState<number>(0); // Store calculated total ownership
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -159,6 +160,61 @@ export default function EnhancedPdfWizard() {
       }
     });
   }, []);
+
+  // Recalculate total ownership whenever formData or activeOwnerSlots changes
+  useEffect(() => {
+    console.log(`🔄 Ownership calculation useEffect triggered. Active slots:`, Array.from(activeOwnerSlots));
+    console.log(`🔍 formData keys containing 'owner':`, Object.keys(formData).filter(k => k.toLowerCase().includes('owner')));
+    
+    let total = 0;
+    
+    activeOwnerSlots.forEach((slotNumber) => {
+      let found = false;
+      
+      // Check multiple key patterns where ownership data might be stored
+      // Based on removeOwnerSlot, the actual key is: _signatureGroup_owner${slot}_signature_owner
+      const signatureGroupKeyPatterns = [
+        `_signatureGroup_owner${slotNumber}_signature_owner`,         // ACTUAL key used!
+        `owner${slotNumber}_signature_owner`,                          // Direct key (new method)
+        `owners_owner${slotNumber}_signature_owner`,                   // With owners_ prefix
+        `_signatureGroup_owners_owner${slotNumber}_signature_owner`,  // Full prefix
+      ];
+      
+      for (const signatureGroupKey of signatureGroupKeyPatterns) {
+        const ownerDataStr = formData[signatureGroupKey];
+        console.log(`  🔍 Checking key '${signatureGroupKey}': ${ownerDataStr ? 'EXISTS' : 'NOT FOUND'}`);
+        
+        if (ownerDataStr && typeof ownerDataStr === 'string') {
+          try {
+            const ownerData = JSON.parse(ownerDataStr);
+            const percentageValue = ownerData.ownershipPercentage;
+            console.log(`    📦 Parsed data for owner${slotNumber}:`, { ownershipPercentage: percentageValue });
+            
+            if (percentageValue !== undefined && percentageValue !== null && percentageValue !== '') {
+              const percentage = typeof percentageValue === 'string' 
+                ? parseFloat(percentageValue) 
+                : percentageValue;
+              if (!isNaN(percentage) && percentage >= 0) {
+                total += percentage;
+                found = true;
+                console.log(`✅ Owner${slotNumber}: ${percentage}%`);
+                break; // Found it, stop checking other patterns
+              }
+            }
+          } catch (e) {
+            console.warn(`⚠️ Failed to parse for ${signatureGroupKey}:`, e);
+          }
+        }
+      }
+      
+      if (!found) {
+        console.log(`❌ No ownership data found for owner${slotNumber}`);
+      }
+    });
+    
+    console.log(`📊 Total: ${total.toFixed(1)}%`);
+    setTotalOwnership(total);
+  }, [formData, activeOwnerSlots]);
 
   // Check for prospect validation token in URL parameters
   const urlParams = new URLSearchParams(window.location.search);
@@ -362,54 +418,6 @@ export default function EnhancedPdfWizard() {
       });
     },
   });
-
-  // Helper function to calculate total ownership percentage from active owners
-  const calculateTotalOwnership = (): number => {
-    let total = 0;
-    
-    activeOwnerSlots.forEach((slotNumber) => {
-      let ownerPercentage = 0;
-      let found = false;
-      
-      // Try multiple signature group key patterns (in order of most likely to least likely)
-      const signatureGroupKeyPatterns = [
-        `owners_owner${slotNumber}_signature_owner`,                   // Direct key (new method)
-        `_signatureGroup_owners_owner${slotNumber}_signature_owner`,  // With prefix (old method)
-        `owner${slotNumber}_signature_owner`,                          // Short pattern
-        `_signatureGroup_owner${slotNumber}_signature_owner`,         // Short with prefix
-      ];
-      
-      for (const signatureGroupKey of signatureGroupKeyPatterns) {
-        const ownerDataStr = formData[signatureGroupKey];
-        
-        if (ownerDataStr && !found) {
-          try {
-            const ownerData = JSON.parse(ownerDataStr);
-            const percentageValue = ownerData.ownershipPercentage;
-            
-            if (percentageValue !== undefined && percentageValue !== null && percentageValue !== '') {
-              const percentage = typeof percentageValue === 'string' 
-                ? parseFloat(percentageValue) 
-                : percentageValue;
-              if (!isNaN(percentage) && percentage >= 0) {
-                ownerPercentage = percentage;
-                found = true;
-                console.log(`✅ Owner${slotNumber}: ${percentage}%`);
-                break;
-              }
-            }
-          } catch (e) {
-            // Silently skip invalid JSON
-          }
-        }
-      }
-      
-      total += ownerPercentage;
-    });
-    
-    console.log(`📊 Total: ${total.toFixed(1)}%`);
-    return total;
-  };
 
   // Helper function to add a new owner slot
   const addOwnerSlot = () => {
@@ -1818,6 +1826,11 @@ export default function EnhancedPdfWizard() {
 
   // Handle field changes with auto-save and address override protection
   const handleFieldChange = (fieldName: string, value: any) => {
+    // Log ownership-related field changes for debugging
+    if (fieldName.toLowerCase().includes('owner') || fieldName.toLowerCase().includes('signature')) {
+      console.log(`🔧 handleFieldChange called: fieldName="${fieldName}", value type=${typeof value}, length=${typeof value === 'string' ? value.length : 'N/A'}`);
+    }
+    
     // Check if this is a city, state, or zipCode field (with any prefix)
     const isCityField = fieldName.endsWith('City');
     const isStateField = fieldName.endsWith('State');
@@ -3803,16 +3816,16 @@ export default function EnhancedPdfWizard() {
                       <h3 className="font-semibold text-blue-900">Business Ownership</h3>
                       <p className="text-sm text-blue-700">
                         Total Ownership: <span className={`font-bold ${
-                          Math.abs(calculateTotalOwnership() - 100) < 0.01 ? 'text-green-600' :
-                          calculateTotalOwnership() > 100 ? 'text-red-600' : 'text-orange-600'
+                          Math.abs(totalOwnership - 100) < 0.01 ? 'text-green-600' :
+                          totalOwnership > 100 ? 'text-red-600' : 'text-orange-600'
                         }`}>
-                          {calculateTotalOwnership().toFixed(1)}%
+                          {totalOwnership.toFixed(1)}%
                         </span>
-                        {Math.abs(calculateTotalOwnership() - 100) > 0.01 && (
+                        {Math.abs(totalOwnership - 100) > 0.01 && (
                           <span className="ml-2 text-sm">
-                            ({calculateTotalOwnership() < 100 ? 
-                              `${(100 - calculateTotalOwnership()).toFixed(1)}% remaining` :
-                              `${(calculateTotalOwnership() - 100).toFixed(1)}% over limit`
+                            ({totalOwnership < 100 ? 
+                              `${(100 - totalOwnership).toFixed(1)}% remaining` :
+                              `${(totalOwnership - 100).toFixed(1)}% over limit`
                             })
                           </span>
                         )}
@@ -3823,7 +3836,7 @@ export default function EnhancedPdfWizard() {
                       variant="outline"
                       size="sm"
                       onClick={addOwnerSlot}
-                      disabled={activeOwnerSlots.size >= 5 || calculateTotalOwnership() >= 100}
+                      disabled={activeOwnerSlots.size >= 5 || totalOwnership >= 100}
                       data-testid="add-owner-btn"
                     >
                       <Users className="h-4 w-4 mr-2" />
