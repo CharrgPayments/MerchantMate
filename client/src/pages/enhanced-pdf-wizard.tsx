@@ -185,6 +185,11 @@ export default function EnhancedPdfWizard() {
         const ownerDataStr = formData[signatureGroupKey];
         console.log(`  🔍 Checking key '${signatureGroupKey}': ${ownerDataStr ? 'EXISTS' : 'NOT FOUND'}`);
         
+        if (ownerDataStr) {
+          console.log(`    📄 Raw value type: ${typeof ownerDataStr}`);
+          console.log(`    📄 Raw value preview: "${String(ownerDataStr).substring(0, 100)}"`);
+        }
+        
         if (ownerDataStr && typeof ownerDataStr === 'string') {
           try {
             const ownerData = JSON.parse(ownerDataStr);
@@ -203,7 +208,9 @@ export default function EnhancedPdfWizard() {
               }
             }
           } catch (e) {
-            console.warn(`⚠️ Failed to parse for ${signatureGroupKey}:`, e);
+            console.error(`⚠️ Failed to parse for ${signatureGroupKey}:`, e);
+            console.error(`    💥 The stored value is NOT valid JSON!`);
+            console.error(`    💥 Actual value: "${ownerDataStr}"`);
           }
         }
       }
