@@ -2134,6 +2134,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Bulk operations for prospects
+  app.post("/api/prospects/bulk-delete", requireRole(['admin', 'corporate', 'super_admin']), async (req, res) => {
+    try {
+      const { ids } = req.body;
+      
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ message: "Invalid request: ids must be a non-empty array" });
+      }
+      
+      // Delete all prospects with the given IDs
+      const deletedCount = await Promise.all(
+        ids.map(id => storage.deleteMerchantProspect(id))
+      ).then(results => results.filter(Boolean).length);
+      
+      res.json({ 
+        success: true, 
+        deletedCount,
+        message: `Successfully deleted ${deletedCount} of ${ids.length} prospects`
+      });
+    } catch (error) {
+      console.error("Error deleting prospects in bulk:", error);
+      res.status(500).json({ message: "Failed to delete prospects" });
+    }
+  });
+
+  app.post("/api/prospects/bulk-status-update", requireRole(['admin', 'corporate', 'super_admin']), async (req, res) => {
+    try {
+      const { ids, status } = req.body;
+      
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ message: "Invalid request: ids must be a non-empty array" });
+      }
+      
+      if (!status || !['pending', 'approved', 'rejected', 'in_progress', 'submitted'].includes(status)) {
+        return res.status(400).json({ message: "Invalid status value" });
+      }
+      
+      // Update all prospects with the new status
+      const updatedProspects = await Promise.all(
+        ids.map(id => storage.updateMerchantProspect(id, { status }))
+      );
+      
+      const successCount = updatedProspects.filter(Boolean).length;
+      
+      res.json({ 
+        success: true, 
+        updatedCount: successCount,
+        message: `Successfully updated ${successCount} of ${ids.length} prospects to ${status}`
+      });
+    } catch (error) {
+      console.error("Error updating prospect statuses in bulk:", error);
+      res.status(500).json({ message: "Failed to update prospect statuses" });
+    }
+  });
+
   // Get individual prospect for application view
   app.get("/api/prospects/view/:id", isAuthenticated, async (req: any, res) => {
     try {
