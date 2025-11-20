@@ -365,38 +365,27 @@ export default function EnhancedPdfWizard() {
 
   // Helper function to calculate total ownership percentage from active owners
   const calculateTotalOwnership = (): number => {
-    // Debug: Log all formData keys for ownership debugging
-    console.log('🔍 calculateTotalOwnership called. Active owner slots:', Array.from(activeOwnerSlots));
-    console.log('🔍 All formData keys:', Object.keys(formData).filter(k => 
-      k.toLowerCase().includes('owner') || k.toLowerCase().includes('signature')
-    ));
-    
     let total = 0;
+    
     activeOwnerSlots.forEach((slotNumber) => {
       let ownerPercentage = 0;
       let found = false;
       
-      // Try multiple signature group key patterns
+      // Try multiple signature group key patterns (in order of most likely to least likely)
       const signatureGroupKeyPatterns = [
-        `_signatureGroup_owners_owner${slotNumber}_signature_owner`,  // Full pattern with prefix
-        `_signatureGroup_owner${slotNumber}_signature_owner`,         // Short pattern with prefix
-        `owners_owner${slotNumber}_signature_owner`,                   // Without _signatureGroup_ prefix (actual pattern!)
-        `owner${slotNumber}_signature_owner`,                          // Short pattern without prefix
+        `owners_owner${slotNumber}_signature_owner`,                   // Direct key (new method)
+        `_signatureGroup_owners_owner${slotNumber}_signature_owner`,  // With prefix (old method)
+        `owner${slotNumber}_signature_owner`,                          // Short pattern
+        `_signatureGroup_owner${slotNumber}_signature_owner`,         // Short with prefix
       ];
       
       for (const signatureGroupKey of signatureGroupKeyPatterns) {
         const ownerDataStr = formData[signatureGroupKey];
         
-        console.log(`🔍 Checking ${signatureGroupKey}: exists=${!!ownerDataStr}, type=${typeof ownerDataStr}, value=${ownerDataStr ? JSON.stringify(ownerDataStr).substring(0, 200) : 'null/undefined'}`);
-        
         if (ownerDataStr && !found) {
           try {
             const ownerData = JSON.parse(ownerDataStr);
-            console.log(`🔍 Parsed JSON for ${signatureGroupKey}:`, ownerData);
-            
-            // Handle both string and number types, and allow 0 as valid
             const percentageValue = ownerData.ownershipPercentage;
-            console.log(`🔍 ownershipPercentage value:`, percentageValue, `(type: ${typeof percentageValue})`);
             
             if (percentageValue !== undefined && percentageValue !== null && percentageValue !== '') {
               const percentage = typeof percentageValue === 'string' 
@@ -405,60 +394,12 @@ export default function EnhancedPdfWizard() {
               if (!isNaN(percentage) && percentage >= 0) {
                 ownerPercentage = percentage;
                 found = true;
-                console.log(`✅ Found ownership for owner${slotNumber}: ${percentage}% via ${signatureGroupKey}`);
+                console.log(`✅ Owner${slotNumber}: ${percentage}%`);
                 break;
               }
             }
           } catch (e) {
-            console.warn(`⚠️ Failed to parse signature group data for ${signatureGroupKey}:`, e);
-          }
-        }
-      }
-      
-      // Fallback: check for standalone ownership percentage fields
-      if (!found) {
-        const standaloneFieldPatterns = [
-          `owners_owner${slotNumber}_signature_owner.ownershipPercentage`, // Dotted field from PDF
-          `owner${slotNumber}_signature_owner.ownershipPercentage`, // Without "owners_" prefix
-          `owner${slotNumber}_ownership_percentage`,
-          `owners_owner${slotNumber}_ownership_percentage`,
-          `owner${slotNumber}OwnershipPercentage`,
-          `owner${slotNumber}Signature Owner.Ownership Percentage`, // Exact PDF field name
-          `owners_owner${slotNumber}_signature_owner-ownership`, // Field ID format
-        ];
-        
-        for (const fieldPattern of standaloneFieldPatterns) {
-          const value = formData[fieldPattern];
-          if (value !== undefined && value !== null && value !== '') {
-            const percentage = typeof value === 'string' ? parseFloat(value) : value;
-            if (!isNaN(percentage) && percentage >= 0) {
-              ownerPercentage = percentage;
-              found = true;
-              console.log(`✅ Found ownership for owner${slotNumber}: ${percentage}% via ${fieldPattern}`);
-              break;
-            }
-          }
-        }
-        
-        // If still not found, log all formData keys for debugging
-        if (!found) {
-          const ownerKeys = Object.keys(formData).filter(key => 
-            key.toLowerCase().includes(`owner${slotNumber}`) && 
-            (key.toLowerCase().includes('ownership') || key.toLowerCase().includes('percentage'))
-          );
-          if (ownerKeys.length > 0) {
-            console.warn(`⚠️ Owner${slotNumber} ownership not found in expected patterns. Potential matches:`, ownerKeys);
-            // Try the first match as a last resort
-            const firstMatch = ownerKeys[0];
-            const val = formData[firstMatch];
-            if (val !== undefined && val !== null && val !== '') {
-              const percentage = typeof val === 'string' ? parseFloat(val) : val;
-              if (!isNaN(percentage) && percentage >= 0) {
-                ownerPercentage = percentage;
-                found = true;
-                console.log(`✅ Found ownership for owner${slotNumber}: ${percentage}% via fallback match: ${firstMatch}`);
-              }
-            }
+            // Silently skip invalid JSON
           }
         }
       }
@@ -466,7 +407,7 @@ export default function EnhancedPdfWizard() {
       total += ownerPercentage;
     });
     
-    console.log(`📊 Total ownership calculated: ${total}% from ${activeOwnerSlots.size} active owner(s)`);
+    console.log(`📊 Total: ${total.toFixed(1)}%`);
     return total;
   };
 
@@ -3898,21 +3839,13 @@ export default function EnhancedPdfWizard() {
               config={sigGroupConfig}
               value={signatureData}
               onChange={(data) => {
-                // Get previous ownership percentage to detect changes
-                const prevDataStr = formData[`_signatureGroup_${sigGroupConfig.groupKey}`];
-                let prevOwnership: string | number | null = null;
-                
-                if (prevDataStr && typeof prevDataStr === 'string') {
-                  try {
-                    const prevData = JSON.parse(prevDataStr);
-                    prevOwnership = prevData.ownershipPercentage;
-                  } catch {
-                    // Ignore parse errors
-                  }
-                }
+                console.log(`📝 SignatureGroup onChange for ${sigGroupConfig.groupKey}:`, data);
                 
                 // Store the complete signature data as JSON string (handleFieldChange expects scalars)
                 handleFieldChange(`_signatureGroup_${sigGroupConfig.groupKey}`, JSON.stringify(data));
+                
+                // ALSO store directly under the groupKey without prefix for easier access
+                handleFieldChange(sigGroupConfig.groupKey, JSON.stringify(data));
                 
                 // Also update individual fields if they exist for backward compatibility
                 if (signerNameFieldId) handleFieldChange(signerNameFieldId, data.signerName);
@@ -3921,41 +3854,8 @@ export default function EnhancedPdfWizard() {
                 if (initialsFieldId) handleFieldChange(initialsFieldId, data.initials || '');
                 if (dateSignedFieldId) handleFieldChange(dateSignedFieldId, data.dateSigned || '');
                 
-                // Auto-add next owner slot ONLY if ownership percentage actually changed AND conditions are met
-                // GroupKey format is like "owners_owner1_signature_owner", so we match the number after "owner"
-                const ownerMatch = sigGroupConfig.groupKey.match(/owner(\d+)_signature_owner$/);
-                
-                // Only proceed if this is an owner signature AND ownership percentage changed
-                if (ownerMatch && data.ownershipPercentage !== prevOwnership) {
-                  const newPercentage = typeof data.ownershipPercentage === 'string' 
-                    ? parseFloat(data.ownershipPercentage) 
-                    : data.ownershipPercentage;
-                  
-                  if (!isNaN(newPercentage) && newPercentage > 0) {
-                    // Wait for next tick to ensure formData is updated, then calculate total
-                    setTimeout(() => {
-                      const currentTotal = calculateTotalOwnership();
-                      console.log(`🔍 Ownership changed for owner${ownerMatch[1]}: ${prevOwnership} → ${newPercentage}%, Total: ${currentTotal}%`);
-                      
-                      // Only add next slot if:
-                      // 1. We haven't reached max 5 owners
-                      // 2. Total ownership is still < 100% (meaning more owners needed)
-                      // 3. This owner's percentage is < 100% (single owner can't own more than 100%)
-                      if (activeOwnerSlots.size < 5 && currentTotal < 100 && newPercentage < 100) {
-                        const currentOwnerNum = parseInt(ownerMatch[1]);
-                        const nextOwnerNum = currentOwnerNum + 1;
-                        
-                        // Only add the next sequential owner if it doesn't exist yet
-                        if (!activeOwnerSlots.has(nextOwnerNum)) {
-                          console.log(`➕ Auto-adding owner${nextOwnerNum} slot (current total: ${currentTotal}% < 100%)`);
-                          setActiveOwnerSlots(new Set([...activeOwnerSlots, nextOwnerNum]));
-                        }
-                      } else {
-                        console.log(`⏸️ Not auto-adding: max=${activeOwnerSlots.size >= 5}, total=${currentTotal}% >= 100%, individual=${newPercentage}% >= 100%`);
-                      }
-                    }, 0);
-                  }
-                }
+                // NOTE: Auto-add owner logic removed - use manual "Add Owner" button instead
+                // This prevents premature owner creation and gives users full control
               }}
               dataTestId={`signaturegroup-${sigGroupConfig.roleKey}`}
               isRequired={field.isRequired}
