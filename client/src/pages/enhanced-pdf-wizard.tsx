@@ -3866,13 +3866,23 @@ export default function EnhancedPdfWizard() {
               config={sigGroupConfig}
               value={signatureData}
               onChange={(data) => {
-                console.log(`📝 SignatureGroup onChange for ${sigGroupConfig.groupKey}:`, data);
+                const primaryKey = `_signatureGroup_${sigGroupConfig.groupKey}`;
+                const secondaryKey = sigGroupConfig.groupKey;
+                
+                console.log(`📝 =========== SIGNATURE GROUP ONCHANGE ===========`);
+                console.log(`📝 GroupKey: ${sigGroupConfig.groupKey}`);
+                console.log(`📝 Primary storage key: ${primaryKey}`);
+                console.log(`📝 Secondary storage key: ${secondaryKey}`);
+                console.log(`📝 Data being stored:`, data);
+                console.log(`📝 Ownership %: ${data.ownershipPercentage}`);
+                console.log(`📝 Current activeOwnerSlots:`, Array.from(activeOwnerSlots));
+                console.log(`📝 ==============================================`);
                 
                 // Store the complete signature data as JSON string (handleFieldChange expects scalars)
-                handleFieldChange(`_signatureGroup_${sigGroupConfig.groupKey}`, JSON.stringify(data));
+                handleFieldChange(primaryKey, JSON.stringify(data));
                 
                 // ALSO store directly under the groupKey without prefix for easier access
-                handleFieldChange(sigGroupConfig.groupKey, JSON.stringify(data));
+                handleFieldChange(secondaryKey, JSON.stringify(data));
                 
                 // Also update individual fields if they exist for backward compatibility
                 if (signerNameFieldId) handleFieldChange(signerNameFieldId, data.signerName);
