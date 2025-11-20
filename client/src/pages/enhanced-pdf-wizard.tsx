@@ -901,7 +901,27 @@ export default function EnhancedPdfWizard() {
             setAddressValidationStatus('valid');
           }
           
-          setFormData(prev => ({ ...prev, ...existingData }));
+          // Clean signature group fields - remove any non-JSON values that would break parsing
+          const cleanedData = { ...existingData };
+          Object.keys(cleanedData).forEach(key => {
+            // Check if this is a signature group field (contains "_signature_" or starts with "owners_owner")
+            if (key.includes('_signature_') || key.startsWith('owners_owner')) {
+              const value = cleanedData[key];
+              // If the value is not valid JSON, remove it
+              if (typeof value === 'string' && value.length > 0) {
+                try {
+                  JSON.parse(value);
+                  // Valid JSON, keep it
+                } catch (e) {
+                  // Not valid JSON, remove it to prevent overwriting
+                  console.warn(`🧹 Removing invalid signature group data for key "${key}": not valid JSON`);
+                  delete cleanedData[key];
+                }
+              }
+            }
+          });
+          
+          setFormData(prev => ({ ...prev, ...cleanedData }));
           
           // Mark sections as visited based on existing form data
           const newVisited = new Set<number>();
