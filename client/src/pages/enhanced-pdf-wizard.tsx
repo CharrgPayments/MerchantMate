@@ -172,12 +172,13 @@ export default function EnhancedPdfWizard() {
       let found = false;
       
       // Check multiple key patterns where ownership data might be stored
-      // Based on removeOwnerSlot, the actual key is: _signatureGroup_owner${slot}_signature_owner
+      // SignatureGroupInput stores data at: _signatureGroup_${groupKey}
+      // GroupKey format: owners_owner1_signature_owner, owners_owner2_signature_owner, etc.
       const signatureGroupKeyPatterns = [
-        `_signatureGroup_owner${slotNumber}_signature_owner`,         // ACTUAL key used!
-        `owner${slotNumber}_signature_owner`,                          // Direct key (new method)
-        `owners_owner${slotNumber}_signature_owner`,                   // With owners_ prefix
-        `_signatureGroup_owners_owner${slotNumber}_signature_owner`,  // Full prefix
+        `_signatureGroup_owners_owner${slotNumber}_signature_owner`,  // PRIMARY key with owners_ prefix!
+        `owners_owner${slotNumber}_signature_owner`,                   // Direct groupKey (also stored)
+        `_signatureGroup_owner${slotNumber}_signature_owner`,         // Legacy without owners_ prefix
+        `owner${slotNumber}_signature_owner`,                          // Direct key
       ];
       
       for (const signatureGroupKey of signatureGroupKeyPatterns) {
