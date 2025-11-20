@@ -1714,8 +1714,14 @@ export default function EnhancedPdfWizard() {
             [zipCodeFieldName]: overwrittenFormData[zipCodeFieldName]
           });
           
-          // IMMEDIATELY update form data with the new address - this overwrites any previous data
-          setFormData(overwrittenFormData);
+          // Merge validated address with existing formData to preserve signature fields
+          setFormData(prev => ({
+            ...prev,
+            [addressFieldName]: overwrittenFormData[addressFieldName],
+            [cityFieldName]: overwrittenFormData[cityFieldName],
+            [stateFieldName]: overwrittenFormData[stateFieldName],
+            [zipCodeFieldName]: overwrittenFormData[zipCodeFieldName]
+          }));
           console.log('✓ setFormData called with updated address fields');
           
           // Clear browser cache and storage that might interfere
@@ -1725,9 +1731,16 @@ export default function EnhancedPdfWizard() {
             sessionStorage.removeItem(key);
           });
           
-          // IMMEDIATELY save to database to ensure persistence and overwrite previous data
+          // IMMEDIATELY save to database with merged data (address + all existing fields)
           if (isProspectMode && prospectData?.prospect) {
-            console.log('Saving overwritten form data to database:', overwrittenFormData);
+            const mergedFormData = {
+              ...formData,
+              [addressFieldName]: overwrittenFormData[addressFieldName],
+              [cityFieldName]: overwrittenFormData[cityFieldName],
+              [stateFieldName]: overwrittenFormData[stateFieldName],
+              [zipCodeFieldName]: overwrittenFormData[zipCodeFieldName]
+            };
+            console.log('Saving merged form data to database (preserving ownership):', mergedFormData);
             
             try {
               const saveResponse = await fetch(`/api/prospects/${prospectData.prospect.id}/save-form-data`, {
@@ -1736,7 +1749,7 @@ export default function EnhancedPdfWizard() {
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({ 
-                  formData: overwrittenFormData, 
+                  formData: mergedFormData, 
                   currentStep: currentStep,
                   overwriteAddress: true  // Flag to indicate this is an address overwrite
                 }),
