@@ -385,9 +385,12 @@ export function SignatureGroupInput({
                     value={ownershipPercentage}
                     onChange={(e) => {
                       const newValue = e.target.value;
+                      console.log(`🔥 OWNERSHIP INPUT onChange fired! New value: "${newValue}"`);
+                      console.log(`🔥 isOwnerGroup: ${isOwnerGroup}, disabled: ${disabled}, isRequested: ${isRequested}`);
                       setOwnershipPercentage(newValue);
                       
                       // Immediately update parent with current data including new ownership percentage
+                      console.log(`🔥 About to call parent onChange with ownershipPercentage: "${newValue}"`);
                       onChange({
                         signerName,
                         signerEmail,
@@ -400,6 +403,7 @@ export function SignatureGroupInput({
                         timestampRequested: value?.timestampRequested,
                         timestampExpires: value?.timestampExpires,
                       });
+                      console.log(`🔥 Parent onChange called successfully`);
                     }}
                     placeholder="25.0"
                     disabled={disabled || isRequested}
