@@ -15,6 +15,7 @@ Preferred communication style: Simple, everyday language.
 - **Icon Color Coding**: Visual differentiation by user type (Agents: Blue, Merchants: Green, Prospects: Yellow).
 - **Empty States**: Reusable EmptyState component for contextual guidance and CTAs when pages have no data.
 - **Contextual Help**: Comprehensive contextual help system providing in-line guidance across major forms and modals using nested dialog components.
+- **Bulk Actions**: Reusable BulkActionBar component with multi-select checkboxes, batch operations (delete, status updates), and role-based authorization across Prospects, Merchants, and Agents pages.
 
 ### Technical Implementations
 - **Frontend**: React with TypeScript and Vite, TanStack Query, Wouter for routing.
