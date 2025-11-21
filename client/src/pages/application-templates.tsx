@@ -1918,6 +1918,33 @@ function FieldConfigurationDialog({
                           {editingField.conditional.when?.operator === 'is_not_empty' && 'is not empty (has any value)'}
                           {editingField.conditional.when?.operator !== 'is_not_empty' && <>{' '}<strong>"{editingField.conditional.when?.value || '(enter value)'}"</strong></>}
                         </div>
+
+                        {/* Required When Visible Option */}
+                        {editingField.conditional.action === 'show' && (
+                          <div className="mt-3 pt-3 border-t">
+                            <div className="flex items-center gap-2">
+                              <Switch
+                                checked={!!editingField.conditional.requiredWhenVisible}
+                                onCheckedChange={(checked) => {
+                                  setEditingField({
+                                    ...editingField,
+                                    conditional: {
+                                      ...editingField.conditional,
+                                      requiredWhenVisible: checked
+                                    }
+                                  });
+                                }}
+                                data-testid="switch-required-when-visible"
+                              />
+                              <div className="flex-1">
+                                <span className="text-sm font-medium">Required When Visible</span>
+                                <p className="text-xs text-muted-foreground">
+                                  Make this field required when it's shown by the condition
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
