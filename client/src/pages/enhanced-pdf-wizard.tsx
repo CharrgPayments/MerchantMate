@@ -2984,6 +2984,36 @@ export default function EnhancedPdfWizard() {
           </div>
         );
 
+      case 'checkbox':
+        const isChecked = value === true || value === 'true' || value === '1';
+        return (
+          <div className="space-y-2">
+            <div className="flex items-start space-x-3 p-3 border rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors">
+              <input
+                type="checkbox"
+                id={field.fieldName}
+                checked={isChecked}
+                onChange={(e) => handleFieldChange(field.fieldName, e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                data-testid={`checkbox-${field.fieldName}`}
+              />
+              <div className="flex-1">
+                <Label 
+                  htmlFor={field.fieldName} 
+                  className="text-sm font-medium text-gray-700 cursor-pointer"
+                >
+                  {field.fieldLabel}
+                  {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+                </Label>
+                {field.helpText && (
+                  <p className="text-xs text-gray-500 mt-1">{field.helpText}</p>
+                )}
+              </div>
+            </div>
+            {hasError && <p className="text-xs text-red-500 mt-1">{hasError}</p>}
+          </div>
+        );
+
       case 'readonly':
         const readonlyValue = (() => {
           if (!value) {
