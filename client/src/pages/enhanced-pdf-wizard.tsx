@@ -70,6 +70,7 @@ export default function EnhancedPdfWizard() {
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [activeOwnerSlots, setActiveOwnerSlots] = useState<Set<number>>(new Set([1])); // Start with owner1 active
   const [totalOwnership, setTotalOwnership] = useState<number>(0); // Store calculated total ownership
+  const [ownershipPercentages, setOwnershipPercentages] = useState<Record<number, number>>({}); // Track each owner's %
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -161,7 +162,10 @@ export default function EnhancedPdfWizard() {
     });
   }, []);
 
-  // Recalculate total ownership whenever formData or activeOwnerSlots changes
+  // OLD APPROACH - DISABLED: Recalculate total ownership from JSON parsing
+  // This was causing issues with corrupt data and async timing
+  // Now we calculate directly in the onChange handler (see line 3925+)
+  /*
   useEffect(() => {
     console.log(`🔄 Ownership calculation useEffect triggered. Active slots:`, Array.from(activeOwnerSlots));
     console.log(`🔍 formData keys containing 'owner':`, Object.keys(formData).filter(k => k.toLowerCase().includes('owner')));
@@ -223,6 +227,7 @@ export default function EnhancedPdfWizard() {
     console.log(`📊 Total: ${total.toFixed(1)}%`);
     setTotalOwnership(total);
   }, [formData, activeOwnerSlots]);
+  */
 
   // Check for prospect validation token in URL parameters
   const urlParams = new URLSearchParams(window.location.search);
@@ -3917,6 +3922,27 @@ export default function EnhancedPdfWizard() {
                 if (signatureFieldId) handleFieldChange(signatureFieldId, data.signature);
                 if (initialsFieldId) handleFieldChange(initialsFieldId, data.initials || '');
                 if (dateSignedFieldId) handleFieldChange(dateSignedFieldId, data.dateSigned || '');
+                
+                // ✅ SIMPLE FIX: Update ownership total directly when user types
+                if (isOwnerGroup && ownerNumber !== null && data.ownershipPercentage !== undefined) {
+                  const percentage = typeof data.ownershipPercentage === 'string' 
+                    ? parseFloat(data.ownershipPercentage) || 0
+                    : data.ownershipPercentage || 0;
+                  
+                  console.log(`✅ Updating ownership for owner${ownerNumber}: ${percentage}%`);
+                  
+                  // Update the ownership map
+                  setOwnershipPercentages(prev => {
+                    const updated = { ...prev, [ownerNumber]: percentage };
+                    
+                    // Calculate new total immediately
+                    const newTotal = Object.values(updated).reduce((sum, val) => sum + val, 0);
+                    console.log(`📊 New total ownership: ${newTotal}%`);
+                    setTotalOwnership(newTotal);
+                    
+                    return updated;
+                  });
+                }
                 
                 // NOTE: Auto-add owner logic removed - use manual "Add Owner" button instead
                 // This prevents premature owner creation and gives users full control
