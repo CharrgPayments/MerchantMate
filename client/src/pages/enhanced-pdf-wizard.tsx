@@ -447,9 +447,18 @@ export default function EnhancedPdfWizard() {
     newSlots.delete(slotNumber);
     setActiveOwnerSlots(newSlots);
     
-    // Clear the form data for this owner
-    const ownerKey = `owner${slotNumber}`;
-    handleFieldChange(`_signatureGroup_${ownerKey}_signature_owner`, '');
+    // Clear the form data and ownership percentage for this owner
+    const ownerKey = `owners_owner${slotNumber}_signature_owner`;
+    handleFieldChange(`signatureGroup_${ownerKey}`, '');
+    
+    // Also clear the ownership percentage from state
+    setOwnershipPercentages(prev => {
+      const updated = { ...prev };
+      delete updated[slotNumber];
+      const newTotal = Object.values(updated).reduce((sum, val) => sum + val, 0);
+      setTotalOwnership(newTotal);
+      return updated;
+    });
   };
 
   // Submit application mutation
@@ -909,8 +918,8 @@ export default function EnhancedPdfWizard() {
           // Clean signature group fields - remove any non-JSON values that would break parsing
           const cleanedData = { ...existingData };
           Object.keys(cleanedData).forEach(key => {
-            // Check if this is a signature group field (contains "_signature_" or starts with "owners_owner")
-            if (key.includes('_signature_') || key.startsWith('owners_owner')) {
+            // Check if this is a signature group field
+            if (key.startsWith('signatureGroup_')) {
               const value = cleanedData[key];
               // If the value is not valid JSON, remove it
               if (typeof value === 'string' && value.length > 0) {
@@ -3830,7 +3839,8 @@ export default function EnhancedPdfWizard() {
         const dateSignedFieldId = sigFieldMappings.datesigned || '';
         
         // Get current signature data from formData (stored as JSON string)
-        const signatureDataStr = formData[`_signatureGroup_${sigGroupConfig.groupKey}`];
+        const fieldNameKey = `signatureGroup_${sigGroupConfig.groupKey}`;
+        const signatureDataStr = formData[fieldNameKey];
         let signatureData;
         try {
           signatureData = signatureDataStr ? JSON.parse(signatureDataStr) : undefined;
@@ -3840,10 +3850,6 @@ export default function EnhancedPdfWizard() {
           console.warn(`  Raw value: "${signatureDataStr}"`);
           signatureData = undefined;
         }
-        
-        console.log('✍️ SignatureGroup render for', sigGroupConfig.roleKey);
-        console.log('  Field mappings:', sigFieldMappings);
-        console.log('  Current signature data:', signatureData);
         
         // Check if this is an owner signature group
         // GroupKey format is like "owners_owner1_signature_owner", so we match the number after "owner"
@@ -3898,12 +3904,11 @@ export default function EnhancedPdfWizard() {
               config={sigGroupConfig}
               value={signatureData}
               onChange={(data) => {
-                const primaryKey = `_signatureGroup_${sigGroupConfig.groupKey}`;
-                const secondaryKey = sigGroupConfig.groupKey;
+                // Store at the fieldName key that matches what progress calculation expects
+                const fieldNameKey = `signatureGroup_${sigGroupConfig.groupKey}`;
                 
                 // Store the complete signature data as JSON string (handleFieldChange expects scalars)
-                handleFieldChange(primaryKey, JSON.stringify(data));
-                handleFieldChange(secondaryKey, JSON.stringify(data));
+                handleFieldChange(fieldNameKey, JSON.stringify(data));
                 
                 // Also update individual fields if they exist for backward compatibility
                 if (signerNameFieldId) handleFieldChange(signerNameFieldId, data.signerName);
@@ -3929,7 +3934,8 @@ export default function EnhancedPdfWizard() {
               dataTestId={`signaturegroup-${sigGroupConfig.roleKey}`}
               isRequired={field.isRequired}
               onRequestSignature={async (roleKey, email) => {
-                const currentSignatureData = formData[`_signatureGroup_${sigGroupConfig.groupKey}`];
+                const fieldNameKey = `signatureGroup_${sigGroupConfig.groupKey}`;
+                const currentSignatureData = formData[fieldNameKey];
                 let signatureInfo: any = {};
                 
                 if (currentSignatureData && typeof currentSignatureData === 'string') {
@@ -3962,11 +3968,12 @@ export default function EnhancedPdfWizard() {
                     timestampExpires: new Date(result.expiresAt),
                     requestToken: result.signature.requestToken,
                   };
-                  handleFieldChange(`_signatureGroup_${sigGroupConfig.groupKey}`, JSON.stringify(updatedData));
+                  handleFieldChange(fieldNameKey, JSON.stringify(updatedData));
                 }
               }}
               onResendRequest={async (roleKey) => {
-                const currentSignatureData = formData[`_signatureGroup_${sigGroupConfig.groupKey}`];
+                const fieldNameKey = `signatureGroup_${sigGroupConfig.groupKey}`;
+                const currentSignatureData = formData[fieldNameKey];
                 let signatureInfo: any = {};
                 
                 if (currentSignatureData && typeof currentSignatureData === 'string') {
@@ -4001,7 +4008,7 @@ export default function EnhancedPdfWizard() {
                     timestampExpires: new Date(result.signature.timestampExpires),
                     requestToken: result.signature.requestToken,
                   };
-                  handleFieldChange(`_signatureGroup_${sigGroupConfig.groupKey}`, JSON.stringify(updatedData));
+                  handleFieldChange(fieldNameKey, JSON.stringify(updatedData));
                 }
               }}
             />
