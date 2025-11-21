@@ -3901,19 +3901,8 @@ export default function EnhancedPdfWizard() {
                 const primaryKey = `_signatureGroup_${sigGroupConfig.groupKey}`;
                 const secondaryKey = sigGroupConfig.groupKey;
                 
-                console.log(`📝 =========== SIGNATURE GROUP ONCHANGE ===========`);
-                console.log(`📝 GroupKey: ${sigGroupConfig.groupKey}`);
-                console.log(`📝 Primary storage key: ${primaryKey}`);
-                console.log(`📝 Secondary storage key: ${secondaryKey}`);
-                console.log(`📝 Data being stored:`, data);
-                console.log(`📝 Ownership %: ${data.ownershipPercentage}`);
-                console.log(`📝 Current activeOwnerSlots:`, Array.from(activeOwnerSlots));
-                console.log(`📝 ==============================================`);
-                
                 // Store the complete signature data as JSON string (handleFieldChange expects scalars)
                 handleFieldChange(primaryKey, JSON.stringify(data));
-                
-                // ALSO store directly under the groupKey without prefix for easier access
                 handleFieldChange(secondaryKey, JSON.stringify(data));
                 
                 // Also update individual fields if they exist for backward compatibility
@@ -3923,29 +3912,19 @@ export default function EnhancedPdfWizard() {
                 if (initialsFieldId) handleFieldChange(initialsFieldId, data.initials || '');
                 if (dateSignedFieldId) handleFieldChange(dateSignedFieldId, data.dateSigned || '');
                 
-                // ✅ SIMPLE FIX: Update ownership total directly when user types
+                // Update ownership total directly when user types
                 if (isOwnerGroup && ownerNumber !== null && data.ownershipPercentage !== undefined) {
                   const percentage = typeof data.ownershipPercentage === 'string' 
                     ? parseFloat(data.ownershipPercentage) || 0
                     : data.ownershipPercentage || 0;
                   
-                  console.log(`✅ Updating ownership for owner${ownerNumber}: ${percentage}%`);
-                  
-                  // Update the ownership map
                   setOwnershipPercentages(prev => {
                     const updated = { ...prev, [ownerNumber]: percentage };
-                    
-                    // Calculate new total immediately
                     const newTotal = Object.values(updated).reduce((sum, val) => sum + val, 0);
-                    console.log(`📊 New total ownership: ${newTotal}%`);
                     setTotalOwnership(newTotal);
-                    
                     return updated;
                   });
                 }
-                
-                // NOTE: Auto-add owner logic removed - use manual "Add Owner" button instead
-                // This prevents premature owner creation and gives users full control
               }}
               dataTestId={`signaturegroup-${sigGroupConfig.roleKey}`}
               isRequired={field.isRequired}
