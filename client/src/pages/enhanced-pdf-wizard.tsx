@@ -1574,6 +1574,33 @@ export default function EnhancedPdfWizard() {
     return finalVisibility;
   };
 
+  // Function to determine if a field is required (static or conditional)
+  const isFieldRequired = (field: FormField): boolean => {
+    // Check static requirement first
+    if (field.isRequired) {
+      return true;
+    }
+
+    // Check if field has conditional visibility with "required when visible"
+    const activeTemplate = isPreviewMode ? previewTemplate : prospectData?.applicationTemplate;
+    if (!activeTemplate) {
+      return false;
+    }
+
+    const conditionalFields = activeTemplate.conditionalFields;
+    if (conditionalFields && conditionalFields[field.fieldName]) {
+      const fieldCondition = conditionalFields[field.fieldName];
+      
+      // If field is conditionally shown AND marked as required when visible
+      if (fieldCondition.action === 'show' && fieldCondition.requiredWhenVisible) {
+        // Check if the field is currently visible
+        return shouldShowField(field.fieldName);
+      }
+    }
+
+    return false;
+  };
+
   // Filter fields based on conditional visibility
   const filteredSections = sections.map(section => ({
     ...section,
@@ -2323,7 +2350,7 @@ export default function EnhancedPdfWizard() {
     // Handle ownership validation separately
     if (field.fieldType === 'ownership') {
       const owners = value || [];
-      if (field.isRequired && owners.length === 0) {
+      if (isFieldRequired(field) && owners.length === 0) {
         return 'At least one owner is required';
       }
 
@@ -2371,7 +2398,7 @@ export default function EnhancedPdfWizard() {
       return null;
     }
 
-    if (field.isRequired && (!value || value.toString().trim() === '')) {
+    if (isFieldRequired(field) && (!value || value.toString().trim() === '')) {
       return `${field.fieldLabel} is required`;
     }
 
@@ -2519,6 +2546,9 @@ export default function EnhancedPdfWizard() {
     // Determine if field is read-only
     const isReadOnly = isFieldReadOnly(field.fieldName);
     
+    // Check if field is required (static or conditional)
+    const fieldIsRequired = isFieldRequired(field);
+    
     // Auto-focus first editable field on initial render only
     const currentFields = filteredSections[currentStep]?.fields || [];
     const firstEditableIndex = currentFields.findIndex(f => !isFieldReadOnly(f.fieldName));
@@ -2532,7 +2562,7 @@ export default function EnhancedPdfWizard() {
             <div className="flex items-center gap-1">
               <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
                 {field.fieldLabel}
-                {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
               </Label>
               {field.description && (
                 <Tooltip>
@@ -2689,7 +2719,7 @@ export default function EnhancedPdfWizard() {
             <div className="flex items-center gap-1">
               <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
                 {field.fieldLabel}
-                {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
               </Label>
               {field.description && (
                 <Tooltip>
@@ -2724,7 +2754,7 @@ export default function EnhancedPdfWizard() {
             <div className="flex items-center gap-1">
               <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
                 {field.fieldLabel}
-                {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
               </Label>
               {field.description && (
                 <Tooltip>
@@ -2769,7 +2799,7 @@ export default function EnhancedPdfWizard() {
             <div className="flex items-center gap-1">
               <Label className="text-sm font-medium text-gray-700">
                 {field.fieldLabel}
-                {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
               </Label>
               {field.description && (
                 <Tooltip>
@@ -2820,7 +2850,7 @@ export default function EnhancedPdfWizard() {
             <div className="flex items-center gap-1">
               <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
                 {field.fieldLabel}
-                {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
               </Label>
               {field.description && (
                 <Tooltip>
@@ -2851,7 +2881,7 @@ export default function EnhancedPdfWizard() {
             <div className="flex items-center gap-1">
               <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
                 {field.fieldLabel}
-                {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
               </Label>
               {field.description && (
                 <Tooltip>
@@ -2868,7 +2898,7 @@ export default function EnhancedPdfWizard() {
               value={value}
               onValueChange={(value) => handleFieldChange(field.fieldName, value)}
               placeholder="Select your business category"
-              required={field.isRequired}
+              required={fieldIsRequired}
               className={hasError ? 'border-red-500' : ''}
             />
             {hasError && <p className="text-xs text-red-500">{hasError}</p>}
@@ -2880,7 +2910,7 @@ export default function EnhancedPdfWizard() {
           <div className="space-y-2">
             <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
               {field.fieldLabel}
-              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
             </Label>
             <Input
               id={field.fieldName}
@@ -2903,7 +2933,7 @@ export default function EnhancedPdfWizard() {
           <div className="space-y-2">
             <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
               {field.fieldLabel}
-              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
             </Label>
             <div className="relative">
               <Input
@@ -2937,7 +2967,7 @@ export default function EnhancedPdfWizard() {
           <div className="space-y-2">
             <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
               {field.fieldLabel}
-              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
             </Label>
             <Input
               id={field.fieldName}
@@ -2971,7 +3001,7 @@ export default function EnhancedPdfWizard() {
           <div className="space-y-2">
             <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
               {field.fieldLabel}
-              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
             </Label>
             <Input
               id={field.fieldName}
@@ -3003,7 +3033,7 @@ export default function EnhancedPdfWizard() {
                   className="text-sm font-medium text-gray-700 cursor-pointer"
                 >
                   {field.fieldLabel}
-                  {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+                  {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
                 </Label>
                 {field.helpText && (
                   <p className="text-xs text-gray-500 mt-1">{field.helpText}</p>
@@ -3035,7 +3065,7 @@ export default function EnhancedPdfWizard() {
             <div className="flex items-center gap-1">
               <Label className="text-sm font-medium text-gray-700">
                 {field.fieldLabel}
-                {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
               </Label>
               {field.description && (
                 <Tooltip>
@@ -3337,7 +3367,7 @@ export default function EnhancedPdfWizard() {
             <div className="flex items-center justify-between">
               <Label className="text-lg font-semibold text-gray-800">
                 {field.fieldLabel}
-                {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
               </Label>
               <div className="flex gap-2">
                 {owners.length > 0 && (
@@ -3724,7 +3754,7 @@ export default function EnhancedPdfWizard() {
             <div className="flex items-center gap-1">
               <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
                 {field.fieldLabel}
-                {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
               </Label>
               {field.description && (
                 <Tooltip>
@@ -3753,7 +3783,7 @@ export default function EnhancedPdfWizard() {
           <div className="space-y-2">
             <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
               {field.fieldLabel}
-              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
             </Label>
             <EINInput
               value={value}
@@ -3771,7 +3801,7 @@ export default function EnhancedPdfWizard() {
           <div className="space-y-2">
             <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
               {field.fieldLabel}
-              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
             </Label>
             <AddressAutocompleteInput
               value={value}
@@ -3878,7 +3908,7 @@ export default function EnhancedPdfWizard() {
           <div className="space-y-2" key={field.fieldName}>
             <Label className="text-sm font-medium text-gray-700">
               {field.fieldLabel}
-              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
             </Label>
             <AddressAutocompleteInput
               key={`addressgroup-${groupType}`}
@@ -4037,7 +4067,7 @@ export default function EnhancedPdfWizard() {
                 }
               }}
               dataTestId={`signaturegroup-${sigGroupConfig.roleKey}`}
-              isRequired={field.isRequired}
+              isRequired={fieldIsRequired}
               onRequestSignature={async (roleKey, email) => {
                 const fieldNameKey = `signatureGroup_${sigGroupConfig.groupKey}`;
                 const currentSignatureData = formData[fieldNameKey];
@@ -4185,7 +4215,7 @@ export default function EnhancedPdfWizard() {
                 {(() => {
                   // Calculate progress based on completed required fields
                   const allRequiredFields = filteredSections.flatMap(section => 
-                    section.fields.filter(field => field.isRequired)
+                    section.fields.filter(field => isFieldRequired(field))
                   );
                   const completedRequiredFields = allRequiredFields.filter(field => {
                     const value = formData[field.fieldName];
@@ -4206,7 +4236,7 @@ export default function EnhancedPdfWizard() {
               <span className="text-xs font-medium text-gray-600">
                 {(() => {
                   const allRequiredFields = filteredSections.flatMap(section => 
-                    section.fields.filter(field => field.isRequired)
+                    section.fields.filter(field => isFieldRequired(field))
                   );
                   const completedRequiredFields = allRequiredFields.filter(field => {
                     const value = formData[field.fieldName];
@@ -4222,7 +4252,7 @@ export default function EnhancedPdfWizard() {
             <Progress 
               value={(() => {
                 const allRequiredFields = filteredSections.flatMap(section => 
-                  section.fields.filter(field => field.isRequired)
+                  section.fields.filter(field => isFieldRequired(field))
                 );
                 const completedRequiredFields = allRequiredFields.filter(field => {
                   const value = formData[field.fieldName];
