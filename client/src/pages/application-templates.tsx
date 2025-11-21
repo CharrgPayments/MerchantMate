@@ -1414,6 +1414,7 @@ function FieldConfigurationDialog({
     { value: 'ssn', label: 'SSN (Social Security Number)' },
     { value: 'select', label: 'Select' },
     { value: 'checkbox', label: 'Checkbox' },
+    { value: 'checkbox-list', label: 'Checkbox List (Multiple Selection)' },
     { value: 'boolean', label: 'Boolean (Yes/No)' },
     { value: 'textarea', label: 'Textarea' },
     { value: 'radio', label: 'Radio' },
