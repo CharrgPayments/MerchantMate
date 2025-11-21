@@ -3014,6 +3014,81 @@ export default function EnhancedPdfWizard() {
           </div>
         );
 
+      case 'checkbox-list':
+        // Parse value as array of selected options
+        const selectedOptions = (() => {
+          if (!value) return [];
+          if (Array.isArray(value)) return value;
+          if (typeof value === 'string') {
+            try {
+              const parsed = JSON.parse(value);
+              return Array.isArray(parsed) ? parsed : [];
+            } catch {
+              return [value];
+            }
+          }
+          return [];
+        })();
+
+        return (
+          <div className="space-y-2">
+            <div className="flex items-center gap-1">
+              <Label className="text-sm font-medium text-gray-700">
+                {field.fieldLabel}
+                {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+              </Label>
+              {field.description && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="text-sm">{field.description}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+            <div className="space-y-2 border rounded-lg p-3 bg-gray-50">
+              {field.options?.map((option: any) => {
+                const optionValue = typeof option === 'string' ? option : option.value;
+                const optionLabel = typeof option === 'string' ? option : option.label;
+                const isOptionChecked = selectedOptions.includes(optionValue);
+                
+                return (
+                  <div key={optionValue} className="flex items-start space-x-3">
+                    <input
+                      type="checkbox"
+                      id={`${field.fieldName}-${optionValue}`}
+                      checked={isOptionChecked}
+                      onChange={(e) => {
+                        let newSelected: string[];
+                        if (e.target.checked) {
+                          newSelected = [...selectedOptions, optionValue];
+                        } else {
+                          newSelected = selectedOptions.filter((v: string) => v !== optionValue);
+                        }
+                        handleFieldChange(field.fieldName, JSON.stringify(newSelected));
+                      }}
+                      className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      data-testid={`checkbox-${field.fieldName}-${optionValue}`}
+                    />
+                    <Label 
+                      htmlFor={`${field.fieldName}-${optionValue}`}
+                      className="text-sm font-normal cursor-pointer flex-1"
+                    >
+                      {optionLabel}
+                    </Label>
+                  </div>
+                );
+              })}
+            </div>
+            {field.helpText && (
+              <p className="text-xs text-gray-500">{field.helpText}</p>
+            )}
+            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
+          </div>
+        );
+
       case 'readonly':
         const readonlyValue = (() => {
           if (!value) {
