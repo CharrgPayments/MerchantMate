@@ -720,6 +720,18 @@ export default function Prospects() {
                                     </TableCell>
                                     <TableCell>
                                       <div className="flex items-center space-x-2">
+                                        {/* View Application Form - only show if prospect has started application */}
+                                        {(['in_progress', 'submitted', 'applied', 'application_submitted', 'approved', 'converted'].includes(prospect.status)) && (
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setLocation(`/enhanced-pdf-wizard/${prospect.id}`)}
+                                            title="View application form"
+                                            data-testid={`button-view-form-${prospect.id}`}
+                                          >
+                                            <ExternalLink className="w-4 h-4 text-blue-600" />
+                                          </Button>
+                                        )}
                                         <Button
                                           variant="ghost"
                                           size="sm"
@@ -727,7 +739,7 @@ export default function Prospects() {
                                             setSelectedProspectForApplications(prospect);
                                             setIsApplicationsDialogOpen(true);
                                           }}
-                                          title="View applications"
+                                          title="Manage acquirer applications"
                                           data-testid={`button-view-applications-${prospect.id}`}
                                         >
                                           <FileText className="w-4 h-4" />
@@ -907,6 +919,18 @@ export default function Prospects() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-2">
+                            {/* View Application Form - only show if prospect has started application */}
+                            {(['in_progress', 'submitted', 'applied', 'application_submitted', 'approved', 'converted'].includes(prospect.status)) && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setLocation(`/enhanced-pdf-wizard/${prospect.id}`)}
+                                title="View application form"
+                                data-testid={`button-view-form-${prospect.id}`}
+                              >
+                                <ExternalLink className="w-4 h-4 text-blue-600" />
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="sm"
@@ -914,7 +938,7 @@ export default function Prospects() {
                                 setSelectedProspectForApplications(prospect);
                                 setIsApplicationsDialogOpen(true);
                               }}
-                              title="View applications"
+                              title="Manage acquirer applications"
                               data-testid={`button-view-applications-${prospect.id}`}
                             >
                               <FileText className="w-4 h-4" />
