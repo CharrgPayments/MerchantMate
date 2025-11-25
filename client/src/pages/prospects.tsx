@@ -720,12 +720,12 @@ export default function Prospects() {
                                     </TableCell>
                                     <TableCell>
                                       <div className="flex items-center space-x-2">
-                                        {/* View Application Form - only show if prospect has started application */}
-                                        {(['in_progress', 'submitted', 'applied', 'application_submitted', 'approved', 'converted'].includes(prospect.status)) && (
+                                        {/* View Application Form - only show if prospect has started application and has validation token */}
+                                        {(['in_progress', 'submitted', 'applied', 'application_submitted', 'approved', 'converted'].includes(prospect.status)) && prospect.validationToken && (
                                           <Button
                                             variant="ghost"
                                             size="sm"
-                                            onClick={() => setLocation(`/enhanced-pdf-wizard/${prospect.id}`)}
+                                            onClick={() => setLocation(`/enhanced-pdf-wizard/${prospect.id}?token=${prospect.validationToken}`)}
                                             title="View application form"
                                             data-testid={`button-view-form-${prospect.id}`}
                                           >
@@ -919,12 +919,12 @@ export default function Prospects() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-2">
-                            {/* View Application Form - only show if prospect has started application */}
-                            {(['in_progress', 'submitted', 'applied', 'application_submitted', 'approved', 'converted'].includes(prospect.status)) && (
+                            {/* View Application Form - only show if prospect has started application and has validation token */}
+                            {(['in_progress', 'submitted', 'applied', 'application_submitted', 'approved', 'converted'].includes(prospect.status)) && prospect.validationToken && (
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => setLocation(`/enhanced-pdf-wizard/${prospect.id}`)}
+                                onClick={() => setLocation(`/enhanced-pdf-wizard/${prospect.id}?token=${prospect.validationToken}`)}
                                 title="View application form"
                                 data-testid={`button-view-form-${prospect.id}`}
                               >
