@@ -4266,6 +4266,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validationErrors: string[] = [];
       const missingSignatures: any[] = [];
 
+      // Helper function to check if a field value exists
+      // Checks both direct field name and canonical address patterns
+      const getFieldValue = (fieldName: string): any => {
+        if (!formData) return null;
+        
+        // Direct field name check
+        if (formData[fieldName] !== undefined && formData[fieldName] !== '') {
+          return formData[fieldName];
+        }
+        
+        // For address fields, check canonical patterns (e.g., *Address.street1, *Address.city)
+        const addressFieldMapping: Record<string, string> = {
+          'address': '.street1',
+          'city': '.city', 
+          'state': '.state',
+          'zipCode': '.zipCode'
+        };
+        
+        if (addressFieldMapping[fieldName]) {
+          const suffix = addressFieldMapping[fieldName];
+          // Look for any field ending with the canonical suffix
+          const canonicalKey = Object.keys(formData).find(k => k.endsWith(suffix));
+          if (canonicalKey && formData[canonicalKey] !== undefined && formData[canonicalKey] !== '') {
+            return formData[canonicalKey];
+          }
+        }
+        
+        return null;
+      };
+
       // Required field validation
       const requiredFields = [
         { field: 'companyName', label: 'Company Name' },
@@ -4288,7 +4318,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Check for missing required fields
       for (const { field, label } of requiredFields) {
-        if (!formData || !formData[field] || formData[field] === '') {
+        const value = getFieldValue(field);
+        if (value === null || value === '') {
           validationErrors.push(`${label} is required`);
         }
       }
