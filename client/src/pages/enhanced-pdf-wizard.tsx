@@ -909,7 +909,19 @@ export default function EnhancedPdfWizard() {
           console.log('Loading existing form data:', existingData);
           
           // Prevent address override by setting addressOverrideActive
-          if (existingData.address && existingData.city && existingData.state && existingData.zipCode) {
+          // Check for any canonical address fields (pattern: *Address.city, *Address.state, etc.)
+          // Templates may use different prefixes like businessAddress, merchantlocationaddressAddress, etc.
+          const addressFieldKeys = Object.keys(existingData);
+          const hasCanonicalAddress = addressFieldKeys.some(k => k.endsWith('Address.street1') || k.endsWith('.street1')) &&
+                                       addressFieldKeys.some(k => k.endsWith('Address.city') || k.endsWith('.city')) &&
+                                       addressFieldKeys.some(k => k.endsWith('Address.state') || k.endsWith('.state')) &&
+                                       addressFieldKeys.some(k => k.endsWith('Address.zipCode') || k.endsWith('.zipCode'));
+          const hasLegacyAddress = existingData.address && existingData.city && existingData.state && existingData.zipCode;
+          
+          if (hasCanonicalAddress || hasLegacyAddress) {
+            console.log('Address data found:', hasCanonicalAddress ? 'canonical format' : 'legacy format', {
+              matchedKeys: addressFieldKeys.filter(k => k.includes('.street1') || k.includes('.city') || k.includes('.state') || k.includes('.zipCode'))
+            });
             setAddressOverrideActive(true);
             setAddressFieldsLocked(true);
             setAddressValidationStatus('valid');
@@ -941,7 +953,10 @@ export default function EnhancedPdfWizard() {
           const newVisited = new Set<number>();
           
           // Check Section 0 (Merchant Information) - if we have company info
-          if (existingData.companyName || existingData.address || existingData.city) {
+          // Check both canonical (*Address.city) and legacy (city) field names
+          const hasAnyAddressData = addressFieldKeys.some(k => k.endsWith('.city') || k.endsWith('.street1')) || 
+                                     existingData.city || existingData.address;
+          if (existingData.companyName || hasAnyAddressData) {
             newVisited.add(0);
           }
           
@@ -982,13 +997,20 @@ export default function EnhancedPdfWizard() {
           const existingData = JSON.parse(prospectData.prospect.formData);
           
           // Check if Merchant Information section is complete
+          // Check both canonical (*Address.*) and legacy field names - templates may use various prefixes
+          const merchantAddressKeys = Object.keys(existingData);
+          const hasCompleteCanonicalAddress = merchantAddressKeys.some(k => k.endsWith('.street1')) && 
+                                               merchantAddressKeys.some(k => k.endsWith('.city')) && 
+                                               merchantAddressKeys.some(k => k.endsWith('.state')) && 
+                                               merchantAddressKeys.some(k => k.endsWith('.zipCode'));
+          const hasCompleteLegacyAddress = existingData.address && 
+                                            existingData.city && 
+                                            existingData.state && 
+                                            existingData.zipCode;
           const merchantInfoComplete = existingData.companyName && 
                                      existingData.companyEmail && 
                                      existingData.companyPhone && 
-                                     existingData.address && 
-                                     existingData.city && 
-                                     existingData.state && 
-                                     existingData.zipCode;
+                                     (hasCompleteCanonicalAddress || hasCompleteLegacyAddress);
           
           // Check if Business Type section is complete
           const businessTypeComplete = existingData.federalTaxId && 
@@ -3877,31 +3899,46 @@ export default function EnhancedPdfWizard() {
         const groupType = groupConfig.type;
         const fieldMappings = groupConfig.fieldMappings || {};
         
-        // Get actual field IDs from mappings
+        // Get actual field IDs from mappings (template-specific names)
         const street1FieldId = fieldMappings.street1 || '';
         const street2FieldId = fieldMappings.street2 || '';
         const cityFieldId = fieldMappings.city || '';
         const stateFieldId = fieldMappings.state || '';
-        const postalCodeFieldId = fieldMappings.postalCode || '';
+        const postalCodeFieldId = fieldMappings.postalCode || fieldMappings.zipCode || '';
         const countryFieldId = fieldMappings.country || '';
         
-        // Get values from formData using actual field IDs
-        const streetValue = formData[street1FieldId] || '';
-        const street2Val = formData[street2FieldId] || '';
-        const cityVal = formData[cityFieldId] || '';
-        const stateVal = formData[stateFieldId] || '';
-        const zipCodeVal = formData[postalCodeFieldId] || '';
+        // Build canonical field names as fallbacks (pattern: ${groupType}Address.fieldName)
+        const canonicalPrefix = `${groupType}Address`;
+        const canonicalStreet1 = `${canonicalPrefix}.street1`;
+        const canonicalStreet2 = `${canonicalPrefix}.street2`;
+        const canonicalCity = `${canonicalPrefix}.city`;
+        const canonicalState = `${canonicalPrefix}.state`;
+        const canonicalZipCode = `${canonicalPrefix}.zipCode`;
+        
+        // Get values from formData - check template-specific names first, then canonical names
+        const streetValue = formData[street1FieldId] || formData[canonicalStreet1] || '';
+        const street2Val = formData[street2FieldId] || formData[canonicalStreet2] || '';
+        const cityVal = formData[cityFieldId] || formData[canonicalCity] || '';
+        const stateVal = formData[stateFieldId] || formData[canonicalState] || '';
+        const zipCodeVal = formData[postalCodeFieldId] || formData[canonicalZipCode] || '';
         
         console.log('🏠 AddressGroup render for', groupType);
         console.log('  Field mappings:', fieldMappings);
-        console.log('  Field IDs:', { street1FieldId, cityFieldId, stateFieldId, postalCodeFieldId });
-        console.log('  formData keys containing address:', Object.keys(formData).filter(k => k.toLowerCase().includes('address')));
+        console.log('  Template Field IDs:', { street1FieldId, cityFieldId, stateFieldId, postalCodeFieldId });
+        console.log('  Canonical Field IDs:', { canonicalStreet1, canonicalCity, canonicalState, canonicalZipCode });
+        console.log('  formData keys containing address:', Object.keys(formData).filter(k => k.toLowerCase().includes('address') || k.includes('.')));
         console.log('  Values retrieved:', { streetValue, cityVal, stateVal, zipCodeVal });
-        console.log('  Raw formData lookups:', {
+        console.log('  Raw formData lookups (template):', {
           [street1FieldId]: formData[street1FieldId],
           [cityFieldId]: formData[cityFieldId],
           [stateFieldId]: formData[stateFieldId],
           [postalCodeFieldId]: formData[postalCodeFieldId]
+        });
+        console.log('  Raw formData lookups (canonical):', {
+          [canonicalStreet1]: formData[canonicalStreet1],
+          [canonicalCity]: formData[canonicalCity],
+          [canonicalState]: formData[canonicalState],
+          [canonicalZipCode]: formData[canonicalZipCode]
         });
         
         return (
