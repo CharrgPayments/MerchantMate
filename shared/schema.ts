@@ -1630,5 +1630,473 @@ export type WebhookActionConfig = z.infer<typeof webhookActionConfigSchema>;
 export type NotificationActionConfig = z.infer<typeof notificationActionConfigSchema>;
 export type SlackActionConfig = z.infer<typeof slackActionConfigSchema>;
 
+// =====================================================
+// GENERIC WORKFLOW/TICKETING SYSTEM
+// =====================================================
+// A flexible workflow orchestration system that can be used for:
+// - Underwriting applications
+// - Merchant onboarding
+// - Support tickets
+// - Compliance reviews
+// - Document approval workflows
+
+// Workflow Definitions - Define reusable workflow templates
+export const workflowDefinitions = pgTable("workflow_definitions", {
+  id: serial("id").primaryKey(),
+  code: varchar("code", { length: 50 }).notNull().unique(), // e.g., "traditional_underwriting", "payfac_underwriting", "merchant_onboarding"
+  name: text("name").notNull(), // Human-readable name
+  description: text("description"),
+  version: text("version").notNull().default("1.0"),
+  category: text("category").notNull(), // "underwriting", "onboarding", "support", "compliance"
+  entityType: text("entity_type").notNull(), // "prospect_application", "merchant", "support_request" - what this workflow operates on
+  initialStatus: text("initial_status").notNull().default("submitted"), // Starting status for new tickets
+  finalStatuses: text("final_statuses").array().notNull().default(sql`ARRAY['approved', 'declined', 'withdrawn']::text[]`), // Terminal statuses
+  configuration: jsonb("configuration").default('{}'), // Workflow-specific settings (e.g., SLA times, scoring config)
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  codeVersionIdx: unique().on(table.code, table.version),
+  categoryIdx: index("workflow_definitions_category_idx").on(table.category),
+}));
+
+// Workflow Stages - Define stages/phases within a workflow
+export const workflowStages = pgTable("workflow_stages", {
+  id: serial("id").primaryKey(),
+  workflowDefinitionId: integer("workflow_definition_id").notNull().references(() => workflowDefinitions.id, { onDelete: "cascade" }),
+  code: varchar("code", { length: 50 }).notNull(), // e.g., "mcc_screening", "google_kyb", "volume_check"
+  name: text("name").notNull(), // Human-readable name
+  description: text("description"),
+  orderIndex: integer("order_index").notNull(), // Execution order (0-based)
+  stageType: text("stage_type").notNull().default("automated"), // "automated", "manual", "checkpoint", "conditional"
+  handlerKey: text("handler_key"), // Reference to the handler function (e.g., "mcc_screening_handler")
+  isRequired: boolean("is_required").notNull().default(true), // Can this stage be skipped?
+  requiresReview: boolean("requires_review").notNull().default(false), // Does this stage pause for manual review on issues?
+  autoAdvance: boolean("auto_advance").notNull().default(true), // Automatically move to next stage on success?
+  issueBlocksSeverity: text("issue_blocks_severity"), // Minimum issue severity that blocks advancement (null = never blocks)
+  timeoutMinutes: integer("timeout_minutes"), // How long before stage times out (null = no timeout)
+  retryConfig: jsonb("retry_config"), // Retry settings for failed automated stages
+  configuration: jsonb("configuration").default('{}'), // Stage-specific settings
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  workflowStageCodeIdx: unique().on(table.workflowDefinitionId, table.code),
+  workflowOrderIdx: index("workflow_stages_order_idx").on(table.workflowDefinitionId, table.orderIndex),
+}));
+
+// Workflow Tickets - Individual workflow instances
+export const workflowTickets = pgTable("workflow_tickets", {
+  id: serial("id").primaryKey(),
+  ticketNumber: varchar("ticket_number", { length: 50 }).notNull().unique(), // Human-readable ticket ID (e.g., "UW-2024-00001")
+  workflowDefinitionId: integer("workflow_definition_id").notNull().references(() => workflowDefinitions.id),
+  
+  // Polymorphic reference to the entity being processed
+  entityType: text("entity_type").notNull(), // "prospect_application", "merchant", etc.
+  entityId: integer("entity_id").notNull(), // ID of the related record
+  
+  // Status tracking
+  status: text("status").notNull().default("submitted"), // Overall ticket status
+  subStatus: text("sub_status"), // Sub-status for granular tracking (e.g., "P1", "P2", "D1", etc.)
+  currentStageId: integer("current_stage_id").references(() => workflowStages.id),
+  
+  // Priority and categorization
+  priority: text("priority").notNull().default("normal"), // "low", "normal", "high", "urgent"
+  riskLevel: text("risk_level"), // "low", "medium", "high", "critical" - can be calculated
+  riskScore: integer("risk_score"), // Numeric risk score (0-100) for PayFac scoring
+  
+  // Assignment
+  assignedToId: varchar("assigned_to_id").references(() => users.id),
+  assignedAt: timestamp("assigned_at"),
+  
+  // Timing
+  submittedAt: timestamp("submitted_at").defaultNow().notNull(),
+  startedAt: timestamp("started_at"), // When processing began
+  completedAt: timestamp("completed_at"), // When final status was reached
+  dueAt: timestamp("due_at"), // SLA deadline
+  
+  // Review tracking
+  lastReviewedAt: timestamp("last_reviewed_at"),
+  lastReviewedBy: varchar("last_reviewed_by").references(() => users.id),
+  reviewCount: integer("review_count").notNull().default(0),
+  
+  // Context data
+  metadata: jsonb("metadata").default('{}'), // Additional context (e.g., acquirer info, campaign info)
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  entityIdx: index("workflow_tickets_entity_idx").on(table.entityType, table.entityId),
+  statusIdx: index("workflow_tickets_status_idx").on(table.status),
+  assignedIdx: index("workflow_tickets_assigned_idx").on(table.assignedToId),
+  priorityIdx: index("workflow_tickets_priority_idx").on(table.priority),
+  submittedAtIdx: index("workflow_tickets_submitted_at_idx").on(table.submittedAt),
+}));
+
+// Workflow Ticket Stages - Track execution state for each stage on a ticket
+export const workflowTicketStages = pgTable("workflow_ticket_stages", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").notNull().references(() => workflowTickets.id, { onDelete: "cascade" }),
+  stageId: integer("stage_id").notNull().references(() => workflowStages.id),
+  
+  // Execution state
+  status: text("status").notNull().default("pending"), // "pending", "in_progress", "completed", "failed", "skipped", "blocked"
+  result: text("result"), // "pass", "fail", "warning", "error"
+  
+  // Timing
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  
+  // Execution details
+  executionCount: integer("execution_count").notNull().default(0), // How many times this stage has run
+  lastExecutedAt: timestamp("last_executed_at"),
+  lastExecutedBy: varchar("last_executed_by").references(() => users.id), // For manual stages
+  
+  // Results from automated handlers
+  handlerResponse: jsonb("handler_response"), // Raw response from the stage handler
+  errorMessage: text("error_message"), // Error details if failed
+  
+  // Review tracking (for checkpoint stages)
+  reviewedAt: timestamp("reviewed_at"),
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  reviewNotes: text("review_notes"),
+  reviewDecision: text("review_decision"), // "approve", "reject", "require_info", "continue"
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  ticketStageIdx: unique().on(table.ticketId, table.stageId),
+  statusIdx: index("workflow_ticket_stages_status_idx").on(table.status),
+}));
+
+// Workflow Issues - Problems flagged during processing
+export const workflowIssues = pgTable("workflow_issues", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").notNull().references(() => workflowTickets.id, { onDelete: "cascade" }),
+  ticketStageId: integer("ticket_stage_id").references(() => workflowTicketStages.id, { onDelete: "set null" }),
+  
+  // Issue identification
+  issueCode: varchar("issue_code", { length: 50 }).notNull(), // e.g., "MCCProhibitedY", "ExactMATCHhit"
+  issueType: text("issue_type").notNull(), // "validation", "compliance", "verification", "document", "other"
+  severity: text("severity").notNull().default("medium"), // "low", "medium", "high", "critical", "blocker"
+  
+  // Issue details
+  title: text("title").notNull(), // Short description
+  description: text("description"), // Detailed description with context
+  affectedField: text("affected_field"), // Which field/data element is affected
+  affectedEntity: text("affected_entity"), // "business", "owner", "signatory", etc.
+  affectedEntityId: text("affected_entity_id"), // ID of the affected entity (e.g., owner ID)
+  
+  // Resolution tracking
+  status: text("status").notNull().default("open"), // "open", "acknowledged", "in_progress", "resolved", "overridden", "dismissed"
+  resolution: text("resolution"), // How it was resolved
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: varchar("resolved_by").references(() => users.id),
+  
+  // Override tracking
+  overrideReason: text("override_reason"),
+  overriddenAt: timestamp("overridden_at"),
+  overriddenBy: varchar("overridden_by").references(() => users.id),
+  
+  // Scoring impact (for PayFac)
+  scoreImpact: integer("score_impact"), // Points deducted from risk score
+  
+  // Source data
+  sourceData: jsonb("source_data"), // Raw data from API or check that triggered the issue
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  ticketIdx: index("workflow_issues_ticket_idx").on(table.ticketId),
+  issueCodeIdx: index("workflow_issues_code_idx").on(table.issueCode),
+  severityIdx: index("workflow_issues_severity_idx").on(table.severity),
+  statusIdx: index("workflow_issues_status_idx").on(table.status),
+}));
+
+// Workflow Tasks - Action items within a ticket
+export const workflowTasks = pgTable("workflow_tasks", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").notNull().references(() => workflowTickets.id, { onDelete: "cascade" }),
+  issueId: integer("issue_id").references(() => workflowIssues.id, { onDelete: "set null" }), // Optional link to related issue
+  
+  // Task details
+  title: text("title").notNull(),
+  description: text("description"),
+  taskType: text("task_type").notNull().default("action"), // "action", "document_request", "verification", "follow_up"
+  
+  // Assignment
+  assignedToId: varchar("assigned_to_id").references(() => users.id),
+  assignedToRole: text("assigned_to_role"), // Role-based assignment (e.g., "agent", "merchant", "underwriter")
+  assignedAt: timestamp("assigned_at"),
+  
+  // Status tracking
+  status: text("status").notNull().default("pending"), // "pending", "in_progress", "completed", "cancelled"
+  priority: text("priority").notNull().default("normal"), // "low", "normal", "high", "urgent"
+  
+  // Timing
+  dueAt: timestamp("due_at"),
+  completedAt: timestamp("completed_at"),
+  completedBy: varchar("completed_by").references(() => users.id),
+  
+  // Completion details
+  completionNotes: text("completion_notes"),
+  
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  ticketIdx: index("workflow_tasks_ticket_idx").on(table.ticketId),
+  assignedIdx: index("workflow_tasks_assigned_idx").on(table.assignedToId),
+  statusIdx: index("workflow_tasks_status_idx").on(table.status),
+}));
+
+// Workflow Notes - Comments and notes from reviewers
+export const workflowNotes = pgTable("workflow_notes", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").notNull().references(() => workflowTickets.id, { onDelete: "cascade" }),
+  ticketStageId: integer("ticket_stage_id").references(() => workflowTicketStages.id, { onDelete: "set null" }),
+  
+  // Note content
+  content: text("content").notNull(),
+  noteType: text("note_type").notNull().default("general"), // "general", "review", "decision", "internal", "external"
+  isInternal: boolean("is_internal").notNull().default(true), // Internal notes not visible to agents/merchants
+  
+  // Author
+  createdBy: varchar("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  ticketIdx: index("workflow_notes_ticket_idx").on(table.ticketId),
+  createdAtIdx: index("workflow_notes_created_at_idx").on(table.createdAt),
+}));
+
+// Workflow Artifacts - Documents and attachments
+export const workflowArtifacts = pgTable("workflow_artifacts", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").notNull().references(() => workflowTickets.id, { onDelete: "cascade" }),
+  ticketStageId: integer("ticket_stage_id").references(() => workflowTicketStages.id, { onDelete: "set null" }),
+  
+  // File information
+  fileName: text("file_name").notNull(),
+  fileType: text("file_type").notNull(), // MIME type
+  fileSize: integer("file_size"), // Size in bytes
+  filePath: text("file_path"), // Storage path or URL
+  
+  // Artifact classification
+  artifactType: text("artifact_type").notNull(), // "document", "screenshot", "report", "signature", "id_document"
+  category: text("category"), // "voided_check", "drivers_license", "financial_statement", "website_capture"
+  
+  // Metadata
+  description: text("description"),
+  metadata: jsonb("metadata").default('{}'), // Additional file metadata
+  
+  // Status
+  status: text("status").notNull().default("active"), // "active", "archived", "deleted"
+  
+  uploadedBy: varchar("uploaded_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  ticketIdx: index("workflow_artifacts_ticket_idx").on(table.ticketId),
+  artifactTypeIdx: index("workflow_artifacts_type_idx").on(table.artifactType),
+}));
+
+// Workflow Transitions - Audit log of all status/stage changes
+export const workflowTransitions = pgTable("workflow_transitions", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").notNull().references(() => workflowTickets.id, { onDelete: "cascade" }),
+  
+  // What changed
+  transitionType: text("transition_type").notNull(), // "status_change", "stage_change", "assignment_change", "priority_change"
+  
+  // Previous and new values
+  fromValue: text("from_value"),
+  toValue: text("to_value"),
+  fromStageId: integer("from_stage_id").references(() => workflowStages.id),
+  toStageId: integer("to_stage_id").references(() => workflowStages.id),
+  
+  // Context
+  reason: text("reason"), // Why the transition happened
+  notes: text("notes"),
+  
+  // Who/what triggered it
+  triggeredBy: varchar("triggered_by").references(() => users.id),
+  triggeredBySystem: boolean("triggered_by_system").notNull().default(false), // Was this an automated transition?
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  ticketIdx: index("workflow_transitions_ticket_idx").on(table.ticketId),
+  createdAtIdx: index("workflow_transitions_created_at_idx").on(table.createdAt),
+  transitionTypeIdx: index("workflow_transitions_type_idx").on(table.transitionType),
+}));
+
+// Workflow Assignments - Track assignment history
+export const workflowAssignments = pgTable("workflow_assignments", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").notNull().references(() => workflowTickets.id, { onDelete: "cascade" }),
+  
+  // Assignment details
+  assignedToId: varchar("assigned_to_id").notNull().references(() => users.id),
+  assignedById: varchar("assigned_by_id").references(() => users.id),
+  
+  // Assignment type
+  assignmentType: text("assignment_type").notNull().default("primary"), // "primary", "backup", "escalation"
+  
+  // Timing
+  assignedAt: timestamp("assigned_at").defaultNow().notNull(),
+  unassignedAt: timestamp("unassigned_at"),
+  
+  // Status
+  isActive: boolean("is_active").notNull().default(true),
+  
+  notes: text("notes"),
+}, (table) => ({
+  ticketIdx: index("workflow_assignments_ticket_idx").on(table.ticketId),
+  assignedToIdx: index("workflow_assignments_assigned_to_idx").on(table.assignedToId),
+  activeIdx: index("workflow_assignments_active_idx").on(table.ticketId, table.isActive),
+}));
+
+// =====================================================
+// UNDERWRITING-SPECIFIC LOOKUP TABLES
+// =====================================================
+
+// MCC Policies - Prohibited and auto-approved MCC codes
+export const mccPolicies = pgTable("mcc_policies", {
+  id: serial("id").primaryKey(),
+  mccCode: varchar("mcc_code", { length: 4 }).notNull(), // 4-digit MCC code
+  description: text("description").notNull(), // MCC description
+  category: text("category").notNull(), // "prohibited", "auto_approved", "review_required", "restricted"
+  acquirerId: integer("acquirer_id").references(() => acquirers.id), // Null = applies to all acquirers
+  riskLevel: text("risk_level"), // "low", "medium", "high" for review_required MCCs
+  notes: text("notes"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  mccAcquirerIdx: unique().on(table.mccCode, table.acquirerId),
+  categoryIdx: index("mcc_policies_category_idx").on(table.category),
+}));
+
+// Volume Thresholds - Per-acquirer processing limits
+export const volumeThresholds = pgTable("volume_thresholds", {
+  id: serial("id").primaryKey(),
+  acquirerId: integer("acquirer_id").notNull().references(() => acquirers.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), // Threshold name for reference
+  
+  // Volume limits
+  maxMonthlyVolume: decimal("max_monthly_volume", { precision: 12, scale: 2 }), // e.g., 500000 for $500k
+  minCardPresentPercent: decimal("min_card_present_percent", { precision: 5, scale: 2 }), // e.g., 70 for 70%
+  maxHighTicket: decimal("max_high_ticket", { precision: 10, scale: 2 }), // e.g., 5000 for $5,000
+  
+  // MCC requirements
+  requiresApprovedMcc: boolean("requires_approved_mcc").notNull().default(false), // For Wells Fargo
+  
+  // Risk tier this applies to
+  riskTier: text("risk_tier"), // "low", "medium", "high" - null = all tiers
+  
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  acquirerIdx: index("volume_thresholds_acquirer_idx").on(table.acquirerId),
+}));
+
+// API Integration Configurations - Store integration settings (not secrets)
+export const apiIntegrationConfigs = pgTable("api_integration_configs", {
+  id: serial("id").primaryKey(),
+  integrationKey: varchar("integration_key", { length: 50 }).notNull().unique(), // e.g., "lexisnexis", "transunion", "matchpro"
+  name: text("name").notNull(),
+  description: text("description"),
+  
+  // Endpoint configuration
+  baseUrl: text("base_url"),
+  sandboxUrl: text("sandbox_url"),
+  
+  // Settings
+  configuration: jsonb("configuration").default('{}'), // Non-sensitive config (timeouts, retry settings, etc.)
+  
+  // Status
+  isActive: boolean("is_active").notNull().default(true),
+  useSandbox: boolean("use_sandbox").notNull().default(true), // Use sandbox for development
+  
+  // Rate limiting
+  rateLimit: integer("rate_limit"), // Requests per minute
+  rateLimitWindow: integer("rate_limit_window").default(60), // Window in seconds
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// =====================================================
+// WORKFLOW SYSTEM ZOD SCHEMAS AND TYPES
+// =====================================================
+
+export const insertWorkflowDefinitionSchema = createInsertSchema(workflowDefinitions).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWorkflowStageSchema = createInsertSchema(workflowStages).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWorkflowTicketSchema = createInsertSchema(workflowTickets).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWorkflowTicketStageSchema = createInsertSchema(workflowTicketStages).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWorkflowIssueSchema = createInsertSchema(workflowIssues).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWorkflowTaskSchema = createInsertSchema(workflowTasks).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWorkflowNoteSchema = createInsertSchema(workflowNotes).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWorkflowArtifactSchema = createInsertSchema(workflowArtifacts).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWorkflowTransitionSchema = createInsertSchema(workflowTransitions).omit({ id: true, createdAt: true });
+export const insertWorkflowAssignmentSchema = createInsertSchema(workflowAssignments).omit({ id: true });
+export const insertMccPolicySchema = createInsertSchema(mccPolicies).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertVolumeThresholdSchema = createInsertSchema(volumeThresholds).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertApiIntegrationConfigSchema = createInsertSchema(apiIntegrationConfigs).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type WorkflowDefinition = typeof workflowDefinitions.$inferSelect;
+export type InsertWorkflowDefinition = z.infer<typeof insertWorkflowDefinitionSchema>;
+export type WorkflowStage = typeof workflowStages.$inferSelect;
+export type InsertWorkflowStage = z.infer<typeof insertWorkflowStageSchema>;
+export type WorkflowTicket = typeof workflowTickets.$inferSelect;
+export type InsertWorkflowTicket = z.infer<typeof insertWorkflowTicketSchema>;
+export type WorkflowTicketStage = typeof workflowTicketStages.$inferSelect;
+export type InsertWorkflowTicketStage = z.infer<typeof insertWorkflowTicketStageSchema>;
+export type WorkflowIssue = typeof workflowIssues.$inferSelect;
+export type InsertWorkflowIssue = z.infer<typeof insertWorkflowIssueSchema>;
+export type WorkflowTask = typeof workflowTasks.$inferSelect;
+export type InsertWorkflowTask = z.infer<typeof insertWorkflowTaskSchema>;
+export type WorkflowNote = typeof workflowNotes.$inferSelect;
+export type InsertWorkflowNote = z.infer<typeof insertWorkflowNoteSchema>;
+export type WorkflowArtifact = typeof workflowArtifacts.$inferSelect;
+export type InsertWorkflowArtifact = z.infer<typeof insertWorkflowArtifactSchema>;
+export type WorkflowTransition = typeof workflowTransitions.$inferSelect;
+export type InsertWorkflowTransition = z.infer<typeof insertWorkflowTransitionSchema>;
+export type WorkflowAssignment = typeof workflowAssignments.$inferSelect;
+export type InsertWorkflowAssignment = z.infer<typeof insertWorkflowAssignmentSchema>;
+export type MccPolicy = typeof mccPolicies.$inferSelect;
+export type InsertMccPolicy = z.infer<typeof insertMccPolicySchema>;
+export type VolumeThreshold = typeof volumeThresholds.$inferSelect;
+export type InsertVolumeThreshold = z.infer<typeof insertVolumeThresholdSchema>;
+export type ApiIntegrationConfig = typeof apiIntegrationConfigs.$inferSelect;
+export type InsertApiIntegrationConfig = z.infer<typeof insertApiIntegrationConfigSchema>;
+
+// Underwriting Status Constants
+export const UNDERWRITING_STATUSES = {
+  SUB: 'submitted',           // Application Submitted
+  CUW: 'credit_underwriting', // Credit & Underwriting in progress
+  PENDING_P1: 'pending_p1',   // Pending - Missing Information
+  PENDING_P2: 'pending_p2',   // Pending - Additional Documents
+  PENDING_P3: 'pending_p3',   // Pending - Miscellaneous
+  WITHDRAWN_W1: 'withdrawn_w1', // Withdrawn by Agent
+  WITHDRAWN_W2: 'withdrawn_w2', // Withdrawn by Merchant
+  WITHDRAWN_W3: 'withdrawn_w3', // Withdrawn - Never Received Documents
+  DECLINED_D1: 'declined_d1', // Declined - Unsatisfactory Data
+  DECLINED_D2: 'declined_d2', // Declined - Financial Condition
+  DECLINED_D3: 'declined_d3', // Declined - Unacceptable Product/Service
+  DECLINED_D4: 'declined_d4', // Declined - Unqualified Business
+  APPROVED: 'approved',       // Approved
+} as const;
+
+export type UnderwritingStatus = typeof UNDERWRITING_STATUSES[keyof typeof UNDERWRITING_STATUSES];
+
+// Issue Severity Levels
+export const ISSUE_SEVERITIES = ['low', 'medium', 'high', 'critical', 'blocker'] as const;
+export type IssueSeverity = typeof ISSUE_SEVERITIES[number];
+
 // Export Drizzle utilities
 export { sql, eq };
