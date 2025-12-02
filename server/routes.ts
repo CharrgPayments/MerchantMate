@@ -8997,7 +8997,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Prospect Applications
   app.get('/api/prospect-applications', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'agent']), async (req: RequestWithDB, res: Response) => {
     try {
-      console.log(`Fetching prospect applications - Database environment: ${req.dbEnv}`);
+      const prospectIdParam = req.query.prospectId ? parseInt(req.query.prospectId as string) : null;
+      console.log(`Fetching prospect applications - Database environment: ${req.dbEnv}, prospectId filter: ${prospectIdParam}`);
       
       // Use the dynamic database connection
       const dbToUse = req.dynamicDB;
@@ -9008,10 +9009,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { prospectApplications, merchantProspects, acquirers, acquirerApplicationTemplates } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
       
-      // Get prospect applications with minimal data to avoid query issues
-      const applications = await dbToUse.select()
+      // Get prospect applications with acquirer and template data
+      let query = dbToUse.select({
+        id: prospectApplications.id,
+        prospectId: prospectApplications.prospectId,
+        acquirerId: prospectApplications.acquirerId,
+        templateId: prospectApplications.templateId,
+        status: prospectApplications.status,
+        applicationData: prospectApplications.applicationData,
+        submittedAt: prospectApplications.submittedAt,
+        approvedAt: prospectApplications.approvedAt,
+        rejectedAt: prospectApplications.rejectedAt,
+        rejectionReason: prospectApplications.rejectionReason,
+        generatedPdfPath: prospectApplications.generatedPdfPath,
+        createdAt: prospectApplications.createdAt,
+        updatedAt: prospectApplications.updatedAt,
+        acquirer: {
+          id: acquirers.id,
+          name: acquirers.name,
+          displayName: acquirers.displayName,
+          code: acquirers.code
+        },
+        template: {
+          id: acquirerApplicationTemplates.id,
+          templateName: acquirerApplicationTemplates.templateName,
+          version: acquirerApplicationTemplates.version
+        }
+      })
       .from(prospectApplications)
-      .orderBy(prospectApplications.createdAt);
+      .leftJoin(acquirers, eq(prospectApplications.acquirerId, acquirers.id))
+      .leftJoin(acquirerApplicationTemplates, eq(prospectApplications.templateId, acquirerApplicationTemplates.id));
+      
+      let applications;
+      if (prospectIdParam) {
+        applications = await query
+          .where(eq(prospectApplications.prospectId, prospectIdParam))
+          .orderBy(prospectApplications.createdAt);
+      } else {
+        applications = await query.orderBy(prospectApplications.createdAt);
+      }
       
       console.log(`Found ${applications.length} prospect applications in ${req.dbEnv} database`);
       res.json(applications);
