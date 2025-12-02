@@ -78,6 +78,7 @@ async function upsertUser(
   await storage.upsertUser({
     id: claims["sub"],
     email: claims["email"],
+    username: claims["email"]?.split('@')[0] || claims["sub"],
     firstName: claims["first_name"],
     lastName: claims["last_name"],
     profileImageUrl: claims["profile_image_url"],
@@ -293,7 +294,7 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
         }
 
         // Check if user has any of the allowed roles
-        const hasAllowedRole = dbUser.roles.some(role => allowedRoles.includes(role));
+        const hasAllowedRole = dbUser.roles.some((role: string) => allowedRoles.includes(role));
         if (!hasAllowedRole) {
           return res.status(403).json({ message: "Insufficient permissions" });
         }
@@ -333,7 +334,7 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
         }
 
         // Check if user has any of the allowed roles
-        const hasAllowedRole = dbUser.roles.some(role => allowedRoles.includes(role));
+        const hasAllowedRole = dbUser.roles.some((role: string) => allowedRoles.includes(role));
         if (!hasAllowedRole) {
           return res.status(403).json({ message: "Insufficient permissions" });
         }

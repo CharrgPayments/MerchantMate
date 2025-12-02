@@ -90,29 +90,44 @@ export default function PermissionManager() {
   const [pendingChanges, setPendingChanges] = useState<Map<string, boolean>>(new Map());
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
-  const { data: policyData, isLoading: loadingPolicies } = useQuery<PolicyData>({
-    queryKey: ['/api/rbac/policies'],
+  const { data: userData, isSuccess: userLoaded } = useQuery<any>({
+    queryKey: ['/api/auth/user'],
+    staleTime: 5000,
+    refetchOnMount: true,
   });
 
-  const { data: rolesData, isLoading: loadingRoles } = useQuery<{ success: boolean; roles: RoleInfo[] }>({
-    queryKey: ['/api/rbac/roles'],
+  const { data: policyData, isLoading: loadingPolicies, refetch: refetchPolicies, isFetching: fetchingPolicies } = useQuery<PolicyData>({
+    queryKey: ['/api/rbac/policies', userLoaded ? 'authenticated' : 'anonymous'],
+    enabled: !!userData && userLoaded,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: true,
   });
 
-  const { data: auditData, isLoading: loadingAudit } = useQuery<{ success: boolean; logs: any[] }>({
-    queryKey: ['/api/rbac/audit-log'],
+  const { data: rolesData, isLoading: loadingRoles, refetch: refetchRoles, isFetching: fetchingRoles } = useQuery<{ success: boolean; roles: RoleInfo[] }>({
+    queryKey: ['/api/rbac/roles', userLoaded ? 'authenticated' : 'anonymous'],
+    enabled: !!userData && userLoaded,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: true,
+  });
+
+  const { data: auditData, isLoading: loadingAudit, refetch: refetchAudit, isFetching: fetchingAudit } = useQuery<{ success: boolean; logs: any[] }>({
+    queryKey: ['/api/rbac/audit-log', userLoaded ? 'authenticated' : 'anonymous'],
+    enabled: !!userData && userLoaded,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: true,
   });
 
   const updatePermissionsMutation = useMutation({
     mutationFn: async ({ roleKey, grants }: { roleKey: string; grants: any[] }) => {
-      return apiRequest(`/api/rbac/roles/${roleKey}/permissions`, {
-        method: 'PUT',
-        body: JSON.stringify({ grants }),
-      });
+      return apiRequest('PUT', `/api/rbac/roles/${roleKey}/permissions`, { grants });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/rbac/policies'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/rbac/roles'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/rbac/audit-log'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/rbac/policies', 'authenticated'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/rbac/roles', 'authenticated'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/rbac/audit-log', 'authenticated'] });
       setPendingChanges(new Map());
       toast({
         title: "Permissions Updated",
@@ -207,7 +222,9 @@ export default function PermissionManager() {
 
   const resourceTypeOrder = ['page', 'widget', 'api', 'workflow', 'feature'];
 
-  if (loadingPolicies || loadingRoles) {
+  const isDataLoading = (!userLoaded) || (userLoaded && userData && (loadingPolicies || loadingRoles || fetchingPolicies || fetchingRoles));
+
+  if (isDataLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -410,6 +427,17 @@ export default function PermissionManager() {
         </TabsContent>
 
         <TabsContent value="roles" className="space-y-4">
+          {(!rolesData?.roles || rolesData.roles.length === 0) && !loadingRoles && (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-center py-8 text-muted-foreground">
+                  <Shield className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p className="text-lg font-medium mb-2">No Role Data Available</p>
+                  <p className="text-sm">The RBAC system may not be initialized yet. Please check if the database tables exist.</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {rolesData?.roles?.sort((a, b) => a.hierarchyRank - b.hierarchyRank).map(role => (
               <Card 
