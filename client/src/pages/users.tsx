@@ -363,11 +363,12 @@ function CreateUserForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
                   {[
                     { value: "merchant", label: "Merchant" },
                     { value: "agent", label: "Agent" },
+                    { value: "underwriter", label: "Underwriter" },
                     { value: "admin", label: "Admin" },
                     { value: "corporate", label: "Corporate" },
                     { value: "super_admin", label: "Super Admin" },
                   ].map((role) => (
-                    <label key={role.value} className="flex items-center space-x-2">
+                    <label key={role.value} className="flex items-center space-x-2" data-testid={`checkbox-role-${role.value}`}>
                       <input
                         type="checkbox"
                         checked={field.value.includes(role.value)}
@@ -565,6 +566,8 @@ export default function UsersPage() {
         return "gold";
       case "admin":
         return "destructive";
+      case "underwriter":
+        return "info";
       case "agent":
         return "default";
       case "merchant":
@@ -780,7 +783,7 @@ export default function UsersPage() {
                           <Key className="h-4 w-4" />
                         </Button>
                         
-                        {user.role !== "super_admin" && (
+                        {!user.roles.includes("super_admin") && (
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
                               <Button
@@ -935,11 +938,12 @@ export default function UsersPage() {
                           {[
                             { value: "merchant", label: "Merchant" },
                             { value: "agent", label: "Agent" },
+                            { value: "underwriter", label: "Underwriter" },
                             { value: "admin", label: "Admin" },
                             { value: "corporate", label: "Corporate" },
                             { value: "super_admin", label: "Super Admin" },
                           ].map((role) => (
-                            <label key={role.value} className="flex items-center space-x-2">
+                            <label key={role.value} className="flex items-center space-x-2" data-testid={`edit-checkbox-role-${role.value}`}>
                               <input
                                 type="checkbox"
                                 checked={field.value.includes(role.value)}
@@ -1028,9 +1032,9 @@ export default function UsersPage() {
       lastName: user.lastName || "",
       email: user.email,
       username: user.username,
-      communicationPreference: (user.communicationPreference || "email") as any,
-      roles: user.roles || ["merchant"],
-      status: user.status as any,
+      communicationPreference: (user.communicationPreference || "email") as "email" | "sms" | "both",
+      roles: (user.roles || ["merchant"]) as ("merchant" | "agent" | "admin" | "corporate" | "super_admin" | "underwriter")[],
+      status: user.status as "active" | "suspended" | "inactive",
     });
     setEditDialogOpen(true);
   }
