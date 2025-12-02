@@ -604,7 +604,7 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
       // Include createUserAccount flag based on whether username/password are provided
       const createData = {
         ...data,
-        roles: ["agent"] as ("merchant" | "agent" | "admin" | "corporate" | "super_admin")[],
+        roles: ["agent"] as ("merchant" | "agent" | "admin" | "corporate" | "super_admin" | "underwriter")[],
         createUserAccount: Boolean(data.username && data.password)
       };
       createMutation.mutate(createData as any);

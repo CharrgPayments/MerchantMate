@@ -1079,7 +1079,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Invalid password" });
       }
       
-      if (!['merchant', 'agent', 'admin', 'corporate', 'super_admin'].includes(role)) {
+      if (!['merchant', 'agent', 'admin', 'corporate', 'super_admin', 'underwriter'].includes(role)) {
         return res.status(400).json({ message: "Invalid role" });
       }
 
@@ -12353,7 +12353,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // =====================================================
 
   // Workflow Definitions
-  app.get('/api/workflow/definitions', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.get('/api/workflow/definitions', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const definitions = await storage.getWorkflowDefinitions();
       res.json({ success: true, definitions });
@@ -12363,7 +12363,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/workflow/definitions/:id', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.get('/api/workflow/definitions/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const { id } = req.params;
       const definition = await storage.getWorkflowDefinition(parseInt(id));
@@ -12379,7 +12379,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Workflow Tickets - List
-  app.get('/api/workflow/tickets', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.get('/api/workflow/tickets', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const { status, workflowCode, entityType, assignedToId, limit = '50', offset = '0' } = req.query;
       const filters: any = {};
@@ -12397,7 +12397,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Workflow Tickets - Get single with details
-  app.get('/api/workflow/tickets/:id', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.get('/api/workflow/tickets/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const { id } = req.params;
       const ticket = await storage.getWorkflowTicket(parseInt(id));
@@ -12433,7 +12433,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Workflow Tickets - Create
-  app.post('/api/workflow/tickets', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.post('/api/workflow/tickets', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const { workflowCode, entityType, entityId, priority, metadata } = req.body;
       const userId = req.user?.claims?.sub;
@@ -12468,7 +12468,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Workflow Tickets - Start Processing
-  app.post('/api/workflow/tickets/:id/start', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.post('/api/workflow/tickets/:id/start', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const { id } = req.params;
       const userId = req.user?.claims?.sub;
@@ -12491,7 +12491,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Workflow Tickets - Execute Current Stage
-  app.post('/api/workflow/tickets/:id/execute', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.post('/api/workflow/tickets/:id/execute', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const { id } = req.params;
       const userId = req.user?.claims?.sub;
@@ -12516,7 +12516,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Workflow Tickets - Advance to next stage
-  app.post('/api/workflow/tickets/:id/advance', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.post('/api/workflow/tickets/:id/advance', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const { id } = req.params;
       const userId = req.user?.claims?.sub;
@@ -12549,7 +12549,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Workflow Tickets - Resolve Checkpoint
-  app.post('/api/workflow/tickets/:id/resolve-checkpoint', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.post('/api/workflow/tickets/:id/resolve-checkpoint', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const { id } = req.params;
       const { decision, notes } = req.body;
@@ -12577,7 +12577,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Workflow Tickets - Assign
-  app.post('/api/workflow/tickets/:id/assign', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.post('/api/workflow/tickets/:id/assign', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const { id } = req.params;
       const { assigneeId, notes } = req.body;
@@ -12604,7 +12604,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Workflow Notes - Add
-  app.post('/api/workflow/tickets/:id/notes', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.post('/api/workflow/tickets/:id/notes', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const { id } = req.params;
       const { content, noteType = 'general', isInternal = true } = req.body;
@@ -12631,7 +12631,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Workflow Issues - Update status
-  app.patch('/api/workflow/issues/:id', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.patch('/api/workflow/issues/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const { id } = req.params;
       const { status, resolution, overrideReason } = req.body;
@@ -12660,7 +12660,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Workflow Tasks - Update status
-  app.patch('/api/workflow/tasks/:id', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.patch('/api/workflow/tasks/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const { id } = req.params;
       const { status, completionNotes, assignedToId } = req.body;
@@ -12694,7 +12694,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Workflow Dashboard Stats
-  app.get('/api/workflow/stats', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.get('/api/workflow/stats', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const userId = req.user?.claims?.sub;
       const userRole = req.user?.role;
@@ -12729,7 +12729,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // MCC Policies - List
-  app.get('/api/workflow/mcc-policies', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.get('/api/workflow/mcc-policies', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const policies = await storage.getMccPolicies();
       res.json({ success: true, policies });
@@ -12740,7 +12740,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // MCC Policies - Create
-  app.post('/api/workflow/mcc-policies', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.post('/api/workflow/mcc-policies', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const { mccCode, description, category, acquirerId, riskLevel, notes } = req.body;
       const userId = req.user?.claims?.sub;
@@ -12768,7 +12768,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Volume Thresholds - List
-  app.get('/api/workflow/volume-thresholds', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.get('/api/workflow/volume-thresholds', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const thresholds = await storage.getVolumeThresholds();
       res.json({ success: true, thresholds });
@@ -12779,7 +12779,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Volume Thresholds - Create
-  app.post('/api/workflow/volume-thresholds', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+  app.post('/api/workflow/volume-thresholds', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const { thresholdType, minValue, maxValue, action, severity, description, notes } = req.body;
       const userId = req.user?.claims?.sub;

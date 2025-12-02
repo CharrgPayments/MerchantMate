@@ -37,3 +37,11 @@ export function canManageTransactions(user: any): boolean {
 export function canManageUsers(user: any): boolean {
   return hasRole(user, ['admin', 'corporate', 'super_admin']);
 }
+
+export function canAccessWorkflows(user: any): boolean {
+  return hasRole(user, ['admin', 'super_admin', 'underwriter']);
+}
+
+export function canManageWorkflows(user: any): boolean {
+  return hasRole(user, ['admin', 'super_admin', 'underwriter']);
+}
