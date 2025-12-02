@@ -12807,6 +12807,306 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // =====================================================
+  // RBAC (Role-Based Access Control) API ROUTES
+  // =====================================================
+
+  // Get all RBAC resources grouped by type
+  app.get('/api/rbac/resources', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const dynamicDB = req.dynamicDB || db;
+      const { rbacResources } = await import('@shared/schema');
+      
+      const resources = await dynamicDB.select().from(rbacResources).where(eq(rbacResources.isActive, true));
+      
+      // Group by resource type
+      const grouped = resources.reduce((acc: any, resource: any) => {
+        if (!acc[resource.resourceType]) {
+          acc[resource.resourceType] = [];
+        }
+        acc[resource.resourceType].push(resource);
+        return acc;
+      }, {});
+      
+      res.json({ success: true, resources, grouped });
+    } catch (error) {
+      console.error('Get RBAC resources error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve resources' });
+    }
+  });
+
+  // Get all roles with their permission counts
+  app.get('/api/rbac/roles', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const dynamicDB = req.dynamicDB || db;
+      const { rolePermissions, SYSTEM_ROLES, ROLE_HIERARCHY } = await import('@shared/schema');
+      
+      // Get permission counts for each role
+      const permissionCounts = await dynamicDB
+        .select({
+          roleKey: rolePermissions.roleKey,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(rolePermissions)
+        .where(eq(rolePermissions.isGranted, true))
+        .groupBy(rolePermissions.roleKey);
+      
+      // Build role info with counts
+      const roles = SYSTEM_ROLES.map(roleKey => ({
+        roleKey,
+        displayName: roleKey.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        hierarchyRank: ROLE_HIERARCHY[roleKey],
+        permissionCount: permissionCounts.find(p => p.roleKey === roleKey)?.count || 0,
+      }));
+      
+      res.json({ success: true, roles });
+    } catch (error) {
+      console.error('Get RBAC roles error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve roles' });
+    }
+  });
+
+  // Get permissions for a specific role
+  app.get('/api/rbac/roles/:roleKey/permissions', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const { roleKey } = req.params;
+      const dynamicDB = req.dynamicDB || db;
+      const { rolePermissions, rbacResources, SYSTEM_ROLES } = await import('@shared/schema');
+      
+      if (!SYSTEM_ROLES.includes(roleKey)) {
+        return res.status(400).json({ success: false, message: 'Invalid role key' });
+      }
+      
+      // Get all permissions for this role
+      const permissions = await dynamicDB
+        .select({
+          id: rolePermissions.id,
+          roleKey: rolePermissions.roleKey,
+          resourceId: rolePermissions.resourceId,
+          action: rolePermissions.action,
+          isGranted: rolePermissions.isGranted,
+          grantedAt: rolePermissions.grantedAt,
+          notes: rolePermissions.notes,
+          resourceKey: rbacResources.resourceKey,
+          resourceType: rbacResources.resourceType,
+          displayName: rbacResources.displayName,
+          category: rbacResources.category,
+        })
+        .from(rolePermissions)
+        .innerJoin(rbacResources, eq(rolePermissions.resourceId, rbacResources.id))
+        .where(eq(rolePermissions.roleKey, roleKey));
+      
+      // Build a permission map for easy lookup
+      const permissionMap: Record<string, string[]> = {};
+      permissions.forEach((p: any) => {
+        if (p.isGranted) {
+          if (!permissionMap[p.resourceKey]) {
+            permissionMap[p.resourceKey] = [];
+          }
+          permissionMap[p.resourceKey].push(p.action);
+        }
+      });
+      
+      res.json({ success: true, permissions, permissionMap, roleKey });
+    } catch (error) {
+      console.error('Get role permissions error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve role permissions' });
+    }
+  });
+
+  // Get full policy snapshot (all roles, all resources, all permissions)
+  app.get('/api/rbac/policies', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const dynamicDB = req.dynamicDB || db;
+      const { rolePermissions, rbacResources, SYSTEM_ROLES } = await import('@shared/schema');
+      
+      // Get all active resources
+      const resources = await dynamicDB
+        .select()
+        .from(rbacResources)
+        .where(eq(rbacResources.isActive, true));
+      
+      // Get all granted permissions
+      const permissions = await dynamicDB
+        .select({
+          roleKey: rolePermissions.roleKey,
+          resourceId: rolePermissions.resourceId,
+          action: rolePermissions.action,
+          isGranted: rolePermissions.isGranted,
+          resourceKey: rbacResources.resourceKey,
+        })
+        .from(rolePermissions)
+        .innerJoin(rbacResources, eq(rolePermissions.resourceId, rbacResources.id))
+        .where(eq(rolePermissions.isGranted, true));
+      
+      // Build policy map: { roleKey: { resourceKey: [actions] } }
+      const policyMap: Record<string, Record<string, string[]>> = {};
+      
+      SYSTEM_ROLES.forEach(role => {
+        policyMap[role] = {};
+      });
+      
+      permissions.forEach((p: any) => {
+        if (!policyMap[p.roleKey]) {
+          policyMap[p.roleKey] = {};
+        }
+        if (!policyMap[p.roleKey][p.resourceKey]) {
+          policyMap[p.roleKey][p.resourceKey] = [];
+        }
+        if (!policyMap[p.roleKey][p.resourceKey].includes(p.action)) {
+          policyMap[p.roleKey][p.resourceKey].push(p.action);
+        }
+      });
+      
+      res.json({ 
+        success: true, 
+        policies: policyMap,
+        resources: resources.map((r: any) => ({
+          resourceKey: r.resourceKey,
+          resourceType: r.resourceType,
+          displayName: r.displayName,
+          category: r.category,
+        })),
+        roles: SYSTEM_ROLES,
+      });
+    } catch (error) {
+      console.error('Get RBAC policies error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve policies' });
+    }
+  });
+
+  // Update permissions for a role
+  app.put('/api/rbac/roles/:roleKey/permissions', dbEnvironmentMiddleware, requireRole(['super_admin']), async (req: any, res) => {
+    try {
+      const { roleKey } = req.params;
+      const { grants } = req.body; // Array of { resourceKey, action, allow: boolean }
+      const userId = (req.session as any)?.userId;
+      const dynamicDB = req.dynamicDB || db;
+      const { rolePermissions, rbacResources, permissionAuditLog, SYSTEM_ROLES } = await import('@shared/schema');
+      
+      if (!SYSTEM_ROLES.includes(roleKey)) {
+        return res.status(400).json({ success: false, message: 'Invalid role key' });
+      }
+      
+      if (!Array.isArray(grants) || grants.length === 0) {
+        return res.status(400).json({ success: false, message: 'Grants array is required' });
+      }
+      
+      const results: any[] = [];
+      
+      for (const grant of grants) {
+        const { resourceKey, action, allow } = grant;
+        
+        // Find the resource
+        const [resource] = await dynamicDB
+          .select()
+          .from(rbacResources)
+          .where(eq(rbacResources.resourceKey, resourceKey))
+          .limit(1);
+        
+        if (!resource) {
+          results.push({ resourceKey, action, success: false, message: 'Resource not found' });
+          continue;
+        }
+        
+        // Check if permission already exists
+        const [existingPerm] = await dynamicDB
+          .select()
+          .from(rolePermissions)
+          .where(sql`${rolePermissions.roleKey} = ${roleKey} AND ${rolePermissions.resourceId} = ${resource.id} AND ${rolePermissions.action} = ${action}`)
+          .limit(1);
+        
+        const previousValue = existingPerm?.isGranted ?? null;
+        
+        if (existingPerm) {
+          // Update existing permission
+          await dynamicDB
+            .update(rolePermissions)
+            .set({ 
+              isGranted: allow, 
+              grantedBy: userId,
+              grantedAt: new Date(),
+            })
+            .where(eq(rolePermissions.id, existingPerm.id));
+        } else {
+          // Insert new permission
+          await dynamicDB
+            .insert(rolePermissions)
+            .values({
+              roleKey,
+              resourceId: resource.id,
+              action,
+              isGranted: allow,
+              grantedBy: userId,
+            });
+        }
+        
+        // Log the change to audit log
+        await dynamicDB
+          .insert(permissionAuditLog)
+          .values({
+            actorUserId: userId,
+            roleKey,
+            resourceId: resource.id,
+            action,
+            changeType: allow ? 'grant' : 'revoke',
+            previousValue,
+            newValue: allow,
+            notes: `Permission ${allow ? 'granted' : 'revoked'} by admin`,
+          });
+        
+        results.push({ resourceKey, action, success: true, allow });
+      }
+      
+      res.json({ success: true, results, message: 'Permissions updated successfully' });
+    } catch (error) {
+      console.error('Update role permissions error:', error);
+      res.status(500).json({ success: false, message: 'Failed to update permissions' });
+    }
+  });
+
+  // Get permission audit log
+  app.get('/api/rbac/audit-log', dbEnvironmentMiddleware, requireRole(['super_admin']), async (req: any, res) => {
+    try {
+      const { roleKey, limit = '50', offset = '0' } = req.query;
+      const dynamicDB = req.dynamicDB || db;
+      const { permissionAuditLog, rbacResources, users: usersTable } = await import('@shared/schema');
+      
+      let query = dynamicDB
+        .select({
+          id: permissionAuditLog.id,
+          actorUserId: permissionAuditLog.actorUserId,
+          roleKey: permissionAuditLog.roleKey,
+          action: permissionAuditLog.action,
+          changeType: permissionAuditLog.changeType,
+          previousValue: permissionAuditLog.previousValue,
+          newValue: permissionAuditLog.newValue,
+          notes: permissionAuditLog.notes,
+          createdAt: permissionAuditLog.createdAt,
+          resourceKey: rbacResources.resourceKey,
+          resourceDisplayName: rbacResources.displayName,
+          actorUsername: usersTable.username,
+        })
+        .from(permissionAuditLog)
+        .innerJoin(rbacResources, eq(permissionAuditLog.resourceId, rbacResources.id))
+        .leftJoin(usersTable, eq(permissionAuditLog.actorUserId, usersTable.id))
+        .orderBy(sql`${permissionAuditLog.createdAt} DESC`)
+        .limit(parseInt(limit as string))
+        .offset(parseInt(offset as string));
+      
+      if (roleKey) {
+        query = query.where(eq(permissionAuditLog.roleKey, roleKey as string));
+      }
+      
+      const logs = await query;
+      
+      res.json({ success: true, logs });
+    } catch (error) {
+      console.error('Get permission audit log error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve audit log' });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
