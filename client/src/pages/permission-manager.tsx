@@ -35,7 +35,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getQueryFn } from "@/lib/queryClient";
 
 interface Resource {
   resourceKey: string;
@@ -90,46 +90,40 @@ export default function PermissionManager() {
   const [pendingChanges, setPendingChanges] = useState<Map<string, boolean>>(new Map());
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
-  const { data: userData } = useQuery<any>({
+  const { data: userData, isLoading: loadingUser } = useQuery<any>({
     queryKey: ['/api/auth/user'],
     staleTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
   });
 
-  const isAuthenticated = userData && userData.id;
+  const isAuthenticated = !!(userData && userData.id);
 
-  const { data: policyData, isLoading: loadingPolicies, refetch: refetchPolicies, isFetching: fetchingPolicies } = useQuery<PolicyData>({
+  const rbacQueryFn = getQueryFn<any>({ on401: 'throw' });
+
+  const { data: policyData, isLoading: loadingPolicies, isFetching: fetchingPolicies, status: policyStatus } = useQuery<PolicyData>({
     queryKey: ['/api/rbac/policies'],
-    enabled: !!isAuthenticated,
+    queryFn: rbacQueryFn,
+    enabled: isAuthenticated,
     staleTime: 0,
     gcTime: 0,
-    refetchOnMount: 'always',
   });
 
-  const { data: rolesData, isLoading: loadingRoles, refetch: refetchRoles, isFetching: fetchingRoles } = useQuery<{ success: boolean; roles: RoleInfo[] }>({
+  const { data: rolesData, isLoading: loadingRoles, isFetching: fetchingRoles } = useQuery<{ success: boolean; roles: RoleInfo[] }>({
     queryKey: ['/api/rbac/roles'],
-    enabled: !!isAuthenticated,
+    queryFn: rbacQueryFn,
+    enabled: isAuthenticated,
     staleTime: 0,
     gcTime: 0,
-    refetchOnMount: 'always',
   });
 
-  const { data: auditData, isLoading: loadingAudit, refetch: refetchAudit, isFetching: fetchingAudit } = useQuery<{ success: boolean; logs: any[] }>({
+  const { data: auditData, isLoading: loadingAudit, isFetching: fetchingAudit } = useQuery<{ success: boolean; logs: any[] }>({
     queryKey: ['/api/rbac/audit-log'],
-    enabled: !!isAuthenticated,
+    queryFn: rbacQueryFn,
+    enabled: isAuthenticated,
     staleTime: 0,
     gcTime: 0,
-    refetchOnMount: 'always',
   });
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      refetchPolicies();
-      refetchRoles();
-      refetchAudit();
-    }
-  }, [isAuthenticated, refetchPolicies, refetchRoles, refetchAudit]);
 
   const updatePermissionsMutation = useMutation({
     mutationFn: async ({ roleKey, grants }: { roleKey: string; grants: any[] }) => {
@@ -233,7 +227,7 @@ export default function PermissionManager() {
 
   const resourceTypeOrder = ['page', 'widget', 'api', 'workflow', 'feature'];
 
-  const isDataLoading = !isAuthenticated || (isAuthenticated && (loadingPolicies || loadingRoles || fetchingPolicies || fetchingRoles));
+  const isDataLoading = loadingUser || !isAuthenticated || (isAuthenticated && (loadingPolicies || loadingRoles || fetchingPolicies || fetchingRoles));
 
   if (isDataLoading) {
     return (
