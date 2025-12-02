@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { CreditCard, BarChart3, Store, Users, Receipt, FileText, LogOut, User, MapPin, Shield, UserPlus, DollarSign, ChevronLeft, ChevronRight, Monitor, ChevronDown, ChevronUp, Book, TestTube, Mail, Crown, Building2, Zap, GitBranch } from "lucide-react";
+import { CreditCard, BarChart3, Store, Users, Receipt, FileText, LogOut, User, MapPin, Shield, UserPlus, DollarSign, ChevronLeft, ChevronRight, Monitor, ChevronDown, ChevronUp, Book, TestTube, Mail, Crown, Building2, Zap, GitBranch, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { canAccessAnalytics, canAccessMerchants, canAccessAgents, canAccessTransactions } from "@/lib/authUtils";
@@ -38,6 +38,7 @@ const baseNavigation = [
   { name: "Security", href: "/security", icon: Shield, requiresRole: ['admin', 'super_admin'] },
   { name: "Workflows", href: "/workflows", icon: GitBranch, requiresRole: ['admin', 'super_admin', 'underwriter'] },
   { name: "Communications", href: "/communications", icon: Mail, requiresRole: ['admin', 'super_admin'] },
+  { name: "Permissions", href: "/permissions", icon: Lock, requiresRole: ['super_admin'] },
   { name: "API Documentation", href: "/api-documentation", icon: Book, requiresRole: ['admin', 'super_admin'] },
   { name: "Testing Utilities", href: "/testing-utilities", icon: TestTube, requiresRole: ['super_admin'] },
 ];
