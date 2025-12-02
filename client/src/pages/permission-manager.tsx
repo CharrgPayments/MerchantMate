@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Shield, Search, Save, RefreshCw, History, ChevronDown, ChevronRight, Check, X, Eye, Settings, Zap } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -90,44 +90,55 @@ export default function PermissionManager() {
   const [pendingChanges, setPendingChanges] = useState<Map<string, boolean>>(new Map());
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
-  const { data: userData, isSuccess: userLoaded } = useQuery<any>({
+  const { data: userData } = useQuery<any>({
     queryKey: ['/api/auth/user'],
-    staleTime: 5000,
-    refetchOnMount: true,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 
+  const isAuthenticated = userData && userData.id;
+
   const { data: policyData, isLoading: loadingPolicies, refetch: refetchPolicies, isFetching: fetchingPolicies } = useQuery<PolicyData>({
-    queryKey: ['/api/rbac/policies', userLoaded ? 'authenticated' : 'anonymous'],
-    enabled: !!userData && userLoaded,
+    queryKey: ['/api/rbac/policies'],
+    enabled: !!isAuthenticated,
     staleTime: 0,
     gcTime: 0,
-    refetchOnMount: true,
+    refetchOnMount: 'always',
   });
 
   const { data: rolesData, isLoading: loadingRoles, refetch: refetchRoles, isFetching: fetchingRoles } = useQuery<{ success: boolean; roles: RoleInfo[] }>({
-    queryKey: ['/api/rbac/roles', userLoaded ? 'authenticated' : 'anonymous'],
-    enabled: !!userData && userLoaded,
+    queryKey: ['/api/rbac/roles'],
+    enabled: !!isAuthenticated,
     staleTime: 0,
     gcTime: 0,
-    refetchOnMount: true,
+    refetchOnMount: 'always',
   });
 
   const { data: auditData, isLoading: loadingAudit, refetch: refetchAudit, isFetching: fetchingAudit } = useQuery<{ success: boolean; logs: any[] }>({
-    queryKey: ['/api/rbac/audit-log', userLoaded ? 'authenticated' : 'anonymous'],
-    enabled: !!userData && userLoaded,
+    queryKey: ['/api/rbac/audit-log'],
+    enabled: !!isAuthenticated,
     staleTime: 0,
     gcTime: 0,
-    refetchOnMount: true,
+    refetchOnMount: 'always',
   });
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      refetchPolicies();
+      refetchRoles();
+      refetchAudit();
+    }
+  }, [isAuthenticated, refetchPolicies, refetchRoles, refetchAudit]);
 
   const updatePermissionsMutation = useMutation({
     mutationFn: async ({ roleKey, grants }: { roleKey: string; grants: any[] }) => {
       return apiRequest('PUT', `/api/rbac/roles/${roleKey}/permissions`, { grants });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/rbac/policies', 'authenticated'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/rbac/roles', 'authenticated'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/rbac/audit-log', 'authenticated'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/rbac/policies'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/rbac/roles'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/rbac/audit-log'] });
       setPendingChanges(new Map());
       toast({
         title: "Permissions Updated",
@@ -222,7 +233,7 @@ export default function PermissionManager() {
 
   const resourceTypeOrder = ['page', 'widget', 'api', 'workflow', 'feature'];
 
-  const isDataLoading = (!userLoaded) || (userLoaded && userData && (loadingPolicies || loadingRoles || fetchingPolicies || fetchingRoles));
+  const isDataLoading = !isAuthenticated || (isAuthenticated && (loadingPolicies || loadingRoles || fetchingPolicies || fetchingRoles));
 
   if (isDataLoading) {
     return (
