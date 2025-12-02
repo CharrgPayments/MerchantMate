@@ -46,6 +46,16 @@ Preferred communication style: Simple, everyday language.
 - **Email Configuration & Testing**: Settings tab in Communications Manager displays current SendGrid sender configuration and includes test email functionality.
 - **Prospect Self-Service Portal**: Comprehensive portal for prospects to manage their application lifecycle, including auto-account creation, password setup, document management, notifications, status tracking, profile management, and automatic conversion to merchant.
 - **Prospect Application Auto-Save**: Auto-save functionality with debounced saves for prospect application forms.
+- **Generic Workflow/Ticketing System**: Reusable workflow engine supporting multi-stage processing pipelines with pluggable handlers, checkpoint reviews, issue/task tracking, and automated stage execution. Designed for underwriting automation but extensible to onboarding, support tickets, and compliance workflows.
+
+### Workflow System Architecture
+- **Workflow Definitions**: Configurable workflow templates with stages, handlers, and timeout rules.
+- **Ticket Management**: Polymorphic tickets linked to any entity (prospects, merchants, locations) with full lifecycle tracking.
+- **Stage Handlers**: Registry-based handler system for automated stages (MCC screening, KYB/KYC APIs, volume analysis) and manual checkpoints.
+- **Issue Tracking**: Severity-based issues (blocker, critical, warning, info) with resolution/override workflows.
+- **Task Management**: Assigned tasks with due dates and status tracking for manual review steps.
+- **Checkpoint Resolution**: Approval/rejection workflows with required notes and audit trails.
+- **Artifact Storage**: Stage-level artifact capture for API responses, documents, and verification results.
 
 ### System Design Choices
 - **Testing Framework**: TDD-style with Jest and React Testing Library.
