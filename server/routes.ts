@@ -1919,17 +1919,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Campaign assignment is required" });
       }
       
-      const result = insertMerchantProspectSchema.safeParse(prospectData);
+      // If user is an agent, automatically use their agent ID
+      let finalAgentId = prospectData.agentId;
+      if (userRoles.includes('agent')) {
+        const agentRecord = await storage.getAgentByUserId(userId);
+        if (agentRecord) {
+          finalAgentId = agentRecord.id;
+          console.log(`Auto-assigned agent ID ${finalAgentId} for user ${userId}`);
+        } else {
+          return res.status(400).json({ message: "Agent record not found for current user. Please contact support." });
+        }
+      }
+      
+      const result = insertMerchantProspectSchema.safeParse({
+        ...prospectData,
+        agentId: finalAgentId
+      });
       if (!result.success) {
         return res.status(400).json({ message: "Invalid prospect data", errors: result.error.errors });
       }
 
-      // Validate agentId if provided
-      if (result.data.agentId) {
-        const agent = await storage.getAgent(result.data.agentId);
-        if (!agent) {
-          return res.status(400).json({ message: `Invalid agent ID: ${result.data.agentId}. Agent not found.` });
-        }
+      // Validate agentId
+      const agent = await storage.getAgent(result.data.agentId);
+      if (!agent) {
+        return res.status(400).json({ message: `Invalid agent ID: ${result.data.agentId}. Agent not found.` });
       }
 
       // Generate validation token for the prospect
@@ -1945,8 +1958,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create campaign assignment
       await storage.assignCampaignToProspect(campaignId, prospect.id, userId);
       
-      // Fetch agent information for email
-      const agent = await storage.getAgent(prospect.agentId);
+      // Use already fetched agent information for email
       console.log(`Email debug - Agent found:`, agent ? `${agent.firstName} ${agent.lastName}` : 'No agent');
       console.log(`Email debug - Validation token:`, prospect.validationToken ? 'Present' : 'Missing');
       
@@ -7476,7 +7488,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Campaign Management API endpoints
   
   // Campaigns
-  app.get('/api/campaigns', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/campaigns', dbEnvironmentMiddleware, requireRole(['agent', 'admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
       console.log(`Fetching campaigns - Database environment: ${req.dbEnv}`);
       
@@ -8456,7 +8468,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Acquirer Management API endpoints
   
   // Acquirers
-  app.get('/api/acquirers', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/acquirers', dbEnvironmentMiddleware, requireRole(['agent', 'admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
       console.log(`Fetching acquirers - Database environment: ${req.dbEnv}`);
       
@@ -8506,7 +8518,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/acquirers/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/acquirers/:id', dbEnvironmentMiddleware, requireRole(['agent', 'admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
       const acquirerId = parseInt(req.params.id);
       console.log(`Fetching acquirer ${acquirerId} - Database environment: ${req.dbEnv}`);
@@ -8579,9 +8591,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Acquirer Application Templates
-  app.get('/api/acquirer-application-templates', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/acquirer-application-templates', dbEnvironmentMiddleware, requireRole(['agent', 'admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
-      console.log(`Fetching acquirer application templates - Database environment: ${req.dbEnv}`);
+      const acquirerId = req.query.acquirerId ? parseInt(req.query.acquirerId as string) : null;
+      console.log(`Fetching acquirer application templates - Database environment: ${req.dbEnv}, acquirerId filter: ${acquirerId}`);
       
       // Use the dynamic database connection
       const dbToUse = req.dynamicDB;
@@ -8590,10 +8603,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const { acquirerApplicationTemplates, acquirers } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
+      const { eq, and } = await import("drizzle-orm");
       
-      // Get templates with acquirer information
-      const templates = await dbToUse.select({
+      // Build the query with optional acquirerId filter
+      let query = dbToUse.select({
         id: acquirerApplicationTemplates.id,
         acquirerId: acquirerApplicationTemplates.acquirerId,
         templateName: acquirerApplicationTemplates.templateName,
@@ -8613,8 +8626,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       })
       .from(acquirerApplicationTemplates)
-      .leftJoin(acquirers, eq(acquirerApplicationTemplates.acquirerId, acquirers.id))
-      .orderBy(acquirers.name, acquirerApplicationTemplates.templateName);
+      .leftJoin(acquirers, eq(acquirerApplicationTemplates.acquirerId, acquirers.id));
+      
+      // Apply acquirerId filter if provided
+      let templates;
+      if (acquirerId) {
+        templates = await query.where(
+          and(
+            eq(acquirerApplicationTemplates.acquirerId, acquirerId),
+            eq(acquirerApplicationTemplates.isActive, true)
+          )
+        ).orderBy(acquirerApplicationTemplates.templateName);
+      } else {
+        templates = await query.orderBy(acquirers.name, acquirerApplicationTemplates.templateName);
+      }
       
       console.log(`Found ${templates.length} acquirer application templates in ${req.dbEnv} database`);
       res.json(templates);
@@ -8690,7 +8715,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/acquirer-application-templates/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/acquirer-application-templates/:id', dbEnvironmentMiddleware, requireRole(['agent', 'admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
       const templateId = parseInt(req.params.id);
       console.log(`Fetching acquirer application template ${templateId} - Database environment: ${req.dbEnv}`);
@@ -9694,7 +9719,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Duplicate fee item POST endpoint removed - using the correct one with database isolation
 
   // Campaigns endpoints
-  app.get("/api/campaigns", requireRole(['admin', 'super_admin']), async (req: Request, res: Response) => {
+  app.get("/api/campaigns", requireRole(['agent', 'admin', 'super_admin']), async (req: Request, res: Response) => {
     try {
       const campaigns = await storage.getAllCampaigns();
       
