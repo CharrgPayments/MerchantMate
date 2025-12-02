@@ -107,6 +107,7 @@ export interface IStorage {
     expiresAt: Date;
   }): Promise<void>;
   verify2FACode(userId: string, code: string): Promise<boolean>;
+  check2FACodeStatus(userId: string, code: string): Promise<{ valid: boolean; expired: boolean; exists: boolean }>;
 
   // Analytics
   getDashboardMetrics(): Promise<{
@@ -2064,6 +2065,31 @@ export class DatabaseStorage implements IStorage {
       return true;
     }
     return false;
+  }
+
+  async check2FACodeStatus(userId: string, code: string): Promise<{ valid: boolean; expired: boolean; exists: boolean }> {
+    // First check if code exists at all (regardless of expiry)
+    const [existingCode] = await this.db.select().from(twoFactorCodes)
+      .where(and(
+        eq(twoFactorCodes.userId, userId),
+        eq(twoFactorCodes.code, code)
+      ));
+    
+    if (!existingCode) {
+      return { valid: false, expired: false, exists: false };
+    }
+    
+    // Code exists - check if it's expired
+    const now = new Date();
+    if (existingCode.expiresAt < now) {
+      // Code exists but is expired - delete it
+      await this.db.delete(twoFactorCodes).where(eq(twoFactorCodes.id, existingCode.id));
+      return { valid: false, expired: true, exists: true };
+    }
+    
+    // Code is valid - delete it after use
+    await this.db.delete(twoFactorCodes).where(eq(twoFactorCodes.id, existingCode.id));
+    return { valid: true, expired: false, exists: true };
   }
 
   // Analytics methods
