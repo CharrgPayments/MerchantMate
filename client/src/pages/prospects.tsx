@@ -1414,6 +1414,7 @@ function ApplicationsManagementDialog({
 }: ApplicationsManagementDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
   const [selectedAcquirer, setSelectedAcquirer] = useState<number | null>(null);
 
   // Application status badge helper function
@@ -1444,10 +1445,10 @@ function ApplicationsManagementDialog({
     onSuccess: (updatedApplication) => {
       queryClient.invalidateQueries({ queryKey: ["/api/prospect-applications"] });
       
-      // Find the prospect ID from the application to navigate to the form
-      const application = prospectApplications.find(app => app.id === updatedApplication.id);
-      if (application) {
-        setLocation(`/enhanced-pdf-wizard/${application.prospectId}`);
+      // Navigate to the form using the prospect ID from the updated application or the current prospect
+      const prospectId = updatedApplication.prospectId || prospect?.id;
+      if (prospectId) {
+        setLocation(`/enhanced-pdf-wizard/${prospectId}`);
       }
       
       toast({
@@ -1732,8 +1733,8 @@ function ApplicationsManagementDialog({
                           <FileText className="w-5 h-5 text-blue-600" />
                         </div>
                         <div>
-                          <h4 className="font-medium">{application.acquirer.name}</h4>
-                          <p className="text-sm text-gray-500">{application.template.templateName}</p>
+                          <h4 className="font-medium">{application.acquirer?.name || 'Unknown Acquirer'}</h4>
+                          <p className="text-sm text-gray-500">{application.template?.templateName || 'Unknown Template'}</p>
                         </div>
                       </div>
                       <div className="flex items-center space-x-3">
