@@ -12837,6 +12837,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Get all roles with their permission counts
   app.get('/api/rbac/roles', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+    const startTime = Date.now();
+    const requestId = `rbac-roles-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const dbEnv = req.dbEnvironment || 'unknown';
+    
+    console.log(`[RBAC:roles] ${requestId} - Starting request (env: ${dbEnv})`);
+    
     try {
       const dynamicDB = req.dynamicDB || db;
       const { rolePermissions, SYSTEM_ROLES, ROLE_HIERARCHY } = await import('@shared/schema');
@@ -12851,6 +12857,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(eq(rolePermissions.isGranted, true))
         .groupBy(rolePermissions.roleKey);
       
+      console.log(`[RBAC:roles] ${requestId} - Fetched permission counts for ${permissionCounts.length} roles`);
+      
       // Build role info with counts
       const roles = SYSTEM_ROLES.map(roleKey => ({
         roleKey,
@@ -12859,9 +12867,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         permissionCount: permissionCounts.find(p => p.roleKey === roleKey)?.count || 0,
       }));
       
+      const totalTime = Date.now() - startTime;
+      console.log(`[RBAC:roles] ${requestId} - Completed successfully in ${totalTime}ms`);
+      
       res.json({ success: true, roles });
-    } catch (error) {
-      console.error('Get RBAC roles error:', error);
+    } catch (error: any) {
+      const totalTime = Date.now() - startTime;
+      console.error(`[RBAC:roles] ${requestId} - FAILED after ${totalTime}ms:`, {
+        error: error.message,
+        code: error.code,
+        dbEnvironment: dbEnv,
+      });
+      
+      // Check for common schema issues
+      const errorMessage = error.message?.toLowerCase() || '';
+      if (errorMessage.includes('column') && errorMessage.includes('does not exist')) {
+        console.error(`[RBAC:roles] ${requestId} - SCHEMA MISMATCH DETECTED! Run migration: npx tsx scripts/migration-manager.ts apply ${dbEnv}`);
+      }
+      
       res.status(500).json({ success: false, message: 'Failed to retrieve roles' });
     }
   });
@@ -12916,17 +12939,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Get full policy snapshot (all roles, all resources, all permissions)
   app.get('/api/rbac/policies', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    const startTime = Date.now();
+    const requestId = `rbac-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const dbEnv = req.dbEnvironment || 'unknown';
+    
+    console.log(`[RBAC:policies] ${requestId} - Starting request (env: ${dbEnv})`);
+    
     try {
       const dynamicDB = req.dynamicDB || db;
       const { rolePermissions, rbacResources, SYSTEM_ROLES } = await import('@shared/schema');
       
-      // Get all active resources
+      // Get all active resources with timing
+      const resourcesStartTime = Date.now();
       const resources = await dynamicDB
         .select()
         .from(rbacResources)
         .where(eq(rbacResources.isActive, true));
+      console.log(`[RBAC:policies] ${requestId} - Fetched ${resources.length} resources in ${Date.now() - resourcesStartTime}ms`);
       
-      // Get all granted permissions
+      // Verify schema by checking first resource has expected fields
+      if (resources.length > 0) {
+        const sampleResource = resources[0];
+        const expectedFields = ['id', 'resourceType', 'resourceKey', 'displayName', 'category', 'metadata'];
+        const missingFields = expectedFields.filter(f => !(f in sampleResource));
+        if (missingFields.length > 0) {
+          console.warn(`[RBAC:policies] ${requestId} - Schema warning: Missing fields in rbac_resources: ${missingFields.join(', ')}`);
+        }
+      }
+      
+      // Get all granted permissions with timing
+      const permissionsStartTime = Date.now();
       const permissions = await dynamicDB
         .select({
           roleKey: rolePermissions.roleKey,
@@ -12938,6 +12980,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .from(rolePermissions)
         .innerJoin(rbacResources, eq(rolePermissions.resourceId, rbacResources.id))
         .where(eq(rolePermissions.isGranted, true));
+      console.log(`[RBAC:policies] ${requestId} - Fetched ${permissions.length} permissions in ${Date.now() - permissionsStartTime}ms`);
       
       // Build policy map: { roleKey: { resourceKey: [actions] } }
       const policyMap: Record<string, Record<string, string[]>> = {};
@@ -12958,6 +13001,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
       
+      const totalTime = Date.now() - startTime;
+      console.log(`[RBAC:policies] ${requestId} - Completed successfully in ${totalTime}ms (resources: ${resources.length}, permissions: ${permissions.length})`);
+      
       res.json({ 
         success: true, 
         policies: policyMap,
@@ -12969,8 +13015,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         })),
         roles: SYSTEM_ROLES,
       });
-    } catch (error) {
-      console.error('Get RBAC policies error:', error);
+    } catch (error: any) {
+      const totalTime = Date.now() - startTime;
+      console.error(`[RBAC:policies] ${requestId} - FAILED after ${totalTime}ms:`, {
+        error: error.message,
+        code: error.code,
+        stack: error.stack?.split('\n').slice(0, 3).join('\n'),
+        dbEnvironment: dbEnv,
+      });
+      
+      // Check for common schema issues
+      const errorMessage = error.message?.toLowerCase() || '';
+      if (errorMessage.includes('column') && errorMessage.includes('does not exist')) {
+        console.error(`[RBAC:policies] ${requestId} - SCHEMA MISMATCH DETECTED! Run migration: npx tsx scripts/migration-manager.ts apply ${dbEnv}`);
+      }
+      
       res.status(500).json({ success: false, message: 'Failed to retrieve policies' });
     }
   });
