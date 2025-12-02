@@ -58,6 +58,7 @@ import ProspectPortal from "@/pages/prospect-portal";
 import ProspectProfile from "@/pages/prospect-profile";
 import WorkflowDashboard from "@/pages/workflow-dashboard";
 import WorkflowTicket from "@/pages/workflow-ticket";
+import PermissionManager from "@/pages/permission-manager";
 import { useState, useEffect, createContext, useContext } from "react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -161,6 +162,11 @@ function AuthenticatedApp() {
         return {
           title: "Communications Management",
           subtitle: "Unified hub for managing multi-channel communications: email, SMS, webhooks, and notifications"
+        };
+      case "/permissions":
+        return {
+          title: "Permission Manager",
+          subtitle: "Configure role-based access control for pages, widgets, and features"
         };
       case "/pdf-forms":
         return {
@@ -436,6 +442,24 @@ function AuthenticatedApp() {
                   />
                   <main className="flex-1 overflow-auto bg-gray-50">
                     <CommunicationsManagement />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/permissions">
+            {() => {
+              const userRoles = (user as any)?.roles || [];
+              if (!user || !userRoles.includes('super_admin')) return <NotFound />;
+              const pageInfo = getPageInfo("/permissions");
+              return (
+                <>
+                  <Header 
+                    title={pageInfo.title} 
+                    onSearch={setGlobalSearch}
+                  />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <PermissionManager />
                   </main>
                 </>
               );
