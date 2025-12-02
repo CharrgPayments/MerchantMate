@@ -1445,9 +1445,14 @@ function ApplicationsManagementDialog({
     onSuccess: (updatedApplication) => {
       queryClient.invalidateQueries({ queryKey: ["/api/prospect-applications"] });
       
-      // Navigate to the form using the prospect ID from the updated application or the current prospect
+      // Navigate to the form using the prospect ID and validation token
       const prospectId = updatedApplication.prospectId || prospect?.id;
-      if (prospectId) {
+      const token = prospect?.validationToken;
+      if (prospectId && token) {
+        setLocation(`/enhanced-pdf-wizard/${prospectId}?token=${token}`);
+      } else if (prospectId) {
+        // Fallback without token - will show error but at least navigate
+        console.warn('No validation token available for prospect', prospectId);
         setLocation(`/enhanced-pdf-wizard/${prospectId}`);
       }
       
