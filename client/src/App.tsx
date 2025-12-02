@@ -56,6 +56,8 @@ import Landing from "@/pages/landing";
 import Auth from "@/pages/auth";
 import ProspectPortal from "@/pages/prospect-portal";
 import ProspectProfile from "@/pages/prospect-profile";
+import WorkflowDashboard from "@/pages/workflow-dashboard";
+import WorkflowTicket from "@/pages/workflow-ticket";
 import { useState, useEffect, createContext, useContext } from "react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -139,6 +141,11 @@ function AuthenticatedApp() {
         return {
           title: "Security Dashboard",
           subtitle: "Monitor login attempts and security metrics"
+        };
+      case "/workflows":
+        return {
+          title: "Workflow Management",
+          subtitle: "Monitor and manage workflow tickets"
         };
       case "/email-management":
         return {
@@ -358,6 +365,41 @@ function AuthenticatedApp() {
                   />
                   <main className="flex-1 overflow-auto bg-gray-50">
                     <Security />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/workflows">
+            {() => {
+              const userRoles = (user as any)?.roles || [];
+              if (!user || (!userRoles.includes('admin') && !userRoles.includes('super_admin'))) return <NotFound />;
+              const pageInfo = getPageInfo("/workflows");
+              return (
+                <>
+                  <Header 
+                    title={pageInfo.title} 
+                    onSearch={setGlobalSearch}
+                  />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <WorkflowDashboard />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/workflows/:id">
+            {() => {
+              const userRoles = (user as any)?.roles || [];
+              if (!user || (!userRoles.includes('admin') && !userRoles.includes('super_admin'))) return <NotFound />;
+              return (
+                <>
+                  <Header 
+                    title="Workflow Ticket" 
+                    onSearch={setGlobalSearch}
+                  />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <WorkflowTicket />
                   </main>
                 </>
               );
