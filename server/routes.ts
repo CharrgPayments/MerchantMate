@@ -1958,6 +1958,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create campaign assignment
       await storage.assignCampaignToProspect(campaignId, prospect.id, userId);
       
+      // Auto-create prospect application if campaign has a template assigned
+      const { campaignApplicationTemplates, acquirerApplicationTemplates, prospectApplications } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      
+      // Get the campaign's template
+      const campaignTemplates = await dynamicDB
+        .select()
+        .from(campaignApplicationTemplates)
+        .where(eq(campaignApplicationTemplates.campaignId, campaignId));
+      
+      if (campaignTemplates && campaignTemplates.length > 0) {
+        const templateId = campaignTemplates[0].templateId;
+        
+        // Get the template details to find the acquirer
+        const templates = await dynamicDB.select()
+          .from(acquirerApplicationTemplates)
+          .where(eq(acquirerApplicationTemplates.id, templateId));
+        
+        if (templates && templates.length > 0) {
+          const template = templates[0];
+          
+          // Create the prospect application automatically
+          await dynamicDB.insert(prospectApplications).values({
+            prospectId: prospect.id,
+            acquirerId: template.acquirerId,
+            templateId: template.id,
+            templateVersion: template.version || '1.0',
+            status: 'draft',
+            applicationData: {}
+          });
+          
+          console.log(`Auto-created prospect application for prospect ${prospect.id} using template ${template.templateName} v${template.version}`);
+        }
+      }
+      
       // Use already fetched agent information for email
       console.log(`Email debug - Agent found:`, agent ? `${agent.firstName} ${agent.lastName}` : 'No agent');
       console.log(`Email debug - Validation token:`, prospect.validationToken ? 'Present' : 'Missing');
