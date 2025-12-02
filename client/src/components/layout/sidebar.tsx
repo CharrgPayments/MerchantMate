@@ -33,12 +33,19 @@ const baseNavigation = [
     ]
   },
   { name: "Transactions", href: "/transactions", icon: Receipt, requiresRole: ['merchant', 'agent', 'admin', 'corporate', 'super_admin'] },
-  { name: "Users", href: "/users", icon: User, requiresRole: ['admin', 'corporate', 'super_admin'] },
+  { 
+    name: "Users", 
+    href: "/users", 
+    icon: User, 
+    requiresRole: ['admin', 'corporate', 'super_admin'],
+    subItems: [
+      { name: "Permissions", href: "/permissions", icon: Lock, requiresRole: ['super_admin'] }
+    ]
+  },
   { name: "Reports", href: "/reports", icon: FileText, requiresRole: ['admin', 'corporate', 'super_admin'] },
   { name: "Security", href: "/security", icon: Shield, requiresRole: ['admin', 'super_admin'] },
   { name: "Workflows", href: "/workflows", icon: GitBranch, requiresRole: ['admin', 'super_admin', 'underwriter'] },
   { name: "Communications", href: "/communications", icon: Mail, requiresRole: ['admin', 'super_admin'] },
-  { name: "Permissions", href: "/permissions", icon: Lock, requiresRole: ['super_admin'] },
   { name: "API Documentation", href: "/api-documentation", icon: Book, requiresRole: ['admin', 'super_admin'] },
   { name: "Testing Utilities", href: "/testing-utilities", icon: TestTube, requiresRole: ['super_admin'] },
 ];
