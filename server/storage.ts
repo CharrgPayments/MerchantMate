@@ -1,4 +1,9 @@
-import { companies, merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, signatureCaptures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, equipmentItems, campaignEquipment, campaignApplicationTemplates, acquirerApplicationTemplates, apiKeys, apiRequestLogs, emailWrappers, emailTemplates, emailActivity, emailTriggers, actionTemplates, triggerCatalog, triggerActions, userAlerts, acquirers, type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type ProspectDocument, type InsertProspectDocument, type ProspectNotification, type InsertProspectNotification, type InsertProspectSignature, type SignatureCapture, type InsertSignatureCapture, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type CampaignApplicationTemplate, type InsertCampaignApplicationTemplate, type AcquirerApplicationTemplate, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailWrapper, type InsertEmailWrapper, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type ActionTemplate, type InsertActionTemplate, type TriggerCatalog, type InsertTriggerCatalog, type TriggerAction, type InsertTriggerAction, type UserAlert, type InsertUserAlert } from "@shared/schema";
+import { companies, merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, signatureCaptures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, equipmentItems, campaignEquipment, campaignApplicationTemplates, acquirerApplicationTemplates, apiKeys, apiRequestLogs, emailWrappers, emailTemplates, emailActivity, emailTriggers, actionTemplates, triggerCatalog, triggerActions, userAlerts, acquirers,
+  // Workflow System tables
+  workflowDefinitions, workflowStages, workflowTickets, workflowTicketStages, workflowIssues, workflowTasks, workflowNotes, workflowArtifacts, workflowTransitions, workflowAssignments, mccPolicies, volumeThresholds, apiIntegrationConfigs,
+  type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type ProspectDocument, type InsertProspectDocument, type ProspectNotification, type InsertProspectNotification, type InsertProspectSignature, type SignatureCapture, type InsertSignatureCapture, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type CampaignApplicationTemplate, type InsertCampaignApplicationTemplate, type AcquirerApplicationTemplate, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailWrapper, type InsertEmailWrapper, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type ActionTemplate, type InsertActionTemplate, type TriggerCatalog, type InsertTriggerCatalog, type TriggerAction, type InsertTriggerAction, type UserAlert, type InsertUserAlert,
+  // Workflow System types
+  type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowStage, type InsertWorkflowStage, type WorkflowTicket, type InsertWorkflowTicket, type WorkflowTicketStage, type InsertWorkflowTicketStage, type WorkflowIssue, type InsertWorkflowIssue, type WorkflowTask, type InsertWorkflowTask, type WorkflowNote, type InsertWorkflowNote, type WorkflowArtifact, type InsertWorkflowArtifact, type WorkflowTransition, type InsertWorkflowTransition, type WorkflowAssignment, type InsertWorkflowAssignment, type MccPolicy, type InsertMccPolicy, type VolumeThreshold, type InsertVolumeThreshold, type ApiIntegrationConfig, type InsertApiIntegrationConfig } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, or, and, gte, sql, desc, inArray, like, ilike, not } from "drizzle-orm";
 
@@ -439,6 +444,100 @@ export interface IStorage {
   createTriggerAction(triggerAction: InsertTriggerAction): Promise<TriggerAction>;
   updateTriggerAction(id: number, updates: Partial<InsertTriggerAction>): Promise<TriggerAction | undefined>;
   deleteTriggerAction(id: number): Promise<boolean>;
+
+  // =====================================================
+  // WORKFLOW/TICKETING SYSTEM OPERATIONS
+  // =====================================================
+  
+  // Workflow Definitions
+  getAllWorkflowDefinitions(): Promise<WorkflowDefinition[]>;
+  getWorkflowDefinition(id: number): Promise<WorkflowDefinition | undefined>;
+  getWorkflowDefinitionByCode(code: string): Promise<WorkflowDefinition | undefined>;
+  createWorkflowDefinition(definition: InsertWorkflowDefinition): Promise<WorkflowDefinition>;
+  updateWorkflowDefinition(id: number, updates: Partial<InsertWorkflowDefinition>): Promise<WorkflowDefinition | undefined>;
+  deleteWorkflowDefinition(id: number): Promise<boolean>;
+
+  // Workflow Stages
+  getWorkflowStages(workflowDefinitionId: number): Promise<WorkflowStage[]>;
+  getWorkflowStage(id: number): Promise<WorkflowStage | undefined>;
+  createWorkflowStage(stage: InsertWorkflowStage): Promise<WorkflowStage>;
+  updateWorkflowStage(id: number, updates: Partial<InsertWorkflowStage>): Promise<WorkflowStage | undefined>;
+  deleteWorkflowStage(id: number): Promise<boolean>;
+
+  // Workflow Tickets
+  getAllWorkflowTickets(filters?: { status?: string; workflowDefinitionId?: number; assignedToId?: string; priority?: string }): Promise<WorkflowTicket[]>;
+  getWorkflowTicket(id: number): Promise<WorkflowTicket | undefined>;
+  getWorkflowTicketByNumber(ticketNumber: string): Promise<WorkflowTicket | undefined>;
+  getWorkflowTicketsByEntity(entityType: string, entityId: number): Promise<WorkflowTicket[]>;
+  createWorkflowTicket(ticket: InsertWorkflowTicket): Promise<WorkflowTicket>;
+  updateWorkflowTicket(id: number, updates: Partial<InsertWorkflowTicket>): Promise<WorkflowTicket | undefined>;
+  deleteWorkflowTicket(id: number): Promise<boolean>;
+  generateTicketNumber(workflowCode: string): Promise<string>;
+
+  // Workflow Ticket Stages
+  getWorkflowTicketStages(ticketId: number): Promise<WorkflowTicketStage[]>;
+  getWorkflowTicketStage(id: number): Promise<WorkflowTicketStage | undefined>;
+  createWorkflowTicketStage(ticketStage: InsertWorkflowTicketStage): Promise<WorkflowTicketStage>;
+  updateWorkflowTicketStage(id: number, updates: Partial<InsertWorkflowTicketStage>): Promise<WorkflowTicketStage | undefined>;
+
+  // Workflow Issues
+  getWorkflowIssues(ticketId: number): Promise<WorkflowIssue[]>;
+  getWorkflowIssue(id: number): Promise<WorkflowIssue | undefined>;
+  getOpenWorkflowIssues(ticketId: number): Promise<WorkflowIssue[]>;
+  createWorkflowIssue(issue: InsertWorkflowIssue): Promise<WorkflowIssue>;
+  updateWorkflowIssue(id: number, updates: Partial<InsertWorkflowIssue>): Promise<WorkflowIssue | undefined>;
+  resolveWorkflowIssue(id: number, resolution: string, resolvedBy: string): Promise<WorkflowIssue | undefined>;
+  overrideWorkflowIssue(id: number, reason: string, overriddenBy: string): Promise<WorkflowIssue | undefined>;
+
+  // Workflow Tasks
+  getWorkflowTasks(ticketId: number): Promise<WorkflowTask[]>;
+  getWorkflowTask(id: number): Promise<WorkflowTask | undefined>;
+  getPendingWorkflowTasks(ticketId: number): Promise<WorkflowTask[]>;
+  createWorkflowTask(task: InsertWorkflowTask): Promise<WorkflowTask>;
+  updateWorkflowTask(id: number, updates: Partial<InsertWorkflowTask>): Promise<WorkflowTask | undefined>;
+  completeWorkflowTask(id: number, completionNotes: string, completedBy: string): Promise<WorkflowTask | undefined>;
+
+  // Workflow Notes
+  getWorkflowNotes(ticketId: number): Promise<WorkflowNote[]>;
+  createWorkflowNote(note: InsertWorkflowNote): Promise<WorkflowNote>;
+  updateWorkflowNote(id: number, updates: Partial<InsertWorkflowNote>): Promise<WorkflowNote | undefined>;
+  deleteWorkflowNote(id: number): Promise<boolean>;
+
+  // Workflow Artifacts
+  getWorkflowArtifacts(ticketId: number): Promise<WorkflowArtifact[]>;
+  getWorkflowArtifact(id: number): Promise<WorkflowArtifact | undefined>;
+  createWorkflowArtifact(artifact: InsertWorkflowArtifact): Promise<WorkflowArtifact>;
+  updateWorkflowArtifact(id: number, updates: Partial<InsertWorkflowArtifact>): Promise<WorkflowArtifact | undefined>;
+  deleteWorkflowArtifact(id: number): Promise<boolean>;
+
+  // Workflow Transitions (Audit Log)
+  getWorkflowTransitions(ticketId: number): Promise<WorkflowTransition[]>;
+  createWorkflowTransition(transition: InsertWorkflowTransition): Promise<WorkflowTransition>;
+
+  // Workflow Assignments
+  getWorkflowAssignments(ticketId: number): Promise<WorkflowAssignment[]>;
+  getActiveWorkflowAssignment(ticketId: number): Promise<WorkflowAssignment | undefined>;
+  createWorkflowAssignment(assignment: InsertWorkflowAssignment): Promise<WorkflowAssignment>;
+  deactivateWorkflowAssignment(id: number): Promise<WorkflowAssignment | undefined>;
+
+  // MCC Policies (Underwriting)
+  getAllMccPolicies(): Promise<MccPolicy[]>;
+  getMccPolicy(mccCode: string, acquirerId?: number): Promise<MccPolicy | undefined>;
+  createMccPolicy(policy: InsertMccPolicy): Promise<MccPolicy>;
+  updateMccPolicy(id: number, updates: Partial<InsertMccPolicy>): Promise<MccPolicy | undefined>;
+  deleteMccPolicy(id: number): Promise<boolean>;
+
+  // Volume Thresholds (Underwriting)
+  getVolumeThresholds(acquirerId: number): Promise<VolumeThreshold[]>;
+  createVolumeThreshold(threshold: InsertVolumeThreshold): Promise<VolumeThreshold>;
+  updateVolumeThreshold(id: number, updates: Partial<InsertVolumeThreshold>): Promise<VolumeThreshold | undefined>;
+  deleteVolumeThreshold(id: number): Promise<boolean>;
+
+  // API Integration Configs
+  getAllApiIntegrationConfigs(): Promise<ApiIntegrationConfig[]>;
+  getApiIntegrationConfig(integrationKey: string): Promise<ApiIntegrationConfig | undefined>;
+  createApiIntegrationConfig(config: InsertApiIntegrationConfig): Promise<ApiIntegrationConfig>;
+  updateApiIntegrationConfig(id: number, updates: Partial<InsertApiIntegrationConfig>): Promise<ApiIntegrationConfig | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3127,6 +3226,456 @@ export class DatabaseStorage implements IStorage {
   async deleteProspectNotification(id: number): Promise<boolean> {
     const result = await this.db.delete(prospectNotifications).where(eq(prospectNotifications.id, id));
     return (result.rowCount || 0) > 0;
+  }
+
+  // =====================================================
+  // WORKFLOW/TICKETING SYSTEM IMPLEMENTATION
+  // =====================================================
+
+  // Workflow Definitions
+  async getAllWorkflowDefinitions(): Promise<WorkflowDefinition[]> {
+    return this.db.select().from(workflowDefinitions).orderBy(workflowDefinitions.name);
+  }
+
+  async getWorkflowDefinition(id: number): Promise<WorkflowDefinition | undefined> {
+    const [definition] = await this.db.select().from(workflowDefinitions).where(eq(workflowDefinitions.id, id));
+    return definition || undefined;
+  }
+
+  async getWorkflowDefinitionByCode(code: string): Promise<WorkflowDefinition | undefined> {
+    const [definition] = await this.db.select().from(workflowDefinitions).where(eq(workflowDefinitions.code, code));
+    return definition || undefined;
+  }
+
+  async createWorkflowDefinition(definition: InsertWorkflowDefinition): Promise<WorkflowDefinition> {
+    const [created] = await this.db.insert(workflowDefinitions).values(definition).returning();
+    return created;
+  }
+
+  async updateWorkflowDefinition(id: number, updates: Partial<InsertWorkflowDefinition>): Promise<WorkflowDefinition | undefined> {
+    const [updated] = await this.db.update(workflowDefinitions)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(workflowDefinitions.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteWorkflowDefinition(id: number): Promise<boolean> {
+    const result = await this.db.delete(workflowDefinitions).where(eq(workflowDefinitions.id, id));
+    return (result.rowCount || 0) > 0;
+  }
+
+  // Workflow Stages
+  async getWorkflowStages(workflowDefinitionId: number): Promise<WorkflowStage[]> {
+    return this.db.select().from(workflowStages)
+      .where(eq(workflowStages.workflowDefinitionId, workflowDefinitionId))
+      .orderBy(workflowStages.orderIndex);
+  }
+
+  async getWorkflowStage(id: number): Promise<WorkflowStage | undefined> {
+    const [stage] = await this.db.select().from(workflowStages).where(eq(workflowStages.id, id));
+    return stage || undefined;
+  }
+
+  async createWorkflowStage(stage: InsertWorkflowStage): Promise<WorkflowStage> {
+    const [created] = await this.db.insert(workflowStages).values(stage).returning();
+    return created;
+  }
+
+  async updateWorkflowStage(id: number, updates: Partial<InsertWorkflowStage>): Promise<WorkflowStage | undefined> {
+    const [updated] = await this.db.update(workflowStages)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(workflowStages.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteWorkflowStage(id: number): Promise<boolean> {
+    const result = await this.db.delete(workflowStages).where(eq(workflowStages.id, id));
+    return (result.rowCount || 0) > 0;
+  }
+
+  // Workflow Tickets
+  async getAllWorkflowTickets(filters?: { status?: string; workflowDefinitionId?: number; assignedToId?: string; priority?: string }): Promise<WorkflowTicket[]> {
+    let query = this.db.select().from(workflowTickets);
+    
+    const conditions = [];
+    if (filters?.status) {
+      conditions.push(eq(workflowTickets.status, filters.status));
+    }
+    if (filters?.workflowDefinitionId) {
+      conditions.push(eq(workflowTickets.workflowDefinitionId, filters.workflowDefinitionId));
+    }
+    if (filters?.assignedToId) {
+      conditions.push(eq(workflowTickets.assignedToId, filters.assignedToId));
+    }
+    if (filters?.priority) {
+      conditions.push(eq(workflowTickets.priority, filters.priority));
+    }
+    
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as any;
+    }
+    
+    return query.orderBy(desc(workflowTickets.submittedAt));
+  }
+
+  async getWorkflowTicket(id: number): Promise<WorkflowTicket | undefined> {
+    const [ticket] = await this.db.select().from(workflowTickets).where(eq(workflowTickets.id, id));
+    return ticket || undefined;
+  }
+
+  async getWorkflowTicketByNumber(ticketNumber: string): Promise<WorkflowTicket | undefined> {
+    const [ticket] = await this.db.select().from(workflowTickets).where(eq(workflowTickets.ticketNumber, ticketNumber));
+    return ticket || undefined;
+  }
+
+  async getWorkflowTicketsByEntity(entityType: string, entityId: number): Promise<WorkflowTicket[]> {
+    return this.db.select().from(workflowTickets)
+      .where(and(eq(workflowTickets.entityType, entityType), eq(workflowTickets.entityId, entityId)))
+      .orderBy(desc(workflowTickets.submittedAt));
+  }
+
+  async createWorkflowTicket(ticket: InsertWorkflowTicket): Promise<WorkflowTicket> {
+    const [created] = await this.db.insert(workflowTickets).values(ticket).returning();
+    return created;
+  }
+
+  async updateWorkflowTicket(id: number, updates: Partial<InsertWorkflowTicket>): Promise<WorkflowTicket | undefined> {
+    const [updated] = await this.db.update(workflowTickets)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(workflowTickets.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteWorkflowTicket(id: number): Promise<boolean> {
+    const result = await this.db.delete(workflowTickets).where(eq(workflowTickets.id, id));
+    return (result.rowCount || 0) > 0;
+  }
+
+  async generateTicketNumber(workflowCode: string): Promise<string> {
+    const year = new Date().getFullYear();
+    const prefix = workflowCode.toUpperCase().substring(0, 2);
+    
+    // Get count of tickets with this prefix in the current year
+    const result = await this.db.select({ count: sql<number>`count(*)` })
+      .from(workflowTickets)
+      .where(like(workflowTickets.ticketNumber, `${prefix}-${year}-%`));
+    
+    const count = result[0]?.count || 0;
+    const sequence = String(count + 1).padStart(5, '0');
+    return `${prefix}-${year}-${sequence}`;
+  }
+
+  // Workflow Ticket Stages
+  async getWorkflowTicketStages(ticketId: number): Promise<WorkflowTicketStage[]> {
+    return this.db.select().from(workflowTicketStages)
+      .where(eq(workflowTicketStages.ticketId, ticketId));
+  }
+
+  async getWorkflowTicketStage(id: number): Promise<WorkflowTicketStage | undefined> {
+    const [stage] = await this.db.select().from(workflowTicketStages).where(eq(workflowTicketStages.id, id));
+    return stage || undefined;
+  }
+
+  async createWorkflowTicketStage(ticketStage: InsertWorkflowTicketStage): Promise<WorkflowTicketStage> {
+    const [created] = await this.db.insert(workflowTicketStages).values(ticketStage).returning();
+    return created;
+  }
+
+  async updateWorkflowTicketStage(id: number, updates: Partial<InsertWorkflowTicketStage>): Promise<WorkflowTicketStage | undefined> {
+    const [updated] = await this.db.update(workflowTicketStages)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(workflowTicketStages.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  // Workflow Issues
+  async getWorkflowIssues(ticketId: number): Promise<WorkflowIssue[]> {
+    return this.db.select().from(workflowIssues)
+      .where(eq(workflowIssues.ticketId, ticketId))
+      .orderBy(desc(workflowIssues.createdAt));
+  }
+
+  async getWorkflowIssue(id: number): Promise<WorkflowIssue | undefined> {
+    const [issue] = await this.db.select().from(workflowIssues).where(eq(workflowIssues.id, id));
+    return issue || undefined;
+  }
+
+  async getOpenWorkflowIssues(ticketId: number): Promise<WorkflowIssue[]> {
+    return this.db.select().from(workflowIssues)
+      .where(and(
+        eq(workflowIssues.ticketId, ticketId),
+        not(inArray(workflowIssues.status, ['resolved', 'overridden', 'dismissed']))
+      ))
+      .orderBy(desc(workflowIssues.createdAt));
+  }
+
+  async createWorkflowIssue(issue: InsertWorkflowIssue): Promise<WorkflowIssue> {
+    const [created] = await this.db.insert(workflowIssues).values(issue).returning();
+    return created;
+  }
+
+  async updateWorkflowIssue(id: number, updates: Partial<InsertWorkflowIssue>): Promise<WorkflowIssue | undefined> {
+    const [updated] = await this.db.update(workflowIssues)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(workflowIssues.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async resolveWorkflowIssue(id: number, resolution: string, resolvedBy: string): Promise<WorkflowIssue | undefined> {
+    const [updated] = await this.db.update(workflowIssues)
+      .set({ 
+        status: 'resolved', 
+        resolution, 
+        resolvedAt: new Date(), 
+        resolvedBy, 
+        updatedAt: new Date() 
+      })
+      .where(eq(workflowIssues.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async overrideWorkflowIssue(id: number, reason: string, overriddenBy: string): Promise<WorkflowIssue | undefined> {
+    const [updated] = await this.db.update(workflowIssues)
+      .set({ 
+        status: 'overridden', 
+        overrideReason: reason, 
+        overriddenAt: new Date(), 
+        overriddenBy, 
+        updatedAt: new Date() 
+      })
+      .where(eq(workflowIssues.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  // Workflow Tasks
+  async getWorkflowTasks(ticketId: number): Promise<WorkflowTask[]> {
+    return this.db.select().from(workflowTasks)
+      .where(eq(workflowTasks.ticketId, ticketId))
+      .orderBy(desc(workflowTasks.createdAt));
+  }
+
+  async getWorkflowTask(id: number): Promise<WorkflowTask | undefined> {
+    const [task] = await this.db.select().from(workflowTasks).where(eq(workflowTasks.id, id));
+    return task || undefined;
+  }
+
+  async getPendingWorkflowTasks(ticketId: number): Promise<WorkflowTask[]> {
+    return this.db.select().from(workflowTasks)
+      .where(and(
+        eq(workflowTasks.ticketId, ticketId),
+        inArray(workflowTasks.status, ['pending', 'in_progress'])
+      ))
+      .orderBy(workflowTasks.priority);
+  }
+
+  async createWorkflowTask(task: InsertWorkflowTask): Promise<WorkflowTask> {
+    const [created] = await this.db.insert(workflowTasks).values(task).returning();
+    return created;
+  }
+
+  async updateWorkflowTask(id: number, updates: Partial<InsertWorkflowTask>): Promise<WorkflowTask | undefined> {
+    const [updated] = await this.db.update(workflowTasks)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(workflowTasks.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async completeWorkflowTask(id: number, completionNotes: string, completedBy: string): Promise<WorkflowTask | undefined> {
+    const [updated] = await this.db.update(workflowTasks)
+      .set({ 
+        status: 'completed', 
+        completionNotes, 
+        completedAt: new Date(), 
+        completedBy, 
+        updatedAt: new Date() 
+      })
+      .where(eq(workflowTasks.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  // Workflow Notes
+  async getWorkflowNotes(ticketId: number): Promise<WorkflowNote[]> {
+    return this.db.select().from(workflowNotes)
+      .where(eq(workflowNotes.ticketId, ticketId))
+      .orderBy(desc(workflowNotes.createdAt));
+  }
+
+  async createWorkflowNote(note: InsertWorkflowNote): Promise<WorkflowNote> {
+    const [created] = await this.db.insert(workflowNotes).values(note).returning();
+    return created;
+  }
+
+  async updateWorkflowNote(id: number, updates: Partial<InsertWorkflowNote>): Promise<WorkflowNote | undefined> {
+    const [updated] = await this.db.update(workflowNotes)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(workflowNotes.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteWorkflowNote(id: number): Promise<boolean> {
+    const result = await this.db.delete(workflowNotes).where(eq(workflowNotes.id, id));
+    return (result.rowCount || 0) > 0;
+  }
+
+  // Workflow Artifacts
+  async getWorkflowArtifacts(ticketId: number): Promise<WorkflowArtifact[]> {
+    return this.db.select().from(workflowArtifacts)
+      .where(eq(workflowArtifacts.ticketId, ticketId))
+      .orderBy(desc(workflowArtifacts.createdAt));
+  }
+
+  async getWorkflowArtifact(id: number): Promise<WorkflowArtifact | undefined> {
+    const [artifact] = await this.db.select().from(workflowArtifacts).where(eq(workflowArtifacts.id, id));
+    return artifact || undefined;
+  }
+
+  async createWorkflowArtifact(artifact: InsertWorkflowArtifact): Promise<WorkflowArtifact> {
+    const [created] = await this.db.insert(workflowArtifacts).values(artifact).returning();
+    return created;
+  }
+
+  async updateWorkflowArtifact(id: number, updates: Partial<InsertWorkflowArtifact>): Promise<WorkflowArtifact | undefined> {
+    const [updated] = await this.db.update(workflowArtifacts)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(workflowArtifacts.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteWorkflowArtifact(id: number): Promise<boolean> {
+    const result = await this.db.delete(workflowArtifacts).where(eq(workflowArtifacts.id, id));
+    return (result.rowCount || 0) > 0;
+  }
+
+  // Workflow Transitions (Audit Log)
+  async getWorkflowTransitions(ticketId: number): Promise<WorkflowTransition[]> {
+    return this.db.select().from(workflowTransitions)
+      .where(eq(workflowTransitions.ticketId, ticketId))
+      .orderBy(desc(workflowTransitions.createdAt));
+  }
+
+  async createWorkflowTransition(transition: InsertWorkflowTransition): Promise<WorkflowTransition> {
+    const [created] = await this.db.insert(workflowTransitions).values(transition).returning();
+    return created;
+  }
+
+  // Workflow Assignments
+  async getWorkflowAssignments(ticketId: number): Promise<WorkflowAssignment[]> {
+    return this.db.select().from(workflowAssignments)
+      .where(eq(workflowAssignments.ticketId, ticketId))
+      .orderBy(desc(workflowAssignments.assignedAt));
+  }
+
+  async getActiveWorkflowAssignment(ticketId: number): Promise<WorkflowAssignment | undefined> {
+    const [assignment] = await this.db.select().from(workflowAssignments)
+      .where(and(
+        eq(workflowAssignments.ticketId, ticketId),
+        eq(workflowAssignments.isActive, true)
+      ));
+    return assignment || undefined;
+  }
+
+  async createWorkflowAssignment(assignment: InsertWorkflowAssignment): Promise<WorkflowAssignment> {
+    const [created] = await this.db.insert(workflowAssignments).values(assignment).returning();
+    return created;
+  }
+
+  async deactivateWorkflowAssignment(id: number): Promise<WorkflowAssignment | undefined> {
+    const [updated] = await this.db.update(workflowAssignments)
+      .set({ isActive: false, unassignedAt: new Date() })
+      .where(eq(workflowAssignments.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  // MCC Policies (Underwriting)
+  async getAllMccPolicies(): Promise<MccPolicy[]> {
+    return this.db.select().from(mccPolicies).orderBy(mccPolicies.mccCode);
+  }
+
+  async getMccPolicy(mccCode: string, acquirerId?: number): Promise<MccPolicy | undefined> {
+    const conditions = [eq(mccPolicies.mccCode, mccCode)];
+    if (acquirerId !== undefined) {
+      conditions.push(eq(mccPolicies.acquirerId, acquirerId));
+    }
+    const [policy] = await this.db.select().from(mccPolicies).where(and(...conditions));
+    return policy || undefined;
+  }
+
+  async createMccPolicy(policy: InsertMccPolicy): Promise<MccPolicy> {
+    const [created] = await this.db.insert(mccPolicies).values(policy).returning();
+    return created;
+  }
+
+  async updateMccPolicy(id: number, updates: Partial<InsertMccPolicy>): Promise<MccPolicy | undefined> {
+    const [updated] = await this.db.update(mccPolicies)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(mccPolicies.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteMccPolicy(id: number): Promise<boolean> {
+    const result = await this.db.delete(mccPolicies).where(eq(mccPolicies.id, id));
+    return (result.rowCount || 0) > 0;
+  }
+
+  // Volume Thresholds (Underwriting)
+  async getVolumeThresholds(acquirerId: number): Promise<VolumeThreshold[]> {
+    return this.db.select().from(volumeThresholds)
+      .where(eq(volumeThresholds.acquirerId, acquirerId));
+  }
+
+  async createVolumeThreshold(threshold: InsertVolumeThreshold): Promise<VolumeThreshold> {
+    const [created] = await this.db.insert(volumeThresholds).values(threshold).returning();
+    return created;
+  }
+
+  async updateVolumeThreshold(id: number, updates: Partial<InsertVolumeThreshold>): Promise<VolumeThreshold | undefined> {
+    const [updated] = await this.db.update(volumeThresholds)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(volumeThresholds.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteVolumeThreshold(id: number): Promise<boolean> {
+    const result = await this.db.delete(volumeThresholds).where(eq(volumeThresholds.id, id));
+    return (result.rowCount || 0) > 0;
+  }
+
+  // API Integration Configs
+  async getAllApiIntegrationConfigs(): Promise<ApiIntegrationConfig[]> {
+    return this.db.select().from(apiIntegrationConfigs).orderBy(apiIntegrationConfigs.name);
+  }
+
+  async getApiIntegrationConfig(integrationKey: string): Promise<ApiIntegrationConfig | undefined> {
+    const [config] = await this.db.select().from(apiIntegrationConfigs)
+      .where(eq(apiIntegrationConfigs.integrationKey, integrationKey));
+    return config || undefined;
+  }
+
+  async createApiIntegrationConfig(config: InsertApiIntegrationConfig): Promise<ApiIntegrationConfig> {
+    const [created] = await this.db.insert(apiIntegrationConfigs).values(config).returning();
+    return created;
+  }
+
+  async updateApiIntegrationConfig(id: number, updates: Partial<InsertApiIntegrationConfig>): Promise<ApiIntegrationConfig | undefined> {
+    const [updated] = await this.db.update(apiIntegrationConfigs)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(apiIntegrationConfigs.id, id))
+      .returning();
+    return updated || undefined;
   }
 }
 
