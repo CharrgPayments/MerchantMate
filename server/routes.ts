@@ -12348,6 +12348,465 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // =====================================================
+  // WORKFLOW API ROUTES
+  // =====================================================
+
+  // Workflow Definitions
+  app.get('/api/workflow/definitions', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const definitions = await storage.getWorkflowDefinitions();
+      res.json({ success: true, definitions });
+    } catch (error) {
+      console.error('Get workflow definitions error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve workflow definitions' });
+    }
+  });
+
+  app.get('/api/workflow/definitions/:id', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const definition = await storage.getWorkflowDefinition(parseInt(id));
+      if (!definition) {
+        return res.status(404).json({ success: false, message: 'Workflow definition not found' });
+      }
+      const stages = await storage.getWorkflowStages(definition.id);
+      res.json({ success: true, definition, stages });
+    } catch (error) {
+      console.error('Get workflow definition error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve workflow definition' });
+    }
+  });
+
+  // Workflow Tickets - List
+  app.get('/api/workflow/tickets', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const { status, workflowCode, entityType, assignedToId, limit = '50', offset = '0' } = req.query;
+      const filters: any = {};
+      if (status) filters.status = status;
+      if (workflowCode) filters.workflowCode = workflowCode;
+      if (entityType) filters.entityType = entityType;
+      if (assignedToId) filters.assignedToId = assignedToId;
+
+      const tickets = await storage.getWorkflowTickets(filters, parseInt(limit as string), parseInt(offset as string));
+      res.json({ success: true, tickets });
+    } catch (error) {
+      console.error('Get workflow tickets error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve workflow tickets' });
+    }
+  });
+
+  // Workflow Tickets - Get single with details
+  app.get('/api/workflow/tickets/:id', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const ticket = await storage.getWorkflowTicket(parseInt(id));
+      if (!ticket) {
+        return res.status(404).json({ success: false, message: 'Workflow ticket not found' });
+      }
+
+      const definition = await storage.getWorkflowDefinition(ticket.workflowDefinitionId);
+      const stages = await storage.getWorkflowStages(ticket.workflowDefinitionId);
+      const ticketStages = await storage.getWorkflowTicketStages(ticket.id);
+      const issues = await storage.getWorkflowIssues(ticket.id);
+      const tasks = await storage.getWorkflowTasks(ticket.id);
+      const transitions = await storage.getWorkflowTransitions(ticket.id);
+      const notes = await storage.getWorkflowNotes(ticket.id);
+      const currentStage = ticket.currentStageId ? stages.find(s => s.id === ticket.currentStageId) : null;
+
+      res.json({
+        success: true,
+        ticket,
+        definition,
+        stages,
+        ticketStages,
+        issues,
+        tasks,
+        transitions,
+        notes,
+        currentStage,
+      });
+    } catch (error) {
+      console.error('Get workflow ticket details error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve workflow ticket' });
+    }
+  });
+
+  // Workflow Tickets - Create
+  app.post('/api/workflow/tickets', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const { workflowCode, entityType, entityId, priority, metadata } = req.body;
+      const userId = req.user?.claims?.sub;
+
+      if (!workflowCode || !entityType || !entityId) {
+        return res.status(400).json({ success: false, message: 'Missing required fields: workflowCode, entityType, entityId' });
+      }
+
+      const { WorkflowEngine } = await import('./services/workflow-engine');
+      const { registerUnderwritingHandlers } = await import('./services/underwriting-handlers');
+      
+      const engine = new WorkflowEngine(storage);
+      registerUnderwritingHandlers(engine);
+
+      const ticket = await engine.createTicket({
+        workflowCode,
+        entityType,
+        entityId: parseInt(entityId),
+        createdById: userId,
+        priority,
+        metadata,
+      });
+
+      res.json({ success: true, ticket, message: 'Workflow ticket created' });
+    } catch (error) {
+      console.error('Create workflow ticket error:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: error instanceof Error ? error.message : 'Failed to create workflow ticket' 
+      });
+    }
+  });
+
+  // Workflow Tickets - Start Processing
+  app.post('/api/workflow/tickets/:id/start', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.claims?.sub;
+
+      const { WorkflowEngine } = await import('./services/workflow-engine');
+      const { registerUnderwritingHandlers } = await import('./services/underwriting-handlers');
+      
+      const engine = new WorkflowEngine(storage);
+      registerUnderwritingHandlers(engine);
+
+      const ticket = await engine.startProcessing(parseInt(id), userId);
+      res.json({ success: true, ticket, message: 'Workflow processing started' });
+    } catch (error) {
+      console.error('Start workflow processing error:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: error instanceof Error ? error.message : 'Failed to start workflow processing' 
+      });
+    }
+  });
+
+  // Workflow Tickets - Execute Current Stage
+  app.post('/api/workflow/tickets/:id/execute', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.claims?.sub;
+
+      const { WorkflowEngine } = await import('./services/workflow-engine');
+      const { registerUnderwritingHandlers } = await import('./services/underwriting-handlers');
+      
+      const engine = new WorkflowEngine(storage);
+      registerUnderwritingHandlers(engine);
+
+      const result = await engine.executeCurrentStage(parseInt(id), userId);
+      
+      const ticket = await storage.getWorkflowTicket(parseInt(id));
+      res.json({ success: true, result, ticket, message: 'Stage executed' });
+    } catch (error) {
+      console.error('Execute workflow stage error:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: error instanceof Error ? error.message : 'Failed to execute workflow stage' 
+      });
+    }
+  });
+
+  // Workflow Tickets - Advance to next stage
+  app.post('/api/workflow/tickets/:id/advance', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.claims?.sub;
+
+      const { WorkflowEngine } = await import('./services/workflow-engine');
+      const { registerUnderwritingHandlers } = await import('./services/underwriting-handlers');
+      
+      const engine = new WorkflowEngine(storage);
+      registerUnderwritingHandlers(engine);
+
+      const ticket = await storage.getWorkflowTicket(parseInt(id));
+      if (!ticket || !ticket.currentStageId) {
+        return res.status(404).json({ success: false, message: 'Ticket not found or has no current stage' });
+      }
+
+      const currentStage = await storage.getWorkflowStage(ticket.currentStageId);
+      if (!currentStage) {
+        return res.status(404).json({ success: false, message: 'Current stage not found' });
+      }
+
+      const updatedTicket = await engine.advanceToNextStage(ticket, currentStage, userId);
+      res.json({ success: true, ticket: updatedTicket, message: 'Advanced to next stage' });
+    } catch (error) {
+      console.error('Advance workflow stage error:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: error instanceof Error ? error.message : 'Failed to advance workflow stage' 
+      });
+    }
+  });
+
+  // Workflow Tickets - Resolve Checkpoint
+  app.post('/api/workflow/tickets/:id/resolve-checkpoint', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { decision, notes } = req.body;
+      const userId = req.user?.claims?.sub;
+
+      if (!decision || !['approve', 'reject'].includes(decision)) {
+        return res.status(400).json({ success: false, message: 'Invalid decision. Must be approve or reject' });
+      }
+
+      const { WorkflowEngine } = await import('./services/workflow-engine');
+      const { registerUnderwritingHandlers } = await import('./services/underwriting-handlers');
+      
+      const engine = new WorkflowEngine(storage);
+      registerUnderwritingHandlers(engine);
+
+      const ticket = await engine.resolveCheckpoint(parseInt(id), decision, userId, notes);
+      res.json({ success: true, ticket, message: `Checkpoint ${decision}d` });
+    } catch (error) {
+      console.error('Resolve checkpoint error:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: error instanceof Error ? error.message : 'Failed to resolve checkpoint' 
+      });
+    }
+  });
+
+  // Workflow Tickets - Assign
+  app.post('/api/workflow/tickets/:id/assign', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { assigneeId, notes } = req.body;
+      const userId = req.user?.claims?.sub;
+
+      if (!assigneeId) {
+        return res.status(400).json({ success: false, message: 'Assignee ID is required' });
+      }
+
+      const { WorkflowEngine } = await import('./services/workflow-engine');
+      const engine = new WorkflowEngine(storage);
+
+      await engine.assignTicket(parseInt(id), assigneeId, userId, notes);
+      
+      const ticket = await storage.getWorkflowTicket(parseInt(id));
+      res.json({ success: true, ticket, message: 'Ticket assigned' });
+    } catch (error) {
+      console.error('Assign ticket error:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: error instanceof Error ? error.message : 'Failed to assign ticket' 
+      });
+    }
+  });
+
+  // Workflow Notes - Add
+  app.post('/api/workflow/tickets/:id/notes', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { content, noteType = 'general', isInternal = true } = req.body;
+      const userId = req.user?.claims?.sub;
+
+      if (!content) {
+        return res.status(400).json({ success: false, message: 'Note content is required' });
+      }
+
+      const { WorkflowEngine } = await import('./services/workflow-engine');
+      const engine = new WorkflowEngine(storage);
+
+      await engine.addNote(parseInt(id), noteType, content, userId, isInternal);
+      
+      const notes = await storage.getWorkflowNotes(parseInt(id));
+      res.json({ success: true, notes, message: 'Note added' });
+    } catch (error) {
+      console.error('Add note error:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: error instanceof Error ? error.message : 'Failed to add note' 
+      });
+    }
+  });
+
+  // Workflow Issues - Update status
+  app.patch('/api/workflow/issues/:id', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { status, resolution, overrideReason } = req.body;
+      const userId = req.user?.claims?.sub;
+
+      const issue = await storage.getWorkflowIssue(parseInt(id));
+      if (!issue) {
+        return res.status(404).json({ success: false, message: 'Issue not found' });
+      }
+
+      if (status === 'overridden' && overrideReason) {
+        await storage.overrideWorkflowIssue(parseInt(id), overrideReason, userId);
+      } else {
+        await storage.updateWorkflowIssue(parseInt(id), { status, resolution });
+      }
+
+      const updatedIssue = await storage.getWorkflowIssue(parseInt(id));
+      res.json({ success: true, issue: updatedIssue, message: 'Issue updated' });
+    } catch (error) {
+      console.error('Update issue error:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: error instanceof Error ? error.message : 'Failed to update issue' 
+      });
+    }
+  });
+
+  // Workflow Tasks - Update status
+  app.patch('/api/workflow/tasks/:id', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { status, completionNotes, assignedToId } = req.body;
+      const userId = req.user?.claims?.sub;
+
+      const updates: any = {};
+      if (status) {
+        updates.status = status;
+        if (status === 'completed') {
+          updates.completedAt = new Date();
+          updates.completedBy = userId;
+        }
+      }
+      if (completionNotes) updates.completionNotes = completionNotes;
+      if (assignedToId) {
+        updates.assignedToId = assignedToId;
+        updates.assignedAt = new Date();
+      }
+
+      await storage.updateWorkflowTask(parseInt(id), updates);
+      
+      const task = await storage.getWorkflowTask(parseInt(id));
+      res.json({ success: true, task, message: 'Task updated' });
+    } catch (error) {
+      console.error('Update task error:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: error instanceof Error ? error.message : 'Failed to update task' 
+      });
+    }
+  });
+
+  // Workflow Dashboard Stats
+  app.get('/api/workflow/stats', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      const userRole = req.user?.role;
+
+      const allTickets = await storage.getWorkflowTickets({}, 1000, 0);
+      
+      const stats = {
+        total: allTickets.length,
+        byStatus: {
+          submitted: allTickets.filter(t => t.status === 'submitted').length,
+          in_progress: allTickets.filter(t => t.status === 'in_progress').length,
+          pending_review: allTickets.filter(t => t.status === 'pending_review').length,
+          approved: allTickets.filter(t => t.status === 'approved').length,
+          rejected: allTickets.filter(t => t.status === 'rejected').length,
+          on_hold: allTickets.filter(t => t.status === 'on_hold').length,
+        },
+        byPriority: {
+          urgent: allTickets.filter(t => t.priority === 'urgent').length,
+          high: allTickets.filter(t => t.priority === 'high').length,
+          normal: allTickets.filter(t => t.priority === 'normal').length,
+          low: allTickets.filter(t => t.priority === 'low').length,
+        },
+        myAssigned: allTickets.filter(t => t.assignedToId === userId).length,
+        awaitingReview: allTickets.filter(t => t.status === 'pending_review').length,
+      };
+
+      res.json({ success: true, stats });
+    } catch (error) {
+      console.error('Get workflow stats error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve workflow stats' });
+    }
+  });
+
+  // MCC Policies - List
+  app.get('/api/workflow/mcc-policies', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const policies = await storage.getMccPolicies();
+      res.json({ success: true, policies });
+    } catch (error) {
+      console.error('Get MCC policies error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve MCC policies' });
+    }
+  });
+
+  // MCC Policies - Create
+  app.post('/api/workflow/mcc-policies', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const { mccCode, description, category, acquirerId, riskLevel, notes } = req.body;
+      const userId = req.user?.claims?.sub;
+
+      if (!mccCode || !description || !category) {
+        return res.status(400).json({ success: false, message: 'MCC code, description, and category are required' });
+      }
+
+      const policy = await storage.createMccPolicy({
+        mccCode,
+        description,
+        category,
+        acquirerId: acquirerId || null,
+        riskLevel: riskLevel || null,
+        notes: notes || null,
+        createdBy: userId,
+        isActive: true,
+      });
+
+      res.json({ success: true, policy, message: 'MCC policy created' });
+    } catch (error) {
+      console.error('Create MCC policy error:', error);
+      res.status(500).json({ success: false, message: 'Failed to create MCC policy' });
+    }
+  });
+
+  // Volume Thresholds - List
+  app.get('/api/workflow/volume-thresholds', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const thresholds = await storage.getVolumeThresholds();
+      res.json({ success: true, thresholds });
+    } catch (error) {
+      console.error('Get volume thresholds error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve volume thresholds' });
+    }
+  });
+
+  // Volume Thresholds - Create
+  app.post('/api/workflow/volume-thresholds', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const { thresholdType, minValue, maxValue, action, severity, description, notes } = req.body;
+      const userId = req.user?.claims?.sub;
+
+      if (!thresholdType || !action || !severity) {
+        return res.status(400).json({ success: false, message: 'Threshold type, action, and severity are required' });
+      }
+
+      const threshold = await storage.createVolumeThreshold({
+        thresholdType,
+        minValue: minValue || null,
+        maxValue: maxValue || null,
+        action,
+        severity,
+        description: description || null,
+        notes: notes || null,
+        createdBy: userId,
+        isActive: true,
+      });
+
+      res.json({ success: true, threshold, message: 'Volume threshold created' });
+    } catch (error) {
+      console.error('Create volume threshold error:', error);
+      res.status(500).json({ success: false, message: 'Failed to create volume threshold' });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
