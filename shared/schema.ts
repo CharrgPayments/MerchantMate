@@ -361,7 +361,7 @@ export const users = pgTable("users", {
   phone: varchar("phone"), // Optional phone number to avoid data loss on existing users
   profileImageUrl: varchar("profile_image_url"),
   communicationPreference: text("communication_preference").default("email"), // email, sms, or both
-  roles: text("roles").array().notNull().default(sql`ARRAY['merchant']`), // Array of roles: merchant, agent, admin, corporate, super_admin, prospect
+  roles: text("roles").array().notNull().default(sql`ARRAY['merchant']`), // Array of roles: merchant, agent, admin, corporate, super_admin, underwriter, prospect
   status: text("status").notNull().default("active"), // active, pending_password, locked, suspended, inactive
   permissions: jsonb("permissions").default("{}"),
   lastLoginAt: timestamp("last_login_at"),
@@ -489,7 +489,7 @@ export const registerUserSchema = z.object({
   lastName: z.string().min(1, "Last name required"),
   phone: z.string().min(10, "Phone number must be at least 10 digits").regex(/^\+?[\d\s\-\(\)]+$/, "Invalid phone number format"),
   communicationPreference: z.enum(["email", "sms", "both"]).default("email"),
-  roles: z.array(z.enum(["merchant", "agent", "admin", "corporate", "super_admin"])).default(["merchant"]),
+  roles: z.array(z.enum(["merchant", "agent", "admin", "corporate", "super_admin", "underwriter"])).default(["merchant"]),
 }).refine((data) => {
   const validation = validatePasswordStrength(data.password);
   return validation.valid;

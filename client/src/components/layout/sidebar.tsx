@@ -8,12 +8,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
 const baseNavigation = [
-  { name: "Dashboard", href: "/", icon: BarChart3, requiresRole: ['merchant', 'agent', 'admin', 'corporate', 'super_admin'] },
+  { name: "Dashboard", href: "/", icon: BarChart3, requiresRole: ['merchant', 'agent', 'admin', 'corporate', 'super_admin', 'underwriter'] },
   { name: "Agent Dashboard", href: "/agent-dashboard", icon: CreditCard, requiresRole: ['agent'] },
   { name: "Merchants", href: "/merchants", icon: Store, requiresRole: ['agent', 'admin', 'corporate', 'super_admin'] },
   { name: "Locations", href: "/locations", icon: MapPin, requiresRole: ['merchant'] },
   { name: "Agents", href: "/agents", icon: Users, requiresRole: ['admin', 'corporate', 'super_admin'] },
-  { name: "Prospects", href: "/prospects", icon: UserPlus, requiresRole: ['admin', 'corporate', 'super_admin'] },
+  { name: "Prospects", href: "/prospects", icon: UserPlus, requiresRole: ['admin', 'corporate', 'super_admin', 'underwriter'] },
   { 
     name: "Campaigns", 
     href: "/campaigns", 
@@ -36,7 +36,7 @@ const baseNavigation = [
   { name: "Users", href: "/users", icon: User, requiresRole: ['admin', 'corporate', 'super_admin'] },
   { name: "Reports", href: "/reports", icon: FileText, requiresRole: ['admin', 'corporate', 'super_admin'] },
   { name: "Security", href: "/security", icon: Shield, requiresRole: ['admin', 'super_admin'] },
-  { name: "Workflows", href: "/workflows", icon: GitBranch, requiresRole: ['admin', 'super_admin'] },
+  { name: "Workflows", href: "/workflows", icon: GitBranch, requiresRole: ['admin', 'super_admin', 'underwriter'] },
   { name: "Communications", href: "/communications", icon: Mail, requiresRole: ['admin', 'super_admin'] },
   { name: "API Documentation", href: "/api-documentation", icon: Book, requiresRole: ['admin', 'super_admin'] },
   { name: "Testing Utilities", href: "/testing-utilities", icon: TestTube, requiresRole: ['super_admin'] },

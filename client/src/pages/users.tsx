@@ -68,7 +68,7 @@ const createUserSchema = z.object({
   confirmPassword: z.string(),
   phone: z.string().min(1, "Phone number is required"),
   communicationPreference: z.enum(["email", "sms", "both"]).default("email"),
-  roles: z.array(z.enum(["merchant", "agent", "admin", "corporate", "super_admin"])).min(1, "At least one role is required"),
+  roles: z.array(z.enum(["merchant", "agent", "admin", "corporate", "super_admin", "underwriter"])).min(1, "At least one role is required"),
 }).refine((data) => {
   const validation = validatePasswordStrength(data.password);
   return validation.valid;
@@ -90,7 +90,7 @@ const updateUserSchema = z.object({
   email: z.string().email("Invalid email address"),
   username: z.string().min(3, "Username must be at least 3 characters"),
   communicationPreference: z.enum(["email", "sms", "both"]),
-  roles: z.array(z.enum(["merchant", "agent", "admin", "corporate", "super_admin"])).min(1, "At least one role is required"),
+  roles: z.array(z.enum(["merchant", "agent", "admin", "corporate", "super_admin", "underwriter"])).min(1, "At least one role is required"),
   status: z.enum(["active", "suspended", "inactive"]),
 });
 

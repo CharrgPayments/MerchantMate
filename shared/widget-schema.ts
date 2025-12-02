@@ -85,6 +85,14 @@ export const ROLE_WIDGET_PERMISSIONS = {
     WIDGET_TYPES.REVENUE_OVERVIEW,
     WIDGET_TYPES.SYSTEM_OVERVIEW,
   ],
+  underwriter: [
+    WIDGET_TYPES.QUICK_STATS,
+    WIDGET_TYPES.RECENT_ACTIVITY,
+    WIDGET_TYPES.PROFILE_SUMMARY,
+    WIDGET_TYPES.PIPELINE_OVERVIEW,
+    WIDGET_TYPES.ALERTS_CENTER,
+    WIDGET_TYPES.COMPLIANCE_MONITOR,
+  ],
   super_admin: Object.values(WIDGET_TYPES),
 } as const;
 
@@ -203,6 +211,33 @@ export const DEFAULT_DASHBOARD_LAYOUTS = {
       configuration: {},
     },
   ],
+  
+  underwriter: [
+    {
+      widgetId: WIDGET_TYPES.QUICK_STATS,
+      position: 0,
+      size: WIDGET_SIZES.LARGE,
+      configuration: {},
+    },
+    {
+      widgetId: WIDGET_TYPES.PIPELINE_OVERVIEW,
+      position: 1,
+      size: WIDGET_SIZES.MEDIUM,
+      configuration: {},
+    },
+    {
+      widgetId: WIDGET_TYPES.COMPLIANCE_MONITOR,
+      position: 2,
+      size: WIDGET_SIZES.MEDIUM,
+      configuration: {},
+    },
+    {
+      widgetId: WIDGET_TYPES.ALERTS_CENTER,
+      position: 3,
+      size: WIDGET_SIZES.SMALL,
+      configuration: {},
+    },
+  ],
 } as const;
 
 // Utility functions
@@ -237,7 +272,7 @@ export function getDefaultLayout(roles: string[] | string) {
   const userRoles = Array.isArray(roles) ? roles : [roles];
   
   // Use the highest privilege role for default layout
-  const roleHierarchy = ['super_admin', 'admin', 'corporate', 'agent', 'merchant'];
+  const roleHierarchy = ['super_admin', 'admin', 'underwriter', 'corporate', 'agent', 'merchant'];
   
   for (const hierarchyRole of roleHierarchy) {
     if (userRoles.includes(hierarchyRole)) {
