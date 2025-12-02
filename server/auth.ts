@@ -397,13 +397,48 @@ export class AuthService {
               : "Please enter your 2FA code."
           };
         } else {
-          // Verify 2FA code
-          const validCode = await storage.verify2FACode(user.id, loginData.twoFactorCode);
-          if (!validCode) {
+          // Verify 2FA code with detailed status check
+          const codeStatus = await storage.check2FACodeStatus(user.id, loginData.twoFactorCode);
+          
+          if (!codeStatus.valid) {
+            // Check if code was expired - auto-resend new code
+            if (codeStatus.expired) {
+              const newCode = this.generate2FACode();
+              const type = ipChanged ? "ip_change" : "login";
+              
+              await storage.create2FACode({
+                userId: user.id,
+                code: newCode,
+                type,
+                expiresAt: new Date(Date.now() + TWO_FACTOR_EXPIRES),
+              });
+
+              // Send new 2FA code via email
+              await this.sendEmail(
+                user.email,
+                "CoreCRM Security Code - New Code Sent",
+                `
+                <h2>Your code has expired</h2>
+                <p>We've sent you a new verification code.</p>
+                <p>Your new verification code is: <strong style="font-size: 24px; color: #007bff;">${newCode}</strong></p>
+                <p>This code will expire in 5 minutes.</p>
+                <p>IP Address: ${ip}</p>
+                `
+              );
+
+              await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, false, "expired_2fa_resent");
+              return {
+                success: false,
+                requires2FA: true,
+                message: "Your code has expired. We've sent a new security code to your email."
+              };
+            }
+            
+            // Code is invalid (not expired, just wrong)
             await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, false, "invalid_2fa");
             return {
               success: false,
-              message: "Invalid or expired security code"
+              message: "Invalid security code. Please check and try again."
             };
           }
         }
@@ -594,13 +629,48 @@ export class AuthService {
               : "Please enter your 2FA code."
           };
         } else {
-          // Verify 2FA code
-          const validCode = await storage.verify2FACode(user.id, loginData.twoFactorCode);
-          if (!validCode) {
+          // Verify 2FA code with detailed status check
+          const codeStatus = await storage.check2FACodeStatus(user.id, loginData.twoFactorCode);
+          
+          if (!codeStatus.valid) {
+            // Check if code was expired - auto-resend new code
+            if (codeStatus.expired) {
+              const newCode = this.generate2FACode();
+              const type = ipChanged ? "ip_change" : "login";
+              
+              await storage.create2FACode({
+                userId: user.id,
+                code: newCode,
+                type,
+                expiresAt: new Date(Date.now() + TWO_FACTOR_EXPIRES),
+              });
+
+              // Send new 2FA code via email
+              await this.sendEmail(
+                user.email,
+                "CoreCRM Security Code - New Code Sent",
+                `
+                <h2>Your code has expired</h2>
+                <p>We've sent you a new verification code.</p>
+                <p>Your new verification code is: <strong style="font-size: 24px; color: #007bff;">${newCode}</strong></p>
+                <p>This code will expire in 5 minutes.</p>
+                <p>IP Address: ${ip}</p>
+                `
+              );
+
+              await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, false, "expired_2fa_resent", db);
+              return {
+                success: false,
+                requires2FA: true,
+                message: "Your code has expired. We've sent a new security code to your email."
+              };
+            }
+            
+            // Code is invalid (not expired, just wrong)
             await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, false, "invalid_2fa", db);
             return {
               success: false,
-              message: "Invalid or expired security code"
+              message: "Invalid security code. Please check and try again."
             };
           }
         }
