@@ -1248,7 +1248,7 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
                   <FormItem>
                     <FormLabel>First Name</FormLabel>
                     <FormControl>
-                      <Input placeholder="Enter first name" {...field} />
+                      <Input placeholder="Enter first name" data-testid="input-firstname" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1262,7 +1262,7 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
                   <FormItem>
                     <FormLabel>Last Name</FormLabel>
                     <FormControl>
-                      <Input placeholder="Enter last name" {...field} />
+                      <Input placeholder="Enter last name" data-testid="input-lastname" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1277,7 +1277,7 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
                 <FormItem>
                   <FormLabel>Email Address</FormLabel>
                   <FormControl>
-                    <Input type="email" placeholder="Enter email address" {...field} />
+                    <Input type="email" placeholder="Enter email address" data-testid="input-email" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -1329,11 +1329,11 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
                 <FormItem>
                   <FormLabel>Campaign Assignment *</FormLabel>
                   <Select
-                    value={field.value.toString()}
+                    value={field.value > 0 ? field.value.toString() : ""}
                     onValueChange={(value) => field.onChange(parseInt(value))}
                   >
                     <FormControl>
-                      <SelectTrigger>
+                      <SelectTrigger data-testid="select-campaign">
                         <SelectValue placeholder="Select a campaign" />
                       </SelectTrigger>
                     </FormControl>
@@ -1343,7 +1343,7 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
                         .map((campaign: any) => {
                           const templateNames = campaign.templates?.map((t: any) => t.template.templateName).join(', ') || 'No template';
                           return (
-                            <SelectItem key={campaign.id} value={campaign.id.toString()}>
+                            <SelectItem key={campaign.id} value={campaign.id.toString()} data-testid={`campaign-option-${campaign.id}`}>
                               {campaign.name} {templateNames !== 'No template' && `(${templateNames})`}
                             </SelectItem>
                           );
