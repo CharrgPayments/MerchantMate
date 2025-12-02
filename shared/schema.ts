@@ -2098,5 +2098,109 @@ export type UnderwritingStatus = typeof UNDERWRITING_STATUSES[keyof typeof UNDER
 export const ISSUE_SEVERITIES = ['low', 'medium', 'high', 'critical', 'blocker'] as const;
 export type IssueSeverity = typeof ISSUE_SEVERITIES[number];
 
+// =====================================================
+// ROLE-BASED ACCESS CONTROL (RBAC) TABLES
+// =====================================================
+
+// Available system roles
+export const SYSTEM_ROLES = ['merchant', 'agent', 'underwriter', 'admin', 'corporate', 'super_admin'] as const;
+export type SystemRole = typeof SYSTEM_ROLES[number];
+
+// Role hierarchy ranks (higher = more permissions)
+export const ROLE_HIERARCHY: Record<SystemRole, number> = {
+  merchant: 1,
+  agent: 2,
+  underwriter: 3,
+  corporate: 4,
+  admin: 5,
+  super_admin: 6,
+};
+
+// Resource types that can have permissions
+export const RESOURCE_TYPES = ['page', 'widget', 'api', 'feature'] as const;
+export type ResourceType = typeof RESOURCE_TYPES[number];
+
+// Actions that can be performed on resources
+export const PERMISSION_ACTIONS = ['view', 'create', 'edit', 'delete', 'manage'] as const;
+export type PermissionAction = typeof PERMISSION_ACTIONS[number];
+
+// RBAC Resources - Defines all resources that can have permissions
+export const rbacResources = pgTable("rbac_resources", {
+  id: serial("id").primaryKey(),
+  resourceType: text("resource_type").notNull(), // page, widget, api, feature
+  resourceKey: text("resource_key").notNull().unique(), // e.g., "page:dashboard", "widget:quick_stats"
+  displayName: text("display_name").notNull(),
+  description: text("description"),
+  category: text("category"), // For grouping in UI: "Navigation", "Dashboard Widgets", "Admin Features"
+  parentResourceKey: text("parent_resource_key"), // For hierarchical permissions
+  metadata: jsonb("metadata").default('{}'), // Additional config (icon, route, etc.)
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  resourceTypeIdx: index("rbac_resources_type_idx").on(table.resourceType),
+  categoryIdx: index("rbac_resources_category_idx").on(table.category),
+}));
+
+// Role Permissions - Maps roles to resources with specific actions
+export const rolePermissions = pgTable("role_permissions", {
+  id: serial("id").primaryKey(),
+  roleKey: text("role_key").notNull(), // merchant, agent, underwriter, admin, corporate, super_admin
+  resourceId: integer("resource_id").notNull().references(() => rbacResources.id, { onDelete: "cascade" }),
+  action: text("action").notNull().default("view"), // view, create, edit, delete, manage
+  isGranted: boolean("is_granted").notNull().default(true),
+  grantedBy: varchar("granted_by").references(() => users.id),
+  grantedAt: timestamp("granted_at").defaultNow().notNull(),
+  notes: text("notes"), // Reason for granting/revoking
+}, (table) => ({
+  roleResourceActionIdx: uniqueIndex("role_permissions_role_resource_action_idx").on(table.roleKey, table.resourceId, table.action),
+  roleIdx: index("role_permissions_role_idx").on(table.roleKey),
+  resourceIdx: index("role_permissions_resource_idx").on(table.resourceId),
+}));
+
+// Permission Audit Log - Track all permission changes
+export const permissionAuditLog = pgTable("permission_audit_log", {
+  id: serial("id").primaryKey(),
+  actorUserId: varchar("actor_user_id").notNull().references(() => users.id),
+  roleKey: text("role_key").notNull(),
+  resourceId: integer("resource_id").notNull().references(() => rbacResources.id),
+  action: text("action").notNull(), // view, create, edit, delete, manage
+  changeType: text("change_type").notNull(), // grant, revoke
+  previousValue: boolean("previous_value"),
+  newValue: boolean("new_value").notNull(),
+  notes: text("notes"),
+  metadata: jsonb("metadata").default('{}'),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  actorIdx: index("permission_audit_log_actor_idx").on(table.actorUserId),
+  roleIdx: index("permission_audit_log_role_idx").on(table.roleKey),
+  createdAtIdx: index("permission_audit_log_created_at_idx").on(table.createdAt),
+}));
+
+// RBAC Zod Schemas and Types
+export const insertRbacResourceSchema = createInsertSchema(rbacResources).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertRolePermissionSchema = createInsertSchema(rolePermissions).omit({ id: true, grantedAt: true });
+export const insertPermissionAuditLogSchema = createInsertSchema(permissionAuditLog).omit({ id: true, createdAt: true });
+
+export type RbacResource = typeof rbacResources.$inferSelect;
+export type InsertRbacResource = z.infer<typeof insertRbacResourceSchema>;
+export type RolePermission = typeof rolePermissions.$inferSelect;
+export type InsertRolePermission = z.infer<typeof insertRolePermissionSchema>;
+export type PermissionAuditLog = typeof permissionAuditLog.$inferSelect;
+export type InsertPermissionAuditLog = z.infer<typeof insertPermissionAuditLogSchema>;
+
+// Permission check types for frontend/backend use
+export interface PermissionCheck {
+  resourceKey: string;
+  action: PermissionAction;
+  isGranted: boolean;
+}
+
+export interface RolePermissionMap {
+  [roleKey: string]: {
+    [resourceKey: string]: PermissionAction[];
+  };
+}
+
 // Export Drizzle utilities
 export { sql, eq };
