@@ -170,8 +170,10 @@ export async function createUserFromFormField(
     rolesToAssign = config.roles;
   }
 
-  // Create user
+  // Create user - generate a unique ID
+  const userId = crypto.randomUUID();
   const [newUser] = await db.insert(users).values({
+    id: userId,
     username: finalUsername,
     passwordHash: hashedPassword,
     email,
@@ -179,8 +181,8 @@ export async function createUserFromFormField(
     status: userStatus,
     firstName: firstName || null,
     lastName: lastName || null,
-    resetToken,
-    resetTokenExpires
+    passwordResetToken: resetToken,
+    passwordResetExpires: resetTokenExpires
   }).returning();
 
   // TODO: Send welcome email if configured
