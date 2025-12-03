@@ -3039,6 +3039,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let campaign = null;
       let campaignEquipment = [];
       let applicationTemplate = null;
+      let prospectApplication = null;
 
       if (campaignAssignment) {
         // Get campaign details
@@ -3060,6 +3061,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .where(eq(acquirerApplicationTemplates.id, templateId));
           applicationTemplate = templates[0] || null;
         }
+      }
+
+      // Get prospect's application from prospect_applications table
+      const { prospectApplications } = await import("@shared/schema");
+      const applications = await dynamicDB
+        .select()
+        .from(prospectApplications)
+        .where(eq(prospectApplications.prospectId, prospect.id))
+        .limit(1);
+      
+      if (applications && applications.length > 0) {
+        prospectApplication = applications[0];
       }
 
       // Reverse-map template-specific address fields to canonical names for loading
@@ -3089,7 +3102,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         agent,
         campaign,
         campaignEquipment,
-        applicationTemplate
+        applicationTemplate,
+        prospectApplication
       });
     } catch (error) {
       console.error("Error fetching prospect by token:", error);
