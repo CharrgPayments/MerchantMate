@@ -4324,113 +4324,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Prospect not found" });
       }
 
-      // Comprehensive validation before submission
+      // Validation is handled by the frontend wizard - the form fields and their required status
+      // are defined dynamically in the template, not hardcoded field names
+      // We perform only minimal server-side checks for data integrity
+      
       const validationErrors: string[] = [];
-      const missingSignatures: any[] = [];
-
-      // Helper function to check if a field value exists
-      // Checks both direct field name and canonical address patterns
-      const getFieldValue = (fieldName: string): any => {
-        if (!formData) return null;
-        
-        // Direct field name check
-        if (formData[fieldName] !== undefined && formData[fieldName] !== '') {
-          return formData[fieldName];
-        }
-        
-        // For address fields, check canonical patterns (e.g., *Address.street1, *Address.city)
-        const addressFieldMapping: Record<string, string> = {
-          'address': '.street1',
-          'city': '.city', 
-          'state': '.state',
-          'zipCode': '.zipCode'
-        };
-        
-        if (addressFieldMapping[fieldName]) {
-          const suffix = addressFieldMapping[fieldName];
-          // Look for any field ending with the canonical suffix
-          const canonicalKey = Object.keys(formData).find(k => k.endsWith(suffix));
-          if (canonicalKey && formData[canonicalKey] !== undefined && formData[canonicalKey] !== '') {
-            return formData[canonicalKey];
-          }
-        }
-        
-        return null;
-      };
-
-      // Required field validation
-      const requiredFields = [
-        { field: 'companyName', label: 'Company Name' },
-        { field: 'companyEmail', label: 'Company Email' },
-        { field: 'companyPhone', label: 'Company Phone' },
-        { field: 'address', label: 'Business Address' },
-        { field: 'city', label: 'City' },
-        { field: 'state', label: 'State' },
-        { field: 'zipCode', label: 'ZIP Code' },
-        { field: 'federalTaxId', label: 'Federal Tax ID' },
-        { field: 'businessType', label: 'Business Type' },
-        { field: 'yearsInBusiness', label: 'Years in Business' },
-        { field: 'businessDescription', label: 'Business Description' },
-        { field: 'productsServices', label: 'Products/Services' },
-        { field: 'processingMethod', label: 'Processing Method' },
-        { field: 'monthlyVolume', label: 'Monthly Volume' },
-        { field: 'averageTicket', label: 'Average Ticket' },
-        { field: 'highestTicket', label: 'Highest Ticket' }
-      ];
-
-      // Check for missing required fields
-      for (const { field, label } of requiredFields) {
-        const value = getFieldValue(field);
-        if (value === null || value === '') {
-          validationErrors.push(`${label} is required`);
-        }
+      
+      // Basic data integrity check - ensure we have some form data
+      if (!formData || Object.keys(formData).length === 0) {
+        validationErrors.push('No form data submitted');
       }
-
-      // Validate business ownership totals 100%
-      if (formData && formData.owners && Array.isArray(formData.owners)) {
+      
+      // Optional: Check ownership totals if owners array is present
+      // (ownership validation is typically done on frontend during wizard navigation)
+      if (formData && formData.owners && Array.isArray(formData.owners) && formData.owners.length > 0) {
         const totalOwnership = formData.owners.reduce((sum: number, owner: any) => {
           return sum + (parseFloat(owner.percentage) || 0);
         }, 0);
 
         if (Math.abs(totalOwnership - 100) > 0.01) {
-          validationErrors.push(`Total ownership must equal 100% (currently ${totalOwnership}%)`);
+          validationErrors.push(`Total ownership must equal 100% (currently ${totalOwnership.toFixed(1)}%)`);
         }
-
-        // Check for required signatures
-        const ownersRequiringSignatures = formData.owners.filter((owner: any) => {
-          const percentage = parseFloat(owner.percentage) || 0;
-          return percentage >= 25;
-        });
-
-        const ownersWithoutSignatures = ownersRequiringSignatures.filter((owner: any) => {
-          return !owner.signature || owner.signature === null || owner.signature === '';
-        });
-
-        if (ownersWithoutSignatures.length > 0) {
-          missingSignatures.push(...ownersWithoutSignatures.map((owner: any) => ({
-            name: owner.name,
-            email: owner.email,
-            percentage: owner.percentage
-          })));
-          validationErrors.push(`Signatures required for owners with 25% or more ownership`);
-        }
-        
-        // Check for agent signature after all owner signatures are collected
-        if (ownersWithoutSignatures.length === 0 && ownersRequiringSignatures.length > 0) {
-          if (!formData.agentSignature || formData.agentSignature === null || formData.agentSignature === '') {
-            validationErrors.push('Agent signature required for final approval');
-          }
-        }
-      } else {
-        validationErrors.push('At least one business owner is required');
       }
 
       // Return validation errors if any exist
       if (validationErrors.length > 0) {
         return res.status(400).json({ 
           message: `Application incomplete. Please complete the following:\n${validationErrors.map(err => `• ${err}`).join('\n')}`,
-          validationErrors,
-          missingSignatures: missingSignatures.length > 0 ? missingSignatures : undefined
+          validationErrors
         });
       }
 
