@@ -621,7 +621,7 @@ export default function Prospects() {
                                 <h3 className="font-semibold text-lg text-gray-900">
                                   {summary.agent.firstName} {summary.agent.lastName}
                                 </h3>
-                                <p className="text-sm text-gray-500">{summary.agent.email}</p>
+                                <p className="text-sm text-gray-500">Agent ID: {summary.agent.id}</p>
                               </div>
                             </div>
                             <div className="flex items-center space-x-4">
@@ -1072,13 +1072,22 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { user } = useAuth();
 
+  // Fetch agents for the dropdown FIRST so we can use them for defaults
+  const { data: agents = [] } = useQuery({
+    queryKey: ["/api/agents"],
+    queryFn: async () => {
+      const response = await fetch("/api/agents");
+      if (!response.ok) throw new Error('Failed to fetch agents');
+      return response.json() as Promise<Agent[]>;
+    },
+  });
+
   // Agent role detection and display logic
   const userRoles = user?.roles || [];
   const isAgent = userRoles.includes('agent');
-  const agentDefaultId = isAgent ? 2 : 1; // Use agent ID 2 for Mike Chen
+  // Use first available agent from fetched list, or 0 if none available
+  const agentDefaultId = agents.length > 0 ? agents[0].id : 0;
   const agentDisplayValue = isAgent && user ? `${user.firstName} ${user.lastName} (${user.email})` : '';
-
-
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -1086,14 +1095,14 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
       firstName: "",
       lastName: "",
       email: "",
-      agentId: agentDefaultId,
+      agentId: 0,
       status: "pending",
       notes: "",
       campaignId: 0,
     },
   });
 
-  // Reset form when prospect data changes
+  // Reset form when prospect data changes or agents load
   useEffect(() => {
     if (prospect) {
       form.reset({
@@ -1105,28 +1114,11 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
         notes: prospect.notes || "",
         campaignId: (prospect as any).campaignId || 0,
       });
-    } else {
-      form.reset({
-        firstName: "",
-        lastName: "",
-        email: "",
-        agentId: agentDefaultId,
-        status: "pending",
-        notes: "",
-        campaignId: 0,
-      });
+    } else if (agents.length > 0 && form.getValues('agentId') === 0) {
+      // Set default agent once agents are loaded
+      form.setValue('agentId', agents[0].id);
     }
-  }, [prospect, form, agentDefaultId]);
-
-  // Fetch agents for the dropdown
-  const { data: agents = [] } = useQuery({
-    queryKey: ["/api/agents"],
-    queryFn: async () => {
-      const response = await fetch("/api/agents");
-      if (!response.ok) throw new Error('Failed to fetch agents');
-      return response.json() as Promise<Agent[]>;
-    },
-  });
+  }, [prospect, form, agents]);
 
   // Fetch campaigns for the dropdown
   const { data: campaigns = [] } = useQuery({
@@ -1300,7 +1292,7 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
                     </FormControl>
                   ) : (
                     <Select
-                      value={field.value.toString()}
+                      value={field.value?.toString() ?? ''}
                       onValueChange={(value) => field.onChange(parseInt(value))}
                     >
                       <FormControl>
