@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { 
@@ -27,6 +27,9 @@ import {
   Bell,
   Settings
 } from "lucide-react";
+
+// Import trigger keys dictionary
+import { TRIGGER_KEYS, TRIGGER_METADATA, TRIGGER_CATEGORIES } from "@shared/triggerKeys";
 
 // Import existing action templates page as a component
 import ActionTemplatesPage from "./action-templates";
@@ -620,15 +623,119 @@ function TriggersManagement() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="new-trigger-key">Trigger Key <span className="text-red-500">*</span></Label>
-              <Input 
-                id="new-trigger-key"
+              <Select 
                 value={createForm.triggerKey}
-                onChange={(e) => setCreateForm({ ...createForm, triggerKey: e.target.value })}
-                placeholder="e.g., user_login, order_completed"
-                required
-              />
+                onValueChange={(value) => {
+                  const metadata = TRIGGER_METADATA[value];
+                  if (metadata) {
+                    setCreateForm({ 
+                      ...createForm, 
+                      triggerKey: value,
+                      name: metadata.name,
+                      description: metadata.description,
+                      category: metadata.category
+                    });
+                  } else {
+                    setCreateForm({ ...createForm, triggerKey: value });
+                  }
+                }}
+              >
+                <SelectTrigger id="new-trigger-key" data-testid="select-trigger-key">
+                  <SelectValue placeholder="Select a trigger event..." />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectGroup>
+                    <SelectLabel>User Events</SelectLabel>
+                    {Object.values(TRIGGER_KEYS.USER).map((key) => (
+                      <SelectItem key={key} value={key}>
+                        {TRIGGER_METADATA[key]?.name || key}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>Agent Events</SelectLabel>
+                    {Object.values(TRIGGER_KEYS.AGENT).map((key) => (
+                      <SelectItem key={key} value={key}>
+                        {TRIGGER_METADATA[key]?.name || key}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>Prospect Events</SelectLabel>
+                    {Object.values(TRIGGER_KEYS.PROSPECT).map((key) => (
+                      <SelectItem key={key} value={key}>
+                        {TRIGGER_METADATA[key]?.name || key}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>Application Events</SelectLabel>
+                    {Object.values(TRIGGER_KEYS.APPLICATION).map((key) => (
+                      <SelectItem key={key} value={key}>
+                        {TRIGGER_METADATA[key]?.name || key}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>Merchant Events</SelectLabel>
+                    {Object.values(TRIGGER_KEYS.MERCHANT).map((key) => (
+                      <SelectItem key={key} value={key}>
+                        {TRIGGER_METADATA[key]?.name || key}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>Signature Events</SelectLabel>
+                    {Object.values(TRIGGER_KEYS.SIGNATURE).map((key) => (
+                      <SelectItem key={key} value={key}>
+                        {TRIGGER_METADATA[key]?.name || key}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>Transaction Events</SelectLabel>
+                    {Object.values(TRIGGER_KEYS.TRANSACTION).map((key) => (
+                      <SelectItem key={key} value={key}>
+                        {TRIGGER_METADATA[key]?.name || key}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>Underwriting Events</SelectLabel>
+                    {Object.values(TRIGGER_KEYS.UNDERWRITING).map((key) => (
+                      <SelectItem key={key} value={key}>
+                        {TRIGGER_METADATA[key]?.name || key}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>Campaign Events</SelectLabel>
+                    {Object.values(TRIGGER_KEYS.CAMPAIGN).map((key) => (
+                      <SelectItem key={key} value={key}>
+                        {TRIGGER_METADATA[key]?.name || key}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>System Events</SelectLabel>
+                    {Object.values(TRIGGER_KEYS.SYSTEM).map((key) => (
+                      <SelectItem key={key} value={key}>
+                        {TRIGGER_METADATA[key]?.name || key}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>Notification Events</SelectLabel>
+                    {Object.values(TRIGGER_KEYS.NOTIFICATION).map((key) => (
+                      <SelectItem key={key} value={key}>
+                        {TRIGGER_METADATA[key]?.name || key}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
               <p className="text-xs text-muted-foreground">
-                Unique identifier used in code. Use snake_case format.
+                Select from predefined trigger events. Name and description will auto-populate.
               </p>
             </div>
 
