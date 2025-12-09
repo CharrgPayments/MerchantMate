@@ -40,7 +40,7 @@ Preferred communication style: Simple, everyday language.
 - **Address Validation & Autocomplete**: Google Maps Geocoding and Places Autocomplete integration.
 - **Campaign Management**: Full CRUD for campaigns, pricing types, fee groups, equipment associations.
 - **SOC2 Compliance Features**: Comprehensive audit trail, logging, security events, login attempt tracking.
-- **Generic Trigger/Action Catalog System**: Extensible event-driven action system supporting multi-channel notifications and action chaining.
+- **Generic Trigger/Action Catalog System**: Extensible event-driven action system supporting multi-channel notifications and action chaining. Includes centralized `TRIGGER_KEYS` dictionary in `shared/triggerKeys.ts` with type-safe constants for all trigger events.
 - **User Profile Management**: Self-service profile/settings page.
 - **Unified Communications Management**: Consolidated dashboard for all communications features (Templates, Triggers, Activity & Analytics, Settings).
 - **Email Configuration & Testing**: Settings tab in Communications Manager displays current SendGrid sender configuration and includes test email functionality.

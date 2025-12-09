@@ -5666,10 +5666,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Fire agent_registered trigger
       try {
         const { TriggerService } = await import("./triggerService");
+        const { TRIGGER_KEYS } = await import("@shared/triggerKeys");
         const triggerService = new TriggerService();
         
-        await triggerService.fireTrigger('agent_registered', {
-          triggerEvent: 'agent_registered', // For email template styling
+        await triggerService.fireTrigger(TRIGGER_KEYS.AGENT.REGISTERED, {
+          triggerEvent: TRIGGER_KEYS.AGENT.REGISTERED, // For email template styling
           agentId: result.agent.id,
           agentName: `${result.agent.first_name} ${result.agent.last_name}`,
           firstName: result.agent.first_name,
@@ -12055,8 +12056,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           : currentUser?.username || 'Agent';
           
         const { TriggerService } = await import('./triggerService');
+        const { TRIGGER_KEYS } = await import('@shared/triggerKeys');
         const triggerService = new TriggerService();
-        await triggerService.fireTrigger('signature_requested', {
+        await triggerService.fireTrigger(TRIGGER_KEYS.SIGNATURE.REQUESTED, {
+          triggerEvent: TRIGGER_KEYS.SIGNATURE.REQUESTED,
           ownerName: signerName,
           ownerEmail: signerEmail,
           companyName,
@@ -12179,8 +12182,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         const { TriggerService } = await import('./triggerService');
+        const { TRIGGER_KEYS } = await import('@shared/triggerKeys');
         const triggerService = new TriggerService();
-        await triggerService.fireTrigger('signature_captured', {
+        await triggerService.fireTrigger(TRIGGER_KEYS.SIGNATURE.CAPTURED, {
+          triggerEvent: TRIGGER_KEYS.SIGNATURE.CAPTURED,
           ownerName: updated.signerName || 'Owner',
           ownerEmail: updated.signerEmail,
           companyName,
