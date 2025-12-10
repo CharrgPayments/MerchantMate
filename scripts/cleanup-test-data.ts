@@ -2,13 +2,14 @@
 /**
  * Test Data Cleanup Script
  * 
- * Cleans up prospect, application, and optionally agent test data from the specified environment.
+ * Cleans up prospect, application, and optionally agent/user test data from the specified environment.
  * 
  * Usage:
  *   CORECRM_ENV=development tsx scripts/cleanup-test-data.ts
  *   tsx scripts/cleanup-test-data.ts --env development
  *   tsx scripts/cleanup-test-data.ts --env development --keep-agent 63
  *   tsx scripts/cleanup-test-data.ts --env development --include-agents
+ *   tsx scripts/cleanup-test-data.ts --env development --include-users
  * 
  * Environment Variables:
  *   CORECRM_ENV - Target environment (development, test, production)
@@ -17,6 +18,7 @@
  *   --env, -e <env>        Database environment (overrides CORECRM_ENV)
  *   --keep-agent <id>      Agent ID to preserve (can be used multiple times)
  *   --include-agents       Also delete test agents (excluding kept ones)
+ *   --include-users        Also delete orphaned users with agent/prospect roles
  *   --dry-run              Preview what would be deleted without executing
  *   --help, -h             Show this help message
  */
@@ -30,6 +32,7 @@ interface CleanupOptions {
   environment: string;
   keepAgentIds: number[];
   includeAgents: boolean;
+  includeUsers: boolean;
   dryRun: boolean;
 }
 
@@ -61,6 +64,7 @@ function parseArgs(): CleanupOptions {
     environment: process.env.CORECRM_ENV || '',
     keepAgentIds: [],
     includeAgents: false,
+    includeUsers: false,
     dryRun: false,
   };
 
@@ -81,6 +85,8 @@ function parseArgs(): CleanupOptions {
       }
     } else if (arg === '--include-agents') {
       options.includeAgents = true;
+    } else if (arg === '--include-users') {
+      options.includeUsers = true;
     } else if (arg === '--dry-run') {
       options.dryRun = true;
     }
@@ -93,13 +99,14 @@ function showHelp(): void {
   console.log(`
 Test Data Cleanup Script
 
-Cleans up prospect, application, and optionally agent test data.
+Cleans up prospect, application, and optionally agent/user test data.
 
 Usage:
   CORECRM_ENV=development tsx scripts/cleanup-test-data.ts
   tsx scripts/cleanup-test-data.ts --env development
   tsx scripts/cleanup-test-data.ts --env development --keep-agent 63
   tsx scripts/cleanup-test-data.ts --env development --include-agents --keep-agent 63
+  tsx scripts/cleanup-test-data.ts --env development --include-users
 
 Environment Variables:
   CORECRM_ENV              Target environment (development, test, production)
@@ -108,6 +115,7 @@ Options:
   --env, -e <env>          Database environment (overrides CORECRM_ENV)
   --keep-agent <id>        Agent ID to preserve (can be used multiple times)
   --include-agents         Also delete test agents (excluding kept ones)
+  --include-users          Also delete orphaned users with agent/prospect roles
   --dry-run                Preview what would be deleted without executing
   --help, -h               Show this help message
 
@@ -118,12 +126,15 @@ Examples:
   # Clean all test data including agents, keeping agent 63
   tsx scripts/cleanup-test-data.ts --env development --include-agents --keep-agent 63
 
+  # Clean all test data including orphaned agent/prospect users
+  tsx scripts/cleanup-test-data.ts --env development --include-users
+
   # Preview what would be deleted
   tsx scripts/cleanup-test-data.ts --env development --dry-run
 `);
 }
 
-async function getTableCounts(pool: Pool): Promise<Record<string, number>> {
+async function getTableCounts(pool: Pool, includeUsers: boolean = false): Promise<Record<string, number>> {
   const tables = [
     'merchant_prospects',
     'prospect_applications', 
@@ -133,13 +144,24 @@ async function getTableCounts(pool: Pool): Promise<Record<string, number>> {
     'prospect_signatures',
     'agents',
   ];
+  
+  if (includeUsers) {
+    tables.push('users (agent/prospect roles)');
+  }
 
   const counts: Record<string, number> = {};
   
   for (const table of tables) {
     try {
-      const result = await pool.query(`SELECT COUNT(*) as count FROM ${table}`);
-      counts[table] = parseInt(result.rows[0].count, 10);
+      if (table === 'users (agent/prospect roles)') {
+        const result = await pool.query(
+          `SELECT COUNT(*) as count FROM users WHERE 'agent' = ANY(roles) OR 'prospect' = ANY(roles)`
+        );
+        counts[table] = parseInt(result.rows[0].count, 10);
+      } else {
+        const result = await pool.query(`SELECT COUNT(*) as count FROM ${table}`);
+        counts[table] = parseInt(result.rows[0].count, 10);
+      }
     } catch (err) {
       counts[table] = -1;
     }
@@ -186,6 +208,7 @@ async function cleanup(options: CleanupOptions): Promise<void> {
   console.log('======================================================================');
   console.log(`Environment:     ${options.environment.toUpperCase()}`);
   console.log(`Include Agents:  ${options.includeAgents ? 'Yes' : 'No'}`);
+  console.log(`Include Users:   ${options.includeUsers ? 'Yes (agent/prospect roles)' : 'No'}`);
   console.log(`Keep Agent IDs:  ${options.keepAgentIds.length > 0 ? options.keepAgentIds.join(', ') : 'None specified'}`);
   console.log(`Dry Run:         ${options.dryRun ? 'YES (no changes will be made)' : 'No'}`);
   console.log('======================================================================');
@@ -193,7 +216,7 @@ async function cleanup(options: CleanupOptions): Promise<void> {
 
   try {
     console.log('📊 Current data counts:');
-    const beforeCounts = await getTableCounts(pool);
+    const beforeCounts = await getTableCounts(pool, options.includeUsers);
     for (const [table, count] of Object.entries(beforeCounts)) {
       if (count >= 0) {
         console.log(`   ${table}: ${count}`);
@@ -214,6 +237,9 @@ async function cleanup(options: CleanupOptions): Promise<void> {
           ? ` (except IDs: ${options.keepAgentIds.join(', ')})` 
           : '';
         console.log(`   - All agents${keepClause}`);
+      }
+      if (options.includeUsers) {
+        console.log('   - All users with agent/prospect roles');
       }
       console.log('');
       console.log('✅ Dry run complete. No changes made.');
@@ -255,6 +281,14 @@ async function cleanup(options: CleanupOptions): Promise<void> {
           }
         }
 
+        if (options.includeUsers) {
+          console.log('   Deleting users with agent/prospect roles...');
+          const result = await client.query(
+            `DELETE FROM users WHERE 'agent' = ANY(roles) OR 'prospect' = ANY(roles)`
+          );
+          console.log(`   Deleted ${result.rowCount} user(s)`);
+        }
+
         await client.query('COMMIT');
         console.log('');
         console.log('✅ Transaction committed successfully!');
@@ -267,7 +301,7 @@ async function cleanup(options: CleanupOptions): Promise<void> {
 
       console.log('');
       console.log('📊 After cleanup:');
-      const afterCounts = await getTableCounts(pool);
+      const afterCounts = await getTableCounts(pool, options.includeUsers);
       for (const [table, count] of Object.entries(afterCounts)) {
         if (count >= 0) {
           console.log(`   ${table}: ${count}`);

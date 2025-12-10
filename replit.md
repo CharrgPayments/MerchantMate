@@ -92,7 +92,7 @@ See `MIGRATION_WORKFLOW.md` for complete deployment pipeline documentation.
 ### Testing & Database Utilities
 
 #### Test Data Management
-- **Test Data Cleanup**: `scripts/cleanup-test-data.ts` - Cleans up prospect, application, and optionally agent test data from specified environment.
+- **Test Data Cleanup**: `scripts/cleanup-test-data.ts` - Cleans up prospect, application, and optionally agent/user test data from specified environment.
   ```bash
   # Using environment variable
   CORECRM_ENV=development tsx scripts/cleanup-test-data.ts
@@ -102,6 +102,9 @@ See `MIGRATION_WORKFLOW.md` for complete deployment pipeline documentation.
   
   # Keep specific agents while cleaning
   tsx scripts/cleanup-test-data.ts --env development --include-agents --keep-agent 63
+  
+  # Clean orphaned users with agent/prospect roles
+  tsx scripts/cleanup-test-data.ts --env development --include-users
   
   # Dry run to preview changes
   tsx scripts/cleanup-test-data.ts --env development --dry-run
