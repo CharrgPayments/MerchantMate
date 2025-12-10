@@ -93,6 +93,7 @@ function mapCanonicalAddressesToTemplate(formData: Record<string, any>, addressG
 }
 
 // Reverse mapper: translates template-specific field names to canonical names (for loading saved data)
+// IMPORTANT: Keeps BOTH original template field names AND canonical names so the form can use either
 function mapTemplateAddressesToCanonical(formData: Record<string, any>, addressGroups: any[]): Record<string, any> {
   if (!addressGroups || addressGroups.length === 0) {
     return formData;
@@ -106,12 +107,20 @@ function mapTemplateAddressesToCanonical(formData: Record<string, any>, addressG
     const fieldMappings = group.fieldMappings || {};
 
     // Map template-specific fields to canonical fields
+    // Keep both the original template field name AND the canonical name for compatibility
     Object.entries(fieldMappings).forEach(([canonicalKey, templateFieldName]: [string, any]) => {
       const canonicalFieldName = `${canonicalPrefix}.${canonicalKey}`;
       
       if (mappedData[templateFieldName] !== undefined) {
+        // Copy to canonical name (for components expecting canonical format)
         mappedData[canonicalFieldName] = mappedData[templateFieldName];
-        delete mappedData[templateFieldName];
+        // DO NOT delete the original template field name - the form needs it for rendering!
+        // The form uses the original template field names from the field configuration
+      }
+      
+      // Also reverse: if only canonical exists, copy to template field name
+      if (mappedData[canonicalFieldName] !== undefined && mappedData[templateFieldName] === undefined) {
+        mappedData[templateFieldName] = mappedData[canonicalFieldName];
       }
     });
   });
