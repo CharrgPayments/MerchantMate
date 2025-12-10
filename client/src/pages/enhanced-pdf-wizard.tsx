@@ -894,10 +894,50 @@ export default function EnhancedPdfWizard() {
   // Initialize form data with agent and prospect information for prospects
   useEffect(() => {
     if (isProspectMode && prospectData?.prospect && prospectData?.agent && !initialDataLoaded) {
-      const newData = {
+      // Pre-populate contact info from prospect record
+      // Include multiple field name variations to support different templates
+      const prospectFirstName = prospectData.prospect.firstName || '';
+      const prospectLastName = prospectData.prospect.lastName || '';
+      const prospectEmail = prospectData.prospect.email || '';
+      const prospectFullName = `${prospectFirstName} ${prospectLastName}`.trim();
+      
+      const newData: Record<string, string> = {
+        // Agent info
         assignedAgent: `${prospectData.agent.firstName} ${prospectData.agent.lastName} (${prospectData.agent.email})`,
-        companyEmail: prospectData.prospect.email
+        
+        // Standard contact fields (default form)
+        contactFirstName: prospectFirstName,
+        contactLastName: prospectLastName,
+        companyEmail: prospectEmail,
+        
+        // Common template field name variations for first name
+        firstName: prospectFirstName,
+        first_name: prospectFirstName,
+        contactFirst: prospectFirstName,
+        contact_first_name: prospectFirstName,
+        ownerFirstName: prospectFirstName,
+        
+        // Common template field name variations for last name
+        lastName: prospectLastName,
+        last_name: prospectLastName,
+        contactLast: prospectLastName,
+        contact_last_name: prospectLastName,
+        ownerLastName: prospectLastName,
+        
+        // Common template field name variations for full name
+        contactName: prospectFullName,
+        contact_name: prospectFullName,
+        ownerName: prospectFullName,
+        principalName: prospectFullName,
+        
+        // Common template field name variations for email
+        email: prospectEmail,
+        contactEmail: prospectEmail,
+        contact_email: prospectEmail,
+        ownerEmail: prospectEmail,
+        primaryEmail: prospectEmail,
       };
+      
       console.log('Setting initial prospect data:', newData);
       setFormData(newData);
       setInitialDataLoaded(true);
@@ -1112,6 +1152,8 @@ export default function EnhancedPdfWizard() {
         icon: Building,
         fields: [
           { id: 1, fieldName: 'assignedAgent', fieldType: 'readonly', fieldLabel: 'Assigned Agent', isRequired: false, options: null, defaultValue: null, validation: null, position: 1, section: 'Merchant Information' },
+          { id: 1.1, fieldName: 'contactFirstName', fieldType: 'text', fieldLabel: 'Contact First Name', isRequired: true, options: null, defaultValue: null, validation: null, position: 1.1, section: 'Merchant Information' },
+          { id: 1.2, fieldName: 'contactLastName', fieldType: 'text', fieldLabel: 'Contact Last Name', isRequired: true, options: null, defaultValue: null, validation: null, position: 1.2, section: 'Merchant Information' },
           { id: 2, fieldName: 'companyName', fieldType: 'text', fieldLabel: 'Company Name', isRequired: true, options: null, defaultValue: null, validation: null, position: 2, section: 'Merchant Information' },
           { id: 3, fieldName: 'companyEmail', fieldType: 'email', fieldLabel: 'Company Email', isRequired: true, options: null, defaultValue: null, validation: null, position: 3, section: 'Merchant Information' },
           { id: 4, fieldName: 'companyPhone', fieldType: 'phone', fieldLabel: 'Company Phone', isRequired: true, options: null, defaultValue: null, validation: null, position: 4, section: 'Merchant Information' },
@@ -2551,7 +2593,9 @@ export default function EnhancedPdfWizard() {
     const isAgent = isProspectMode && isAgentField(fieldName);
     const isCityField = fieldName.endsWith('City');
     const isZipCodeField = fieldName.endsWith('ZipCode') || fieldName.endsWith('zipCode');
-    return (isProspectMode && (fieldName === 'companyEmail' || isAgent)) ||
+    // Contact info fields are read-only in prospect mode (pre-populated from prospect record)
+    const isContactField = fieldName === 'contactFirstName' || fieldName === 'contactLastName' || fieldName === 'companyEmail';
+    return (isProspectMode && (isContactField || isAgent)) ||
            (addressFieldsLocked && (isCityField || isZipCodeField));
   };
 
