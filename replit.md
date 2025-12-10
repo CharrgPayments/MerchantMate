@@ -65,6 +65,26 @@ Preferred communication style: Simple, everyday language.
 - **User-Company Association Pattern**: All agent and merchant lookups MUST use the generic pattern: `User → user_company_associations → Company → Agent/Merchant`.
 - **CRITICAL: Database Schema Change Workflow**: After every change to `shared/schema.ts`, a migration **MUST** be immediately generated using `tsx scripts/migration-manager.ts generate`.
 
+### Utility Scripts
+- **Test Data Cleanup**: `scripts/cleanup-test-data.ts` - Cleans up prospect, application, and optionally agent test data from specified environment.
+  ```bash
+  # Using environment variable
+  CORECRM_ENV=development tsx scripts/cleanup-test-data.ts
+  
+  # Using command-line argument
+  tsx scripts/cleanup-test-data.ts --env development
+  
+  # Keep specific agents while cleaning
+  tsx scripts/cleanup-test-data.ts --env development --include-agents --keep-agent 63
+  
+  # Dry run to preview changes
+  tsx scripts/cleanup-test-data.ts --env development --dry-run
+  ```
+- **SQL Execution**: `scripts/execute-sql.ts` - Environment-aware SQL execution with safety features.
+  ```bash
+  tsx scripts/execute-sql.ts --env development --sql "SELECT * FROM agents"
+  ```
+
 ## External Dependencies
 - **pg**: Native PostgreSQL driver.
 - **drizzle-orm**: Type-safe ORM for PostgreSQL.
