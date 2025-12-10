@@ -739,6 +739,9 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
       return newVisited;
     });
     setCurrentStep(nextStep);
+    // Clear validation errors when navigating - user is editing
+    setShowValidationErrors(false);
+    form.clearErrors();
   };
 
   const handlePrevious = () => {
@@ -749,6 +752,9 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
       return newVisited;
     });
     setCurrentStep(prevStep);
+    // Clear validation errors when navigating - user is editing
+    setShowValidationErrors(false);
+    form.clearErrors();
   };
 
   const navigateToSection = (sectionIndex: number) => {
@@ -758,6 +764,9 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
       return newVisited;
     });
     setCurrentStep(sectionIndex);
+    // Clear validation errors when navigating - user is editing
+    setShowValidationErrors(false);
+    form.clearErrors();
   };
 
   const handleGeneratePassword = () => {
@@ -1656,25 +1665,49 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
                   </div>
 
                   {/* Validation Errors Display */}
-                  {showValidationErrors && getIncompleteFields().length > 0 && (
+                  {showValidationErrors && (getIncompleteFields().length > 0 || Object.keys(form.formState.errors).length > 0) && (
                     <div className="mx-6 mb-4 p-4 bg-red-50 border border-red-200 rounded-lg" data-testid="validation-errors">
                       <div className="flex items-start space-x-3">
                         <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
                         <div className="flex-1">
-                          <h4 className="text-sm font-semibold text-red-800 mb-2">
-                            Please complete the following required fields:
-                          </h4>
-                          <ul className="text-sm text-red-700 space-y-1">
-                            {getIncompleteFields().map((field, index) => (
-                              <li key={index} className="flex items-center space-x-2">
-                                <span className="w-1.5 h-1.5 bg-red-400 rounded-full" />
-                                <span>
-                                  <strong>{field.label}</strong>
-                                  <span className="text-red-500 ml-1">({field.section})</span>
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
+                          {getIncompleteFields().length > 0 && (
+                            <>
+                              <h4 className="text-sm font-semibold text-red-800 mb-2">
+                                Please complete the following required fields:
+                              </h4>
+                              <ul className="text-sm text-red-700 space-y-1 mb-3">
+                                {getIncompleteFields().map((field, index) => (
+                                  <li key={index} className="flex items-center space-x-2">
+                                    <span className="w-1.5 h-1.5 bg-red-400 rounded-full" />
+                                    <span>
+                                      <strong>{field.label}</strong>
+                                      <span className="text-red-500 ml-1">({field.section})</span>
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </>
+                          )}
+                          {/* Show Zod validation errors (like duplicate email) */}
+                          {Object.keys(form.formState.errors).length > 0 && (
+                            <>
+                              <h4 className="text-sm font-semibold text-red-800 mb-2">
+                                Please fix the following validation errors:
+                              </h4>
+                              <ul className="text-sm text-red-700 space-y-1">
+                                {Object.entries(form.formState.errors).map(([key, error]: [string, any]) => {
+                                  // Skip required field errors as they're shown above
+                                  if (error?.message?.includes('is required') || error?.type === 'too_small') return null;
+                                  return (
+                                    <li key={key} className="flex items-center space-x-2">
+                                      <span className="w-1.5 h-1.5 bg-red-400 rounded-full" />
+                                      <span>{error?.message || `Invalid ${key}`}</span>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1705,9 +1738,12 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
                           type="button"
                           disabled={isPending} 
                           data-testid="button-submit"
-                          onClick={() => {
+                          onClick={async () => {
+                            // Trigger form validation to catch Zod errors (like duplicate email)
+                            const isValid = await form.trigger();
                             const incompleteFields = getIncompleteFields();
-                            if (incompleteFields.length > 0) {
+                            
+                            if (!isValid || incompleteFields.length > 0) {
                               setShowValidationErrors(true);
                               // Mark all sections as visited to show validation state
                               setVisitedSections(new Set(availableSections.map((_, i) => i)));
