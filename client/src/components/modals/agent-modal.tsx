@@ -54,7 +54,7 @@ const agentSchema = z.object({
   companyEmail: z.string().email().optional().or(z.literal("")),
   companyPhone: z.string().optional(),
   companyWebsite: z.string().url().optional().or(z.literal("")),
-  companyTaxId: z.string().optional(),
+  companyTaxId: z.string().min(1, "EIN (Tax ID) is required"),
   companyIndustry: z.string().optional(),
   companyDescription: z.string().optional(),
   companyAddress: z.object({
@@ -89,12 +89,22 @@ const agentSchema = z.object({
     });
   }
   
-  // Validate company tax ID (EIN) if provided - must be exactly 9 digits
+  // Validate company tax ID (EIN) - must be exactly 9 digits
   if (data.companyTaxId && unformatEIN(data.companyTaxId).length !== 9) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: "Tax ID (EIN) must be exactly 9 digits",
       path: ["companyTaxId"],
+    });
+  }
+  
+  // Validate company email differs from primary contact email (KYC requirement)
+  if (data.companyEmail && data.email && 
+      data.companyEmail.toLowerCase().trim() === data.email.toLowerCase().trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Company email must be different from the primary contact email for KYC compliance",
+      path: ["companyEmail"],
     });
   }
 }).superRefine((data, ctx) => {
@@ -573,8 +583,8 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
 
   // Required fields list for progress calculation
   const requiredFieldsList = agent 
-    ? ["firstName", "lastName", "email", "phone", "companyName", "companyAddress.street1", "companyAddress.city", "companyAddress.state", "companyAddress.postalCode"] // Edit mode
-    : ["firstName", "lastName", "email", "phone", "companyName", "companyAddress.street1", "companyAddress.city", "companyAddress.state", "companyAddress.postalCode", "username", "password", "confirmPassword", "communicationPreference"]; // Create mode
+    ? ["firstName", "lastName", "email", "phone", "companyName", "companyTaxId", "companyAddress.street1", "companyAddress.city", "companyAddress.state", "companyAddress.postalCode"] // Edit mode
+    : ["firstName", "lastName", "email", "phone", "companyName", "companyTaxId", "companyAddress.street1", "companyAddress.city", "companyAddress.state", "companyAddress.postalCode", "username", "password", "confirmPassword", "communicationPreference"]; // Create mode
 
   // Helper to get nested field value
   const getNestedValue = (obj: any, path: string): any => {
@@ -615,6 +625,7 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
       email: "Email Address",
       phone: "Phone Number",
       companyName: "Company Name",
+      companyTaxId: "EIN (Tax ID)",
       "companyAddress.street1": "Street Address",
       "companyAddress.city": "City",
       "companyAddress.state": "State",
@@ -631,6 +642,7 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
       email: "Agent Information",
       phone: "Agent Information",
       companyName: "Company Information",
+      companyTaxId: "Company Information",
       "companyAddress.street1": "Company Address",
       "companyAddress.city": "Company Address",
       "companyAddress.state": "Company Address",
@@ -979,7 +991,7 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
           name="companyTaxId"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Tax ID (EIN)</FormLabel>
+              <FormLabel>Tax ID (EIN) *</FormLabel>
               <FormControl>
                 <Input 
                   placeholder="12-3456789" 
