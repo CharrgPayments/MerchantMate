@@ -44,8 +44,8 @@ export default function DashboardPage() {
       return response.json();
     },
     enabled: !!user,
-    staleTime: 0, // Always fetch fresh data
-    cacheTime: 0, // Don't cache the data
+    staleTime: 0,
+    gcTime: 0,
   });
 
   // Remove debug logging since system is now working
