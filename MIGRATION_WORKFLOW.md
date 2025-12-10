@@ -4,10 +4,25 @@
 
 This document defines the bulletproof database migration workflow that ensures proper development → test → production deployment of schema changes.
 
+**IMPORTANT: Direct production modifications are BLOCKED by the tooling.**
+
+## Deployment Pipeline
+
+```
+╔═══════════════════╗    ╔═══════════════════╗    ╔═══════════════════╗
+║   DEVELOPMENT     ║ ─► ║      TEST         ║ ─► ║   PRODUCTION      ║
+║  (Source of       ║    ║  (Certification   ║    ║  (Promotion only) ║
+║   Truth)          ║    ║   Required)       ║    ║                   ║
+╚═══════════════════╝    ╚═══════════════════╝    ╚═══════════════════╝
+        ↑                         ↑                         ↑
+    apply dev                 apply test              promote test prod
+                                                     (BLOCKED: apply prod)
+```
+
 ## Core Principles
 
 1. **Schema changes must ALWAYS follow this flow**: Development → Test → Production
-2. **No direct production changes** - All changes must be validated in test first
+2. **PRODUCTION IS PROTECTED** - Direct `apply prod` is blocked; must use `promote test prod`
 3. **Version-controlled migrations** - All schema changes are tracked and versioned
 4. **Rollback capability** - Every migration can be undone if needed
 5. **Environment isolation** - Each environment maintains its own migration history
@@ -38,14 +53,22 @@ tsx scripts/migration-manager.ts apply test
 - Must be run AFTER development application
 - Creates backup before applying changes
 
-### 4. Apply to Production
+### 4. Promote to Production
 ```bash
-tsx scripts/migration-manager.ts apply prod
+tsx scripts/migration-manager.ts promote test prod
 ```
-- Applies validated migrations to production
-- Should only be run AFTER successful test validation
+- Promotes certified migrations from test to production
+- **Direct `apply prod` is BLOCKED** - must use promotion workflow
 - Creates backup before applying changes
-- Requires extra confirmation for safety
+- Validates that migrations were applied to test first
+
+**Emergency Override (Use with Caution)**:
+```bash
+tsx scripts/migration-manager.ts apply prod --force-production
+```
+- Only for emergencies when the promotion workflow cannot be followed
+- Audit logged with user and timestamp
+- Should require management approval
 
 ### 5. Check Migration Status
 ```bash
@@ -72,8 +95,13 @@ tsx scripts/migration-manager.ts validate
 3. **Apply Dev**: Run `tsx scripts/migration-manager.ts apply dev`
 4. **Test Locally**: Verify changes work in development
 5. **Apply Test**: Run `tsx scripts/migration-manager.ts apply test`
-6. **External Testing**: Validate changes in test environment
-7. **Apply Prod**: After certification, run `tsx scripts/migration-manager.ts apply prod`
+6. **External Testing**: Validate and certify changes in test environment
+7. **Promote**: After certification, run `tsx scripts/migration-manager.ts promote test prod`
+
+**BLOCKED OPERATIONS:**
+- `apply prod` → Use `promote test prod` instead
+- Skipping test → Must validate in test before production
+- Direct production SQL → Must use `--force-production` flag
 
 ### Migration File Structure
 
