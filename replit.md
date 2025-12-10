@@ -65,6 +65,30 @@ Preferred communication style: Simple, everyday language.
 - **User-Company Association Pattern**: All agent and merchant lookups MUST use the generic pattern: `User → user_company_associations → Company → Agent/Merchant`.
 - **CRITICAL: Database Schema Change Workflow**: After every change to `shared/schema.ts`, a migration **MUST** be immediately generated using `tsx scripts/migration-manager.ts generate`.
 
+### Production Protection (ENFORCED BY TOOLING)
+**All scripts enforce the deployment pipeline: Development → Test → Production**
+
+- **drizzle-env.ts**: BLOCKS `push` and `generate` against Production. Use `--force-production` for emergencies.
+- **migration-manager.ts**: BLOCKS `apply prod`. Use `promote test prod` to deploy certified changes.
+- **execute-sql.ts**: BLOCKS production SQL without `--force-production` flag.
+
+**ALLOWED OPERATIONS:**
+```bash
+tsx scripts/migration-manager.ts apply dev           # Apply to development
+tsx scripts/migration-manager.ts apply test          # Apply to test
+tsx scripts/migration-manager.ts promote test prod   # Promote certified changes
+tsx scripts/drizzle-env.ts --env development push    # Push schema to development
+```
+
+**BLOCKED OPERATIONS (without --force-production):**
+```bash
+tsx scripts/migration-manager.ts apply prod          # BLOCKED
+tsx scripts/drizzle-env.ts --env production push     # BLOCKED
+tsx scripts/execute-sql.ts --env production --sql    # BLOCKED
+```
+
+See `MIGRATION_WORKFLOW.md` for complete deployment pipeline documentation.
+
 ### Testing & Database Utilities
 
 #### Test Data Management
