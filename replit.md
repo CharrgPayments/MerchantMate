@@ -95,6 +95,20 @@ Preferred communication style: Simple, everyday language.
   # Dry run to preview query
   tsx scripts/execute-sql.ts --env development --sql "DELETE FROM prospects" --dry-run
   ```
+- **Drizzle Environment Wrapper**: `scripts/drizzle-env.ts` - Runs drizzle-kit commands against the correct database.
+  ```bash
+  # Push schema to development (RECOMMENDED for schema changes)
+  tsx scripts/drizzle-env.ts --env development push
+  
+  # Generate migrations from development schema
+  tsx scripts/drizzle-env.ts --env development generate
+  
+  # Push with force flag
+  tsx scripts/drizzle-env.ts --env development push --force
+  
+  # Open Drizzle Studio for development
+  tsx scripts/drizzle-env.ts --env development studio
+  ```
 - **Database Management**: `scripts/database-management.js` - Database environment setup and management.
 - **Schema Sync**: `scripts/sync-database-schemas.ts` - Synchronize schemas across environments.
 
