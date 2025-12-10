@@ -341,11 +341,11 @@ export class PDFFormParser {
 
   /**
    * Extract address groups from parsed fields
-   * Pattern: {prefix}.{canonicalField} where canonicalField = street1|city|state|postalcode|country
+   * Pattern: {prefix}.{canonicalField} where canonicalField = street1|street2|city|state|postalcode|country
    * Uses original pdfFieldId which preserves dots (e.g., "merchant_mailing_address.street1")
    */
   private extractAddressGroups(fields: ParsedFormField[]): any[] {
-    const addressFieldPattern = /^(.+)\.(street1|address1|city|state|postalcode|zipcode|country)$/i;
+    const addressFieldPattern = /^(.+)\.(street1|street2|address1|address2|apt|suite|city|state|postalcode|zipcode|country)$/i;
     const groupMap = new Map<string, any>();
     
     fields.forEach(field => {
@@ -365,9 +365,13 @@ export class PDFFormParser {
         }
         
         // Map canonical field to the actual normalized field name (what's used in the app)
-        const normalizedCanonical = canonicalField.toLowerCase() === 'zipcode' ? 'postalcode' : 
-                                   canonicalField.toLowerCase() === 'address1' ? 'street1' : 
-                                   canonicalField.toLowerCase();
+        const lowerField = canonicalField.toLowerCase();
+        const normalizedCanonical = lowerField === 'zipcode' ? 'postalcode' : 
+                                   lowerField === 'address1' ? 'street1' : 
+                                   lowerField === 'address2' ? 'street2' :
+                                   lowerField === 'apt' ? 'street2' :
+                                   lowerField === 'suite' ? 'street2' :
+                                   lowerField;
         groupMap.get(prefix)!.fieldMappings[normalizedCanonical] = field.fieldName;
         
         console.log(`✅ Address field matched: ${pdfFieldId} → prefix: ${prefix} → canonical: ${normalizedCanonical} → mapped to: ${field.fieldName}`);
