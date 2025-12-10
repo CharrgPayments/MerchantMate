@@ -65,7 +65,9 @@ Preferred communication style: Simple, everyday language.
 - **User-Company Association Pattern**: All agent and merchant lookups MUST use the generic pattern: `User → user_company_associations → Company → Agent/Merchant`.
 - **CRITICAL: Database Schema Change Workflow**: After every change to `shared/schema.ts`, a migration **MUST** be immediately generated using `tsx scripts/migration-manager.ts generate`.
 
-### Utility Scripts
+### Testing & Database Utilities
+
+#### Test Data Management
 - **Test Data Cleanup**: `scripts/cleanup-test-data.ts` - Cleans up prospect, application, and optionally agent test data from specified environment.
   ```bash
   # Using environment variable
@@ -80,10 +82,26 @@ Preferred communication style: Simple, everyday language.
   # Dry run to preview changes
   tsx scripts/cleanup-test-data.ts --env development --dry-run
   ```
+
+#### Database Tools
 - **SQL Execution**: `scripts/execute-sql.ts` - Environment-aware SQL execution with safety features.
   ```bash
+  # Query development database
   tsx scripts/execute-sql.ts --env development --sql "SELECT * FROM agents"
+  
+  # Execute SQL from file
+  tsx scripts/execute-sql.ts --env test --file scripts/seed.sql
+  
+  # Dry run to preview query
+  tsx scripts/execute-sql.ts --env development --sql "DELETE FROM prospects" --dry-run
   ```
+- **Database Management**: `scripts/database-management.js` - Database environment setup and management.
+- **Schema Sync**: `scripts/sync-database-schemas.ts` - Synchronize schemas across environments.
+
+#### Environment Configuration
+- **CORECRM_ENV**: Environment variable to specify target database (development, test, production)
+- **--env flag**: Command-line alternative to CORECRM_ENV for all database scripts
+- **Safety**: Production operations require explicit `--force-production` flag
 
 ## External Dependencies
 - **pg**: Native PostgreSQL driver.
