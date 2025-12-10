@@ -32,7 +32,8 @@ import { agentsApi } from "@/lib/api";
 import type { Agent, InsertAgent } from "@shared/schema";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ArrowLeft, ArrowRight, User, Building, UserCheck, CheckCircle, MapPin, Loader2, Wand2, Check, HelpCircle } from "lucide-react";
+import { ArrowLeft, ArrowRight, User, Building, UserCheck, CheckCircle, MapPin, Loader2, Wand2, Check, HelpCircle, AlertTriangle } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { useState, useRef, useEffect } from "react";
 import React from "react";
 import { formatPhoneNumber, unformatPhoneNumber, formatEIN, unformatEIN, generatePassword } from "@/lib/utils";
@@ -568,6 +569,52 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Required fields list for progress calculation
+  const requiredFieldsList = agent 
+    ? ["firstName", "lastName", "email", "phone", "companyName"] // Edit mode: fewer required fields
+    : ["firstName", "lastName", "email", "phone", "companyName", "username", "password", "confirmPassword", "communicationPreference"]; // Create mode
+
+  // Calculate overall progress based on required fields completion
+  const getProgressInfo = (): { completed: number; total: number; percentage: number } => {
+    const formValues = form.getValues();
+    let completed = 0;
+    
+    for (const fieldName of requiredFieldsList) {
+      const value = formValues[fieldName as keyof AgentFormData];
+      if (value && (typeof value !== 'string' || value.trim() !== '')) {
+        completed++;
+      }
+    }
+    
+    const total = requiredFieldsList.length;
+    const percentage = total > 0 ? (completed / total) * 100 : 0;
+    
+    return { completed, total, percentage };
+  };
+
+  // Check if a section has validation issues (visited but incomplete)
+  const sectionHasValidationIssues = (sectionIndex: number): boolean => {
+    const section = availableSections[sectionIndex];
+    const formValues = form.getValues();
+    const formErrors = form.formState.errors;
+    
+    for (const fieldName of section.fields) {
+      // Check for form errors
+      const fieldError = formErrors[fieldName as keyof AgentFormData];
+      if (fieldError) return true;
+      
+      // Check for empty required fields in this section
+      if (requiredFieldsList.includes(fieldName)) {
+        const value = formValues[fieldName as keyof AgentFormData];
+        if (!value || (typeof value === 'string' && value.trim() === '')) {
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  };
+
   // Check if a section is completed (all required fields filled and valid)
   const isSectionCompleted = (sectionIndex: number): boolean => {
     const section = availableSections[sectionIndex];
@@ -579,10 +626,7 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
       const fieldValue = formValues[fieldName as keyof AgentFormData];
       const fieldError = formErrors[fieldName as keyof AgentFormData];
       
-      // Required fields that must be filled
-      const requiredFields = ["firstName", "lastName", "email", "companyName", "companyEmail", "username", "password", "confirmPassword", "communicationPreference"];
-      
-      if (requiredFields.includes(fieldName)) {
+      if (requiredFieldsList.includes(fieldName)) {
         // Check if field has error or is empty
         if (fieldError || !fieldValue || (typeof fieldValue === 'string' && fieldValue.trim() === '')) {
           return false;
@@ -1414,13 +1458,34 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-6xl max-h-[90vh] flex flex-col">
-        <DialogHeader className="flex-shrink-0">
-          <DialogTitle>
-            {agent ? "Edit Agent" : "Add New Agent"}
-          </DialogTitle>
-          <p className="text-sm text-muted-foreground">
-            Complete each section to create a new agent with company information
-          </p>
+        <DialogHeader className="flex-shrink-0 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <DialogTitle>
+                {agent ? "Edit Agent" : "Add New Agent"}
+              </DialogTitle>
+              <p className="text-sm text-muted-foreground">
+                Complete each section to create a new agent with company information
+              </p>
+            </div>
+          </div>
+          
+          {/* Progress Bar - Matching Prospect Application Baseline */}
+          <div className="bg-gray-50 rounded-lg p-4 border">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-700">
+                {getProgressInfo().completed} of {getProgressInfo().total} required fields completed
+              </span>
+              <span className="text-xs text-gray-500">
+                {currentSection?.name}
+              </span>
+            </div>
+            <Progress 
+              value={getProgressInfo().percentage} 
+              className="h-3 bg-gray-200"
+              data-testid="progress-bar"
+            />
+          </div>
         </DialogHeader>
 
         <Form {...form}>
@@ -1434,7 +1499,10 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
                     {availableSections.map((section, index) => {
                       const IconComponent = section.icon;
                       const isActive = currentStep === index;
-                      const isCompleted = visitedSections.has(index) && isSectionCompleted(index);
+                      const isVisited = visitedSections.has(index);
+                      const isCompleted = isVisited && isSectionCompleted(index);
+                      const hasValidationIssues = sectionHasValidationIssues(index);
+                      const showWarning = isVisited && hasValidationIssues && !isActive;
                       
                       return (
                         <button
@@ -1444,6 +1512,8 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
                           className={`w-full text-left p-3 rounded-lg transition-all ${
                             isActive
                               ? 'bg-blue-100 border-blue-200 text-blue-800'
+                              : showWarning
+                              ? 'bg-yellow-50 border-yellow-200 text-yellow-800'
                               : isCompleted
                               ? 'bg-green-50 border-green-200 text-green-800'
                               : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
@@ -1454,11 +1524,15 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
                             <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
                               isActive 
                                 ? 'bg-blue-200' 
+                                : showWarning
+                                ? 'bg-yellow-200'
                                 : isCompleted 
                                 ? 'bg-green-200' 
                                 : 'bg-gray-200'
                             }`}>
-                              {isCompleted ? (
+                              {showWarning ? (
+                                <AlertTriangle className="w-4 h-4 text-yellow-700" />
+                              ) : isCompleted ? (
                                 <CheckCircle className="w-4 h-4 text-green-700" />
                               ) : (
                                 <IconComponent className={`w-4 h-4 ${
@@ -1468,8 +1542,13 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="font-medium text-xs">{section.name}</div>
-                              <div className="text-xs opacity-70 truncate">{section.description}</div>
+                              <div className="text-xs opacity-70 truncate">
+                                {showWarning ? 'Needs attention' : section.description}
+                              </div>
                             </div>
+                            {showWarning && (
+                              <AlertTriangle className="w-4 h-4 text-yellow-600" />
+                            )}
                           </div>
                         </button>
                       );
