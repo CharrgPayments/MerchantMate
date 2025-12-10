@@ -1,22 +1,24 @@
 #!/usr/bin/env tsx
 /**
- * Environment-Aware Drizzle Command Wrapper
+ * Environment-Aware Drizzle Command Wrapper with Production Protection
  * 
- * Runs drizzle-kit commands against the correct database based on CORECRM_ENV.
- * This wrapper sets DATABASE_URL to the appropriate environment URL before
- * executing drizzle-kit commands.
+ * CRITICAL: This is the ONLY approved way to run drizzle-kit commands.
+ * 
+ * DEPLOYMENT PIPELINE ENFORCEMENT:
+ * ================================
+ * 1. DEVELOPMENT: Schema changes (push/generate) can ONLY target development
+ * 2. TEST: Receives promoted changes from development via migration-manager
+ * 3. PRODUCTION: Receives promoted changes from test via migration-manager
+ * 
+ * Direct push/generate to production is BLOCKED by this script.
+ * Use migration-manager.ts for controlled promotions.
  * 
  * Usage:
  *   tsx scripts/drizzle-env.ts --env development push
  *   tsx scripts/drizzle-env.ts --env development generate
- *   tsx scripts/drizzle-env.ts --env test push
- *   CORECRM_ENV=development tsx scripts/drizzle-env.ts push
+ *   tsx scripts/drizzle-env.ts --env development studio
  * 
- * Commands:
- *   push       - Push schema changes to database
- *   generate   - Generate migration files
- *   studio     - Open Drizzle Studio
- *   introspect - Introspect database schema
+ * Read-only commands (studio, introspect) are allowed for all environments.
  */
 
 import { spawn } from 'child_process';
@@ -26,14 +28,20 @@ interface Options {
   environment: string;
   command: string;
   extraArgs: string[];
+  forceProduction: boolean;
 }
+
+const MUTATING_COMMANDS = ['push', 'generate', 'migrate'];
+const READONLY_COMMANDS = ['studio', 'introspect', 'check'];
+const ALL_COMMANDS = [...MUTATING_COMMANDS, ...READONLY_COMMANDS];
 
 function parseArgs(): Options {
   const args = process.argv.slice(2);
   const options: Options = {
-    environment: process.env.CORECRM_ENV || 'production',
+    environment: process.env.CORECRM_ENV || 'development',
     command: '',
     extraArgs: [],
+    forceProduction: false,
   };
 
   let i = 0;
@@ -45,6 +53,8 @@ function parseArgs(): Options {
       process.exit(0);
     } else if (arg === '--env' || arg === '-e') {
       options.environment = args[++i] || '';
+    } else if (arg === '--force-production') {
+      options.forceProduction = true;
     } else if (!options.command) {
       options.command = arg;
     } else {
@@ -58,41 +68,57 @@ function parseArgs(): Options {
 
 function showHelp(): void {
   console.log(`
-Environment-Aware Drizzle Command Wrapper
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  ENVIRONMENT-AWARE DRIZZLE WRAPPER                                            ║
+║  With Production Protection                                                   ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 
-Runs drizzle-kit commands against the correct database based on environment.
+DEPLOYMENT PIPELINE:
+  Development → Test → Production
+  
+  Schema changes (push/generate) can ONLY target DEVELOPMENT.
+  Use migration-manager.ts to promote changes through the pipeline.
 
-Usage:
+USAGE:
   tsx scripts/drizzle-env.ts --env <environment> <command> [args...]
-  CORECRM_ENV=<environment> tsx scripts/drizzle-env.ts <command> [args...]
 
-Environments:
-  development    Uses DEV_DATABASE_URL
-  test           Uses TEST_DATABASE_URL
-  production     Uses DATABASE_URL (default)
+ENVIRONMENTS:
+  development    Uses DEV_DATABASE_URL     (schema changes allowed)
+  test           Uses TEST_DATABASE_URL    (read-only, use promotion)
+  production     Uses DATABASE_URL         (read-only, use promotion)
 
-Commands:
-  push           Push schema changes to database
-  generate       Generate migration files
-  studio         Open Drizzle Studio
-  introspect     Introspect database schema
+COMMANDS:
+  Schema Changes (Development ONLY):
+    push           Push schema changes to database
+    generate       Generate migration files
+    
+  Read-Only (All Environments):
+    studio         Open Drizzle Studio
+    introspect     Introspect database schema
+    check          Check schema status
 
-Options:
-  --env, -e      Target environment (overrides CORECRM_ENV)
-  --help, -h     Show this help message
+OPTIONS:
+  --env, -e           Target environment (default: development)
+  --force-production  Override production protection (DANGEROUS - audit logged)
+  --help, -h          Show this help message
 
-Examples:
-  # Push schema to development database
+EXAMPLES:
+  # Push schema to development (RECOMMENDED)
   tsx scripts/drizzle-env.ts --env development push
 
-  # Generate migrations from development schema
+  # Generate migrations from development
   tsx scripts/drizzle-env.ts --env development generate
 
-  # Push with force flag
-  tsx scripts/drizzle-env.ts --env development push --force
+  # Open Drizzle Studio for any environment (read-only)
+  tsx scripts/drizzle-env.ts --env production studio
 
-  # Using environment variable
-  CORECRM_ENV=development tsx scripts/drizzle-env.ts push
+SCHEMA PROMOTION WORKFLOW:
+  1. Make schema changes in shared/schema.ts
+  2. Push to development: tsx scripts/drizzle-env.ts --env development push
+  3. Test in development environment
+  4. Promote to test: tsx scripts/migration-manager.ts promote --from development --to test
+  5. Certify in test environment
+  6. Promote to production: tsx scripts/migration-manager.ts promote --from test --to production
 `);
 }
 
@@ -126,6 +152,17 @@ function getDatabaseUrl(environment: string): string {
   }
 }
 
+function logAuditEvent(event: string, details: Record<string, any>): void {
+  const timestamp = new Date().toISOString();
+  const logEntry = {
+    timestamp,
+    event,
+    user: process.env.USER || 'unknown',
+    ...details,
+  };
+  console.log(`\n📋 AUDIT LOG: ${JSON.stringify(logEntry)}\n`);
+}
+
 async function run(): Promise<void> {
   const options = parseArgs();
 
@@ -135,32 +172,76 @@ async function run(): Promise<void> {
     process.exit(1);
   }
 
-  const validCommands = ['push', 'generate', 'studio', 'introspect', 'migrate', 'check'];
-  if (!validCommands.includes(options.command)) {
+  if (!ALL_COMMANDS.includes(options.command)) {
     console.error(`❌ Invalid command: ${options.command}`);
-    console.error(`   Valid commands: ${validCommands.join(', ')}`);
+    console.error(`   Valid commands: ${ALL_COMMANDS.join(', ')}`);
     process.exit(1);
   }
 
-  // Safety check for production
-  if (options.environment === 'production') {
-    console.log('');
-    console.log('⚠️  WARNING: You are targeting PRODUCTION database!');
-    console.log('   Make sure this is intentional.');
-    console.log('');
+  const isMutating = MUTATING_COMMANDS.includes(options.command);
+  const isNonDevEnv = options.environment !== 'development';
+
+  // CRITICAL: Block mutating commands on non-development environments
+  if (isMutating && isNonDevEnv) {
+    if (!options.forceProduction) {
+      console.error('');
+      console.error('╔══════════════════════════════════════════════════════════════════════════════╗');
+      console.error('║  🚫 BLOCKED: SCHEMA CHANGES NOT ALLOWED ON NON-DEVELOPMENT ENVIRONMENTS     ║');
+      console.error('╚══════════════════════════════════════════════════════════════════════════════╝');
+      console.error('');
+      console.error(`  You attempted to run "${options.command}" on ${options.environment.toUpperCase()}.`);
+      console.error('');
+      console.error('  DEPLOYMENT PIPELINE ENFORCEMENT:');
+      console.error('  ================================');
+      console.error('  1. Schema changes can ONLY be made in DEVELOPMENT');
+      console.error('  2. Use migration-manager.ts to promote changes:');
+      console.error('');
+      console.error('     # First, push to development:');
+      console.error('     tsx scripts/drizzle-env.ts --env development push');
+      console.error('');
+      console.error('     # Then promote to test:');
+      console.error('     tsx scripts/migration-manager.ts promote --from development --to test');
+      console.error('');
+      console.error('     # After certification, promote to production:');
+      console.error('     tsx scripts/migration-manager.ts promote --from test --to production');
+      console.error('');
+      
+      if (options.environment === 'production') {
+        console.error('  ⚠️  If this is an emergency, use --force-production flag.');
+        console.error('     This will be audit logged and should require approval.');
+      }
+      
+      console.error('');
+      process.exit(1);
+    } else {
+      // Force production override - audit log this
+      logAuditEvent('PRODUCTION_SCHEMA_OVERRIDE', {
+        command: options.command,
+        environment: options.environment,
+        args: options.extraArgs,
+        warning: 'Direct production schema modification - bypassed pipeline',
+      });
+      
+      console.log('');
+      console.log('⚠️  WARNING: PRODUCTION PROTECTION OVERRIDE ACTIVATED');
+      console.log('    This action has been audit logged.');
+      console.log('    Proceeding with direct production modification...');
+      console.log('');
+    }
   }
 
   const databaseUrl = getDatabaseUrl(options.environment);
   const dbHost = databaseUrl.match(/@([^:\/]+)/)?.[1] || 'unknown';
 
   console.log('');
-  console.log('======================================================================');
-  console.log('  DRIZZLE ENVIRONMENT WRAPPER');
-  console.log('======================================================================');
-  console.log(`Environment:  ${options.environment.toUpperCase()}`);
-  console.log(`Database:     ${dbHost}`);
-  console.log(`Command:      drizzle-kit ${options.command} ${options.extraArgs.join(' ')}`);
-  console.log('======================================================================');
+  console.log('╔══════════════════════════════════════════════════════════════════════════════╗');
+  console.log('║  DRIZZLE ENVIRONMENT WRAPPER                                                 ║');
+  console.log('╚══════════════════════════════════════════════════════════════════════════════╝');
+  console.log(`  Environment:  ${options.environment.toUpperCase()}`);
+  console.log(`  Database:     ${dbHost}`);
+  console.log(`  Command:      drizzle-kit ${options.command} ${options.extraArgs.join(' ')}`);
+  console.log(`  Type:         ${isMutating ? '⚡ MUTATING' : '👁  READ-ONLY'}`);
+  console.log('══════════════════════════════════════════════════════════════════════════════════');
   console.log('');
 
   // Build the command
@@ -171,11 +252,18 @@ async function run(): Promise<void> {
     stdio: 'inherit',
     env: {
       ...process.env,
-      DATABASE_URL: databaseUrl, // Override DATABASE_URL for drizzle-kit
+      DATABASE_URL: databaseUrl,
     },
   });
 
   child.on('close', (code) => {
+    if (code === 0 && isMutating) {
+      logAuditEvent('SCHEMA_CHANGE_COMPLETED', {
+        command: options.command,
+        environment: options.environment,
+        status: 'success',
+      });
+    }
     process.exit(code || 0);
   });
 
