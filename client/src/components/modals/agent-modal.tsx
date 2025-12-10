@@ -58,13 +58,13 @@ const agentSchema = z.object({
   companyIndustry: z.string().optional(),
   companyDescription: z.string().optional(),
   companyAddress: z.object({
-    street1: z.string().optional(),
+    street1: z.string().min(1, "Street address is required"),
     street2: z.string().optional(),
-    city: z.string().optional(),
-    state: z.string().optional(),
-    postalCode: z.string().optional(),
-    country: z.string().default("US").optional(),
-  }).optional(),
+    city: z.string().min(1, "City is required"),
+    state: z.string().min(1, "State is required"),
+    postalCode: z.string().min(1, "Postal code is required"),
+    country: z.string().default("US"),
+  }),
   // User account fields (required for creation, optional for edit)
   username: z.string().optional(),
   password: z.string().optional(),
@@ -182,8 +182,8 @@ const wizardSections = [
     id: "address",
     name: "Company Address",
     description: "Physical address for the company",
-    icon: Building,
-    fields: ["companyAddress"]
+    icon: MapPin,
+    fields: ["companyAddress.street1", "companyAddress.street2", "companyAddress.city", "companyAddress.state", "companyAddress.postalCode", "companyAddress.country"]
   },
   {
     id: "user",
@@ -208,6 +208,7 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
   const [addressFieldsLocked, setAddressFieldsLocked] = useState(false);
   const [addressValidationStatus, setAddressValidationStatus] = useState<'idle' | 'valid' | 'invalid'>('idle');
+  const [showValidationErrors, setShowValidationErrors] = useState(false);
   
   // Refs for address autocomplete
   const addressInputRef = useRef<HTMLInputElement>(null);
@@ -446,6 +447,7 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
       setSelectedSuggestionIndex(-1);
       setAddressFieldsLocked(false);
       setAddressValidationStatus('idle');
+      setShowValidationErrors(false);
       
       // Reset form with appropriate values
       if (agent) {
@@ -571,8 +573,18 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
 
   // Required fields list for progress calculation
   const requiredFieldsList = agent 
-    ? ["firstName", "lastName", "email", "phone", "companyName"] // Edit mode: fewer required fields
-    : ["firstName", "lastName", "email", "phone", "companyName", "username", "password", "confirmPassword", "communicationPreference"]; // Create mode
+    ? ["firstName", "lastName", "email", "phone", "companyName", "companyAddress.street1", "companyAddress.city", "companyAddress.state", "companyAddress.postalCode"] // Edit mode
+    : ["firstName", "lastName", "email", "phone", "companyName", "companyAddress.street1", "companyAddress.city", "companyAddress.state", "companyAddress.postalCode", "username", "password", "confirmPassword", "communicationPreference"]; // Create mode
+
+  // Helper to get nested field value
+  const getNestedValue = (obj: any, path: string): any => {
+    return path.split('.').reduce((acc, part) => acc?.[part], obj);
+  };
+
+  // Helper to get nested field error
+  const getNestedError = (errors: any, path: string): any => {
+    return path.split('.').reduce((acc, part) => acc?.[part], errors);
+  };
 
   // Calculate overall progress based on required fields completion
   const getProgressInfo = (): { completed: number; total: number; percentage: number } => {
@@ -580,7 +592,7 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
     let completed = 0;
     
     for (const fieldName of requiredFieldsList) {
-      const value = formValues[fieldName as keyof AgentFormData];
+      const value = getNestedValue(formValues, fieldName);
       if (value && (typeof value !== 'string' || value.trim() !== '')) {
         completed++;
       }
@@ -592,6 +604,57 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
     return { completed, total, percentage };
   };
 
+  // Get list of incomplete required fields with friendly names
+  const getIncompleteFields = (): { fieldName: string; label: string; section: string }[] => {
+    const formValues = form.getValues();
+    const incomplete: { fieldName: string; label: string; section: string }[] = [];
+    
+    const fieldLabels: Record<string, string> = {
+      firstName: "First Name",
+      lastName: "Last Name",
+      email: "Email Address",
+      phone: "Phone Number",
+      companyName: "Company Name",
+      "companyAddress.street1": "Street Address",
+      "companyAddress.city": "City",
+      "companyAddress.state": "State",
+      "companyAddress.postalCode": "Postal Code",
+      username: "Username",
+      password: "Password",
+      confirmPassword: "Confirm Password",
+      communicationPreference: "Communication Preference"
+    };
+    
+    const fieldSections: Record<string, string> = {
+      firstName: "Agent Information",
+      lastName: "Agent Information",
+      email: "Agent Information",
+      phone: "Agent Information",
+      companyName: "Company Information",
+      "companyAddress.street1": "Company Address",
+      "companyAddress.city": "Company Address",
+      "companyAddress.state": "Company Address",
+      "companyAddress.postalCode": "Company Address",
+      username: "User Account",
+      password: "User Account",
+      confirmPassword: "User Account",
+      communicationPreference: "User Account"
+    };
+    
+    for (const fieldName of requiredFieldsList) {
+      const value = getNestedValue(formValues, fieldName);
+      if (!value || (typeof value === 'string' && value.trim() === '')) {
+        incomplete.push({
+          fieldName,
+          label: fieldLabels[fieldName] || fieldName,
+          section: fieldSections[fieldName] || "Unknown"
+        });
+      }
+    }
+    
+    return incomplete;
+  };
+
   // Check if a section has validation issues (visited but incomplete)
   const sectionHasValidationIssues = (sectionIndex: number): boolean => {
     const section = availableSections[sectionIndex];
@@ -599,13 +662,13 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
     const formErrors = form.formState.errors;
     
     for (const fieldName of section.fields) {
-      // Check for form errors
-      const fieldError = formErrors[fieldName as keyof AgentFormData];
+      // Check for form errors (handle nested paths)
+      const fieldError = getNestedError(formErrors, fieldName);
       if (fieldError) return true;
       
       // Check for empty required fields in this section
       if (requiredFieldsList.includes(fieldName)) {
-        const value = formValues[fieldName as keyof AgentFormData];
+        const value = getNestedValue(formValues, fieldName);
         if (!value || (typeof value === 'string' && value.trim() === '')) {
           return true;
         }
@@ -623,8 +686,8 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
     
     // Check each field in the section
     for (const fieldName of section.fields) {
-      const fieldValue = formValues[fieldName as keyof AgentFormData];
-      const fieldError = formErrors[fieldName as keyof AgentFormData];
+      const fieldValue = getNestedValue(formValues, fieldName);
+      const fieldError = getNestedError(formErrors, fieldName);
       
       if (requiredFieldsList.includes(fieldName)) {
         // Check if field has error or is empty
@@ -1580,6 +1643,31 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
                     {renderCurrentSection()}
                   </div>
 
+                  {/* Validation Errors Display */}
+                  {showValidationErrors && getIncompleteFields().length > 0 && (
+                    <div className="mx-6 mb-4 p-4 bg-red-50 border border-red-200 rounded-lg" data-testid="validation-errors">
+                      <div className="flex items-start space-x-3">
+                        <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <h4 className="text-sm font-semibold text-red-800 mb-2">
+                            Please complete the following required fields:
+                          </h4>
+                          <ul className="text-sm text-red-700 space-y-1">
+                            {getIncompleteFields().map((field, index) => (
+                              <li key={index} className="flex items-center space-x-2">
+                                <span className="w-1.5 h-1.5 bg-red-400 rounded-full" />
+                                <span>
+                                  <strong>{field.label}</strong>
+                                  <span className="text-red-500 ml-1">({field.section})</span>
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Navigation Buttons */}
                   <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200">
                     <div>
@@ -1601,7 +1689,22 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
                         Cancel
                       </Button>
                       {isLastStep ? (
-                        <Button type="submit" disabled={isPending} data-testid="button-submit">
+                        <Button 
+                          type="button"
+                          disabled={isPending} 
+                          data-testid="button-submit"
+                          onClick={() => {
+                            const incompleteFields = getIncompleteFields();
+                            if (incompleteFields.length > 0) {
+                              setShowValidationErrors(true);
+                              // Mark all sections as visited to show validation state
+                              setVisitedSections(new Set(availableSections.map((_, i) => i)));
+                            } else {
+                              setShowValidationErrors(false);
+                              form.handleSubmit(onSubmit)();
+                            }
+                          }}
+                        >
                           {isPending ? "Creating..." : agent ? "Update Agent" : "Create Agent"}
                         </Button>
                       ) : (
