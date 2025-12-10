@@ -5647,6 +5647,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
         const agent = agentInsertResult.rows[0];
         
+        // CRITICAL: Create user_company_associations entry to link user to company
+        // This is required for getAgentByUserId() to find the agent via the company association
+        await poolClient.query(
+          `INSERT INTO user_company_associations (user_id, company_id, company_role, is_primary, is_active)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            user.id,
+            companyId,
+            'agent',
+            true,
+            true
+          ]
+        );
+        console.log(`User-company association created for user ${user.id} with company ${companyId}`);
+        
         return {
           agent,
           user: userInfo, // Only return user info if account was created

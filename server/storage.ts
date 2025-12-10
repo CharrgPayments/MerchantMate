@@ -3125,6 +3125,7 @@ export class DatabaseStorage implements IStorage {
       throw new Error('Prospect not found');
     }
     
+    // Check if prospect already has a linked user account
     if (prospect.userId) {
       const existingUser = await this.getUser(prospect.userId);
       if (existingUser) {
@@ -3133,6 +3134,18 @@ export class DatabaseStorage implements IStorage {
         await this.setProspectPasswordResetToken(existingUser.id, resetToken, resetExpires);
         return { user: existingUser, resetToken, resetExpires };
       }
+    }
+    
+    // Check if a user with this email already exists (but not linked to this prospect)
+    const existingUserByEmail = await this.getUserByEmail(prospect.email);
+    if (existingUserByEmail) {
+      // Link the existing user to this prospect and generate reset token
+      const resetToken = crypto.randomUUID();
+      const resetExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      await this.setProspectPasswordResetToken(existingUserByEmail.id, resetToken, resetExpires);
+      await this.linkUserToProspect(existingUserByEmail.id, prospectId);
+      console.log(`Linked existing user ${existingUserByEmail.id} to prospect ${prospectId}`);
+      return { user: existingUserByEmail, resetToken, resetExpires };
     }
     
     const userId = crypto.randomUUID();
@@ -3146,6 +3159,7 @@ export class DatabaseStorage implements IStorage {
       passwordHash: null as any,
       firstName: prospect.firstName,
       lastName: prospect.lastName,
+      phone: prospect.phone || '', // Use prospect phone or empty string to satisfy NOT NULL constraint
       roles: ['prospect'],
       status: 'pending_password',
       passwordResetToken: resetToken,
