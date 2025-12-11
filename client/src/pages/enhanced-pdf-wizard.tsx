@@ -4142,19 +4142,19 @@ export default function EnhancedPdfWizard() {
         const canonicalStreet2 = `${canonicalPrefix}.street2`;
         const canonicalCity = `${canonicalPrefix}.city`;
         const canonicalState = `${canonicalPrefix}.state`;
-        const canonicalZipCode = `${canonicalPrefix}.zipCode`;
+        const canonicalPostalCode = `${canonicalPrefix}.postalcode`; // Match database storage format
         
         // Get values from formData - check template-specific names first, then canonical names
         const streetValue = formData[street1FieldId] || formData[canonicalStreet1] || '';
         const street2Val = formData[street2FieldId] || formData[canonicalStreet2] || '';
         const cityVal = formData[cityFieldId] || formData[canonicalCity] || '';
         const stateVal = formData[stateFieldId] || formData[canonicalState] || '';
-        const zipCodeVal = formData[postalCodeFieldId] || formData[canonicalZipCode] || '';
+        const zipCodeVal = formData[postalCodeFieldId] || formData[canonicalPostalCode] || '';
         
         console.log('🏠 AddressGroup render for', groupType);
         console.log('  Field mappings:', fieldMappings);
         console.log('  Template Field IDs:', { street1FieldId, cityFieldId, stateFieldId, postalCodeFieldId });
-        console.log('  Canonical Field IDs:', { canonicalStreet1, canonicalCity, canonicalState, canonicalZipCode });
+        console.log('  Canonical Field IDs:', { canonicalStreet1, canonicalCity, canonicalState, canonicalPostalCode });
         console.log('  formData keys containing address:', Object.keys(formData).filter(k => k.toLowerCase().includes('address') || k.includes('.')));
         console.log('  Values retrieved:', { streetValue, cityVal, stateVal, zipCodeVal });
         console.log('  Raw formData lookups (template):', {
@@ -4167,7 +4167,7 @@ export default function EnhancedPdfWizard() {
           [canonicalStreet1]: formData[canonicalStreet1],
           [canonicalCity]: formData[canonicalCity],
           [canonicalState]: formData[canonicalState],
-          [canonicalZipCode]: formData[canonicalZipCode]
+          [canonicalPostalCode]: formData[canonicalPostalCode]
         });
         
         return (
