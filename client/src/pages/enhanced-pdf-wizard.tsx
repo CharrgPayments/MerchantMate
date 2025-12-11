@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { Building, FileText, CheckCircle, ArrowLeft, ArrowRight, Users, Upload, Signature, PenTool, Type, RotateCcw, Check, X, AlertTriangle, Monitor, Info } from 'lucide-react';
+import { Building, FileText, CheckCircle, ArrowLeft, ArrowRight, Users, Upload, Signature, PenTool, Type, RotateCcw, Check, X, AlertTriangle, Monitor, Info, Lock } from 'lucide-react';
 import { MCCSelect } from '@/components/ui/mcc-select';
 import { PhoneNumberInput } from '@/components/forms/PhoneNumberInput';
 import { EINInput } from '@/components/forms/EINInput';
@@ -237,6 +237,10 @@ export default function EnhancedPdfWizard() {
   // Check for preview mode with templateId
   const isPreviewMode = urlParams.get('preview') === 'true';
   const previewTemplateId = urlParams.get('templateId');
+  
+  // Application locking status - computed from prospect data
+  const [isApplicationLocked, setIsApplicationLocked] = useState(false);
+  const lockedStatuses = ['submitted', 'applied', 'approved', 'rejected', 'under_review', 'pending_review'];
 
   // Fetch prospect data if token is present
   const { data: prospectData } = useQuery({
@@ -275,6 +279,16 @@ export default function EnhancedPdfWizard() {
     },
     enabled: isPreviewMode && !!previewTemplateId,
   });
+  
+  // Update lock status when prospect data changes
+  useEffect(() => {
+    if (prospectData?.prospect?.status) {
+      const status = prospectData.prospect.status;
+      const shouldLock = lockedStatuses.includes(status);
+      console.log(`🔒 Application lock check: status="${status}", locked=${shouldLock}`);
+      setIsApplicationLocked(shouldLock);
+    }
+  }, [prospectData?.prospect?.status]);
 
   // Mutation to update prospect status to "in progress"
   const updateProspectStatusMutation = useMutation({
@@ -2000,6 +2014,12 @@ export default function EnhancedPdfWizard() {
 
   // Handle field changes with auto-save and address override protection
   const handleFieldChange = (fieldName: string, value: any) => {
+    // Block all field changes when application is locked (submitted)
+    if (isApplicationLocked) {
+      console.log(`🔒 Blocking field change for "${fieldName}" - application is locked`);
+      return;
+    }
+    
     // Log ownership-related field changes for debugging
     if (fieldName.toLowerCase().includes('owner') || fieldName.toLowerCase().includes('signature')) {
       console.log(`🔧 handleFieldChange called: fieldName="${fieldName}", value type=${typeof value}, length=${typeof value === 'string' ? value.length : 'N/A'}`);
@@ -4304,6 +4324,24 @@ export default function EnhancedPdfWizard() {
         </div>
       )}
       
+      {/* Locked Application Banner */}
+      {isApplicationLocked && (
+        <div className="bg-amber-600 text-white px-4 py-3 shadow-md" data-testid="locked-application-banner">
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <Lock className="w-5 h-5" />
+              <div>
+                <p className="font-semibold">Application Submitted</p>
+                <p className="text-xs opacity-90">
+                  This application has been submitted and is now read-only. Status: {prospectData?.prospect?.status}
+                </p>
+              </div>
+            </div>
+            <p className="text-xs opacity-90">Contact your agent if you need to make changes</p>
+          </div>
+        </div>
+      )}
+      
       {/* Header - Fixed */}
       <div className="bg-white/95 backdrop-blur-sm border-b border-gray-200 px-4 py-6 sticky top-0 z-50 shadow-sm">
         <div className="max-w-4xl mx-auto">
@@ -4557,23 +4595,31 @@ export default function EnhancedPdfWizard() {
                           <ArrowRight className="w-4 h-4" />
                         </Button>
                       ) : (
-                        <Button
-                          onClick={() => submitApplicationMutation.mutate(formData)}
-                          disabled={submitApplicationMutation.isPending}
-                          className="flex items-center space-x-2 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
-                        >
-                          {submitApplicationMutation.isPending ? (
-                            <>
-                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                              <span>Submitting...</span>
-                            </>
-                          ) : (
-                            <>
-                              <CheckCircle className="w-4 h-4" />
-                              <span>Submit Application</span>
-                            </>
-                          )}
-                        </Button>
+                        isApplicationLocked ? (
+                          <div className="flex items-center space-x-2 text-amber-600 font-medium">
+                            <Lock className="w-4 h-4" />
+                            <span>Application Already Submitted</span>
+                          </div>
+                        ) : (
+                          <Button
+                            onClick={() => submitApplicationMutation.mutate(formData)}
+                            disabled={submitApplicationMutation.isPending}
+                            className="flex items-center space-x-2 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
+                            data-testid="submit-application-button"
+                          >
+                            {submitApplicationMutation.isPending ? (
+                              <>
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                <span>Submitting...</span>
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle className="w-4 h-4" />
+                                <span>Submit Application</span>
+                              </>
+                            )}
+                          </Button>
+                        )
                       )}
                     </div>
                   </div>
