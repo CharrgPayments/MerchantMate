@@ -2636,20 +2636,30 @@ function FieldMappingsVisualization({
 
                     {/* Show sub-field mappings for address groups */}
                     <div className="mt-3 pt-3 border-t border-green-200">
-                      <span className="text-xs font-semibold text-green-800 uppercase">Sub-field Mappings:</span>
-                      <div className="grid grid-cols-2 gap-2 mt-2">
-                        {['street1', 'street2', 'city', 'state', 'postalcode'].map(subField => (
-                          <div key={subField} className="flex items-center gap-2 text-xs">
-                            <span className="text-gray-600 w-16">{subField}:</span>
-                            <code className="px-1.5 py-0.5 bg-white rounded font-mono text-green-700">
-                              {field.id}.{subField}
-                            </code>
-                            <span className="text-gray-400">→</span>
-                            <code className="px-1.5 py-0.5 bg-green-100 rounded font-mono text-green-800">
-                              {generateCanonicalName(field.id, subField)}
-                            </code>
-                          </div>
-                        ))}
+                      <span className="text-xs font-semibold text-green-800 uppercase mb-2 block">Sub-field Mappings:</span>
+                      <div className="bg-white rounded-lg border border-green-200 overflow-hidden">
+                        <table className="w-full text-xs">
+                          <thead className="bg-green-100">
+                            <tr>
+                              <th className="text-left py-2 px-3 font-medium text-green-800">Field</th>
+                              <th className="text-left py-2 px-3 font-medium text-green-800">Template Key</th>
+                              <th className="text-left py-2 px-3 font-medium text-green-800">Canonical Key</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {['street1', 'street2', 'city', 'state', 'postalcode'].map((subField, i) => (
+                              <tr key={subField} className={i % 2 === 0 ? 'bg-white' : 'bg-green-50'}>
+                                <td className="py-2 px-3 text-gray-700 font-medium">{subField}</td>
+                                <td className="py-2 px-3">
+                                  <code className="text-green-700 font-mono">{field.id}.{subField}</code>
+                                </td>
+                                <td className="py-2 px-3">
+                                  <code className="text-green-800 font-mono">{generateCanonicalName(field.id, subField)}</code>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     </div>
                   </div>
@@ -2723,21 +2733,33 @@ function FieldMappingsVisualization({
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="space-y-2">
-              {fieldGroups.special.map((field: any, idx: number) => (
-                <div key={idx} className="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
-                  <div>
-                    <span className="font-medium text-purple-900">{field.label}</span>
-                    <span className="text-xs text-purple-600 ml-2">({field.sectionTitle})</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="bg-white">{field.type}</Badge>
-                    <code className="px-2 py-1 bg-white rounded text-xs font-mono">
-                      {field.id}
-                    </code>
-                  </div>
-                </div>
-              ))}
+            <div className="bg-white rounded-lg border border-purple-200 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-purple-100">
+                  <tr>
+                    <th className="text-left py-2 px-3 font-medium text-purple-800">Section</th>
+                    <th className="text-left py-2 px-3 font-medium text-purple-800">Label</th>
+                    <th className="text-left py-2 px-3 font-medium text-purple-800">Field ID</th>
+                    <th className="text-left py-2 px-3 font-medium text-purple-800">Type</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fieldGroups.special.map((field: any, idx: number) => (
+                    <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-purple-50'}>
+                      <td className="py-2 px-3 text-gray-600">{field.sectionTitle}</td>
+                      <td className="py-2 px-3 font-medium text-purple-900">{field.label}</td>
+                      <td className="py-2 px-3">
+                        <code className="text-purple-700 font-mono text-xs">{field.id}</code>
+                      </td>
+                      <td className="py-2 px-3">
+                        <Badge variant="outline" className="bg-white text-purple-700 border-purple-300">
+                          {field.type}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </CardContent>
         </Card>
