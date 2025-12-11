@@ -1140,6 +1140,21 @@ export default function EnhancedPdfWizard() {
             setTotalOwnership(calculatedTotal);
           }
           
+          // Restore active owner slots based on saved signature groups
+          const restoredSlots = new Set<number>([1]); // Always include owner1
+          Object.keys(cleanedData).forEach(key => {
+            const ownerMatch = key.match(/^signatureGroup_owners_owner(\d+)_signature_owner$/);
+            if (ownerMatch) {
+              const ownerNumber = parseInt(ownerMatch[1]);
+              restoredSlots.add(ownerNumber);
+            }
+          });
+          
+          if (restoredSlots.size > 1) {
+            console.log(`📋 Restored active owner slots:`, Array.from(restoredSlots));
+            setActiveOwnerSlots(restoredSlots);
+          }
+          
           // Mark sections as visited based on existing form data
           const newVisited = new Set<number>();
           
