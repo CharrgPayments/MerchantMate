@@ -4133,7 +4133,7 @@ export default function EnhancedPdfWizard() {
         const street2FieldId = fieldMappings.street2 || '';
         const cityFieldId = fieldMappings.city || '';
         const stateFieldId = fieldMappings.state || '';
-        const postalCodeFieldId = fieldMappings.postalCode || fieldMappings.zipCode || '';
+        const postalCodeFieldId = fieldMappings.postalCode || fieldMappings.postalcode || fieldMappings.zipCode || fieldMappings.zipcode || '';
         const countryFieldId = fieldMappings.country || '';
         
         // Build canonical field names as fallbacks (pattern: ${groupType}Address.fieldName)
