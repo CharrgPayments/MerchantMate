@@ -736,6 +736,30 @@ export default function EnhancedPdfWizard() {
     setCurrentStep(prevStep);
   };
 
+  // Helper to get field value checking both template and canonical names
+  const getFieldValueForValidation = (field: FormField): any => {
+    // For address groups, check both template mappings and canonical names
+    if (field.fieldType === 'addressGroup' && (field as any).addressGroupConfig) {
+      const groupConfig = (field as any).addressGroupConfig;
+      const groupType = groupConfig.type;
+      const fieldMappings = groupConfig.fieldMappings || {};
+      
+      // Build canonical field names
+      const canonicalPrefix = `${groupType}Address`;
+      const canonicalStreet1 = `${canonicalPrefix}.street1`;
+      
+      // Check template field first, then canonical
+      const street1FieldId = fieldMappings.street1 || '';
+      const streetValue = formData[street1FieldId] || formData[canonicalStreet1] || '';
+      
+      // For address groups, return street value since that's the primary required field
+      return streetValue;
+    }
+    
+    // For regular fields, just use the field name directly
+    return formData[field.fieldName];
+  };
+
   // Check if a section has validation issues
   const getSectionValidationStatus = (sectionIndex: number) => {
     const section = sections[sectionIndex];
@@ -746,13 +770,16 @@ export default function EnhancedPdfWizard() {
     }
     
     let hasErrors = false;
+    let failingFields: string[] = [];
 
     // Check required fields in this section
     for (const field of section.fields) {
-      const error = validateField(field, formData[field.fieldName]);
+      const fieldValue = getFieldValueForValidation(field);
+      const error = validateField(field, fieldValue);
       if (error) {
         hasErrors = true;
-        break;
+        failingFields.push(`${field.fieldLabel}: ${error}`);
+        // Don't break - collect all failing fields for debugging
       }
     }
 
@@ -788,12 +815,12 @@ export default function EnhancedPdfWizard() {
       }
     }
 
-    // For debugging, log validation status
-    if (section.name === 'Merchant Information') {
-      console.log(`Section ${sectionIndex} (${section.name}) validation:`, {
-        hasErrors
-      });
-    }
+    // For debugging, log validation status with failing fields for ALL sections
+    console.log(`Section ${sectionIndex} (${section.name}) validation:`, {
+      hasErrors,
+      failingFields: failingFields.length > 0 ? failingFields : 'none',
+      totalFields: section.fields.length
+    });
 
     return hasErrors;
   };
@@ -1271,10 +1298,11 @@ export default function EnhancedPdfWizard() {
             };
           }
           
-          // Map canonical names to field IDs
-          const canonical = canonicalField.toLowerCase() === 'address1' ? 'street1' : 
-                           canonicalField.toLowerCase() === 'zipcode' ? 'postalCode' : 
-                           canonicalField.toLowerCase();
+          // Map canonical names to field IDs (normalize postalcode/zipcode variations to postalCode)
+          const canonicalLower = canonicalField.toLowerCase();
+          const canonical = canonicalLower === 'address1' ? 'street1' : 
+                           canonicalLower === 'zipcode' || canonicalLower === 'postalcode' ? 'postalCode' : 
+                           canonicalLower;
           autoDetectedGroups[prefix].fieldMappings[canonical] = field.id;
           addressFieldIdsToFilter.add(field.id);
         }
