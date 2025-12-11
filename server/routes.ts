@@ -12296,7 +12296,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           companyName = application.businessName;
         }
       } else if (prospectId) {
-        const prospect = await storage.getProspectById(prospectId);
+        const prospect = await storage.getMerchantProspect(prospectId);
         if (prospect?.businessName) {
           companyName = prospect.businessName;
         }
@@ -12449,7 +12449,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
         } else if (updated.prospectId) {
-          const prospect = await storage.getProspectById(updated.prospectId);
+          const prospect = await storage.getMerchantProspect(updated.prospectId);
           if (prospect?.businessName) {
             companyName = prospect.businessName;
           }
