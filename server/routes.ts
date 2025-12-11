@@ -4758,6 +4758,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Continue without email - don't fail the submission
       }
 
+      // Fire APPLICATION.SUBMITTED trigger for Communications Manager actions
+      try {
+        const { TriggerService } = await import('./triggerService');
+        const { TRIGGER_KEYS } = await import('@shared/triggerKeys');
+        const triggerService = new TriggerService();
+        
+        const emailCompanyName = formData.companyName || formData.merchant_company_name || formData.businessName || prospect.companyName || 'Unknown Company';
+        
+        await triggerService.fireTrigger(TRIGGER_KEYS.APPLICATION.SUBMITTED, {
+          triggerEvent: TRIGGER_KEYS.APPLICATION.SUBMITTED,
+          prospectId,
+          applicationId: prospectId, // For context
+          companyName: emailCompanyName,
+          applicantName: `${prospect.firstName} ${prospect.lastName}`,
+          applicantEmail: prospect.email,
+          firstName: prospect.firstName,
+          lastName: prospect.lastName,
+          agentName: `${agent.firstName} ${agent.lastName}`,
+          agentEmail: agent.email,
+          submissionDate: new Date().toISOString(),
+          statusUrl: `/application-status/${prospect.validationToken}`,
+        });
+        
+        console.log(`Fired APPLICATION.SUBMITTED trigger for prospect ${prospectId}`);
+      } catch (triggerError) {
+        console.error('APPLICATION.SUBMITTED trigger failed:', triggerError);
+        // Continue - trigger failures shouldn't block submission
+      }
+
       console.log(`Application submitted for prospect ${prospectId}`);
       res.json({ 
         success: true, 
