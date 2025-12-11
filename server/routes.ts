@@ -4673,6 +4673,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
             await storage.updateMerchantProspect(prospectId, {
               formData: JSON.stringify({ ...mappedFormData, _pdfStoragePath: pdfStoragePath })
             });
+            
+            // Create a document record for the generated PDF
+            try {
+              const docFileName = `${companySlug}_application.pdf`;
+              await storage.createProspectDocument({
+                prospectId,
+                fileName: docFileName,
+                originalFileName: docFileName,
+                fileType: 'application/pdf',
+                fileSize: pdfBuffer.length,
+                category: 'application',
+                storageKey,
+              });
+              console.log(`Created prospect document record for PDF: ${storageKey}`);
+            } catch (docError) {
+              console.error('Failed to create document record:', docError);
+              // Continue - document record is optional
+            }
           } catch (storageError) {
             console.error('PDF storage failed:', storageError);
             // Continue - PDF storage is optional
@@ -4681,6 +4699,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (pdfError) {
         console.error('PDF generation failed:', pdfError);
         // Continue without PDF - don't fail the submission
+      }
+      
+      // Update prospect_applications record with submitted status and data
+      try {
+        const dynamicDB = await getDynamicDatabase((req as any).dbEnv);
+        const { prospectApplications } = await import('@shared/schema');
+        
+        await dynamicDB
+          .update(prospectApplications)
+          .set({
+            status: 'submitted',
+            applicationData: mappedFormData,
+            submittedAt: new Date(),
+            generatedPdfPath: pdfStoragePath || null,
+            updatedAt: new Date(),
+          })
+          .where(eq(prospectApplications.prospectId, prospectId));
+        
+        console.log(`Updated prospect_applications record for prospect ${prospectId}`);
+      } catch (appUpdateError) {
+        console.error('Failed to update prospect_applications:', appUpdateError);
+        // Continue - the merchant_prospects record is already updated
       }
 
       // Send notification emails
