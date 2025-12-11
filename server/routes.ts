@@ -4560,10 +4560,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Send password setup email to prospect
         try {
           const passwordSetupUrl = `${req.protocol}://${req.get('host')}/prospect-portal/set-password?token=${resetToken}`;
+          // Check multiple possible field names for company name
+          const resolvedCompanyName = formData.companyName || formData.merchant_company_name || formData.businessName || prospect.companyName || 'Unknown Company';
           await emailService.sendProspectPasswordSetup({
             prospectName: `${prospect.firstName} ${prospect.lastName}`,
             prospectEmail: prospect.email,
-            companyName: formData.companyName || 'Unknown Company',
+            companyName: resolvedCompanyName,
             passwordSetupUrl,
             expiresAt: accountResult.resetExpires,
             dbEnv: (req as any).dbEnv
@@ -4653,7 +4655,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           try {
             const { objectStorageService } = await import('./objectStorage');
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const companySlug = (formData.companyName || 'unknown').toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 50);
+            // Check multiple possible field names for company name
+            const companyNameForSlug = formData.companyName || formData.merchant_company_name || formData.businessName || prospect.companyName || 'unknown';
+            const companySlug = companyNameForSlug.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 50);
             const storageKey = `applications/${prospectId}/${companySlug}_${timestamp}.pdf`;
             
             await objectStorageService.saveBuffer(storageKey, pdfBuffer, {
@@ -4687,8 +4691,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           day: 'numeric'
         });
 
+        // Check multiple possible field names for company name
+        const emailCompanyName = formData.companyName || formData.merchant_company_name || formData.businessName || prospect.companyName || 'Unknown Company';
         await emailService.sendApplicationSubmissionNotification({
-          companyName: formData.companyName || 'Unknown Company',
+          companyName: emailCompanyName,
           applicantName: `${prospect.firstName} ${prospect.lastName}`,
           applicantEmail: prospect.email,
           agentName: `${agent.firstName} ${agent.lastName}`,
