@@ -4180,7 +4180,9 @@ export default function EnhancedPdfWizard() {
               key={`addressgroup-${groupType}`}
               value={streetValue}
               onChange={(value) => {
-                handleFieldChange(street1FieldId, value);
+                // Save to BOTH template and canonical for consistency
+                if (street1FieldId) handleFieldChange(street1FieldId, value);
+                handleFieldChange(canonicalStreet1, value);
               }}
               initialValues={{
                 city: cityVal,
@@ -4190,13 +4192,24 @@ export default function EnhancedPdfWizard() {
               }}
               onAddressSelect={(address) => {
                 // Update formData directly to bypass the locking check
+                // Save to BOTH template field IDs AND canonical names for consistent storage
                 const updates: Record<string, any> = {};
+                
+                // Template field IDs (e.g., merchant_location_address.city)
                 if (street1FieldId) updates[street1FieldId] = address.street || '';
                 if (street2FieldId) updates[street2FieldId] = address.street2 || '';
                 if (cityFieldId) updates[cityFieldId] = address.city || '';
                 if (stateFieldId) updates[stateFieldId] = address.state || '';
                 if (postalCodeFieldId) updates[postalCodeFieldId] = address.zipCode || '';
                 if (countryFieldId) updates[countryFieldId] = 'US';
+                
+                // Canonical field names (e.g., merchantlocationaddressAddress.city)
+                // These ensure consistent loading regardless of mapping
+                updates[canonicalStreet1] = address.street || '';
+                updates[canonicalStreet2] = address.street2 || '';
+                updates[canonicalCity] = address.city || '';
+                updates[canonicalState] = address.state || '';
+                updates[canonicalPostalCode] = address.zipCode || '';
                 
                 if (Object.keys(updates).length > 0) {
                   setFormData(prev => ({ ...prev, ...updates }));
@@ -4207,22 +4220,26 @@ export default function EnhancedPdfWizard() {
                 setAddressOverrideActive(true);
               }}
               onCityChange={(value) => {
+                // Save to BOTH template and canonical for consistency
                 if (cityFieldId) handleFieldChange(cityFieldId, value);
+                handleFieldChange(canonicalCity, value);
               }}
               onStateChange={(value) => {
+                // Save to BOTH template and canonical for consistency
                 if (stateFieldId) handleFieldChange(stateFieldId, value);
+                handleFieldChange(canonicalState, value);
               }}
               onZipCodeChange={(value) => {
+                // Save to BOTH template and canonical for consistency
                 if (postalCodeFieldId) handleFieldChange(postalCodeFieldId, value);
+                handleFieldChange(canonicalPostalCode, value);
               }}
               onStreet2Change={(value) => {
-                // Save to template field if available, otherwise save to canonical field as fallback
+                // Save to BOTH template field (if available) and canonical field
                 if (street2FieldId) {
                   handleFieldChange(street2FieldId, value);
-                } else {
-                  // No template street2 field, save to canonical field name
-                  handleFieldChange(canonicalStreet2, value);
                 }
+                handleFieldChange(canonicalStreet2, value);
               }}
               placeholder="Start typing an address..."
               dataTestId={`addressgroup-${groupType}`}
