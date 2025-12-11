@@ -1660,10 +1660,11 @@ export default function EnhancedPdfWizard() {
     // Preview mode: use template configuration
     sections = createSectionsFromTemplate(previewTemplate);
   } else if (isProspectMode) {
-    // Use template fields if available, otherwise use hardcoded sections
-    if (prospectData?.applicationTemplate) {
+    // Use template fields if available and has valid sections, otherwise use hardcoded sections
+    if (prospectData?.applicationTemplate?.fieldConfiguration?.sections?.length > 0) {
       sections = createSectionsFromTemplate(prospectData.applicationTemplate);
     } else {
+      // Fallback to hardcoded sections if template has no sections or no field configuration
       sections = createProspectFormSections();
     }
   } else if (pdfForm?.fields) {
