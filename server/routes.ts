@@ -5008,6 +5008,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const owners = await storage.getProspectOwners(parseInt(prospectId));
       const signatures = await storage.getProspectSignaturesByProspect(parseInt(prospectId));
       
+      // Also get signature captures (new unified table)
+      const signatureCaptures = await storage.getSignatureCapturesByProspect(parseInt(prospectId));
+      
       // Merge owners with their signatures
       const ownersWithSignatures = owners.map(owner => {
         const signature = signatures.find(sig => sig.ownerId === owner.id);
@@ -5024,7 +5027,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
       });
       
-      res.json({ success: true, owners: ownersWithSignatures });
+      // Also return signature captures for signature group format (Template 25 style)
+      const signatureGroupData: Record<string, any> = {};
+      for (const capture of signatureCaptures) {
+        const groupKey = `owners_${capture.roleKey}_signature_owner`;
+        signatureGroupData[`signatureGroup_${groupKey}`] = {
+          signerName: capture.signerName,
+          signerEmail: capture.signerEmail,
+          signature: capture.signature,
+          signatureType: capture.signatureType,
+          ownershipPercentage: capture.ownershipPercentage,
+          status: 'signed',
+          dateSigned: capture.dateSigned,
+          timestampSigned: capture.timestampSigned,
+        };
+      }
+      
+      res.json({ 
+        success: true, 
+        owners: ownersWithSignatures,
+        signatureCaptures: signatureGroupData
+      });
     } catch (error) {
       console.error("Error fetching owners with signatures:", error);
       res.status(500).json({ success: false, message: "Failed to fetch owners with signatures" });
