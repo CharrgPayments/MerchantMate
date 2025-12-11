@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { Building, FileText, CheckCircle, ArrowLeft, ArrowRight, Users, Upload, Signature, PenTool, Type, RotateCcw, Check, X, AlertTriangle, Monitor, Info, Lock } from 'lucide-react';
+import { Building, FileText, CheckCircle, ArrowLeft, ArrowRight, Users, Upload, Signature, PenTool, Type, RotateCcw, Check, X, AlertTriangle, Monitor, Info, Lock, User } from 'lucide-react';
 import { MCCSelect } from '@/components/ui/mcc-select';
 import { PhoneNumberInput } from '@/components/forms/PhoneNumberInput';
 import { EINInput } from '@/components/forms/EINInput';
@@ -4325,46 +4325,7 @@ export default function EnhancedPdfWizard() {
         
         return (
           <div className="space-y-2" key={field.fieldName}>
-            {/* Show ownership management UI for owner groups */}
-            {isOwnerGroup && ownerNumber === 1 && (
-              <Card className="mb-4 bg-blue-50 border-blue-200">
-                <CardContent className="pt-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-semibold text-blue-900">Business Ownership</h3>
-                      <p className="text-sm text-blue-700">
-                        Total Ownership: <span className={`font-bold ${
-                          Math.abs(totalOwnership - 100) < 0.01 ? 'text-green-600' :
-                          totalOwnership > 100 ? 'text-red-600' : 'text-orange-600'
-                        }`}>
-                          {totalOwnership.toFixed(1)}%
-                        </span>
-                        {Math.abs(totalOwnership - 100) > 0.01 && (
-                          <span className="ml-2 text-sm">
-                            ({totalOwnership < 100 ? 
-                              `${(100 - totalOwnership).toFixed(1)}% remaining` :
-                              `${(totalOwnership - 100).toFixed(1)}% over limit`
-                            })
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={addOwnerSlot}
-                      disabled={activeOwnerSlots.size >= 5 || totalOwnership >= 100}
-                      data-testid="add-owner-btn"
-                    >
-                      <Users className="h-4 w-4 mr-2" />
-                      Add Owner
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-            
+            {/* Note: Business Ownership header is now rendered in the grouped owner section above */}
             <div className="relative">
               <SignatureGroupInput
               config={sigGroupConfig}
@@ -4750,11 +4711,173 @@ export default function EnhancedPdfWizard() {
                 {/* Form Fields */}
                 <div className="p-8">
                   <div className="space-y-6">
-                    {filteredSections[currentStep]?.fields.map((field, index) => (
-                      <div key={field.id}>
-                        {renderField(field, index)}
-                      </div>
-                    ))}
+                    {(() => {
+                      const fields = filteredSections[currentStep]?.fields || [];
+                      
+                      // Group owner-related fields by owner number
+                      const ownerGroups: Record<number, typeof fields> = {};
+                      const nonOwnerFields: typeof fields = [];
+                      const ownerSignatureGroups: Record<number, typeof fields> = {};
+                      
+                      fields.forEach((field) => {
+                        // Check for owner patterns in fieldName
+                        // Patterns: owners_owner1_signature_*, owner1_*, etc.
+                        const ownerMatch = field.fieldName.match(/(?:owners_)?owner(\d+)_/);
+                        const isSignatureGroup = field.fieldType === 'signatureGroup';
+                        
+                        if (ownerMatch) {
+                          const ownerNum = parseInt(ownerMatch[1]);
+                          if (isSignatureGroup) {
+                            if (!ownerSignatureGroups[ownerNum]) ownerSignatureGroups[ownerNum] = [];
+                            ownerSignatureGroups[ownerNum].push(field);
+                          } else {
+                            if (!ownerGroups[ownerNum]) ownerGroups[ownerNum] = [];
+                            ownerGroups[ownerNum].push(field);
+                          }
+                        } else {
+                          nonOwnerFields.push(field);
+                        }
+                      });
+                      
+                      // Get unique owner numbers and sort them
+                      const ownerNumbers = [...new Set([
+                        ...Object.keys(ownerGroups).map(Number),
+                        ...Object.keys(ownerSignatureGroups).map(Number)
+                      ])].sort((a, b) => a - b);
+                      
+                      // Render non-owner fields first, then grouped owner sections
+                      return (
+                        <>
+                          {/* Non-owner fields */}
+                          {nonOwnerFields.map((field, index) => (
+                            <div key={field.id}>
+                              {renderField(field, index)}
+                            </div>
+                          ))}
+                          
+                          {/* Owner groups - each in a Card */}
+                          {ownerNumbers.length > 0 && (
+                            <div className="space-y-6">
+                              {/* Business Ownership Header - only show once for all owners */}
+                              {ownerNumbers.length > 0 && (
+                                <Card className="bg-blue-50 border-blue-200">
+                                  <CardContent className="pt-4">
+                                    <div className="flex items-center justify-between">
+                                      <div>
+                                        <h3 className="font-semibold text-blue-900">Business Ownership</h3>
+                                        <p className="text-sm text-blue-700">
+                                          Total Ownership: <span className={`font-bold ${
+                                            Math.abs(totalOwnership - 100) < 0.01 ? 'text-green-600' :
+                                            totalOwnership > 100 ? 'text-red-600' : 'text-orange-600'
+                                          }`}>
+                                            {totalOwnership.toFixed(1)}%
+                                          </span>
+                                        </p>
+                                      </div>
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={addOwnerSlot}
+                                        disabled={activeOwnerSlots.size >= 5 || totalOwnership >= 100}
+                                        data-testid="add-owner-header-btn"
+                                      >
+                                        <Users className="h-4 w-4 mr-2" />
+                                        Add Owner
+                                      </Button>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              )}
+                              
+                              {ownerNumbers.map((ownerNum) => {
+                                const ownerFields = ownerGroups[ownerNum] || [];
+                                const sigFields = ownerSignatureGroups[ownerNum] || [];
+                                
+                                // Get owner name from signature group data if available
+                                const sigGroupKey = `signatureGroup_owners_owner${ownerNum}_signature_owner`;
+                                let ownerName = `Owner ${ownerNum}`;
+                                try {
+                                  const sigData = formData[sigGroupKey];
+                                  if (sigData) {
+                                    const parsed = JSON.parse(sigData);
+                                    if (parsed.signerName) ownerName = parsed.signerName;
+                                  }
+                                } catch (e) {}
+                                
+                                // Check if this owner has signed
+                                let isSigned = false;
+                                try {
+                                  const sigData = formData[sigGroupKey];
+                                  if (sigData) {
+                                    const parsed = JSON.parse(sigData);
+                                    isSigned = parsed.status === 'signed' || !!parsed.signature;
+                                  }
+                                } catch (e) {}
+                                
+                                return (
+                                  <Card key={`owner-group-${ownerNum}`} className="border-gray-200 shadow-sm">
+                                    <CardHeader className="bg-gradient-to-r from-gray-50 to-slate-50 border-b pb-4">
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                                            <User className="w-5 h-5 text-blue-600" />
+                                          </div>
+                                          <div>
+                                            <CardTitle className="text-lg font-semibold text-gray-900">
+                                              Owner {ownerNum}: {ownerName !== `Owner ${ownerNum}` ? ownerName : ''}
+                                            </CardTitle>
+                                            <p className="text-sm text-gray-500">
+                                              {ownershipPercentages[ownerNum] 
+                                                ? `${ownershipPercentages[ownerNum]}% ownership`
+                                                : 'Enter ownership details below'}
+                                            </p>
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          {isSigned && (
+                                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                              <CheckCircle className="w-3 h-3 mr-1" />
+                                              Signed
+                                            </Badge>
+                                          )}
+                                          {ownerNum > 1 && (
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={() => removeOwnerSlot(ownerNum)}
+                                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                            >
+                                              <X className="w-4 h-4" />
+                                            </Button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </CardHeader>
+                                    <CardContent className="pt-6 space-y-4">
+                                      {/* Regular owner fields (non-signature) */}
+                                      {ownerFields.map((field, idx) => (
+                                        <div key={field.id}>
+                                          {renderField(field, idx)}
+                                        </div>
+                                      ))}
+                                      
+                                      {/* Signature group for this owner */}
+                                      {sigFields.map((field, idx) => (
+                                        <div key={field.id} className="pt-4 border-t border-gray-100">
+                                          {renderField(field, idx)}
+                                        </div>
+                                      ))}
+                                    </CardContent>
+                                  </Card>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
 
                   {/* Required Field Legend */}
