@@ -31,6 +31,7 @@ interface FormField {
   position: number;
   section: string | null;
   description?: string;
+  placeholder?: string;
 }
 
 interface PdfForm {
@@ -1314,6 +1315,7 @@ export default function EnhancedPdfWizard() {
           { id: 2, fieldName: 'companyName', fieldType: 'text', fieldLabel: 'Company Name', isRequired: true, options: null, defaultValue: null, validation: null, position: 2, section: 'Merchant Information' },
           { id: 3, fieldName: 'companyEmail', fieldType: 'email', fieldLabel: 'Company Email', isRequired: true, options: null, defaultValue: null, validation: null, position: 3, section: 'Merchant Information' },
           { id: 4, fieldName: 'companyPhone', fieldType: 'phone', fieldLabel: 'Company Phone', isRequired: true, options: null, defaultValue: null, validation: null, position: 4, section: 'Merchant Information' },
+          { id: 4.5, fieldName: 'companyWebsite', fieldType: 'url', fieldLabel: 'Company Website (URL)', isRequired: false, options: null, defaultValue: null, validation: JSON.stringify({ pattern: '^https?://.*' }), position: 4.5, section: 'Merchant Information', placeholder: 'https://www.example.com' },
           { id: 5, fieldName: 'address', fieldType: 'text', fieldLabel: 'Business Address', isRequired: true, options: null, defaultValue: null, validation: null, position: 5, section: 'Merchant Information' },
           { id: 6, fieldName: 'addressLine2', fieldType: 'text', fieldLabel: 'Address Line 2', isRequired: false, options: null, defaultValue: null, validation: null, position: 6, section: 'Merchant Information' },
           { id: 7, fieldName: 'city', fieldType: 'text', fieldLabel: 'City', isRequired: true, options: null, defaultValue: null, validation: null, position: 7, section: 'Merchant Information' },
@@ -2801,6 +2803,7 @@ export default function EnhancedPdfWizard() {
     switch (field.fieldType) {
       case 'text':
       case 'email':
+      case 'url':
         return (
           <div className="space-y-2 relative">
             <div className="flex items-center gap-1">
