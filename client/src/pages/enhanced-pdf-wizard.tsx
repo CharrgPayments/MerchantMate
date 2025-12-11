@@ -4031,7 +4031,13 @@ export default function EnhancedPdfWizard() {
                 if (postalCodeFieldId) handleFieldChange(postalCodeFieldId, value);
               }}
               onStreet2Change={(value) => {
-                if (street2FieldId) handleFieldChange(street2FieldId, value);
+                // Save to template field if available, otherwise save to canonical field as fallback
+                if (street2FieldId) {
+                  handleFieldChange(street2FieldId, value);
+                } else {
+                  // No template street2 field, save to canonical field name
+                  handleFieldChange(canonicalStreet2, value);
+                }
               }}
               placeholder="Start typing an address..."
               dataTestId={`addressgroup-${groupType}`}
