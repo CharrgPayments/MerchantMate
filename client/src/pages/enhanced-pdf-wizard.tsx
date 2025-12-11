@@ -4191,6 +4191,10 @@ export default function EnhancedPdfWizard() {
                 street2: street2Val
               }}
               onAddressSelect={(address) => {
+                console.log('🎯 ADDRESS SELECTED - Full address from Google:', address);
+                console.log('🎯 Template Field IDs:', { street1FieldId, street2FieldId, cityFieldId, stateFieldId, postalCodeFieldId, countryFieldId });
+                console.log('🎯 Canonical Field IDs:', { canonicalStreet1, canonicalStreet2, canonicalCity, canonicalState, canonicalPostalCode });
+                
                 // Update formData directly to bypass the locking check
                 // Save to BOTH template field IDs AND canonical names for consistent storage
                 const updates: Record<string, any> = {};
@@ -4211,8 +4215,15 @@ export default function EnhancedPdfWizard() {
                 updates[canonicalState] = address.state || '';
                 updates[canonicalPostalCode] = address.zipCode || '';
                 
+                console.log('🎯 UPDATES TO SAVE:', updates);
+                console.log('🎯 Updates count:', Object.keys(updates).length);
+                
                 if (Object.keys(updates).length > 0) {
-                  setFormData(prev => ({ ...prev, ...updates }));
+                  setFormData(prev => {
+                    const newFormData = { ...prev, ...updates };
+                    console.log('🎯 NEW formData after address update:', Object.keys(newFormData).filter(k => k.toLowerCase().includes('address') || k.toLowerCase().includes('city') || k.toLowerCase().includes('state') || k.toLowerCase().includes('postal') || k.toLowerCase().includes('zip')));
+                    return newFormData;
+                  });
                 }
                 
                 // Lock the address fields after selection to enforce autocomplete usage
