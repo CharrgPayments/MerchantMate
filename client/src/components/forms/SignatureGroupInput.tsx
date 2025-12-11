@@ -26,7 +26,7 @@ interface SignatureData {
   signerName: string;
   signerEmail: string;
   signature: string;
-  signatureType: 'drawn' | 'typed';
+  signatureType: 'drawn' | 'typed' | 'canvas';  // 'canvas' is alias for 'drawn' from legacy code
   initials?: string;
   dateSigned?: string;
   ownershipPercentage?: string;
@@ -80,7 +80,8 @@ export function SignatureGroupInput({
       setInitials(value.initials || '');
       setOwnershipPercentage(value.ownershipPercentage || '');
       if (value.signature) {
-        if (value.signatureType === 'drawn') {
+        // Handle both 'drawn' and 'canvas' as drawn signatures (canvas is legacy)
+        if (value.signatureType === 'drawn' || value.signatureType === 'canvas') {
           setDrawnSignature(value.signature);
           setSignatureType('draw');
         } else {
@@ -291,7 +292,7 @@ export function SignatureGroupInput({
             <div>
               <Label className="text-sm text-gray-600">Signature</Label>
               <div className="mt-2 p-4 border-2 border-gray-200 rounded-lg bg-white">
-                {value?.signatureType === 'drawn' ? (
+                {(value?.signatureType === 'drawn' || value?.signatureType === 'canvas') ? (
                   <img src={value.signature} alt="Signature" className="h-24 object-contain" />
                 ) : (
                   <p className="text-3xl font-signature italic">{value?.signature}</p>
