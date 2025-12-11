@@ -1417,8 +1417,11 @@ export default function EnhancedPdfWizard() {
         if (match) {
           const [, prefix, canonicalField] = match;
           if (!autoDetectedGroups[prefix]) {
+            // Use the full prefix without underscores as the type to match backend addressGroups
+            // e.g., 'merchant_location_address' -> 'merchantlocationaddress'
+            const groupType = prefix.replace(/_/g, '').toLowerCase();
             autoDetectedGroups[prefix] = {
-              type: prefix.split('_').pop()?.replace(/Address$/, '') || 'location',
+              type: groupType,
               label: field.label?.split('.')[0] || prefix,
               sectionName: section.title,
               fieldMappings: {}
