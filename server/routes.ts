@@ -2031,6 +2031,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(prospect);
     } catch (error) {
       console.error("Error creating prospect:", error);
+      
+      // Handle specific database constraint errors
+      if (error && typeof error === 'object' && 'code' in error) {
+        if (error.code === '23505') { // Unique constraint violation
+          const detail = (error as any).detail || '';
+          if (detail.includes('email')) {
+            return res.status(400).json({ 
+              message: "A prospect with this email already exists. Please use a different email address." 
+            });
+          }
+          return res.status(400).json({ 
+            message: "A record with these details already exists" 
+          });
+        }
+      }
+      
       res.status(500).json({ message: "Failed to create prospect" });
     }
   });
