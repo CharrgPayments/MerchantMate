@@ -3776,134 +3776,134 @@ export default function EnhancedPdfWizard() {
                       </div>
                     </div>
 
-                    {/* Signature requirement for owners with >=25% */}
-                    {parseFloat(owner.percentage) >= 25 && (
-                      <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                        <div className="flex items-start gap-2 mb-3">
-                          <FileText className="w-5 h-5 text-amber-600 mt-0.5" />
-                          <div>
-                            <p className="text-sm font-medium text-amber-800">Signature Required</p>
-                            <p className="text-xs text-amber-700">
-                              Owners with 25% or more ownership must provide a signature
-                            </p>
-                          </div>
+                    {/* Signature section - always rendered for stable component tree */}
+                    <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                      <div className="flex items-start gap-2 mb-3">
+                        <FileText className="w-5 h-5 text-amber-600 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium text-amber-800">Owner Signature</p>
+                          <p className="text-xs text-amber-700">
+                            {parseFloat(owner.percentage) >= 25 
+                              ? 'Required - owners with 25% or more ownership must provide a signature'
+                              : 'Optional - provide a signature if needed'}
+                          </p>
                         </div>
+                      </div>
 
-                        <DigitalSignaturePad
-                          ownerIndex={index}
-                          owner={owner}
-                          onSignatureChange={async (ownerIndex, signature, type) => {
-                            updateOwner(ownerIndex, 'signature', signature);
-                            updateOwner(ownerIndex, 'signatureType', type);
-                            
-                            // Save inline signature to database
-                            if (signature && type && owner.email && owner.name) {
-                              const prospectId = prospectData?.prospect?.id || prospectData?.id;
-                              if (prospectId) {
+                      <DigitalSignaturePad
+                        ownerIndex={index}
+                        owner={owner}
+                        onSignatureChange={async (ownerIndex, signature, type) => {
+                          updateOwner(ownerIndex, 'signature', signature);
+                          updateOwner(ownerIndex, 'signatureType', type);
+                          
+                          // Save inline signature to database
+                          if (signature && type && owner.email && owner.name) {
+                            const prospectId = prospectData?.prospect?.id || prospectData?.id;
+                            if (prospectId) {
+                              try {
+                                const response = await fetch(`/api/prospects/${prospectId}/save-inline-signature`, {
+                                  method: 'POST',
+                                  headers: {
+                                    'Content-Type': 'application/json',
+                                  },
+                                  body: JSON.stringify({
+                                    ownerEmail: owner.email,
+                                    ownerName: owner.name,
+                                    signature,
+                                    signatureType: type,
+                                    ownershipPercentage: owner.percentage
+                                  }),
+                                });
+                                
+                                if (response.ok) {
+                                  const result = await response.json();
+                                  console.log(`Inline signature saved to database for ${owner.name}`);
+                                  // Optionally update owner with signature token
+                                  if (result.signatureToken) {
+                                    updateOwner(ownerIndex, 'signatureToken', result.signatureToken);
+                                  }
+                                } else {
+                                  console.error('Failed to save inline signature to database');
+                                }
+                              } catch (error) {
+                                console.error('Error saving inline signature:', error);
+                              }
+                            }
+                          }
+                        }}
+                      />
+                      
+                      {!owner.signature && owner.email && (
+                        <div className="mt-3 pt-3 border-t border-amber-200">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-medium text-amber-800">Or Send Email Request</p>
+                              <p className="text-xs text-amber-700">
+                                Send a secure email request for digital signature
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={async () => {
+                                if (!owner.email || !owner.name || !formData.companyName) {
+                                  return;
+                                }
+
+                                const prospectId = prospectData?.prospect?.id || prospectData?.id;
+                                
+                                if (!prospectId) {
+                                  console.error('No prospect ID available');
+                                  return;
+                                }
+
                                 try {
-                                  const response = await fetch(`/api/prospects/${prospectId}/save-inline-signature`, {
+                                  const response = await fetch('/api/signature-request', {
                                     method: 'POST',
                                     headers: {
                                       'Content-Type': 'application/json',
                                     },
                                     body: JSON.stringify({
-                                      ownerEmail: owner.email,
+                                      prospectId: prospectId,
                                       ownerName: owner.name,
-                                      signature,
-                                      signatureType: type,
-                                      ownershipPercentage: owner.percentage
+                                      ownerEmail: owner.email,
+                                      companyName: formData.companyName,
+                                      ownershipPercentage: owner.percentage,
+                                      requesterName: formData.companyName,
+                                      agentName: formData.assignedAgent?.split(' (')[0] || 'Agent'
                                     }),
                                   });
+
+                                  const result = await response.json();
                                   
-                                  if (response.ok) {
-                                    const result = await response.json();
-                                    console.log(`Inline signature saved to database for ${owner.name}`);
-                                    // Optionally update owner with signature token
-                                    if (result.signatureToken) {
-                                      updateOwner(ownerIndex, 'signatureToken', result.signatureToken);
-                                    }
+                                  if (response.ok && result.success) {
+                                    updateOwner(index, 'signatureToken', result.signatureToken);
+                                    updateOwner(index, 'emailSent', new Date().toISOString());
+                                    console.log(`Signature request sent to ${owner.email}`);
                                   } else {
-                                    console.error('Failed to save inline signature to database');
+                                    console.error('Failed to send signature request:', result.message);
                                   }
                                 } catch (error) {
-                                  console.error('Error saving inline signature:', error);
+                                  console.error('Error sending signature request:', error);
                                 }
-                              }
-                            }
-                          }}
-                        />
-                        
-                        {!owner.signature && owner.email && (
-                          <div className="mt-3 pt-3 border-t border-amber-200">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="text-sm font-medium text-amber-800">Or Send Email Request</p>
-                                <p className="text-xs text-amber-700">
-                                  Send a secure email request for digital signature
-                                </p>
-                              </div>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={async () => {
-                                  if (!owner.email || !owner.name || !formData.companyName) {
-                                    return;
-                                  }
-
-                                  const prospectId = prospectData?.prospect?.id || prospectData?.id;
-                                  
-                                  if (!prospectId) {
-                                    console.error('No prospect ID available');
-                                    return;
-                                  }
-
-                                  try {
-                                    const response = await fetch('/api/signature-request', {
-                                      method: 'POST',
-                                      headers: {
-                                        'Content-Type': 'application/json',
-                                      },
-                                      body: JSON.stringify({
-                                        prospectId: prospectId,
-                                        ownerName: owner.name,
-                                        ownerEmail: owner.email,
-                                        companyName: formData.companyName,
-                                        ownershipPercentage: owner.percentage,
-                                        requesterName: formData.companyName,
-                                        agentName: formData.assignedAgent?.split(' (')[0] || 'Agent'
-                                      }),
-                                    });
-
-                                    const result = await response.json();
-                                    
-                                    if (response.ok && result.success) {
-                                      updateOwner(index, 'signatureToken', result.signatureToken);
-                                      updateOwner(index, 'emailSent', new Date().toISOString());
-                                      console.log(`Signature request sent to ${owner.email}`);
-                                    } else {
-                                      console.error('Failed to send signature request:', result.message);
-                                    }
-                                  } catch (error) {
-                                    console.error('Error sending signature request:', error);
-                                  }
-                                }}
-                                disabled={!owner.email || !formData.companyName}
-                                className="border-amber-300 text-amber-700 hover:bg-amber-100"
-                              >
-                                Send Email Request
-                              </Button>
-                            </div>
-                            
-                            {owner.emailSent && (
-                              <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-700">
-                                Email sent successfully on {new Date(owner.emailSent).toLocaleDateString()}
-                              </div>
-                            )}
+                              }}
+                              disabled={!owner.email || !formData.companyName}
+                              className="border-amber-300 text-amber-700 hover:bg-amber-100"
+                            >
+                              Send Email Request
+                            </Button>
                           </div>
-                        )}
-                      </div>
-                    )}
+                          
+                          {owner.emailSent && (
+                            <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-700">
+                              Email sent successfully on {new Date(owner.emailSent).toLocaleDateString()}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
