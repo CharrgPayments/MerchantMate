@@ -159,3 +159,13 @@ See `MIGRATION_WORKFLOW.md` for complete deployment pipeline documentation.
 - **react-quill**: WYSIWYG rich text editor.
 - **google-maps-services-js**: Google Maps Geocoding and Places APIs.
 - **@google-cloud/storage**: Google Cloud Storage client for Replit Object Storage integration.
+
+## Known Bugs (To Be Fixed)
+
+### Prospect Application Auto-Save Not Triggering
+- **Date Identified**: December 11, 2025
+- **Location**: `client/src/pages/enhanced-pdf-wizard.tsx` (lines 1235-1278)
+- **Issue**: The debounced auto-save (2.5 second delay after field changes) is not triggering properly. Form data is NOT being saved automatically to the database after user input.
+- **Workaround**: Data saves correctly when clicking the "Next" or "Previous" buttons. Users should click Next to ensure their data is saved.
+- **Impact**: Low - manual save via navigation works; auto-save is a convenience feature.
+- **Root Cause**: Possibly the `formData` state changes aren't triggering the useEffect dependency, or the `formDataRef.current` isn't being updated correctly.
