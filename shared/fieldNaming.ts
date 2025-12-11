@@ -79,85 +79,118 @@ export function buildFieldName(...parts: (string | number)[]): string {
  * - owners_owner1_signature_owner.signerName -> owners.1.signature.signerName
  * - owners_owner2_signature_owner_howLongYears -> owners.2.howLongYears
  * - merchant_location_address_city -> location.address.city
+ * - signatureGroup_owners_owner1_signature_owner -> signatureGroup.owners.1.signature
  */
 export function convertLegacyFieldName(legacyName: string): string {
-  // Handle the mixed format: underscores for hierarchy, dots for final field
-  // Pattern: owners_owner1_signature_owner.signerName
-  
   let name = legacyName;
   
-  // Step 1: Handle owner patterns
+  // Skip if already in new format (contains periods but no underscores in hierarchy)
+  if (name.includes(FIELD_DELIMITER) && !name.includes('_owner') && !name.includes('_signature_')) {
+    return name;
+  }
+  
+  // Step 1: Handle signatureGroup_ prefix
+  // signatureGroup_owners_owner1_signature_owner -> signatureGroup.owners.1.signature
+  const sigGroupMatch = name.match(/^signatureGroup_(.+)$/);
+  if (sigGroupMatch) {
+    const innerPart = convertLegacyFieldName(sigGroupMatch[1]);
+    return buildFieldName('signatureGroup', innerPart);
+  }
+  
+  // Step 2: Handle owner patterns with various formats
   // Match: owners_owner1_... or owner1_...
-  const ownerMatch = name.match(/^(?:owners_)?owner(\d+)_(.+)$/);
-  if (ownerMatch) {
-    const ownerNum = ownerMatch[1];
-    const rest = ownerMatch[2];
-    
-    // Handle signature_owner prefix
-    const sigMatch = rest.match(/^signature_owner[._]?(.*)$/);
-    if (sigMatch) {
-      const sigField = sigMatch[1] || '';
-      if (sigField) {
-        // owners.1.signature.signerName
-        return buildFieldName('owners', ownerNum, 'signature', sigField);
-      } else {
-        // owners.1.signature
+  const ownerPatterns = [
+    // owners_owner1_signature_owner.signerName
+    /^owners_owner(\d+)_signature_owner[._]?(.*)$/,
+    // owners_owner1_signature.signerName (alt format)
+    /^owners_owner(\d+)_signature[._](.+)$/,
+    // owners_owner1_firstName
+    /^owners_owner(\d+)_(.+)$/,
+    // owner1_signature_owner.signerName
+    /^owner(\d+)_signature_owner[._]?(.*)$/,
+    // owner1_firstName
+    /^owner(\d+)_(.+)$/,
+  ];
+  
+  for (const pattern of ownerPatterns) {
+    const match = name.match(pattern);
+    if (match) {
+      const ownerNum = match[1];
+      let rest = match[2] || '';
+      
+      // Detect signature field within owner
+      const isSignatureField = pattern.source.includes('signature');
+      
+      if (isSignatureField) {
+        // Clean up the field name part (remove leading dots/underscores)
+        rest = rest.replace(/^[._]/, '');
+        if (rest) {
+          return buildFieldName('owners', ownerNum, 'signature', rest);
+        }
         return buildFieldName('owners', ownerNum, 'signature');
       }
+      
+      // Regular owner field - convert remaining underscores if they look like hierarchy
+      // but keep underscores in actual field names (like first_name)
+      const cleanField = rest.replace(/\./g, FIELD_DELIMITER);
+      return buildFieldName('owners', ownerNum, cleanField);
     }
-    
-    // Handle signature_ prefix without "owner"
-    const sigMatch2 = rest.match(/^signature[._](.+)$/);
-    if (sigMatch2) {
-      return buildFieldName('owners', ownerNum, 'signature', sigMatch2[1]);
+  }
+  
+  // Step 3: Handle address patterns
+  const addressPatterns = [
+    // merchant_location_address_city -> location.address.city
+    { pattern: /^merchant_location_address_(.+)$/, replacement: (m: RegExpMatchArray) => buildFieldName('location', 'address', m[1]) },
+    // location_address_city -> location.address.city
+    { pattern: /^location_address_(.+)$/, replacement: (m: RegExpMatchArray) => buildFieldName('location', 'address', m[1]) },
+    // merchant_mailing_address_city -> mailing.address.city
+    { pattern: /^merchant_mailing_address_(.+)$/, replacement: (m: RegExpMatchArray) => buildFieldName('mailing', 'address', m[1]) },
+    // mailing_address_city -> mailing.address.city
+    { pattern: /^mailing_address_(.+)$/, replacement: (m: RegExpMatchArray) => buildFieldName('mailing', 'address', m[1]) },
+    // business_address_city -> business.address.city  
+    { pattern: /^business_address_(.+)$/, replacement: (m: RegExpMatchArray) => buildFieldName('business', 'address', m[1]) },
+    // owner1_address_city -> owners.1.address.city
+    { pattern: /^owner(\d+)_address_(.+)$/, replacement: (m: RegExpMatchArray) => buildFieldName('owners', m[1], 'address', m[2]) },
+  ];
+  
+  for (const { pattern, replacement } of addressPatterns) {
+    const match = name.match(pattern);
+    if (match) {
+      return replacement(match);
     }
-    
-    // Regular owner field
-    // Convert remaining underscores to appropriate structure
-    const cleanField = rest.replace(/^signature_/, '').replace(/\./g, FIELD_DELIMITER);
-    return buildFieldName('owners', ownerNum, cleanField);
   }
   
-  // Step 2: Handle address patterns
-  // merchant_location_address_city -> location.address.city
-  const addressMatch = name.match(/^(merchant_)?location_address_(.+)$/);
-  if (addressMatch) {
-    return buildFieldName('location', 'address', addressMatch[2]);
-  }
-  
-  // Step 3: Handle business address patterns
-  const businessAddressMatch = name.match(/^(business_)?address_(.+)$/);
-  if (businessAddressMatch) {
-    return buildFieldName('business', 'address', businessAddressMatch[2]);
-  }
-  
-  // Step 4: Handle mailing address patterns
-  const mailingMatch = name.match(/^mailing_address_(.+)$/);
-  if (mailingMatch) {
-    return buildFieldName('mailing', 'address', mailingMatch[1]);
-  }
-  
-  // Step 5: Handle merchant_ prefix
+  // Step 4: Handle merchant_ prefix for other fields
   if (name.startsWith('merchant_')) {
     name = name.substring(9); // Remove 'merchant_'
+    // Continue processing with cleaned name
   }
   
-  // Step 6: Handle generic section_field pattern
-  // Replace underscores with periods for hierarchy, but keep some as underscores
-  // This is tricky - we need to identify meaningful hierarchy breaks
+  // Step 5: Handle known section prefixes with subsections
+  const sectionSubsectionPatterns = [
+    // business_entity_type -> business.entityType
+    { pattern: /^business_(.+)$/, section: 'business' },
+    // banking_account_number -> banking.accountNumber
+    { pattern: /^banking_(.+)$/, section: 'banking' },
+    // equipment_terminal_type -> equipment.terminalType
+    { pattern: /^equipment_(.+)$/, section: 'equipment' },
+    // agent_name -> agent.name
+    { pattern: /^agent_(.+)$/, section: 'agent' },
+    // location_phone -> location.phone
+    { pattern: /^location_(.+)$/, section: 'location' },
+  ];
   
-  // Common section prefixes
-  const sectionPrefixes = ['business', 'location', 'owners', 'agent', 'banking', 'equipment', 'signatures'];
-  
-  for (const prefix of sectionPrefixes) {
-    if (name.startsWith(`${prefix}_`)) {
-      const rest = name.substring(prefix.length + 1);
-      return buildFieldName(prefix, rest);
+  for (const { pattern, section } of sectionSubsectionPatterns) {
+    const match = name.match(pattern);
+    if (match) {
+      const fieldPart = match[1];
+      // Don't convert underscores within the field name itself
+      return buildFieldName(section, fieldPart);
     }
   }
   
-  // If no pattern matched, return with dots replacing underscores as a fallback
-  // But be careful - some underscores might be part of the field name
+  // Step 6: Return unchanged if no pattern matched
+  // This preserves simple field names and prevents over-conversion
   return name;
 }
 
