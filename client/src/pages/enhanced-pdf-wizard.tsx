@@ -861,22 +861,23 @@ export default function EnhancedPdfWizard() {
       const response = await fetch(`/api/prospects/${prospectId}/owners-with-signatures`);
       if (response.ok) {
         const result = await response.json();
+        
+        // Merge signature data with existing owners if available
         if (result.success && result.owners.length > 0) {
           console.log("Found owners with signatures from database:", result.owners);
           
-          // Merge signature data with existing owners instead of replacing the entire array
           setFormData(prev => {
             const existingOwners = prev.owners || [];
             const signatureOwners = result.owners;
             
             // Create a map of signatures by email for easy lookup
             const signatureMap = new Map();
-            signatureOwners.forEach(sigOwner => {
+            signatureOwners.forEach((sigOwner: any) => {
               signatureMap.set(sigOwner.email, sigOwner);
             });
             
             // Update existing owners with signature data if available
-            const updatedOwners = existingOwners.map(owner => {
+            const updatedOwners = existingOwners.map((owner: any) => {
               const signatureData = signatureMap.get(owner.email);
               if (signatureData) {
                 return {
@@ -898,8 +899,24 @@ export default function EnhancedPdfWizard() {
               owners: updatedOwners
             };
           });
+        }
+        
+        // Also merge signature captures (for Template 25 style signatureGroup format)
+        if (result.success && result.signatureCaptures && Object.keys(result.signatureCaptures).length > 0) {
+          console.log("Found signature captures from database:", result.signatureCaptures);
+          
+          setFormData(prev => {
+            // Merge signatureCaptures into formData
+            const updatedFormData = { ...prev };
+            for (const [key, captureData] of Object.entries(result.signatureCaptures)) {
+              // Store as JSON string to match expected format
+              updatedFormData[key] = JSON.stringify(captureData);
+              console.log(`Loaded signature capture: ${key}`);
+            }
+            return updatedFormData;
+          });
         } else {
-          console.log("No owners found in database");
+          console.log("No signature captures found in database");
         }
       } else {
         console.log("Failed to fetch owners:", response.status);
