@@ -812,12 +812,20 @@ export class AuthService {
       // Hash new password
       const passwordHash = await this.hashPassword(data.password);
 
-      // Update user
-      await tempStorage.updateUser(user.id, {
+      // Update user - also activate if pending_password
+      const updateData: any = {
         passwordHash,
         passwordResetToken: null,
         passwordResetExpires: null,
-      });
+      };
+      
+      // If user was in pending_password status, activate the account
+      if (user.status === 'pending_password') {
+        updateData.status = 'active';
+        console.log(`Activating account for user ${user.email} (was pending_password)`);
+      }
+      
+      await tempStorage.updateUser(user.id, updateData);
 
       // Send confirmation email
       await this.sendEmail(
