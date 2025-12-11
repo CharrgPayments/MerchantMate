@@ -4194,6 +4194,16 @@ export default function EnhancedPdfWizard() {
                 // Store at the fieldName key that matches what progress calculation expects
                 const fieldNameKey = `signatureGroup_${sigGroupConfig.groupKey}`;
                 
+                // DEBUG: Log signature data changes
+                console.log(`✍️ SignatureGroup onChange called for ${fieldNameKey}:`, {
+                  signerName: data.signerName,
+                  signerEmail: data.signerEmail,
+                  hasSignature: !!data.signature,
+                  signatureType: data.signatureType,
+                  status: data.status,
+                  signatureLength: data.signature?.length || 0
+                });
+                
                 // Store the complete signature data as JSON string (handleFieldChange expects scalars)
                 handleFieldChange(fieldNameKey, JSON.stringify(data));
                 
