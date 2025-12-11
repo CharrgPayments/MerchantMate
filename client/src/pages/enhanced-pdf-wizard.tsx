@@ -77,11 +77,33 @@ export default function EnhancedPdfWizard() {
   const [ownershipPercentages, setOwnershipPercentages] = useState<Record<number, number>>({}); // Track each owner's %
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  
+  // Ref to track when user is actively editing owner fields - prevents signature sync from overwriting
+  const isEditingOwnersRef = useRef(false);
+  const signatureSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Check for submitted signatures when form data changes
+  // GUARDED: Only runs when initial data is loaded AND user is not actively editing
   useEffect(() => {
-    // Add a small delay to ensure form data is fully loaded
-    const timer = setTimeout(async () => {
+    // Don't run during user editing or before initial data load
+    if (isEditingOwnersRef.current || !initialDataLoaded) {
+      console.log('Skipping signature sync: editing=', isEditingOwnersRef.current, 'initialDataLoaded=', initialDataLoaded);
+      return;
+    }
+    
+    // Clear any pending timeout
+    if (signatureSyncTimeoutRef.current) {
+      clearTimeout(signatureSyncTimeoutRef.current);
+    }
+    
+    // Add a longer delay to ensure user has stopped editing
+    signatureSyncTimeoutRef.current = setTimeout(async () => {
+      // Double-check user isn't editing
+      if (isEditingOwnersRef.current) {
+        console.log('Signature sync aborted: user started editing');
+        return;
+      }
+      
       if (!formData.owners || !Array.isArray(formData.owners)) {
         console.log('No owners array found');
         return;
@@ -95,25 +117,16 @@ export default function EnhancedPdfWizard() {
       for (let i = 0; i < updatedOwners.length; i++) {
         const owner = updatedOwners[i];
         
-        console.log(`Checking owner ${owner.name}:`, {
-          hasSignature: !!owner.signature,
-          signatureToken: owner.signatureToken
-        });
-        
         // Skip if owner already has a signature or no signature token
         if (owner.signature || !owner.signatureToken) {
-          console.log(`Skipping ${owner.name}: ${owner.signature ? 'already has signature' : 'no signature token'}`);
           continue;
         }
         
         try {
-          console.log(`Fetching signature for token: ${owner.signatureToken}`);
           const response = await fetch(`/api/signature/${owner.signatureToken}`);
-          console.log(`Response status: ${response.status}`);
           
           if (response.ok) {
             const result = await response.json();
-            console.log('Signature API response:', result);
             
             if (result.success && result.signature) {
               updatedOwners[i] = {
@@ -124,27 +137,28 @@ export default function EnhancedPdfWizard() {
               hasUpdates = true;
               console.log(`Found submitted signature for ${owner.name}`);
             }
-          } else {
-            console.log(`No signature found for ${owner.name} (${response.status})`);
           }
         } catch (error) {
           console.log(`Error checking signature for ${owner.name}:`, error);
         }
       }
       
-      if (hasUpdates) {
-        console.log('Updating form data with signatures');
+      // Final check before updating - user might have started editing during fetch
+      if (hasUpdates && !isEditingOwnersRef.current) {
+        console.log('Updating form data with signatures (merge only owners)');
         setFormData(prev => ({
           ...prev,
           owners: updatedOwners
         }));
-      } else {
-        console.log('No signature updates found');
       }
-    }, 100); // Small delay to ensure form data is fully loaded
+    }, 500); // Longer delay to avoid conflicts with user input
     
-    return () => clearTimeout(timer);
-  }, [formData.owners]); // Trigger when owners array changes
+    return () => {
+      if (signatureSyncTimeoutRef.current) {
+        clearTimeout(signatureSyncTimeoutRef.current);
+      }
+    };
+  }, [formData.owners, initialDataLoaded]); // Trigger when owners array changes
 
   // Check for any cached data on component mount
   useEffect(() => {
@@ -3579,6 +3593,9 @@ export default function EnhancedPdfWizard() {
         };
 
         const updateOwner = (index: number, field: string, value: any) => {
+          // Set editing flag to prevent signature sync from overwriting during user input
+          isEditingOwnersRef.current = true;
+          
           const newOwners = [...owners];
           newOwners[index] = { ...newOwners[index], [field]: value };
           handleFieldChange('owners', newOwners);
@@ -3586,6 +3603,9 @@ export default function EnhancedPdfWizard() {
 
         // Auto-save owner data to database when key fields lose focus
         const handleOwnerBlur = async (index: number, field: string) => {
+          // Clear editing flag after blur (user stopped editing)
+          isEditingOwnersRef.current = false;
+          
           if ((field === 'percentage' || field === 'name' || field === 'email') && isProspectMode && prospectData?.prospect) {
             const updatedFormData = { ...formData, owners };
             
