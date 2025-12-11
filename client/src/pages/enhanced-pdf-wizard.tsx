@@ -394,10 +394,8 @@ export default function EnhancedPdfWizard() {
       signerEmail: string;
       ownershipPercentage: number | null;
     }) => {
-      return await apiRequest('/api/signature-requests', {
-        method: 'POST',
-        body: JSON.stringify(requestData),
-      });
+      const response = await apiRequest('POST', '/api/signature-requests', requestData);
+      return response.json();
     },
     onSuccess: (result, variables) => {
       if (result.success) {
@@ -434,9 +432,8 @@ export default function EnhancedPdfWizard() {
   // Resend signature request mutation
   const resendSignatureRequestMutation = useMutation({
     mutationFn: async ({ token }: { token: string }) => {
-      return await apiRequest(`/api/signatures/${token}/resend`, {
-        method: 'POST',
-      });
+      const response = await apiRequest('POST', `/api/signatures/${token}/resend`);
+      return response.json();
     },
     onSuccess: (result) => {
       if (result.success) {
