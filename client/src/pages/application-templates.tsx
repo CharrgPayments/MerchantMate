@@ -13,10 +13,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus, Pencil, Eye, Copy, Download, Upload, Trash2, Settings, Circle, CheckCircle, ChevronDown, ChevronRight, GripVertical, FlaskConical, HelpCircle } from 'lucide-react';
+import { Plus, Pencil, Eye, Copy, Download, Upload, Trash2, Settings, Circle, CheckCircle, ChevronDown, ChevronRight, GripVertical, FlaskConical, HelpCircle, Map, Link2, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useLocation } from 'wouter';
 import {
@@ -1637,7 +1638,19 @@ function FieldConfigurationDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6">
+        <Tabs defaultValue="design" className="w-full">
+          <TabsList className="grid w-full grid-cols-2 mb-4">
+            <TabsTrigger value="design" className="flex items-center gap-2">
+              <Settings className="h-4 w-4" />
+              Form Design
+            </TabsTrigger>
+            <TabsTrigger value="mappings" className="flex items-center gap-2" data-testid="tab-field-mappings">
+              <Link2 className="h-4 w-4" />
+              Field Mappings
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="design" className="space-y-6">
           {/* Sections List */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -1701,16 +1714,21 @@ function FieldConfigurationDialog({
               </Card>
             )}
           </div>
+          </TabsContent>
 
-          {/* Action Buttons */}
-          <div className="flex justify-end gap-2 pt-4 border-t">
-            <Button variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={isLoading} data-testid="button-save-field-config">
-              {isLoading ? 'Saving...' : 'Save Configuration'}
-            </Button>
-          </div>
+          <TabsContent value="mappings" className="space-y-6">
+            <FieldMappingsVisualization sections={sections} templateName={template.templateName} />
+          </TabsContent>
+        </Tabs>
+
+        {/* Action Buttons */}
+        <div className="flex justify-end gap-2 pt-4 border-t mt-4">
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={isLoading} data-testid="button-save-field-config">
+            {isLoading ? 'Saving...' : 'Save Configuration'}
+          </Button>
         </div>
 
         {/* Field Editor Dialog */}
@@ -2517,5 +2535,235 @@ function FieldConfigurationDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+// Field Mappings Visualization Component - helps debug field associations
+function FieldMappingsVisualization({ 
+  sections, 
+  templateName 
+}: { 
+  sections: any[];
+  templateName: string;
+}) {
+  // Generate canonical field name for address groups (matches enhanced-pdf-wizard logic)
+  const generateCanonicalName = (fieldId: string, subField: string) => {
+    const groupType = fieldId.replace(/_/g, '').toLowerCase();
+    return `${groupType}Address.${subField}`;
+  };
+
+  // Check if a field is an address-related field
+  const isAddressField = (field: any) => {
+    return field.type === 'address' || field.id?.includes('address') || field.id?.includes('Address');
+  };
+
+  // Group fields by their type for better visualization
+  const fieldGroups = {
+    address: [] as any[],
+    standard: [] as any[],
+    special: [] as any[] // user_account, signature, etc.
+  };
+
+  sections.forEach((section: any, sectionIndex: number) => {
+    (section.fields || []).forEach((field: any, fieldIndex: number) => {
+      const fieldWithContext = {
+        ...field,
+        sectionTitle: section.title,
+        sectionIndex,
+        fieldIndex
+      };
+
+      if (isAddressField(field)) {
+        fieldGroups.address.push(fieldWithContext);
+      } else if (field.type === 'user_account' || field.type === 'signature') {
+        fieldGroups.special.push(fieldWithContext);
+      } else {
+        fieldGroups.standard.push(fieldWithContext);
+      }
+    });
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <h3 className="font-semibold text-blue-900 flex items-center gap-2">
+          <Link2 className="h-5 w-5" />
+          Field Mapping Reference - {templateName}
+        </h3>
+        <p className="text-sm text-blue-700 mt-1">
+          This view shows how each field ID maps to storage keys. Use this for debugging data persistence issues.
+        </p>
+      </div>
+
+      {/* Address Fields Section */}
+      {fieldGroups.address.length > 0 && (
+        <Card>
+          <CardHeader className="py-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Map className="h-4 w-4 text-green-600" />
+              Address Fields ({fieldGroups.address.length})
+            </CardTitle>
+            <CardDescription>
+              Address fields use dual naming: Template ID + Canonical Name
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="space-y-4">
+              {fieldGroups.address.map((field: any, idx: number) => (
+                <div key={idx} className="border rounded-lg p-4 bg-green-50">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-medium text-green-900">{field.label}</span>
+                    <Badge variant="outline" className="bg-white">
+                      Section: {field.sectionTitle}
+                    </Badge>
+                  </div>
+                  
+                  <div className="text-sm space-y-2">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <span className="text-gray-500">Template Field ID:</span>
+                        <code className="ml-2 px-2 py-1 bg-white rounded text-xs font-mono">
+                          {field.id}
+                        </code>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Field Type:</span>
+                        <code className="ml-2 px-2 py-1 bg-white rounded text-xs font-mono">
+                          {field.type}
+                        </code>
+                      </div>
+                    </div>
+
+                    {/* Show sub-field mappings for address groups */}
+                    <div className="mt-3 pt-3 border-t border-green-200">
+                      <span className="text-xs font-semibold text-green-800 uppercase">Sub-field Mappings:</span>
+                      <div className="grid grid-cols-2 gap-2 mt-2">
+                        {['street1', 'street2', 'city', 'state', 'postalcode'].map(subField => (
+                          <div key={subField} className="flex items-center gap-2 text-xs">
+                            <span className="text-gray-600 w-16">{subField}:</span>
+                            <code className="px-1.5 py-0.5 bg-white rounded font-mono text-green-700">
+                              {field.id}.{subField}
+                            </code>
+                            <span className="text-gray-400">→</span>
+                            <code className="px-1.5 py-0.5 bg-green-100 rounded font-mono text-green-800">
+                              {generateCanonicalName(field.id, subField)}
+                            </code>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Standard Fields Section */}
+      {fieldGroups.standard.length > 0 && (
+        <Card>
+          <CardHeader className="py-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Circle className="h-4 w-4 text-blue-600" />
+              Standard Fields ({fieldGroups.standard.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 px-2">Section</th>
+                    <th className="text-left py-2 px-2">Label</th>
+                    <th className="text-left py-2 px-2">Field ID</th>
+                    <th className="text-left py-2 px-2">Type</th>
+                    <th className="text-left py-2 px-2">Required</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fieldGroups.standard.map((field: any, idx: number) => (
+                    <tr key={idx} className="border-b hover:bg-gray-50">
+                      <td className="py-2 px-2 text-gray-600">{field.sectionTitle}</td>
+                      <td className="py-2 px-2 font-medium">{field.label}</td>
+                      <td className="py-2 px-2">
+                        <code className="px-2 py-1 bg-gray-100 rounded text-xs font-mono">
+                          {field.id}
+                        </code>
+                      </td>
+                      <td className="py-2 px-2">
+                        <Badge variant="secondary">{field.type}</Badge>
+                      </td>
+                      <td className="py-2 px-2">
+                        {field.required ? (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <Circle className="h-4 w-4 text-gray-300" />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Special Fields Section */}
+      {fieldGroups.special.length > 0 && (
+        <Card>
+          <CardHeader className="py-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Settings className="h-4 w-4 text-purple-600" />
+              Special Fields ({fieldGroups.special.length})
+            </CardTitle>
+            <CardDescription>
+              User accounts, signatures, and other complex field types
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="space-y-2">
+              {fieldGroups.special.map((field: any, idx: number) => (
+                <div key={idx} className="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
+                  <div>
+                    <span className="font-medium text-purple-900">{field.label}</span>
+                    <span className="text-xs text-purple-600 ml-2">({field.sectionTitle})</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="bg-white">{field.type}</Badge>
+                    <code className="px-2 py-1 bg-white rounded text-xs font-mono">
+                      {field.id}
+                    </code>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Summary Statistics */}
+      <div className="grid grid-cols-3 gap-4">
+        <Card className="bg-green-50">
+          <CardContent className="pt-4 text-center">
+            <div className="text-2xl font-bold text-green-700">{fieldGroups.address.length}</div>
+            <div className="text-sm text-green-600">Address Fields</div>
+          </CardContent>
+        </Card>
+        <Card className="bg-blue-50">
+          <CardContent className="pt-4 text-center">
+            <div className="text-2xl font-bold text-blue-700">{fieldGroups.standard.length}</div>
+            <div className="text-sm text-blue-600">Standard Fields</div>
+          </CardContent>
+        </Card>
+        <Card className="bg-purple-50">
+          <CardContent className="pt-4 text-center">
+            <div className="text-2xl font-bold text-purple-700">{fieldGroups.special.length}</div>
+            <div className="text-sm text-purple-600">Special Fields</div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   );
 }
