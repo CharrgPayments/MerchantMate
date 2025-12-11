@@ -19,6 +19,7 @@ import { EINInput } from '@/components/forms/EINInput';
 import { AddressAutocompleteInput } from '@/components/forms/AddressAutocompleteInput';
 import { SignatureGroupInput } from '@/components/forms/SignatureGroupInput';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { getOwnerNumberFromField, isSignatureGroupField } from '@shared/fieldNaming';
 
 interface FormField {
   id: number;
@@ -4721,14 +4722,13 @@ export default function EnhancedPdfWizard() {
                       const ownerSignatureGroups: Record<number, typeof fields> = {};
                       
                       fields.forEach((field) => {
-                        // Check for owner patterns in fieldName
-                        // Patterns: owners_owner1_signature_*, owner1_*, etc.
-                        const ownerMatch = field.fieldName.match(/(?:owners_)?owner(\d+)_/);
-                        const isSignatureGroup = field.fieldType === 'signatureGroup';
+                        // Use shared utility to detect owner fields
+                        // Supports both new format (owners.1.firstName) and legacy (owners_owner1_firstName)
+                        const ownerNum = getOwnerNumberFromField(field.fieldName);
+                        const isSigGroup = field.fieldType === 'signatureGroup';
                         
-                        if (ownerMatch) {
-                          const ownerNum = parseInt(ownerMatch[1]);
-                          if (isSignatureGroup) {
+                        if (ownerNum !== null) {
+                          if (isSigGroup) {
                             if (!ownerSignatureGroups[ownerNum]) ownerSignatureGroups[ownerNum] = [];
                             ownerSignatureGroups[ownerNum].push(field);
                           } else {
