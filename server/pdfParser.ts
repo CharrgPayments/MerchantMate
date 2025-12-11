@@ -1,6 +1,7 @@
 import { PdfFormField } from '@shared/schema';
 import { getWellsFargoMPAForm } from './wellsFargoMPA';
 import { PDFDocument, PDFTextField, PDFDropdown, PDFCheckBox, PDFRadioGroup, PDFButton } from 'pdf-lib';
+import { buildFieldName } from '@shared/fieldNaming';
 
 interface ParsedFormField {
   fieldName: string;
@@ -35,6 +36,66 @@ interface ParsedFormSection {
 }
 
 export class PDFFormParser {
+  /**
+   * Build a field name using the new period-delimited convention
+   * Handles special patterns like owner fields:
+   * - section=owners, fieldName=owner1_firstName -> owners.1.firstName
+   * - section=owners, fieldName=owner1_address_city -> owners.1.address.city
+   * - section=merchant, fieldName=email -> merchant.email
+   */
+  private buildNewFieldName(section: string, fieldName: string): string {
+    // Check for owner pattern: owner1_firstName, owner2_ssn, etc.
+    const ownerMatch = fieldName.match(/^owner(\d+)_?(.*)$/);
+    if (ownerMatch) {
+      const ownerNum = ownerMatch[1];
+      const restOfField = ownerMatch[2] || '';
+      
+      // Check for signature pattern: owner1_signature_owner_signerName
+      const sigMatch = restOfField.match(/^signature_owner[_.]?(.*)$/);
+      if (sigMatch) {
+        const sigField = sigMatch[1] || '';
+        if (sigField) {
+          return buildFieldName('owners', ownerNum, 'signature', sigField);
+        }
+        return buildFieldName('owners', ownerNum, 'signature');
+      }
+      
+      // Check for signature pattern without "owner" suffix: owner1_signature_signerName
+      const sigMatch2 = restOfField.match(/^signature[_.](.+)$/);
+      if (sigMatch2) {
+        return buildFieldName('owners', ownerNum, 'signature', sigMatch2[1]);
+      }
+      
+      // Check for address pattern within owner: owner1_address_city -> owners.1.address.city
+      const ownerAddressMatch = restOfField.match(/^address_(.+)$/);
+      if (ownerAddressMatch) {
+        // The captured group is already just the field name (e.g., "city" from "address_city")
+        return buildFieldName('owners', ownerNum, 'address', ownerAddressMatch[1]);
+      }
+      
+      // Check for mailing address: owner1_mailing_address_city -> owners.1.mailing.address.city
+      const mailingMatch = restOfField.match(/^mailing_address_(.+)$/);
+      if (mailingMatch) {
+        return buildFieldName('owners', ownerNum, 'mailing', 'address', mailingMatch[1]);
+      }
+      
+      // Regular owner field
+      if (restOfField) {
+        return buildFieldName('owners', ownerNum, restOfField);
+      }
+      return buildFieldName('owners', ownerNum);
+    }
+    
+    // Check for address pattern: address_city, address_street1, etc.
+    const addressMatch = fieldName.match(/^address_(.+)$/);
+    if (addressMatch) {
+      return buildFieldName(section, 'address', addressMatch[1]);
+    }
+    
+    // Default: section.fieldName
+    return buildFieldName(section, fieldName);
+  }
+
   /**
    * Convert legacy string[] options to new structured format
    */
@@ -110,6 +171,8 @@ export class PDFFormParser {
   async parsePDF(buffer: Buffer): Promise<{
     sections: ParsedFormSection[];
     totalFields: number;
+    addressGroups?: any[];
+    signatureGroups?: any[];
   }> {
     try {
       // Load the PDF document
@@ -180,7 +243,7 @@ export class PDFFormParser {
           }
           
           parsedFields.push({
-            fieldName: `${parsedName.section}_${parsedName.fieldName}`,
+            fieldName: this.buildNewFieldName(parsedName.section, parsedName.fieldName),
             fieldType,
             fieldLabel: this.generateFieldLabel(parsedName.fieldName),
             isRequired: false,
@@ -226,7 +289,7 @@ export class PDFFormParser {
           }
           
           parsedFields.push({
-            fieldName: `${parsedName.section}_${parsedName.fieldName}`,
+            fieldName: this.buildNewFieldName(parsedName.section, parsedName.fieldName),
             fieldType,
             fieldLabel: this.generateFieldLabel(parsedName.fieldName),
             isRequired: false,
@@ -291,14 +354,18 @@ export class PDFFormParser {
 
   /**
    * Group fields into sections based on naming patterns or create a single section
+   * Supports both period-delimited (new: section.field) and underscore (legacy: section_field) formats
    */
   private groupFieldsIntoSections(fields: ParsedFormField[]): ParsedFormSection[] {
-    // Try to detect sections based on field name prefixes (e.g., "merchant_", "business_", etc.)
+    // Try to detect sections based on field name prefixes
     const sectionMap = new Map<string, ParsedFormField[]>();
     
     fields.forEach(field => {
-      // Check if field name has a common prefix pattern
-      const match = field.fieldName.match(/^([a-zA-Z]+)_/);
+      // Check for period-delimited format first (new format: section.field)
+      const periodMatch = field.fieldName.match(/^([a-zA-Z]+)\./);
+      // Fallback to underscore format (legacy: section_field)
+      const underscoreMatch = field.fieldName.match(/^([a-zA-Z]+)_/);
+      const match = periodMatch || underscoreMatch;
       
       if (match) {
         const sectionKey = match[1];
