@@ -2074,29 +2074,33 @@ export default function EnhancedPdfWizard() {
       return;
     }
     
-    const newFormData = { ...formData, [fieldName]: value };
-    
-    // Calculate years in business when business start date is entered
-    if (fieldName === 'businessStartDate' && value) {
-      const startDate = new Date(value);
-      const currentDate = new Date();
-      const yearsDiff = currentDate.getFullYear() - startDate.getFullYear();
-      const monthsDiff = currentDate.getMonth() - startDate.getMonth();
+    // Use functional update to avoid stale closure issues when multiple field changes happen quickly
+    // This is critical for signature group fields which trigger multiple handleFieldChange calls
+    setFormData(prev => {
+      const newFormData = { ...prev, [fieldName]: value };
       
-      // Calculate more precise years (including partial years)
-      let yearsInBusiness = yearsDiff;
-      if (monthsDiff < 0 || (monthsDiff === 0 && currentDate.getDate() < startDate.getDate())) {
-        yearsInBusiness--;
+      // Calculate years in business when business start date is entered
+      if (fieldName === 'businessStartDate' && value) {
+        const startDate = new Date(value);
+        const currentDate = new Date();
+        const yearsDiff = currentDate.getFullYear() - startDate.getFullYear();
+        const monthsDiff = currentDate.getMonth() - startDate.getMonth();
+        
+        // Calculate more precise years (including partial years)
+        let yearsInBusiness = yearsDiff;
+        if (monthsDiff < 0 || (monthsDiff === 0 && currentDate.getDate() < startDate.getDate())) {
+          yearsInBusiness--;
+        }
+        
+        // Ensure minimum of 0 years
+        yearsInBusiness = Math.max(0, yearsInBusiness);
+        
+        // Update both the start date and calculated years
+        newFormData.yearsInBusiness = yearsInBusiness.toString();
       }
       
-      // Ensure minimum of 0 years
-      yearsInBusiness = Math.max(0, yearsInBusiness);
-      
-      // Update both the start date and calculated years
-      newFormData.yearsInBusiness = yearsInBusiness.toString();
-    }
-    
-    setFormData(newFormData);
+      return newFormData;
+    });
 
     // Validate the field and update errors
     const currentField = filteredSections[currentStep]?.fields.find(f => f.fieldName === fieldName);
@@ -2147,19 +2151,22 @@ export default function EnhancedPdfWizard() {
         // Only clear address-related fields when completely empty (not just short)
         if (value.length === 0 && !addressFieldsLocked) {
           console.log('Address field completely cleared - clearing dependent fields');
-          const clearedFormData = { ...newFormData };
-          clearedFormData[cityFieldName] = '';
-          clearedFormData[stateFieldName] = '';
-          clearedFormData[zipCodeFieldName] = '';
-          setFormData(clearedFormData);
+          // Use functional update for clearing address fields too
+          setFormData(prev => ({
+            ...prev,
+            [cityFieldName]: '',
+            [stateFieldName]: '',
+            [zipCodeFieldName]: ''
+          }));
         }
       }
     }
     
     // Auto-save after 2 seconds of no changes (only for authenticated users, not prospects)
+    // Use formDataRef to get the latest value
     if (!isProspectMode) {
       setTimeout(() => {
-        autoSaveMutation.mutate(newFormData);
+        autoSaveMutation.mutate(formDataRef.current);
       }, 2000);
     }
   };
