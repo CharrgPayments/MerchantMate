@@ -1379,9 +1379,16 @@ export default function EnhancedPdfWizard() {
           const groupKey = `${prefix}_signature_${role}`;
           
           if (!autoDetectedSignatureGroups[groupKey]) {
+            // Generate a proper label for the signature group
+            // For owner groups, extract owner number and create "Owner X Signature" label
+            const ownerNumMatch = prefix.match(/owner(\d+)/i);
+            const generatedLabel = ownerNumMatch 
+              ? `Owner ${ownerNumMatch[1]} Signature`
+              : `${role.charAt(0).toUpperCase() + role.slice(1)} Signature`;
+            
             autoDetectedSignatureGroups[groupKey] = {
               roleKey: role,
-              label: field.label?.split('.')[0] || `${role} Signature`,
+              label: generatedLabel,
               sectionName: section.title,
               fieldMappings: {}
             };

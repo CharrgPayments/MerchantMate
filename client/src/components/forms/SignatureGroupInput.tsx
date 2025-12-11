@@ -266,25 +266,19 @@ export function SignatureGroupInput({
         {isSigned ? (
           // Display signed signature
           <div className="space-y-4">
-            <div className={`grid ${isOwnerGroup ? 'grid-cols-4' : 'grid-cols-3'} gap-4`}>
-              <div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="min-w-0">
                 <Label className="text-sm text-gray-600">Signer Name</Label>
-                <p className="font-medium">{value?.signerName}</p>
+                <p className="font-medium truncate">{value?.signerName}</p>
               </div>
-              <div>
+              <div className="min-w-0">
                 <Label className="text-sm text-gray-600">Email</Label>
-                <p className="font-medium">{value?.signerEmail}</p>
+                <p className="font-medium truncate" title={value?.signerEmail}>{value?.signerEmail}</p>
               </div>
               {isOwnerGroup && value?.ownershipPercentage && (
-                <div>
+                <div className="min-w-0">
                   <Label className="text-sm text-gray-600">Ownership %</Label>
                   <p className="font-medium">{value.ownershipPercentage}%</p>
-                </div>
-              )}
-              {value?.initials && (
-                <div>
-                  <Label className="text-sm text-gray-600">Initials</Label>
-                  <p className="font-medium">{value.initials}</p>
                 </div>
               )}
             </div>
