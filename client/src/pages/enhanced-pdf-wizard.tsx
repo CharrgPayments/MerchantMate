@@ -1162,7 +1162,17 @@ export default function EnhancedPdfWizard() {
 
     // Set new timeout to auto-save after 2.5 seconds of inactivity
     autoSaveTimeoutRef.current = setTimeout(() => {
-      console.log('Auto-saving form data...');
+      const signatureGroupKeys = Object.keys(formData).filter(k => k.startsWith('signatureGroup_'));
+      console.log('Auto-saving form data...', { 
+        totalKeys: Object.keys(formData).length,
+        signatureGroupKeys,
+        hasSignatureData: signatureGroupKeys.length > 0
+      });
+      if (signatureGroupKeys.length > 0) {
+        signatureGroupKeys.forEach(k => {
+          console.log(`  📤 ${k}: ${formData[k]?.substring(0, 100)}...`);
+        });
+      }
       saveFormDataMutation.mutate({
         formData,
         currentStep
