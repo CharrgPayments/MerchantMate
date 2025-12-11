@@ -113,6 +113,7 @@ export function AddressAutocompleteInput({
 
   // Fetch address suggestions
   const fetchSuggestions = async (input: string) => {
+    console.log('🔍 fetchSuggestions called with:', input, 'length:', input.length);
     if (input.length < 4) {
       setSuggestions([]);
       setShowSuggestions(false);
@@ -121,6 +122,7 @@ export function AddressAutocompleteInput({
     }
 
     setIsLoading(true);
+    console.log('🔍 Calling /api/address-autocomplete...');
     
     try {
       const response = await fetch('/api/address-autocomplete', {
@@ -146,6 +148,7 @@ export function AddressAutocompleteInput({
 
   // Validate and select address
   const validateAndSelectAddress = async (suggestion: AddressSuggestion) => {
+    console.log('🎯 VALIDATING ADDRESS SELECTION:', suggestion);
     try {
       const response = await fetch('/api/validate-address', {
         method: 'POST',
@@ -173,6 +176,7 @@ export function AddressAutocompleteInput({
           setAddressDetails(newAddressDetails);
           
           // Call the callback with full address data
+          console.log('🎯 CALLING onAddressSelect WITH:', newAddressDetails);
           if (onAddressSelect) {
             onAddressSelect(newAddressDetails);
           }
