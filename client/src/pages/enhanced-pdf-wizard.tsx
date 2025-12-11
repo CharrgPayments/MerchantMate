@@ -1050,6 +1050,39 @@ export default function EnhancedPdfWizard() {
           
           setFormData(prev => ({ ...prev, ...cleanedData }));
           
+          // Calculate ownership percentages from signature group data
+          const ownershipData: Record<number, number> = {};
+          let calculatedTotal = 0;
+          
+          Object.keys(cleanedData).forEach(key => {
+            // Match signatureGroup_owners_ownerX_signature_owner pattern
+            const ownerMatch = key.match(/^signatureGroup_owners_owner(\d+)_signature_owner$/);
+            if (ownerMatch) {
+              const ownerNumber = parseInt(ownerMatch[1]);
+              try {
+                const sigData = JSON.parse(cleanedData[key]);
+                if (sigData.ownershipPercentage !== undefined && sigData.ownershipPercentage !== null && sigData.ownershipPercentage !== '') {
+                  const percentage = typeof sigData.ownershipPercentage === 'string' 
+                    ? parseFloat(sigData.ownershipPercentage) 
+                    : sigData.ownershipPercentage;
+                  if (!isNaN(percentage) && percentage >= 0) {
+                    ownershipData[ownerNumber] = percentage;
+                    calculatedTotal += percentage;
+                    console.log(`📊 Loaded ownership for owner${ownerNumber}: ${percentage}%`);
+                  }
+                }
+              } catch (e) {
+                console.warn(`Failed to parse signature group data for ${key}:`, e);
+              }
+            }
+          });
+          
+          if (calculatedTotal > 0) {
+            console.log(`📊 Total ownership loaded from form data: ${calculatedTotal.toFixed(1)}%`);
+            setOwnershipPercentages(ownershipData);
+            setTotalOwnership(calculatedTotal);
+          }
+          
           // Mark sections as visited based on existing form data
           const newVisited = new Set<number>();
           
