@@ -49,7 +49,9 @@ interface FormSection {
 }
 
 export default function EnhancedPdfWizard() {
-  const { id } = useParams();
+  const { id: rawId } = useParams();
+  // Clean up the ID in case token got merged (e.g., "45?token=xxx" or "45%3Ftoken=xxx")
+  const id = rawId?.split('?')[0]?.split('%3F')[0] || rawId;
   const [, setLocation] = useLocation();
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState<Record<string, any>>({});
