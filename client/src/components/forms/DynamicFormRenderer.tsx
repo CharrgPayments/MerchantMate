@@ -13,12 +13,13 @@ import { Separator } from '@/components/ui/separator';
 import { AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { MCCAutocompleteInput } from './MCCAutocompleteInput';
 import { UserAccountInput } from './UserAccountInput';
+import { MaskedTaxIdInput } from './MaskedTaxIdInput';
 import { FieldValidationConfig, UserAccountFieldConfig } from '@shared/schema';
 
 // Types for field configuration
 interface FieldConfig {
   id: string;
-  type: 'text' | 'email' | 'tel' | 'url' | 'date' | 'number' | 'select' | 'checkbox' | 'textarea' | 'mcc-select' | 'zipcode' | 'user_account';
+  type: 'text' | 'email' | 'tel' | 'url' | 'date' | 'number' | 'select' | 'checkbox' | 'textarea' | 'mcc-select' | 'zipcode' | 'user_account' | 'ein' | 'ssn' | 'tin';
   label: string;
   required?: boolean;
   pattern?: string;
@@ -110,6 +111,25 @@ function createDynamicSchema(configuration: FormConfiguration, requiredFields: s
           fieldSchema = z.string().refine(
             (date) => !isNaN(Date.parse(date)),
             'Please enter a valid date'
+          );
+          break;
+        case 'ein':
+        case 'tin':
+          fieldSchema = z.string().refine(
+            (val) => {
+              const digits = val.replace(/\D/g, '');
+              return digits.length === 0 || digits.length === 9;
+            },
+            'Please enter a valid 9-digit EIN/TIN (XX-XXXXXXX)'
+          );
+          break;
+        case 'ssn':
+          fieldSchema = z.string().refine(
+            (val) => {
+              const digits = val.replace(/\D/g, '');
+              return digits.length === 0 || digits.length === 9;
+            },
+            'Please enter a valid 9-digit SSN (XXX-XX-XXXX)'
           );
           break;
         case 'user_account':
@@ -430,6 +450,14 @@ export default function DynamicFormRenderer({
                   {...formField}
                   placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
                   data-testid={testId}
+                />
+              ) : field.type === 'ein' || field.type === 'ssn' || field.type === 'tin' ? (
+                <MaskedTaxIdInput
+                  value={formField.value || ''}
+                  onChange={formField.onChange}
+                  type={field.type}
+                  placeholder={field.placeholder}
+                  dataTestId={testId}
                 />
               ) : field.type === 'checkbox' ? (
                 <div className="flex items-center space-x-2">
