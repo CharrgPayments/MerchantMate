@@ -17,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus, Pencil, Eye, Copy, Download, Upload, Trash2, Settings, Circle, CheckCircle, ChevronDown, ChevronRight, GripVertical, FlaskConical, HelpCircle, Map, Link2, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Eye, Copy, Download, Upload, Trash2, Settings, Circle, CheckCircle, ChevronDown, ChevronRight, GripVertical, FlaskConical, HelpCircle, Map, Link2, AlertTriangle, BookOpen, FileText, Hash, Type, Mail, Phone, Calendar, DollarSign, Percent, MapPin, PenTool, Users, Building, CreditCard, ToggleLeft, ListChecks, AlignLeft, Globe, Lock, Fingerprint, Navigation } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useLocation } from 'wouter';
 import {
@@ -105,6 +105,7 @@ export default function ApplicationTemplatesPage() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [isFieldConfigOpen, setIsFieldConfigOpen] = useState(false);
+  const [isDocumentationOpen, setIsDocumentationOpen] = useState(false);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
 
@@ -391,14 +392,25 @@ export default function ApplicationTemplatesPage() {
             Manage dynamic form templates for acquirer applications
           </p>
         </div>
-        <Button 
-          onClick={openCreateDialog}
-          data-testid="button-create-template"
-          className="flex items-center gap-2"
-        >
-          <Plus className="h-4 w-4" />
-          Create Template
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline"
+            onClick={() => setIsDocumentationOpen(true)}
+            data-testid="button-documentation"
+            className="flex items-center gap-2"
+          >
+            <BookOpen className="h-4 w-4" />
+            PDF Field Guide
+          </Button>
+          <Button 
+            onClick={openCreateDialog}
+            data-testid="button-create-template"
+            className="flex items-center gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Create Template
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -581,6 +593,12 @@ export default function ApplicationTemplatesPage() {
           isLoading={updateFieldConfigMutation.isPending}
         />
       )}
+
+      {/* PDF Field Naming Documentation Dialog */}
+      <PdfFieldNamingDocumentation
+        isOpen={isDocumentationOpen}
+        onClose={() => setIsDocumentationOpen(false)}
+      />
     </div>
   );
 }
@@ -2787,5 +2805,703 @@ function FieldMappingsVisualization({
         </Card>
       </div>
     </div>
+  );
+}
+
+// PDF Field Naming Documentation Dialog Component
+function PdfFieldNamingDocumentation({ 
+  isOpen, 
+  onClose 
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  const [activeTab, setActiveTab] = useState('naming');
+
+  // Field type dictionary with comprehensive information
+  const fieldTypes = [
+    { type: 'text', icon: Type, description: 'Standard text input field', example: 'business.legalName, contact.name', detection: 'Default type for text fields', masking: 'None' },
+    { type: 'textarea', icon: AlignLeft, description: 'Multi-line text input', example: 'business.description, notes', detection: 'Multi-line PDF fields or _textarea suffix', masking: 'None' },
+    { type: 'email', icon: Mail, description: 'Email address with validation', example: 'contact.email, owners.1.email', detection: 'Field name contains "email"', masking: 'None' },
+    { type: 'phone', icon: Phone, description: 'Phone number with formatting', example: 'business.phone, owners.1.mobile', detection: 'Field name contains "phone"', masking: 'None' },
+    { type: 'tel', icon: Phone, description: 'Telephone number (alias for phone)', example: 'location.tel, fax.number', detection: 'Field name contains "tel" or "fax"', masking: 'None' },
+    { type: 'date', icon: Calendar, description: 'Date picker input', example: 'business.startDate, owners.1.dateOfBirth', detection: 'Field name contains "date"', masking: 'None' },
+    { type: 'number', icon: Hash, description: 'Numeric input', example: 'business.employeeCount, processing.avgTicket', detection: 'Numeric PDF fields or _number suffix', masking: 'None' },
+    { type: 'currency', icon: DollarSign, description: 'Currency/money input', example: 'processing.monthlyVolume, fees.discount', detection: 'Field name contains "amount", "volume", "fee"', masking: 'None' },
+    { type: 'percentage', icon: Percent, description: 'Percentage input (0-100)', example: 'owners.1.ownershipPercent, rates.visaPercent', detection: 'Field name contains "percent" or "ownership"', masking: 'None' },
+    { type: 'ssn', icon: Fingerprint, description: 'Social Security Number', example: 'owners.1.ssn, owners.2.ssn', detection: 'Field name contains "ssn" or "social"', sensitive: true, masking: 'Shows ***-**-1234' },
+    { type: 'ein', icon: Building, description: 'Employer Identification Number', example: 'business.ein, business.taxId', detection: 'Field name contains "ein" or "taxid"', sensitive: true, masking: 'Shows **-***1234' },
+    { type: 'tin', icon: Building, description: 'Tax Identification Number', example: 'business.tin, owners.1.tin', detection: 'Field name contains "tin"', sensitive: true, masking: 'Shows ******1234' },
+    { type: 'zipcode', icon: MapPin, description: 'ZIP/Postal code with validation', example: 'location.address.postalcode', detection: 'Field name contains "zip" or "postal"', masking: 'None' },
+    { type: 'url', icon: Globe, description: 'Website URL with validation', example: 'business.website, company.url', detection: 'Field name contains "url" or "website"', masking: 'None' },
+    { type: 'select', icon: ListChecks, description: 'Dropdown selection list', example: 'business.entityType, location.address.state', detection: 'PDF dropdown fields', masking: 'None' },
+    { type: 'radio', icon: Circle, description: 'Radio button group', example: 'business.entityType_radio, payment.method', detection: 'PDF radio button groups with _radio suffix', masking: 'None' },
+    { type: 'checkbox', icon: CheckCircle, description: 'Checkbox input', example: 'terms.accepted, processing.acceptsCredit', detection: 'PDF checkbox fields', masking: 'None' },
+    { type: 'boolean', icon: ToggleLeft, description: 'Yes/No toggle', example: 'business.isSeasonal, owner.isPreviousMerchant', detection: '_bool or _boolean suffix', masking: 'None' },
+    { type: 'address', icon: MapPin, description: 'Address autocomplete with Google Maps', example: 'location.address, owners.1.address', detection: 'Field name contains "address" or "street"', complex: true, masking: 'None' },
+    { type: 'mcc-select', icon: CreditCard, description: 'Merchant Category Code selector', example: 'business.mcc, merchant.mccCode', detection: 'Field name contains "mcc"', complex: true, masking: 'None' },
+    { type: 'signature', icon: PenTool, description: 'Digital signature capture', example: 'owners.1.signature, agent.signature', detection: 'Signature group pattern', complex: true, masking: 'Stored securely' },
+    { type: 'user_account', icon: Users, description: 'Automatic user account creation', example: 'prospect.account', detection: 'Special field type for account creation', complex: true, masking: 'Password masked' },
+  ];
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-xl">
+            <BookOpen className="h-5 w-5 text-primary" />
+            PDF Field Naming Guide
+          </DialogTitle>
+          <DialogDescription>
+            Comprehensive guide for naming PDF form fields to ensure maximum compatibility with the application template system
+          </DialogDescription>
+        </DialogHeader>
+
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="naming" className="flex items-center gap-1">
+              <FileText className="h-4 w-4" />
+              Naming Convention
+            </TabsTrigger>
+            <TabsTrigger value="fieldtypes" className="flex items-center gap-1">
+              <Type className="h-4 w-4" />
+              Field Types
+            </TabsTrigger>
+            <TabsTrigger value="complex" className="flex items-center gap-1">
+              <Settings className="h-4 w-4" />
+              Complex Controls
+            </TabsTrigger>
+            <TabsTrigger value="examples" className="flex items-center gap-1">
+              <FileText className="h-4 w-4" />
+              Examples
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Naming Convention Tab */}
+          <TabsContent value="naming" className="space-y-6 mt-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Hash className="h-5 w-5 text-blue-600" />
+                  Field Naming Convention
+                </CardTitle>
+                <CardDescription>
+                  Use period (.) as the delimiter for hierarchical field names
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                  <h4 className="font-semibold text-blue-800 mb-2">Format</h4>
+                  <code className="text-blue-700 font-mono text-lg">section.subsection.fieldName</code>
+                  <p className="text-sm text-blue-600 mt-2">or for numbered items:</p>
+                  <code className="text-blue-700 font-mono text-lg">section.index.fieldName</code>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="font-semibold">Standard Sections</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { section: 'business', desc: 'Business/company information', examples: ['business.legalName', 'business.dbaName', 'business.entityType'] },
+                      { section: 'location', desc: 'Business location details', examples: ['location.address.street1', 'location.phone', 'location.email'] },
+                      { section: 'mailing', desc: 'Mailing address (if different)', examples: ['mailing.address.street1', 'mailing.address.city'] },
+                      { section: 'owners', desc: 'Owner/principal information', examples: ['owners.1.firstName', 'owners.1.ssn', 'owners.2.email'] },
+                      { section: 'banking', desc: 'Bank account information', examples: ['banking.routingNumber', 'banking.accountNumber'] },
+                      { section: 'agent', desc: 'Agent/sales rep information', examples: ['agent.name', 'agent.email', 'agent.phone'] },
+                    ].map((item) => (
+                      <div key={item.section} className="bg-gray-50 p-3 rounded-lg border">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Badge variant="outline" className="font-mono">{item.section}</Badge>
+                        </div>
+                        <p className="text-sm text-gray-600 mb-2">{item.desc}</p>
+                        <div className="space-y-1">
+                          {item.examples.map((ex) => (
+                            <code key={ex} className="block text-xs font-mono text-gray-500">{ex}</code>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="space-y-3">
+                  <h4 className="font-semibold">Owner Fields (Numbered)</h4>
+                  <p className="text-sm text-gray-600">
+                    Owner fields use numeric indices (1, 2, 3, etc.) to identify each owner/principal:
+                  </p>
+                  <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <h5 className="font-medium text-green-800 mb-2">Owner 1</h5>
+                        <div className="space-y-1 font-mono text-sm text-green-700">
+                          <div>owners.1.firstName</div>
+                          <div>owners.1.lastName</div>
+                          <div>owners.1.title</div>
+                          <div>owners.1.ownershipPercent</div>
+                          <div>owners.1.ssn</div>
+                          <div>owners.1.dateOfBirth</div>
+                          <div>owners.1.address.street1</div>
+                          <div>owners.1.address.city</div>
+                        </div>
+                      </div>
+                      <div>
+                        <h5 className="font-medium text-green-800 mb-2">Owner 2</h5>
+                        <div className="space-y-1 font-mono text-sm text-green-700">
+                          <div>owners.2.firstName</div>
+                          <div>owners.2.lastName</div>
+                          <div>owners.2.title</div>
+                          <div>owners.2.ownershipPercent</div>
+                          <div>owners.2.ssn</div>
+                          <div>owners.2.dateOfBirth</div>
+                          <div>owners.2.address.street1</div>
+                          <div>owners.2.address.city</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Field Types Tab */}
+          <TabsContent value="fieldtypes" className="space-y-4 mt-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Type className="h-5 w-5 text-purple-600" />
+                  Field Type Dictionary
+                </CardTitle>
+                <CardDescription>
+                  Complete list of supported field types and how they are detected
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="text-left py-2 px-3 font-medium">Type</th>
+                        <th className="text-left py-2 px-3 font-medium">Description</th>
+                        <th className="text-left py-2 px-3 font-medium">Detection Keywords</th>
+                        <th className="text-left py-2 px-3 font-medium">Example Names</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fieldTypes.map((field, idx) => {
+                        const IconComponent = field.icon;
+                        return (
+                          <tr key={field.type} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                            <td className="py-2 px-3">
+                              <div className="flex items-center gap-2">
+                                <IconComponent className={`h-4 w-4 ${field.sensitive ? 'text-red-500' : field.complex ? 'text-purple-500' : 'text-gray-500'}`} />
+                                <Badge variant={field.sensitive ? 'destructive' : field.complex ? 'secondary' : 'outline'} className="font-mono">
+                                  {field.type}
+                                </Badge>
+                              </div>
+                            </td>
+                            <td className="py-2 px-3 text-gray-600">{field.description}</td>
+                            <td className="py-2 px-3 text-xs text-gray-500">{field.detection}</td>
+                            <td className="py-2 px-3">
+                              <code className="text-xs font-mono text-gray-600">{field.example}</code>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-red-200 bg-red-50">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-red-700">
+                  <Lock className="h-5 w-5" />
+                  Sensitive Fields (Masked)
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-red-600 mb-3">
+                  These field types are automatically masked after entry, showing only the last 4 digits:
+                </p>
+                <div className="flex gap-4">
+                  <div className="bg-white p-3 rounded border border-red-200">
+                    <Badge variant="destructive" className="font-mono mb-2">ssn</Badge>
+                    <p className="text-xs text-gray-600">Social Security Number</p>
+                    <p className="text-xs font-mono mt-1">Display: ***-**-1234</p>
+                  </div>
+                  <div className="bg-white p-3 rounded border border-red-200">
+                    <Badge variant="destructive" className="font-mono mb-2">ein</Badge>
+                    <p className="text-xs text-gray-600">Employer ID Number</p>
+                    <p className="text-xs font-mono mt-1">Display: **-***1234</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Complex Controls Tab */}
+          <TabsContent value="complex" className="space-y-4 mt-4">
+            {/* Address Autocomplete */}
+            <Card className="border-green-200">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Navigation className="h-5 w-5 text-green-600" />
+                  Address Autocomplete
+                </CardTitle>
+                <CardDescription>
+                  Google Maps-powered address autocomplete with automatic field population
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                  <h4 className="font-semibold text-green-800 mb-2">Required Field Pattern</h4>
+                  <p className="text-sm text-green-700 mb-3">
+                    Address groups are automatically detected when fields follow this naming pattern:
+                  </p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <h5 className="font-medium text-green-700 mb-2">Address Fields</h5>
+                      <div className="space-y-1 font-mono text-sm">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="bg-white">required</Badge>
+                          <span>prefix.address.street1</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="bg-white">optional</Badge>
+                          <span>prefix.address.street2</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="bg-white">required</Badge>
+                          <span>prefix.address.city</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="bg-white">required</Badge>
+                          <span>prefix.address.state</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="bg-white">required</Badge>
+                          <span>prefix.address.postalcode</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="bg-white">optional</Badge>
+                          <span>prefix.address.country</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <h5 className="font-medium text-green-700 mb-2">Example Prefixes</h5>
+                      <div className="space-y-2">
+                        <div className="bg-white p-2 rounded border">
+                          <code className="text-sm font-mono">location.address.*</code>
+                          <p className="text-xs text-gray-500 mt-1">Business location address</p>
+                        </div>
+                        <div className="bg-white p-2 rounded border">
+                          <code className="text-sm font-mono">mailing.address.*</code>
+                          <p className="text-xs text-gray-500 mt-1">Mailing/correspondence address</p>
+                        </div>
+                        <div className="bg-white p-2 rounded border">
+                          <code className="text-sm font-mono">owners.1.address.*</code>
+                          <p className="text-xs text-gray-500 mt-1">Owner 1 home address</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Signature Groups */}
+            <Card className="border-purple-200">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <PenTool className="h-5 w-5 text-purple-600" />
+                  Signature Groups
+                </CardTitle>
+                <CardDescription>
+                  Digital signature capture with signer information and audit trail
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                  <h4 className="font-semibold text-purple-800 mb-2">Signature Field Pattern</h4>
+                  <p className="text-sm text-purple-700 mb-3">
+                    Signature groups are detected using this pattern:
+                  </p>
+                  <code className="block bg-white p-2 rounded border border-purple-200 font-mono text-purple-700">
+                    prefix.signature.fieldType
+                  </code>
+                  <div className="mt-4 grid grid-cols-2 gap-4">
+                    <div>
+                      <h5 className="font-medium text-purple-700 mb-2">Signature Fields</h5>
+                      <div className="space-y-1 font-mono text-sm">
+                        <div>owners.1.signature.signerName</div>
+                        <div>owners.1.signature.signature</div>
+                        <div>owners.1.signature.initials</div>
+                        <div>owners.1.signature.email</div>
+                        <div>owners.1.signature.dateSigned</div>
+                        <div>owners.1.signature.ipAddress</div>
+                      </div>
+                    </div>
+                    <div>
+                      <h5 className="font-medium text-purple-700 mb-2">Captured Data</h5>
+                      <div className="space-y-1 text-sm text-purple-600">
+                        <div>• Signer full name</div>
+                        <div>• Digital signature (canvas/typed)</div>
+                        <div>• Initials</div>
+                        <div>• Email address</div>
+                        <div>• Timestamp</div>
+                        <div>• IP address (audit trail)</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-purple-100 p-3 rounded-lg border border-purple-300">
+                  <h5 className="font-medium text-purple-800 mb-2">Signature Data Storage & PDF Rehydration</h5>
+                  <p className="text-sm text-purple-700">
+                    Signature data is stored in the database with all captured metadata. When generating final PDFs, 
+                    the signature image is automatically embedded at the correct position with signer details and timestamp.
+                    This ensures legal compliance and audit trail integrity.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Conditional Field Visibility */}
+            <Card className="border-orange-200">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Settings className="h-5 w-5 text-orange-600" />
+                  Conditional Field Visibility
+                </CardTitle>
+                <CardDescription>
+                  Show or hide fields based on other field values
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
+                  <h4 className="font-semibold text-orange-800 mb-2">Conditional Rules</h4>
+                  <p className="text-sm text-orange-700 mb-3">
+                    Fields can be configured to appear only when specific conditions are met. 
+                    Conditions are defined in the template's Field Configuration and support:
+                  </p>
+                  <div className="space-y-2 text-sm">
+                    <div className="bg-white p-2 rounded border">
+                      <strong>equals:</strong> Show field when another field equals a specific value
+                    </div>
+                    <div className="bg-white p-2 rounded border">
+                      <strong>notEquals:</strong> Show field when another field does not equal a value
+                    </div>
+                    <div className="bg-white p-2 rounded border">
+                      <strong>contains:</strong> Show field when another field contains a substring
+                    </div>
+                    <div className="bg-white p-2 rounded border">
+                      <strong>greaterThan / lessThan:</strong> Numeric comparisons
+                    </div>
+                  </div>
+                  <p className="text-xs text-orange-600 mt-3">
+                    Example: Show "DBA Name" only when "Has DBA" checkbox is checked
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Application Locking & Prospect Portal */}
+            <Card className="border-red-200">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Lock className="h-5 w-5 text-red-600" />
+                  Post-Submission Locking & Prospect Portal
+                </CardTitle>
+                <CardDescription>
+                  Application data protection and portal editing rules
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+                  <h4 className="font-semibold text-red-800 mb-2">Application Lifecycle</h4>
+                  <div className="space-y-3">
+                    <div className="bg-white p-3 rounded border">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge className="bg-green-100 text-green-800">Draft</Badge>
+                        <span className="text-sm font-medium">Fully Editable</span>
+                      </div>
+                      <p className="text-xs text-gray-600">Prospects can edit all fields through the application wizard or prospect portal</p>
+                    </div>
+                    <div className="bg-white p-3 rounded border">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge className="bg-blue-100 text-blue-800">Submitted</Badge>
+                        <span className="text-sm font-medium">Locked for Review</span>
+                      </div>
+                      <p className="text-xs text-gray-600">All fields become read-only. Prospect portal shows view-only mode.</p>
+                    </div>
+                    <div className="bg-white p-3 rounded border">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge className="bg-amber-100 text-amber-800">Returned</Badge>
+                        <span className="text-sm font-medium">Portal-Only Edits</span>
+                      </div>
+                      <p className="text-xs text-gray-600">If returned for corrections, prospect can edit only via their portal (not wizard)</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-red-100 p-3 rounded-lg border border-red-300">
+                  <h5 className="font-medium text-red-800 mb-2">Locked After Submission</h5>
+                  <div className="space-y-1 text-sm">
+                    <div className="flex items-center gap-2">
+                      <Lock className="h-3 w-3 text-red-500" />
+                      <span>Form fields become read-only</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Lock className="h-3 w-3 text-red-500" />
+                      <span>Signatures cannot be modified or re-signed</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Lock className="h-3 w-3 text-red-500" />
+                      <span>Sensitive fields (SSN/EIN/TIN) remain permanently masked</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Lock className="h-3 w-3 text-red-500" />
+                      <span>Document uploads cannot be deleted</span>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Sensitive Field Masking */}
+            <Card className="border-rose-200">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Fingerprint className="h-5 w-5 text-rose-600" />
+                  Sensitive Field Masking Flow
+                </CardTitle>
+                <CardDescription>
+                  How SSN, EIN, and TIN fields are protected throughout the system
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="bg-rose-50 p-4 rounded-lg border border-rose-200 space-y-4">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-white p-3 rounded border text-center">
+                      <div className="text-xs text-gray-500 mb-1">1. User Input</div>
+                      <div className="font-mono text-sm">123-45-6789</div>
+                      <div className="text-xs text-green-600 mt-1">Full value entered</div>
+                    </div>
+                    <div className="bg-white p-3 rounded border text-center">
+                      <div className="text-xs text-gray-500 mb-1">2. Database Storage</div>
+                      <div className="font-mono text-sm">Encrypted</div>
+                      <div className="text-xs text-blue-600 mt-1">Full value stored securely</div>
+                    </div>
+                    <div className="bg-white p-3 rounded border text-center">
+                      <div className="text-xs text-gray-500 mb-1">3. Display/API</div>
+                      <div className="font-mono text-sm">***-**-6789</div>
+                      <div className="text-xs text-rose-600 mt-1">Only last 4 shown</div>
+                    </div>
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-start gap-2">
+                      <Badge variant="destructive" className="text-xs">ssn</Badge>
+                      <span>Format: <code className="bg-white px-1 rounded">***-**-1234</code></span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Badge variant="destructive" className="text-xs">ein</Badge>
+                      <span>Format: <code className="bg-white px-1 rounded">**-***1234</code></span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Badge variant="destructive" className="text-xs">tin</Badge>
+                      <span>Format: <code className="bg-white px-1 rounded">******1234</code></span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-rose-600">
+                    <strong>Important:</strong> Masked fields cannot be re-entered after initial save. 
+                    If correction is needed, the field must be cleared and fully re-entered.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* MCC Select */}
+            <Card className="border-blue-200">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CreditCard className="h-5 w-5 text-blue-600" />
+                  MCC Select (Merchant Category Code)
+                </CardTitle>
+                <CardDescription>
+                  Searchable dropdown for selecting merchant category codes
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                  <h4 className="font-semibold text-blue-800 mb-2">Detection</h4>
+                  <p className="text-sm text-blue-700 mb-3">
+                    Fields containing "mcc" in the name are automatically converted to MCC selectors:
+                  </p>
+                  <div className="space-y-2 font-mono text-sm text-blue-600">
+                    <div>business.mcc</div>
+                    <div>merchant_mcc</div>
+                    <div>primary_mcc_code</div>
+                  </div>
+                  <p className="text-sm text-blue-600 mt-3">
+                    The selector includes all standard MCC codes with descriptions and is searchable.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* User Account */}
+            <Card className="border-amber-200">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5 text-amber-600" />
+                  User Account (Auto-Creation)
+                </CardTitle>
+                <CardDescription>
+                  Automatically creates user accounts during form submission
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
+                  <p className="text-sm text-amber-700 mb-3">
+                    This special field type creates a user account when the form is submitted. 
+                    It requires an email field for the username and can optionally set a password.
+                  </p>
+                  <div className="bg-white p-3 rounded border border-amber-200">
+                    <Badge className="bg-amber-100 text-amber-800 border-amber-300 mb-2">user_account</Badge>
+                    <p className="text-xs text-gray-600">
+                      Used for prospect portal access and automatic merchant account creation.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Examples Tab */}
+          <TabsContent value="examples" className="space-y-4 mt-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Complete Field Name Examples</CardTitle>
+                <CardDescription>
+                  Reference examples for common merchant application fields
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-6">
+                  {/* Business Section */}
+                  <div>
+                    <h4 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                      <Building className="h-4 w-4" />
+                      Business Information
+                    </h4>
+                    <div className="bg-gray-50 p-3 rounded-lg font-mono text-sm space-y-1">
+                      <div><span className="text-gray-500">business.legalName</span> <span className="text-gray-400">// Legal business name</span></div>
+                      <div><span className="text-gray-500">business.dbaName</span> <span className="text-gray-400">// Doing business as</span></div>
+                      <div><span className="text-gray-500">business.entityType</span> <span className="text-gray-400">// LLC, Corp, Sole Prop, etc.</span></div>
+                      <div><span className="text-gray-500">business.ein</span> <span className="text-gray-400">// Employer ID (masked)</span></div>
+                      <div><span className="text-gray-500">business.stateOfIncorporation</span></div>
+                      <div><span className="text-gray-500">business.dateEstablished</span></div>
+                      <div><span className="text-gray-500">business.mcc</span> <span className="text-gray-400">// Merchant category code</span></div>
+                      <div><span className="text-gray-500">business.website</span></div>
+                    </div>
+                  </div>
+
+                  {/* Location Section */}
+                  <div>
+                    <h4 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                      <MapPin className="h-4 w-4" />
+                      Location & Contact
+                    </h4>
+                    <div className="bg-gray-50 p-3 rounded-lg font-mono text-sm space-y-1">
+                      <div><span className="text-gray-500">location.address.street1</span></div>
+                      <div><span className="text-gray-500">location.address.street2</span></div>
+                      <div><span className="text-gray-500">location.address.city</span></div>
+                      <div><span className="text-gray-500">location.address.state</span></div>
+                      <div><span className="text-gray-500">location.address.postalcode</span></div>
+                      <div><span className="text-gray-500">location.phone</span></div>
+                      <div><span className="text-gray-500">location.email</span></div>
+                    </div>
+                  </div>
+
+                  {/* Owner Section */}
+                  <div>
+                    <h4 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                      <Users className="h-4 w-4" />
+                      Owner/Principal Information
+                    </h4>
+                    <div className="bg-gray-50 p-3 rounded-lg font-mono text-sm space-y-1">
+                      <div><span className="text-gray-500">owners.1.firstName</span></div>
+                      <div><span className="text-gray-500">owners.1.lastName</span></div>
+                      <div><span className="text-gray-500">owners.1.title</span></div>
+                      <div><span className="text-gray-500">owners.1.ownershipPercent</span></div>
+                      <div><span className="text-gray-500">owners.1.ssn</span> <span className="text-gray-400">// Masked after entry</span></div>
+                      <div><span className="text-gray-500">owners.1.dateOfBirth</span></div>
+                      <div><span className="text-gray-500">owners.1.email</span></div>
+                      <div><span className="text-gray-500">owners.1.phone</span></div>
+                      <div><span className="text-gray-500">owners.1.address.street1</span></div>
+                      <div><span className="text-gray-500">owners.1.address.city</span></div>
+                      <div><span className="text-gray-500">owners.1.address.state</span></div>
+                      <div><span className="text-gray-500">owners.1.address.postalcode</span></div>
+                      <div><span className="text-gray-500">owners.1.signature.signerName</span></div>
+                      <div><span className="text-gray-500">owners.1.signature.signature</span></div>
+                      <div><span className="text-gray-500">owners.1.signature.dateSigned</span></div>
+                    </div>
+                  </div>
+
+                  {/* Banking Section */}
+                  <div>
+                    <h4 className="font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                      <CreditCard className="h-4 w-4" />
+                      Banking Information
+                    </h4>
+                    <div className="bg-gray-50 p-3 rounded-lg font-mono text-sm space-y-1">
+                      <div><span className="text-gray-500">banking.bankName</span></div>
+                      <div><span className="text-gray-500">banking.routingNumber</span></div>
+                      <div><span className="text-gray-500">banking.accountNumber</span></div>
+                      <div><span className="text-gray-500">banking.accountType</span> <span className="text-gray-400">// Checking, Savings</span></div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-amber-200 bg-amber-50">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-amber-700">
+                  <AlertTriangle className="h-5 w-5" />
+                  Legacy Format Support
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-amber-700 mb-3">
+                  The system also supports legacy underscore-delimited field names for backward compatibility:
+                </p>
+                <div className="bg-white p-3 rounded border border-amber-200 font-mono text-sm">
+                  <div className="flex items-center gap-4">
+                    <span className="text-gray-500">owners_owner1_firstName</span>
+                    <span className="text-amber-600">→</span>
+                    <span className="text-green-600">owners.1.firstName</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span className="text-gray-500">merchant_location_address_city</span>
+                    <span className="text-amber-600">→</span>
+                    <span className="text-green-600">location.address.city</span>
+                  </div>
+                </div>
+                <p className="text-xs text-amber-600 mt-2">
+                  Legacy names are automatically converted to the new format during import.
+                </p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+
+        <div className="flex justify-end pt-4 border-t">
+          <Button onClick={onClose}>Close</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
