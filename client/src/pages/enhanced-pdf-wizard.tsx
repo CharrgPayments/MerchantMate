@@ -719,16 +719,6 @@ export default function EnhancedPdfWizard() {
     
     // Save current form data before navigating for prospect mode
     if (isProspectMode && prospectData?.prospect?.id) {
-      console.log('Saving form data with currentStep:', nextStep);
-      // DEBUG: Log all address-related fields at save time
-      const addressFields = Object.entries(formData).filter(([k]) => 
-        k.toLowerCase().includes('address') || k.toLowerCase().includes('city') || 
-        k.toLowerCase().includes('state') || k.toLowerCase().includes('postal') || 
-        k.toLowerCase().includes('zip') || k.toLowerCase().includes('street')
-      );
-      console.log('🔴 ADDRESS FIELDS AT SAVE TIME:', addressFields);
-      console.log('🔴 FULL formData keys:', Object.keys(formData));
-      
       saveFormDataMutation.mutate({
         formData: formData,
         currentStep: nextStep
