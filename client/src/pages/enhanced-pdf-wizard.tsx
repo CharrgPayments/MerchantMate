@@ -773,13 +773,59 @@ export default function EnhancedPdfWizard() {
       return streetValue;
     }
     
+    // For signatureGroup fields, check for signature data with the signatureGroup_ prefix
+    if (field.fieldType === 'signatureGroup') {
+      const signatureKey = `signatureGroup_${field.fieldName}`;
+      const signatureData = formData[signatureKey];
+      if (signatureData) {
+        try {
+          const parsed = typeof signatureData === 'string' ? JSON.parse(signatureData) : signatureData;
+          // Return the signature if it exists
+          return parsed.signature || '';
+        } catch {
+          return '';
+        }
+      }
+      return '';
+    }
+    
+    // For ownership fields, check formData.owners array
+    if (field.fieldType === 'ownership') {
+      return formData.owners || [];
+    }
+    
     // For regular fields, just use the field name directly
     return formData[field.fieldName];
+  };
+  
+  // Helper to check if a field has a completed/filled value
+  const isFieldCompleted = (field: FormField): boolean => {
+    const value = getFieldValueForValidation(field);
+    
+    // For ownership, check if there's at least one owner with required data
+    if (field.fieldType === 'ownership') {
+      const owners = value || [];
+      if (owners.length === 0) return false;
+      // Check that all owners have basic info
+      return owners.every((owner: any) => 
+        owner.name && owner.email && owner.percentage
+      );
+    }
+    
+    // For signatureGroup, check if signature exists
+    if (field.fieldType === 'signatureGroup') {
+      return !!value && value !== '';
+    }
+    
+    // For regular fields
+    return value !== null && value !== undefined && value !== '';
   };
 
   // Check if a section has validation issues
   const getSectionValidationStatus = (sectionIndex: number) => {
-    const section = sections[sectionIndex];
+    // IMPORTANT: Use filteredSections, not sections!
+    // The index comes from iterating over filteredSections, so we must use the same array
+    const section = filteredSections[sectionIndex];
     
     // Defensive check: ensure section exists and has fields
     if (!section || !section.fields) {
@@ -4464,10 +4510,7 @@ export default function EnhancedPdfWizard() {
                   const allRequiredFields = filteredSections.flatMap(section => 
                     section.fields.filter(field => isFieldRequired(field))
                   );
-                  const completedRequiredFields = allRequiredFields.filter(field => {
-                    const value = formData[field.fieldName];
-                    return value !== null && value !== undefined && value !== '';
-                  });
+                  const completedRequiredFields = allRequiredFields.filter(field => isFieldCompleted(field));
                   const progressPercent = allRequiredFields.length > 0 
                     ? Math.round((completedRequiredFields.length / allRequiredFields.length) * 100)
                     : 0;
@@ -4485,10 +4528,7 @@ export default function EnhancedPdfWizard() {
                   const allRequiredFields = filteredSections.flatMap(section => 
                     section.fields.filter(field => isFieldRequired(field))
                   );
-                  const completedRequiredFields = allRequiredFields.filter(field => {
-                    const value = formData[field.fieldName];
-                    return value !== null && value !== undefined && value !== '';
-                  });
+                  const completedRequiredFields = allRequiredFields.filter(field => isFieldCompleted(field));
                   return `${completedRequiredFields.length} of ${allRequiredFields.length} required fields completed`;
                 })()}
               </span>
@@ -4501,10 +4541,7 @@ export default function EnhancedPdfWizard() {
                 const allRequiredFields = filteredSections.flatMap(section => 
                   section.fields.filter(field => isFieldRequired(field))
                 );
-                const completedRequiredFields = allRequiredFields.filter(field => {
-                  const value = formData[field.fieldName];
-                  return value !== null && value !== undefined && value !== '';
-                });
+                const completedRequiredFields = allRequiredFields.filter(field => isFieldCompleted(field));
                 return allRequiredFields.length > 0 
                   ? (completedRequiredFields.length / allRequiredFields.length) * 100
                   : 0;
