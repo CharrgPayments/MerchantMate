@@ -471,7 +471,7 @@ export function SignatureGroupInput({
                         value={typedSignature}
                         onChange={(e) => setTypedSignature(e.target.value)}
                         placeholder="John Doe"
-                        className="text-3xl font-signature italic"
+                        className="text-4xl font-signature italic h-24 py-6 px-4"
                         data-testid={`${dataTestId}-typed-input`}
                       />
                     </div>
