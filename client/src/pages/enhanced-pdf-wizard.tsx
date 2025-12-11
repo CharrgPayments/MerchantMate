@@ -64,6 +64,7 @@ export default function EnhancedPdfWizard() {
   const [addressFieldsLocked, setAddressFieldsLocked] = useState(false);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const formDataRef = useRef<Record<string, any>>({}); // Ref to always have latest formData
   const [isInitialRender, setIsInitialRender] = useState(true);
   const [addressValidationStatus, setAddressValidationStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -1145,6 +1146,11 @@ export default function EnhancedPdfWizard() {
     }
   }, [prospectData, isProspectMode, initialDataLoaded]);
 
+  // Keep formDataRef updated with latest formData
+  useEffect(() => {
+    formDataRef.current = formData;
+  }, [formData]);
+
   // Auto-save form data for prospects with debounce
   useEffect(() => {
     // Only auto-save in prospect mode with valid prospect ID and after initial load
@@ -1163,20 +1169,22 @@ export default function EnhancedPdfWizard() {
     }
 
     // Set new timeout to auto-save after 2.5 seconds of inactivity
+    // Use formDataRef.current to always get the latest formData value
     autoSaveTimeoutRef.current = setTimeout(() => {
-      const signatureGroupKeys = Object.keys(formData).filter(k => k.startsWith('signatureGroup_'));
+      const currentFormData = formDataRef.current;
+      const signatureGroupKeys = Object.keys(currentFormData).filter(k => k.startsWith('signatureGroup_'));
       console.log('Auto-saving form data...', { 
-        totalKeys: Object.keys(formData).length,
+        totalKeys: Object.keys(currentFormData).length,
         signatureGroupKeys,
         hasSignatureData: signatureGroupKeys.length > 0
       });
       if (signatureGroupKeys.length > 0) {
         signatureGroupKeys.forEach(k => {
-          console.log(`  📤 ${k}: ${formData[k]?.substring(0, 100)}...`);
+          console.log(`  📤 ${k}: ${currentFormData[k]?.substring(0, 100)}...`);
         });
       }
       saveFormDataMutation.mutate({
-        formData,
+        formData: currentFormData,
         currentStep
       });
     }, 2500);
