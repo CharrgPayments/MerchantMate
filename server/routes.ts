@@ -4252,6 +4252,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { formData, currentStep } = req.body;
       const prospectId = parseInt(id);
 
+      // DEBUG: Log signature-related keys being saved
+      const signatureKeys = Object.keys(formData || {}).filter(k => 
+        k.toLowerCase().includes('signature') || k.toLowerCase().includes('owner')
+      );
+      if (signatureKeys.length > 0) {
+        console.log(`✍️ Save form data - Signature/owner keys for prospect ${prospectId}:`, signatureKeys);
+        signatureKeys.filter(k => k.includes('signatureGroup')).forEach(k => {
+          console.log(`  ${k}: ${typeof formData[k] === 'string' ? formData[k].substring(0, 100) + '...' : JSON.stringify(formData[k]).substring(0, 100) + '...'}`);
+        });
+      }
+
       // Use environment-aware storage
       const envStorage = createStorageForRequest(req);
 
