@@ -4244,6 +4244,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Prospect not found" });
       }
 
+      // Server-side application locking - prevent modifications after submission
+      const lockedStatuses = ['submitted', 'applied', 'approved', 'rejected', 'under_review', 'pending_review'];
+      if (lockedStatuses.includes(prospect.status)) {
+        console.log(`🔒 Blocking save for prospect ${prospectId} - application locked (status: ${prospect.status})`);
+        return res.status(403).json({ 
+          success: false, 
+          message: "Application is locked and cannot be modified. Please contact your agent if changes are needed."
+        });
+      }
+
       // Save the form data and current step
       await envStorage.updateMerchantProspect(prospectId, {
         formData: JSON.stringify(formData),
@@ -4531,11 +4541,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Continue with submission - account creation is optional
       }
 
+      // Capture all signatures in the signature_captures table for unified access
+      let capturedSignatures: string[] = [];
+      try {
+        // Process owner signatures from formData
+        if (formData.owners && Array.isArray(formData.owners)) {
+          for (let i = 0; i < formData.owners.length; i++) {
+            const owner = formData.owners[i];
+            if (owner.signature) {
+              const captureData = {
+                prospectId,
+                roleKey: `owner${i + 1}`,
+                signerType: 'owner' as const,
+                signerName: owner.name || owner.email,
+                signerEmail: owner.email,
+                signature: owner.signature,
+                signatureType: owner.signatureType || 'typed',
+                ownershipPercentage: owner.percentage,
+                dateSigned: new Date(),
+                timestampSigned: new Date(),
+                status: 'signed' as const,
+              };
+              await storage.createSignatureCapture(captureData);
+              capturedSignatures.push(`owner${i + 1}`);
+            }
+          }
+        }
+        
+        // Also check for signature group fields in formData (Template 25 style)
+        const signatureGroupKeys = Object.keys(formData).filter(k => k.startsWith('signatureGroup_') || k.startsWith('_signatureGroup_'));
+        for (const groupKey of signatureGroupKeys) {
+          try {
+            const sigData = typeof formData[groupKey] === 'string' ? JSON.parse(formData[groupKey]) : formData[groupKey];
+            if (sigData?.signature) {
+              const roleMatch = groupKey.match(/owner(\d+)_signature_owner/);
+              const roleKey = roleMatch ? `owner${roleMatch[1]}` : groupKey.replace(/^_?signatureGroup_/, '');
+              
+              const captureData = {
+                prospectId,
+                roleKey,
+                signerType: roleKey.includes('agent') ? 'agent' as const : 'owner' as const,
+                signerName: sigData.signerName || sigData.ownerName,
+                signerEmail: sigData.email || sigData.ownerEmail,
+                signature: sigData.signature,
+                signatureType: sigData.signatureType || 'canvas',
+                ownershipPercentage: sigData.ownershipPercentage,
+                dateSigned: new Date(),
+                timestampSigned: new Date(),
+                status: 'signed' as const,
+              };
+              await storage.createSignatureCapture(captureData);
+              capturedSignatures.push(roleKey);
+            }
+          } catch (parseError) {
+            console.warn(`Failed to parse signature group ${groupKey}:`, parseError);
+          }
+        }
+        
+        console.log(`Captured ${capturedSignatures.length} signatures: ${capturedSignatures.join(', ')}`);
+      } catch (sigError) {
+        console.error('Signature capture failed:', sigError);
+        // Continue - signature capture is for PDF rehydration, don't fail submission
+      }
+
       // Generate PDF document
       let pdfBuffer: Buffer | undefined;
+      let pdfStoragePath: string | undefined;
       try {
         const { pdfGenerator } = await import('./pdfGenerator');
         pdfBuffer = await pdfGenerator.generateApplicationPDF(updatedProspect, formData);
+        
+        // Save PDF to object storage with applicant-specific path
+        if (pdfBuffer) {
+          try {
+            const { objectStorageService } = await import('./objectStorage');
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const companySlug = (formData.companyName || 'unknown').toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 50);
+            const storageKey = `applications/${prospectId}/${companySlug}_${timestamp}.pdf`;
+            
+            await objectStorageService.saveBuffer(storageKey, pdfBuffer, {
+              contentType: 'application/pdf',
+              ownerId: String(prospectId),
+              visibility: 'owner-only',
+            });
+            
+            pdfStoragePath = storageKey;
+            console.log(`Saved application PDF to object storage: ${storageKey}`);
+            
+            // Update prospect with PDF path
+            await storage.updateMerchantProspect(prospectId, {
+              formData: JSON.stringify({ ...mappedFormData, _pdfStoragePath: pdfStoragePath })
+            });
+          } catch (storageError) {
+            console.error('PDF storage failed:', storageError);
+            // Continue - PDF storage is optional
+          }
+        }
       } catch (pdfError) {
         console.error('PDF generation failed:', pdfError);
         // Continue without PDF - don't fail the submission
@@ -4748,6 +4849,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           success: false, 
           message: "Missing required signature data" 
         });
+      }
+
+      // Server-side application locking - prevent signature modifications after submission
+      const prospect = await storage.getMerchantProspect(prospectId);
+      if (prospect) {
+        const lockedStatuses = ['submitted', 'applied', 'approved', 'rejected', 'under_review', 'pending_review'];
+        if (lockedStatuses.includes(prospect.status)) {
+          console.log(`🔒 Blocking signature save for prospect ${prospectId} - application locked (status: ${prospect.status})`);
+          return res.status(403).json({ 
+            success: false, 
+            message: "Application is locked and cannot be modified."
+          });
+        }
       }
 
       // First, ensure the prospect owner exists in the database

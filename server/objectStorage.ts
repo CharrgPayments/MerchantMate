@@ -321,6 +321,47 @@ export class ObjectStorageService {
     
     await file.delete();
   }
+
+  /**
+   * Save a buffer directly to object storage with ACL
+   * @param storageKey The path/key under the private object directory
+   * @param buffer The buffer content to save
+   * @param options Optional metadata and ACL settings
+   * @returns The full storage path where the file was saved
+   */
+  async saveBuffer(
+    storageKey: string,
+    buffer: Buffer,
+    options?: {
+      contentType?: string;
+      ownerId?: string;
+      visibility?: 'public' | 'owner-only' | 'custom';
+    }
+  ): Promise<string> {
+    const privateObjectDir = this.getPrivateObjectDir();
+    const fullPath = `${privateObjectDir}/${storageKey}`;
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    
+    const file = objectStorageClient.bucket(bucketName).file(objectName);
+    
+    // Save the buffer to object storage
+    await file.save(buffer, {
+      contentType: options?.contentType || 'application/octet-stream',
+      resumable: false,
+    });
+    
+    // Set ACL policy if specified
+    if (options?.ownerId || options?.visibility) {
+      const aclPolicy: ObjectAclPolicy = {
+        visibility: options?.visibility || 'owner-only',
+        ownerId: options?.ownerId,
+      };
+      await setObjectAclPolicy(file, aclPolicy);
+    }
+    
+    console.log(`Saved buffer to object storage: ${storageKey}`);
+    return storageKey;
+  }
 }
 
 function parseObjectPath(path: string): {
@@ -381,3 +422,6 @@ async function signObjectURL({
   const { signed_url: signedURL } = await response.json();
   return signedURL;
 }
+
+// Export singleton instance for use across the application
+export const objectStorageService = new ObjectStorageService();
