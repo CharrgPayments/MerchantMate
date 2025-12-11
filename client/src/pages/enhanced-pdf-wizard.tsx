@@ -2921,7 +2921,7 @@ export default function EnhancedPdfWizard() {
             </div>
             {field.fieldName.endsWith('Address') && addressValidationStatus === 'valid' && (
               <div className="flex items-center justify-between">
-                <p className="text-xs text-green-600">✓ Address validated and locked. Edit Address</p>
+                <p className="text-xs text-green-600">✓ Address validated and locked.</p>
                 {addressFieldsLocked && (
                   <button
                     type="button"

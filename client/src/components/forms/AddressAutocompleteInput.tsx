@@ -73,18 +73,11 @@ export function AddressAutocompleteInput({
   });
   const inputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
+  const hasUserUnlocked = useRef(false); // Prevents re-locking after user clicks Edit Address
+  const hasInitialLockOccurred = useRef(false); // Only auto-lock once on mount
   
   // Update addressDetails when initialValues change
   useEffect(() => {
-    console.log('🔄 AddressAutocompleteInput useEffect:', {
-      value: value,
-      'initialValues.city': initialValues.city,
-      'initialValues.state': initialValues.state,
-      'initialValues.zipCode': initialValues.zipCode,
-      'initialValues.street2': initialValues.street2,
-      currentAddressDetails: addressDetails
-    });
-    
     const newDetails = {
       ...addressDetails,
       city: initialValues.city || addressDetails.city,
@@ -93,21 +86,15 @@ export function AddressAutocompleteInput({
       street2: initialValues.street2 || street2Value || addressDetails.street2
     };
     
-    console.log('📝 Setting addressDetails to:', newDetails);
     setAddressDetails(newDetails);
     
-    // Auto-lock if we have complete address data from initialValues
-    if (value && initialValues.city && initialValues.state && initialValues.zipCode) {
-      console.log('✅ Auto-locking address field - complete data detected');
+    // Auto-lock ONLY on initial mount if we have complete address data
+    // Never re-lock if user has explicitly clicked Edit Address
+    if (!hasInitialLockOccurred.current && !hasUserUnlocked.current && 
+        value && initialValues.city && initialValues.state && initialValues.zipCode) {
+      hasInitialLockOccurred.current = true;
       setIsLocked(true);
       setValidationStatus('valid');
-    } else {
-      console.log('❌ NOT auto-locking:', {
-        hasValue: !!value,
-        hasCity: !!initialValues.city,
-        hasState: !!initialValues.state,
-        hasZipCode: !!initialValues.zipCode
-      });
     }
   }, [initialValues.city, initialValues.state, initialValues.zipCode, initialValues.street2, street2Value, value]);
 
@@ -164,6 +151,7 @@ export function AddressAutocompleteInput({
         if (result.isValid) {
           setValidationStatus('valid');
           setIsLocked(true);
+          hasUserUnlocked.current = false; // Reset so future Edit Address works properly
           const newAddressDetails = {
             street: result.streetAddress || suggestion.description.split(',')[0].trim(),
             city: result.city || '',
@@ -195,6 +183,7 @@ export function AddressAutocompleteInput({
 
   // Handle edit address
   const handleEditAddress = () => {
+    hasUserUnlocked.current = true; // Prevent auto-re-locking
     setIsLocked(false);
     setValidationStatus('idle');
     setAddressDetails({
