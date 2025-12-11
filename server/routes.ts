@@ -5035,7 +5035,92 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { token } = req.params;
       
-      // Find the prospect owner by signature token
+      // First, try to find in the new signature_captures table
+      const signatureCapture = await storage.getSignatureCaptureByToken(token);
+      
+      if (signatureCapture) {
+        // New signature capture system - get prospect/application details
+        let companyName = 'Merchant Application';
+        let applicantName = 'Applicant';
+        let applicantEmail = '';
+        let agentName = 'Agent';
+        let agentEmail = '';
+        let prospect: any = null;
+        
+        if (signatureCapture.prospectId) {
+          prospect = await storage.getMerchantProspect(signatureCapture.prospectId);
+          if (prospect) {
+            applicantName = `${prospect.firstName} ${prospect.lastName}`;
+            applicantEmail = prospect.email;
+            
+            // Parse form data to get company name
+            if (prospect.formData) {
+              try {
+                const formData = JSON.parse(prospect.formData);
+                companyName = formData.companyName || formData.merchant_company_name || companyName;
+              } catch (e) {
+                console.error('Error parsing form data:', e);
+              }
+            }
+            
+            // Get agent information
+            const agent = await storage.getAgent(prospect.agentId);
+            if (agent) {
+              agentName = `${agent.firstName} ${agent.lastName}`;
+              agentEmail = agent.email;
+            }
+          }
+        }
+        
+        // Check if already signed
+        if (signatureCapture.status === 'signed') {
+          return res.json({
+            success: true,
+            alreadySigned: true,
+            applicationContext: {
+              companyName,
+              applicantName,
+              applicantEmail,
+              agentName,
+              agentEmail,
+              ownerName: signatureCapture.signerName || 'Owner',
+              ownerEmail: signatureCapture.signerEmail,
+              ownershipPercentage: signatureCapture.ownershipPercentage ? `${signatureCapture.ownershipPercentage}%` : 'N/A',
+              applicationId: signatureCapture.prospectId || signatureCapture.applicationId,
+              status: prospect?.status || 'pending',
+              signedAt: signatureCapture.dateSigned
+            }
+          });
+        }
+        
+        // Check if expired
+        if (signatureCapture.timestampExpires && signatureCapture.timestampExpires < new Date()) {
+          return res.status(410).json({
+            success: false,
+            expired: true,
+            message: 'This signature request has expired'
+          });
+        }
+        
+        return res.json({ 
+          success: true, 
+          applicationContext: {
+            companyName,
+            applicantName,
+            applicantEmail,
+            agentName,
+            agentEmail,
+            ownerName: signatureCapture.signerName || 'Owner',
+            ownerEmail: signatureCapture.signerEmail,
+            ownershipPercentage: signatureCapture.ownershipPercentage ? `${signatureCapture.ownershipPercentage}%` : 'N/A',
+            applicationId: signatureCapture.prospectId || signatureCapture.applicationId,
+            status: prospect?.status || 'pending',
+            signatureCaptureId: signatureCapture.id
+          }
+        });
+      }
+      
+      // Fallback: Find the prospect owner by signature token (legacy system)
       const owner = await storage.getProspectOwnerBySignatureToken(token);
       if (!owner) {
         return res.status(404).json({ 
