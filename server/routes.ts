@@ -4262,6 +4262,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`📥 Save form data for prospect ${prospectId}: ${allKeys.length} total keys`);
       console.log(`✍️ SignatureGroup keys found: ${signatureGroupKeys.length}`, signatureGroupKeys);
       
+      // DEBUG: Log address-related fields being saved
+      const addressKeys = allKeys.filter(k => 
+        k.toLowerCase().includes('address') || k.toLowerCase().includes('location') || 
+        k.toLowerCase().includes('city') || k.toLowerCase().includes('state') || 
+        k.toLowerCase().includes('zip') || k.toLowerCase().includes('postal') ||
+        k.toLowerCase().includes('street')
+      );
+      console.log(`🏠 Address-related fields being saved: ${addressKeys.length}`, addressKeys);
+      addressKeys.forEach(k => console.log(`  📍 ${k}: "${formData[k]}"`));
+      
       if (signatureGroupKeys.length > 0) {
         signatureGroupKeys.forEach(k => {
           const val = formData[k];
