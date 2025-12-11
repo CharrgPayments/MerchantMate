@@ -4253,14 +4253,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const prospectId = parseInt(id);
 
       // DEBUG: Log signature-related keys being saved
-      const signatureKeys = Object.keys(formData || {}).filter(k => 
+      const allKeys = Object.keys(formData || {});
+      const signatureGroupKeys = allKeys.filter(k => k.startsWith('signatureGroup_'));
+      const signatureKeys = allKeys.filter(k => 
         k.toLowerCase().includes('signature') || k.toLowerCase().includes('owner')
       );
-      if (signatureKeys.length > 0) {
-        console.log(`✍️ Save form data - Signature/owner keys for prospect ${prospectId}:`, signatureKeys);
-        signatureKeys.filter(k => k.includes('signatureGroup')).forEach(k => {
-          console.log(`  ${k}: ${typeof formData[k] === 'string' ? formData[k].substring(0, 100) + '...' : JSON.stringify(formData[k]).substring(0, 100) + '...'}`);
+      
+      console.log(`📥 Save form data for prospect ${prospectId}: ${allKeys.length} total keys`);
+      console.log(`✍️ SignatureGroup keys found: ${signatureGroupKeys.length}`, signatureGroupKeys);
+      
+      if (signatureGroupKeys.length > 0) {
+        signatureGroupKeys.forEach(k => {
+          const val = formData[k];
+          console.log(`  📝 ${k}: type=${typeof val}, length=${typeof val === 'string' ? val.length : 'N/A'}, preview=${typeof val === 'string' ? val.substring(0, 150) : JSON.stringify(val).substring(0, 150)}`);
         });
+      }
+      
+      if (signatureKeys.length > 0) {
+        console.log(`ℹ️ Other signature/owner keys:`, signatureKeys.filter(k => !signatureGroupKeys.includes(k)));
       }
 
       // Use environment-aware storage
