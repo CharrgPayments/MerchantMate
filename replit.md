@@ -169,3 +169,19 @@ See `MIGRATION_WORKFLOW.md` for complete deployment pipeline documentation.
 - **Workaround**: Data saves correctly when clicking the "Next" or "Previous" buttons. Users should click Next to ensure their data is saved.
 - **Impact**: Low - manual save via navigation works; auto-save is a convenience feature.
 - **Root Cause**: Possibly the `formData` state changes aren't triggering the useEffect dependency, or the `formDataRef.current` isn't being updated correctly.
+
+## Nice to Have (Future Enhancements)
+
+### Editable Field Mappings for Super Admins
+- **Date Added**: December 11, 2025
+- **Feature**: Allow super_admin users to manually override field mappings in the Template Editor's Field Mappings tab
+- **Use Case**: Expedite troubleshooting for legacy templates or third-party PDFs that can't be easily refactored
+- **Implementation Notes**:
+  - Keep derived mappings as the default; overrides should be exceptions
+  - Store overrides separately from base template configuration (new `fieldMappingsOverrides` object or dedicated table)
+  - Require strong validation before saving (verify field IDs exist, check for conflicts)
+  - Show preview of downstream effects before confirming changes
+  - Include audit trail (who changed what, when)
+  - Provide one-click "revert to default" option
+  - Gate UI and API routes with super_admin role check
+- **Risks**: Incorrect mappings could corrupt saved applications, signatures, or masked fields - safeguards are essential
