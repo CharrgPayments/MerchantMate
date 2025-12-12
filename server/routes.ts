@@ -2956,16 +2956,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Fallback: Use Wells Fargo form structure if template name matches and config is empty
-      if (!fieldConfigLoaded && template?.templateName?.toLowerCase().includes('wells fargo')) {
-        try {
-          const { getWellsFargoMPAForm } = await import('./wellsFargoMPA');
-          const wellsFargoSections = getWellsFargoMPAForm();
-          formSections = transformSectionsToDisplay(wellsFargoSections);
-        } catch (fallbackError) {
-          console.error("Error loading Wells Fargo form fallback:", fallbackError);
+      // Build a field label lookup from template sections
+      const fieldLabelMap: Record<string, { label: string; section: string; sensitive: boolean }> = {};
+      formSections.forEach(section => {
+        section.fields.forEach((field: any) => {
+          fieldLabelMap[field.id] = {
+            label: field.label,
+            section: section.title,
+            sensitive: field.sensitive
+          };
+        });
+      });
+      
+      // Build display sections from actual applicationData
+      // Group fields by detected category based on field name patterns
+      const appData = application.applicationData || {};
+      const fieldGroups: Record<string, { title: string; description: string; fields: any[] }> = {
+        'business': { title: 'Business Information', description: 'Business details and contact information', fields: [] },
+        'owner': { title: 'Owner Information', description: 'Principal owner and business ownership details', fields: [] },
+        'banking': { title: 'Banking Information', description: 'Bank account and payment details', fields: [] },
+        'contact': { title: 'Contact Information', description: 'Contact details', fields: [] },
+        'other': { title: 'Additional Information', description: 'Other application details', fields: [] }
+      };
+      
+      // Helper to convert camelCase to Title Case
+      const formatLabel = (key: string): string => {
+        return key
+          .replace(/([A-Z])/g, ' $1')
+          .replace(/[._]/g, ' ')
+          .replace(/\b\w/g, c => c.toUpperCase())
+          .trim();
+      };
+      
+      // Categorize each field
+      Object.keys(appData).forEach(key => {
+        const lowerKey = key.toLowerCase();
+        const isSensitive = lowerKey.includes('ssn') || lowerKey.includes('taxid') || 
+          lowerKey.includes('federaltaxid') || lowerKey.includes('socialsecurity') ||
+          lowerKey.includes('routingnumber') || lowerKey.includes('accountnumber');
+        
+        // Get label from template if available, otherwise format the key
+        const templateInfo = fieldLabelMap[key];
+        const label = templateInfo?.label || formatLabel(key);
+        
+        const fieldData = {
+          id: key,
+          type: 'text',
+          label,
+          required: false,
+          sensitive: isSensitive || templateInfo?.sensitive || false
+        };
+        
+        // Categorize based on field name
+        if (lowerKey.includes('owner') || lowerKey.includes('principal') || lowerKey.includes('beneficial')) {
+          fieldGroups['owner'].fields.push(fieldData);
+        } else if (lowerKey.includes('bank') || lowerKey.includes('routing') || lowerKey.includes('account')) {
+          fieldGroups['banking'].fields.push(fieldData);
+        } else if (lowerKey.includes('contact') || lowerKey.includes('phone') || lowerKey.includes('fax')) {
+          fieldGroups['contact'].fields.push(fieldData);
+        } else if (lowerKey.includes('business') || lowerKey.includes('company') || lowerKey.includes('dba') || 
+                   lowerKey.includes('merchant') || lowerKey.includes('legal') || lowerKey.includes('address') ||
+                   lowerKey.includes('city') || lowerKey.includes('state') || lowerKey.includes('zip')) {
+          fieldGroups['business'].fields.push(fieldData);
+        } else {
+          fieldGroups['other'].fields.push(fieldData);
         }
-      }
+      });
+      
+      // Build final sections array, only including non-empty groups
+      const dataDrivenSections = Object.entries(fieldGroups)
+        .filter(([_, group]) => group.fields.length > 0)
+        .map(([id, group], index) => ({
+          id,
+          title: group.title,
+          description: group.description,
+          order: index,
+          fields: group.fields
+        }));
+      
+      // Use data-driven sections if template sections don't have matching data
+      const finalSections = dataDrivenSections.length > 0 ? dataDrivenSections : formSections;
       
       res.json({
         success: true,
@@ -2979,7 +3049,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           submittedAt: application.submittedAt,
           template: template ? {
             templateName: template.templateName,
-            formSections
+            formSections: finalSections
           } : null
         }
       });
