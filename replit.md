@@ -45,6 +45,7 @@ Preferred communication style: Simple, everyday language.
 - **Prospect Self-Service Portal**: Comprehensive portal for prospects to manage application lifecycle, including auto-account creation, document management, and automatic conversion to merchant.
 - **Prospect Application Auto-Save**: Auto-save functionality with debounced saves for prospect application forms.
 - **Generic Workflow/Ticketing System**: Reusable workflow engine supporting multi-stage processing pipelines with pluggable handlers, checkpoint reviews, issue/task tracking, and automated stage execution.
+- **Disclosure Fields**: Scrollable disclosure components with mandatory scroll-through tracking and signature acknowledgment. Captures audit data (scroll start/completion times, duration, IP address) for compliance. Signature unlocks only after 100% scroll completion.
 
 ### System Design Choices
 - **Testing Framework**: TDD-style with Jest and React Testing Library.
