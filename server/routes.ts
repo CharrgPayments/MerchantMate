@@ -2770,7 +2770,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ success: false, message: "Access denied" });
       }
       
-      const documents = await storage.getProspectDocuments(prospectId);
+      // Use dynamic database based on session environment
+      const dbEnv = req.dbEnv || 'development';
+      const correctDb = getDynamicDatabase(dbEnv);
+      const requestStorage = createStorage(correctDb);
+      
+      const documents = await requestStorage.getProspectDocuments(prospectId);
       res.json({ success: true, documents });
     } catch (error) {
       console.error("Error fetching documents:", error);
