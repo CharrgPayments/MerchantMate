@@ -4781,8 +4781,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let pdfBuffer: Buffer | undefined;
       let pdfStoragePath: string | undefined;
       try {
-        const { pdfGenerator } = await import('./pdfGenerator');
-        pdfBuffer = await pdfGenerator.generateApplicationPDF(updatedProspect, formData);
+        // Try to use PDFRehydrator if template has a source PDF
+        if (templateForMapping && templateForMapping.sourcePdfPath && templateForMapping.pdfMappingConfiguration) {
+          console.log(`Using PDFRehydrator with template ${templateForMapping.id} source: ${templateForMapping.sourcePdfPath}`);
+          const { PDFRehydrator } = await import('./pdfRehydrator');
+          const rehydrator = new PDFRehydrator();
+          
+          // Get signature groups from template if available
+          const signatureGroups = templateForMapping.signatureGroups || [];
+          
+          pdfBuffer = await rehydrator.rehydratePdf(
+            templateForMapping.sourcePdfPath,
+            mappedFormData,
+            templateForMapping.pdfMappingConfiguration as any,
+            signatureGroups as any
+          );
+          console.log(`PDF rehydration successful, size: ${pdfBuffer.length} bytes`);
+        } else {
+          // Fall back to HTML-based PDF generation
+          console.log('No source PDF template, using HTML-based PDF generation');
+          const { pdfGenerator } = await import('./pdfGenerator');
+          pdfBuffer = await pdfGenerator.generateApplicationPDF(updatedProspect, formData);
+        }
         
         // Save PDF to object storage with applicant-specific path
         if (pdfBuffer) {
