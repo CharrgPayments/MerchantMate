@@ -225,8 +225,18 @@ export default function ProspectPortal() {
       });
       const data = await response.json();
 
-      window.open(data.downloadUrl, '_blank');
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to get download URL");
+      }
+
+      if (!data.downloadUrl) {
+        throw new Error("Download URL not available");
+      }
+
+      // Use location.href for direct download instead of window.open
+      window.location.href = data.downloadUrl;
     } catch (error: any) {
+      console.error("Download error:", error);
       toast({
         title: "Download Failed",
         description: error.message || "Failed to download file",
