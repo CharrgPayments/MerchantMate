@@ -161,6 +161,7 @@ export const merchantProspects = pgTable("merchant_prospects", {
   agentSignatureType: text("agent_signature_type"), // 'canvas' or 'typed'
   agentSignedAt: timestamp("agent_signed_at"), // When the agent signed
   notes: text("notes"),
+  databaseEnv: text("database_env").default("development"), // Environment where prospect was created (development, test, production)
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
