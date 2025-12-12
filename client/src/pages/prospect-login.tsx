@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
@@ -11,6 +11,12 @@ import { Loader2, Eye, EyeOff, UserCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { z } from "zod";
+
+// Get database environment from URL params
+function getDbEnvFromUrl(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('db');
+}
 
 const loginSchema = z.object({
   email: z.string().email("Valid email required"),
@@ -34,7 +40,11 @@ export default function ProspectLogin() {
 
   const loginMutation = useMutation({
     mutationFn: async (data: LoginForm) => {
-      const response = await fetch("/api/prospects/auth/login", {
+      // Include database environment in URL if present
+      const dbEnv = getDbEnvFromUrl();
+      const url = dbEnv ? `/api/prospects/auth/login?db=${dbEnv}` : "/api/prospects/auth/login";
+      
+      const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),

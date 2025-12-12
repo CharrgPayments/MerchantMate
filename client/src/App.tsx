@@ -56,6 +56,8 @@ import Landing from "@/pages/landing";
 import Auth from "@/pages/auth";
 import ProspectPortal from "@/pages/prospect-portal";
 import ProspectProfile from "@/pages/prospect-profile";
+import ProspectLogin from "@/pages/prospect-login";
+import ProspectSetPassword from "@/pages/prospect-set-password";
 import WorkflowDashboard from "@/pages/workflow-dashboard";
 import WorkflowTicket from "@/pages/workflow-ticket";
 import PermissionManager from "@/pages/permission-manager";
@@ -797,6 +799,12 @@ function AppContent() {
           </Route>
           <Route path="/prospect-portal">
             {() => <ProspectPortal />}
+          </Route>
+          <Route path="/prospect-portal/set-password">
+            {() => <ProspectSetPassword />}
+          </Route>
+          <Route path="/prospect-login">
+            {() => <ProspectLogin />}
           </Route>
           <Route path="/prospect-profile">
             {() => <ProspectProfile />}
