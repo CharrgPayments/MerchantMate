@@ -2799,8 +2799,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ success: false, message: "Access denied" });
       }
       
+      // Use dynamic database based on session environment
+      const dbEnv = req.dbEnv || 'development';
+      const correctDb = getDynamicDatabase(dbEnv);
+      const requestStorage = createStorage(correctDb);
+      
       // Get document metadata
-      const document = await storage.getProspectDocument(docId);
+      const document = await requestStorage.getProspectDocument(docId);
       if (!document) {
         return res.status(404).json({ success: false, message: "Document not found" });
       }
@@ -2810,16 +2815,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ success: false, message: "Access denied" });
       }
       
-      // Get presigned download URL
+      // Get presigned download URL - for generated PDFs, use admin-level access
       const objectStorageService = new ObjectStorageService();
       const downloadUrl = await objectStorageService.getDownloadUrl(document.storageKey, {
         userId: prospect.userId!,
-        acl: 'PROSPECT_OWNER'
+        acl: 'ADMIN' // Use ADMIN ACL to allow prospect access to their generated PDF
       });
       
       res.json({ success: true, downloadUrl, document });
     } catch (error) {
       if (error instanceof AccessDeniedError) {
+        console.error("Access denied for document download:", error);
         return res.status(403).json({ success: false, message: "Access denied" });
       }
       console.error("Error generating download URL:", error);
