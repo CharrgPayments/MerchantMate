@@ -219,7 +219,53 @@ export function DisclosureField({
       if (canvas) {
         const signature = canvas.toDataURL('image/png');
         setDrawnSignature(signature);
+        updateSignatureData(signature, 'drawn');
       }
+    }
+  };
+
+  const updateSignatureData = (signatureData: string, type: 'drawn' | 'typed') => {
+    if (!hasCompletedScroll || disabled) return;
+    
+    const startTime = value?.scrollStartedAt || (scrollStartTime.current ? new Date(scrollStartTime.current).toISOString() : new Date().toISOString());
+    
+    onChange({
+      ...value,
+      scrollStartedAt: startTime,
+      scrollCompletedAt: value?.scrollCompletedAt || new Date().toISOString(),
+      scrollDurationMs: value?.scrollDurationMs || 0,
+      scrollPercentage: scrollPercentage,
+      acknowledged: false,
+      signature: {
+        signerName,
+        signatureData,
+        signatureType: type,
+        email: signerEmail,
+        dateSigned: '',
+      },
+    });
+  };
+
+  const handleSignerNameChange = (name: string) => {
+    setSignerName(name);
+    const currentSignature = signatureType === 'draw' ? drawnSignature : typedSignature;
+    if (currentSignature && hasCompletedScroll) {
+      updateSignatureData(currentSignature, signatureType === 'draw' ? 'drawn' : 'typed');
+    }
+  };
+
+  const handleSignerEmailChange = (email: string) => {
+    setSignerEmail(email);
+    const currentSignature = signatureType === 'draw' ? drawnSignature : typedSignature;
+    if (currentSignature && hasCompletedScroll) {
+      updateSignatureData(currentSignature, signatureType === 'draw' ? 'drawn' : 'typed');
+    }
+  };
+
+  const handleTypedSignatureChange = (typed: string) => {
+    setTypedSignature(typed);
+    if (typed && hasCompletedScroll) {
+      updateSignatureData(typed, 'typed');
     }
   };
 
@@ -233,6 +279,16 @@ export function DisclosureField({
     }
     setDrawnSignature('');
     setTypedSignature('');
+    
+    onChange({
+      ...value,
+      scrollStartedAt: value?.scrollStartedAt,
+      scrollCompletedAt: value?.scrollCompletedAt,
+      scrollDurationMs: value?.scrollDurationMs || 0,
+      scrollPercentage: scrollPercentage,
+      acknowledged: false,
+      signature: undefined,
+    });
   };
 
   const handleAcknowledge = () => {
@@ -373,7 +429,7 @@ export function DisclosureField({
                       <Input
                         id={`${config.key}-signer-name`}
                         value={signerName}
-                        onChange={(e) => setSignerName(e.target.value)}
+                        onChange={(e) => handleSignerNameChange(e.target.value)}
                         placeholder="Enter your full legal name"
                         disabled={disabled}
                         data-testid={`disclosure-${config.key}-signer-name`}
@@ -385,7 +441,7 @@ export function DisclosureField({
                         id={`${config.key}-signer-email`}
                         type="email"
                         value={signerEmail}
-                        onChange={(e) => setSignerEmail(e.target.value)}
+                        onChange={(e) => handleSignerEmailChange(e.target.value)}
                         placeholder="Enter your email address"
                         disabled={disabled}
                         data-testid={`disclosure-${config.key}-signer-email`}
@@ -437,7 +493,7 @@ export function DisclosureField({
                       <TabsContent value="type" className="mt-2">
                         <Input
                           value={typedSignature}
-                          onChange={(e) => setTypedSignature(e.target.value)}
+                          onChange={(e) => handleTypedSignatureChange(e.target.value)}
                           placeholder="Type your full name as signature"
                           className="font-signature text-xl italic"
                           disabled={disabled}
