@@ -39,7 +39,7 @@ interface ProspectDocument {
   fileType: string;
   fileSize: number;
   category: string;
-  uploadedAt: string;
+  createdAt: string;
   storageKey: string;
 }
 
@@ -450,7 +450,7 @@ export default function ProspectPortal() {
                           <div>
                             <p className="font-medium text-sm">{doc.fileName}</p>
                             <p className="text-xs text-gray-500">
-                              Uploaded {format(new Date(doc.uploadedAt), 'MMM d, yyyy')}
+                              Uploaded {format(new Date(doc.createdAt), 'MMM d, yyyy')}
                             </p>
                           </div>
                         </div>
