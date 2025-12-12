@@ -2842,6 +2842,7 @@ function PdfFieldNamingDocumentation({
     { type: 'mcc-select', icon: CreditCard, description: 'Merchant Category Code selector', example: 'business.mcc, merchant.mccCode', detection: 'Field name contains "mcc"', complex: true, masking: 'None' },
     { type: 'signature', icon: PenTool, description: 'Digital signature capture', example: 'owners.1.signature, agent.signature', detection: 'Signature group pattern', complex: true, masking: 'Stored securely' },
     { type: 'user_account', icon: Users, description: 'Automatic user account creation', example: 'prospect.account', detection: 'Special field type for account creation', complex: true, masking: 'Password masked' },
+    { type: 'disclosure', icon: FileText, description: 'Scrollable disclosure with signature', example: 'disclosures.termsOfService, disclosures.eSignConsent', detection: 'Field in disclosures section', complex: true, masking: 'Audit trail' },
   ];
 
   return (
@@ -3374,6 +3375,68 @@ function PdfFieldNamingDocumentation({
                       Used for prospect portal access and automatic merchant account creation.
                     </p>
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Disclosure Fields */}
+            <Card className="border-indigo-200">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-indigo-600" />
+                  Disclosure Fields
+                </CardTitle>
+                <CardDescription>
+                  Scrollable disclosures with mandatory read-through and signature acknowledgment
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-200">
+                  <h4 className="font-semibold text-indigo-800 mb-2">How Disclosures Work</h4>
+                  <p className="text-sm text-indigo-700 mb-3">
+                    Disclosure fields ensure prospects read important legal documents before signing.
+                    The system tracks scroll position and only enables the signature after complete reading.
+                  </p>
+                  <div className="space-y-3">
+                    <div className="bg-white p-3 rounded border">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="text-indigo-600">1</Badge>
+                        <span className="text-sm font-medium">Scroll Tracking</span>
+                      </div>
+                      <p className="text-xs text-gray-600">Prospect must scroll through the entire disclosure content. Progress is tracked as a percentage.</p>
+                    </div>
+                    <div className="bg-white p-3 rounded border">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="text-indigo-600">2</Badge>
+                        <span className="text-sm font-medium">Signature Unlock</span>
+                      </div>
+                      <p className="text-xs text-gray-600">After reading 100%, the signature area becomes enabled for signing.</p>
+                    </div>
+                    <div className="bg-white p-3 rounded border">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="text-indigo-600">3</Badge>
+                        <span className="text-sm font-medium">Audit Trail</span>
+                      </div>
+                      <p className="text-xs text-gray-600">System captures: scroll start time, completion time, duration, IP address, and signature data.</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-indigo-100 p-3 rounded-lg border border-indigo-300">
+                  <h5 className="font-medium text-indigo-800 mb-2">Disclosure Field Pattern</h5>
+                  <div className="space-y-1 font-mono text-sm">
+                    <div>disclosures.termsOfService.scrolledAt</div>
+                    <div>disclosures.termsOfService.scrollDurationMs</div>
+                    <div>disclosures.termsOfService.acknowledged</div>
+                    <div>disclosures.termsOfService.signature.signerName</div>
+                    <div>disclosures.termsOfService.signature.data</div>
+                    <div>disclosures.termsOfService.signature.dateSigned</div>
+                  </div>
+                </div>
+                <div className="p-3 bg-white rounded border border-indigo-200">
+                  <p className="text-xs text-indigo-600">
+                    <strong>Common Disclosures:</strong> Terms of Service, E-Sign Consent, Privacy Policy, 
+                    Processing Agreement, Equipment Lease Terms
+                  </p>
                 </div>
               </CardContent>
             </Card>
