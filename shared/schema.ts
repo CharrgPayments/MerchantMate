@@ -957,6 +957,7 @@ export const acquirerApplicationTemplates = pgTable("acquirer_application_templa
   isActive: boolean("is_active").notNull().default(true),
   fieldConfiguration: jsonb("field_configuration").notNull(), // JSON defining form fields, validation, sections
   pdfMappingConfiguration: jsonb("pdf_mapping_configuration"), // JSON mapping form fields to PDF positions
+  sourcePdfPath: text("source_pdf_path"), // Path to the original PDF template in object storage for rehydration
   requiredFields: text("required_fields").array().notNull().default(sql`ARRAY[]::text[]`), // Array of required field names
   conditionalFields: jsonb("conditional_fields"), // JSON defining field visibility conditions
   addressGroups: jsonb("address_groups").default(sql`'[]'::jsonb`), // JSON defining address field groups: [{ type: 'business'|'mailing'|'shipping', sectionName: string, fieldMappings: { street1: 'merchant_businessAddress', street2: 'merchant_businessAddress2', city: 'merchant_businessCity', state: 'merchant_businessState', postalCode: 'merchant_businessZipCode', country: 'merchant_businessCountry' } }]
