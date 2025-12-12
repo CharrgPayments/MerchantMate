@@ -261,19 +261,21 @@ export default function ProspectPortal() {
 
     setIsUploading(true);
     try {
-      // Step 1: Get upload URL
-      const storageKey = `prospects/${prospect.id}/documents/${Date.now()}-${selectedFile.name}`;
+      // Step 1: Get upload URL (server generates the storageKey)
       const urlResponse = await fetch(`/api/prospects/${prospect.id}/documents/upload-url`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
           fileName: selectedFile.name,
-          fileType: selectedFile.type,
-          storageKey
+          fileType: selectedFile.type
         })
       });
       const urlData = await urlResponse.json();
+      
+      if (!urlData.success || !urlData.uploadUrl) {
+        throw new Error(urlData.message || "Failed to get upload URL");
+      }
 
       // Step 2: Upload file to presigned URL
       const uploadResponse = await fetch(urlData.uploadUrl, {
@@ -288,12 +290,12 @@ export default function ProspectPortal() {
         throw new Error("Failed to upload file");
       }
 
-      // Step 3: Create document metadata
+      // Step 3: Create document metadata using the server-generated storageKey
       await apiRequest("POST", `/api/prospects/${prospect.id}/documents`, {
         fileName: selectedFile.name,
         fileType: selectedFile.type,
         fileSize: selectedFile.size,
-        storageKey,
+        storageKey: urlData.storageKey,
         category: "general",
       });
 
