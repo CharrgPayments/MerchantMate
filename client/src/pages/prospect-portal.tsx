@@ -19,10 +19,15 @@ import {
   Loader2,
   ClipboardList,
   Eye,
-  EyeOff
+  EyeOff,
+  MessageSquare,
+  Send
 } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
@@ -55,6 +60,19 @@ interface Notification {
   message: string;
   type: string;
   isRead: boolean;
+  createdAt: string;
+}
+
+interface ProspectMessage {
+  id: number;
+  prospectId: number;
+  agentId: number | null;
+  senderId: string;
+  senderType: 'prospect' | 'agent';
+  subject: string;
+  message: string;
+  isRead: boolean;
+  readAt: string | null;
   createdAt: string;
 }
 
@@ -93,6 +111,8 @@ export default function ProspectPortal() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [visibleSensitiveFields, setVisibleSensitiveFields] = useState<Record<string, boolean>>({});
+  const [messageSubject, setMessageSubject] = useState("");
+  const [messageBody, setMessageBody] = useState("");
 
   // Fetch prospect data
   const { data: prospectData, isLoading: prospectLoading, error: prospectError } = useQuery<{ prospect: Prospect }>({
@@ -176,6 +196,37 @@ export default function ProspectPortal() {
     },
   });
 
+  // Fetch messages
+  const { data: messagesData, isLoading: messagesLoading } = useQuery<{ messages: ProspectMessage[] }>({
+    queryKey: ['/api/prospects', prospect?.id, 'messages'],
+    enabled: !!prospect?.id,
+    queryFn: async () => {
+      const res = await fetch(`/api/prospects/${prospect?.id}/messages`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        throw new Error('Failed to fetch messages');
+      }
+      return res.json();
+    },
+  });
+
+  // Fetch unread message count
+  const { data: unreadMessagesData } = useQuery<{ count: number }>({
+    queryKey: ['/api/prospects', prospect?.id, 'messages', 'unread-count'],
+    enabled: !!prospect?.id,
+    refetchInterval: 10000,
+    queryFn: async () => {
+      const res = await fetch(`/api/prospects/${prospect?.id}/messages/unread-count`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        throw new Error('Failed to fetch unread count');
+      }
+      return res.json();
+    },
+  });
+
   // Helper to mask sensitive values (show only last 4 digits)
   const maskSensitiveValue = (value: string, fieldType: string): string => {
     if (!value) return '';
@@ -252,6 +303,40 @@ export default function ProspectPortal() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/prospects', prospect?.id, 'notifications'] });
       queryClient.invalidateQueries({ queryKey: ['/api/prospects', prospect?.id, 'notifications', 'unread-count'] });
+    },
+  });
+
+  // Send message mutation
+  const sendMessageMutation = useMutation({
+    mutationFn: async ({ subject, message }: { subject: string; message: string }) => {
+      await apiRequest("POST", `/api/prospects/${prospect?.id}/messages`, { subject, message });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Message Sent",
+        description: "Your message has been sent to your assigned agent",
+      });
+      setMessageSubject("");
+      setMessageBody("");
+      queryClient.invalidateQueries({ queryKey: ['/api/prospects', prospect?.id, 'messages'] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to Send",
+        description: error.message || "Could not send message",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Mark message as read mutation
+  const markMessageAsReadMutation = useMutation({
+    mutationFn: async (messageId: number) => {
+      await apiRequest("PATCH", `/api/prospects/${prospect?.id}/messages/${messageId}/read`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/prospects', prospect?.id, 'messages'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/prospects', prospect?.id, 'messages', 'unread-count'] });
     },
   });
 
@@ -481,7 +566,7 @@ export default function ProspectPortal() {
         </Card>
 
         <Tabs defaultValue="application" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="application" data-testid="tab-application">
               <ClipboardList className="w-4 h-4 mr-2" />
               Application
@@ -489,6 +574,13 @@ export default function ProspectPortal() {
             <TabsTrigger value="documents" data-testid="tab-documents">
               <FileText className="w-4 h-4 mr-2" />
               Documents
+            </TabsTrigger>
+            <TabsTrigger value="messages" data-testid="tab-messages">
+              <MessageSquare className="w-4 h-4 mr-2" />
+              Messages
+              {(unreadMessagesData?.count ?? 0) > 0 && (
+                <Badge variant="destructive" className="ml-2">{unreadMessagesData?.count}</Badge>
+              )}
             </TabsTrigger>
             <TabsTrigger value="notifications" data-testid="tab-notifications">
               <Bell className="w-4 h-4 mr-2" />
@@ -725,6 +817,116 @@ export default function ProspectPortal() {
                   <div className="text-center py-8 text-gray-500">
                     <FileText className="w-12 h-12 mx-auto mb-2 text-gray-400" />
                     <p>No documents uploaded yet</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Messages Tab */}
+          <TabsContent value="messages" className="space-y-4">
+            {/* Compose Message Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Send className="w-5 h-5" />
+                  Send Message to Agent
+                </CardTitle>
+                <CardDescription>
+                  Send a message to your assigned agent. They will respond as soon as possible.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="message-subject">Subject</Label>
+                  <Input
+                    id="message-subject"
+                    placeholder="Enter message subject..."
+                    value={messageSubject}
+                    onChange={(e) => setMessageSubject(e.target.value)}
+                    data-testid="input-message-subject"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="message-body">Message</Label>
+                  <Textarea
+                    id="message-body"
+                    placeholder="Type your message here..."
+                    rows={4}
+                    value={messageBody}
+                    onChange={(e) => setMessageBody(e.target.value)}
+                    data-testid="input-message-body"
+                  />
+                </div>
+                <Button
+                  onClick={() => sendMessageMutation.mutate({ subject: messageSubject, message: messageBody })}
+                  disabled={!messageSubject.trim() || !messageBody.trim() || sendMessageMutation.isPending}
+                  data-testid="button-send-message"
+                >
+                  {sendMessageMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4 mr-2" />
+                  )}
+                  Send Message
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Message History */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <MessageSquare className="w-5 h-5" />
+                  Message History
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {messagesLoading ? (
+                  <div className="text-center py-8">
+                    <Loader2 className="w-8 h-8 animate-spin text-gray-400 mx-auto" />
+                    <p className="text-sm text-gray-500 mt-2">Loading messages...</p>
+                  </div>
+                ) : messagesData?.messages && messagesData.messages.length > 0 ? (
+                  <div className="space-y-4">
+                    {messagesData.messages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`p-4 rounded-lg border ${
+                          msg.senderType === 'prospect' 
+                            ? 'bg-blue-50 border-blue-200 ml-8' 
+                            : 'bg-gray-50 border-gray-200 mr-8'
+                        } ${!msg.isRead && msg.senderType === 'agent' ? 'ring-2 ring-yellow-400' : ''}`}
+                        onClick={() => {
+                          if (!msg.isRead && msg.senderType === 'agent') {
+                            markMessageAsReadMutation.mutate(msg.id);
+                          }
+                        }}
+                        data-testid={`message-${msg.id}`}
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex items-center gap-2">
+                            <Badge variant={msg.senderType === 'prospect' ? 'default' : 'secondary'}>
+                              {msg.senderType === 'prospect' ? 'You' : 'Agent'}
+                            </Badge>
+                            {!msg.isRead && msg.senderType === 'agent' && (
+                              <Badge variant="outline" className="text-yellow-600 border-yellow-400">New</Badge>
+                            )}
+                          </div>
+                          <span className="text-xs text-gray-500">
+                            {format(new Date(msg.createdAt), 'MMM d, yyyy h:mm a')}
+                          </span>
+                        </div>
+                        <h4 className="font-medium mb-1">{msg.subject}</h4>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{msg.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <MessageSquare className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                    <p>No messages yet</p>
+                    <p className="text-sm">Send a message to start a conversation with your agent</p>
                   </div>
                 )}
               </CardContent>
