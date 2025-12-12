@@ -1958,10 +1958,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const crypto = await import('crypto');
       const validationToken = crypto.randomUUID();
       
-      // Create prospect with validation token
+      // Create prospect with validation token and capture the database environment
+      const adminDbEnv = (req.session as any)?.dbEnv || 'development';
       const prospect = await storage.createMerchantProspect({
         ...result.data,
-        validationToken
+        validationToken,
+        databaseEnv: adminDbEnv
       });
       
       // Create campaign assignment
@@ -2590,12 +2592,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Create session
+      // Create session using the prospect's stored database environment
+      // This ensures the prospect always accesses the same database they were created in
+      const prospectDbEnv = (prospect as any).databaseEnv || req.dbEnv || 'development';
       req.session.userId = user.id;
       req.session.sessionId = `prospect-${Date.now()}`;
-      req.session.dbEnv = req.dbEnv;
+      req.session.dbEnv = prospectDbEnv;
       
-      console.log(`Prospect login successful: ${user.email}, prospectId: ${prospect.id}`);
+      console.log(`Prospect login successful: ${user.email}, prospectId: ${prospect.id}, dbEnv: ${prospectDbEnv}`);
       
       // Force session save before responding
       req.session.save((err: any) => {
@@ -4679,7 +4683,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Send password setup email to prospect
         try {
-          const passwordSetupUrl = `${req.protocol}://${req.get('host')}/prospect-portal/set-password?token=${resetToken}`;
+          const currentDbEnv = (req as any).dbEnv || prospect.databaseEnv || 'development';
+          let passwordSetupUrl = `${req.protocol}://${req.get('host')}/prospect-portal/set-password?token=${resetToken}`;
+          if (currentDbEnv && currentDbEnv !== 'production') {
+            passwordSetupUrl += `&db=${currentDbEnv}`;
+          }
           // Check multiple possible field names for company name
           const resolvedCompanyName = formData.companyName || formData.merchant_company_name || formData.businessName || prospect.companyName || 'Unknown Company';
           await emailService.sendProspectPasswordSetup({
