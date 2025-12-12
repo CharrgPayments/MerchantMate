@@ -285,8 +285,11 @@ export class ObjectStorageService {
       throw new ObjectNotFoundError();
     }
     
-    // Verify ACL if userId is provided
-    if (options?.userId) {
+    // Skip ACL check if ADMIN acl is specified (allows authorized server-side access)
+    if (options?.acl === 'ADMIN') {
+      // Admin access - skip ACL verification for server-authorized downloads
+    } else if (options?.userId) {
+      // Verify ACL for regular users
       const hasAccess = await canAccessObject({
         userId: options.userId,
         objectFile: file,
