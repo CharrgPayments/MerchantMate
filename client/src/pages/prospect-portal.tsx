@@ -16,8 +16,13 @@ import {
   User, 
   LogOut,
   AlertCircle,
-  Loader2
+  Loader2,
+  ClipboardList,
+  Eye,
+  EyeOff
 } from "lucide-react";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
@@ -53,11 +58,41 @@ interface Notification {
   createdAt: string;
 }
 
+interface ApplicationField {
+  id: string;
+  type: string;
+  label: string;
+  required?: boolean;
+  sensitive?: boolean;
+}
+
+interface ApplicationSection {
+  id: string;
+  title: string;
+  description?: string;
+  fields: ApplicationField[];
+}
+
+interface ProspectApplication {
+  id: number;
+  prospectId: number;
+  acquirerId: number;
+  templateId: number;
+  applicationData: Record<string, any>;
+  status: string;
+  submittedAt: string;
+  template?: {
+    templateName: string;
+    formSections?: ApplicationSection[];
+  };
+}
+
 export default function ProspectPortal() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [visibleSensitiveFields, setVisibleSensitiveFields] = useState<Record<string, boolean>>({});
 
   // Fetch prospect data
   const { data: prospectData, isLoading: prospectLoading, error: prospectError } = useQuery<{ prospect: Prospect }>({
@@ -125,6 +160,71 @@ export default function ProspectPortal() {
       return res.json();
     },
   });
+
+  // Fetch application data
+  const { data: applicationData, isLoading: applicationLoading } = useQuery<{ application: ProspectApplication | null }>({
+    queryKey: ['/api/prospects', prospect?.id, 'application'],
+    enabled: !!prospect?.id,
+    queryFn: async () => {
+      const res = await fetch(`/api/prospects/${prospect?.id}/application`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        throw new Error('Failed to fetch application');
+      }
+      return res.json();
+    },
+  });
+
+  // Helper to mask sensitive values (show only last 4 digits)
+  const maskSensitiveValue = (value: string, fieldType: string): string => {
+    if (!value) return '';
+    const cleanValue = value.replace(/\D/g, '');
+    if (cleanValue.length >= 4) {
+      return `***-**-${cleanValue.slice(-4)}`;
+    }
+    return '***';
+  };
+
+  // Helper to format field value for display
+  const formatFieldValue = (value: any, field: ApplicationField): string => {
+    if (value === null || value === undefined || value === '') {
+      return '—';
+    }
+    
+    // Handle sensitive fields
+    if (field.sensitive && !visibleSensitiveFields[field.id]) {
+      return maskSensitiveValue(String(value), field.type);
+    }
+
+    // Handle boolean values
+    if (typeof value === 'boolean') {
+      return value ? 'Yes' : 'No';
+    }
+
+    // Handle objects (like addresses)
+    if (typeof value === 'object') {
+      if (Array.isArray(value)) {
+        return value.join(', ');
+      }
+      // Try to format as address
+      if (value.street || value.city || value.state) {
+        const parts = [value.street, value.street2, value.city, value.state, value.zipCode].filter(Boolean);
+        return parts.join(', ');
+      }
+      return JSON.stringify(value);
+    }
+
+    return String(value);
+  };
+
+  // Toggle sensitive field visibility
+  const toggleSensitiveField = (fieldId: string) => {
+    setVisibleSensitiveFields(prev => ({
+      ...prev,
+      [fieldId]: !prev[fieldId]
+    }));
+  };
 
   // Logout mutation
   const logoutMutation = useMutation({
@@ -378,8 +478,12 @@ export default function ProspectPortal() {
           </CardContent>
         </Card>
 
-        <Tabs defaultValue="documents" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-2">
+        <Tabs defaultValue="application" className="space-y-4">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="application" data-testid="tab-application">
+              <ClipboardList className="w-4 h-4 mr-2" />
+              Application
+            </TabsTrigger>
             <TabsTrigger value="documents" data-testid="tab-documents">
               <FileText className="w-4 h-4 mr-2" />
               Documents
@@ -392,6 +496,132 @@ export default function ProspectPortal() {
               )}
             </TabsTrigger>
           </TabsList>
+
+          {/* Application Tab */}
+          <TabsContent value="application" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ClipboardList className="w-5 h-5" />
+                  Submitted Application
+                </CardTitle>
+                <CardDescription>
+                  Review your submitted application details below. This information has been locked and cannot be edited.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {applicationLoading ? (
+                  <div className="text-center py-8">
+                    <Loader2 className="w-8 h-8 animate-spin text-gray-400 mx-auto" />
+                    <p className="text-sm text-gray-500 mt-2">Loading application...</p>
+                  </div>
+                ) : applicationData?.application ? (
+                  <div className="space-y-4">
+                    {/* Application metadata */}
+                    <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div>
+                          <p className="text-gray-500">Template</p>
+                          <p className="font-medium">{applicationData.application.template?.templateName || 'Standard Application'}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500">Status</p>
+                          <Badge variant="outline">{applicationData.application.status}</Badge>
+                        </div>
+                        <div>
+                          <p className="text-gray-500">Submitted</p>
+                          <p className="font-medium">
+                            {applicationData.application.submittedAt 
+                              ? format(new Date(applicationData.application.submittedAt), 'MMM d, yyyy h:mm a')
+                              : '—'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500">Application ID</p>
+                          <p className="font-medium">#{applicationData.application.id}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    {/* Application data by sections */}
+                    {applicationData.application.template?.formSections && applicationData.application.template.formSections.length > 0 ? (
+                      <Accordion type="multiple" defaultValue={applicationData.application.template.formSections.map(s => s.id)} className="w-full">
+                        {applicationData.application.template.formSections.map((section) => (
+                          <AccordionItem key={section.id} value={section.id}>
+                            <AccordionTrigger className="text-left">
+                              <div>
+                                <h3 className="font-semibold">{section.title}</h3>
+                                {section.description && (
+                                  <p className="text-sm text-gray-500 font-normal">{section.description}</p>
+                                )}
+                              </div>
+                            </AccordionTrigger>
+                            <AccordionContent>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
+                                {section.fields.map((field) => {
+                                  const value = applicationData.application?.applicationData?.[field.id];
+                                  const displayValue = formatFieldValue(value, field);
+                                  
+                                  return (
+                                    <div key={field.id} className="space-y-1" data-testid={`field-${field.id}`}>
+                                      <div className="flex items-center gap-2">
+                                        <p className="text-sm font-medium text-gray-600">{field.label}</p>
+                                        {field.sensitive && (
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-6 w-6 p-0"
+                                            onClick={() => toggleSensitiveField(field.id)}
+                                            data-testid={`toggle-${field.id}`}
+                                          >
+                                            {visibleSensitiveFields[field.id] ? (
+                                              <EyeOff className="w-3 h-3" />
+                                            ) : (
+                                              <Eye className="w-3 h-3" />
+                                            )}
+                                          </Button>
+                                        )}
+                                      </div>
+                                      <p className="text-sm bg-gray-50 rounded px-3 py-2" data-testid={`value-${field.id}`}>
+                                        {displayValue}
+                                      </p>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </AccordionContent>
+                          </AccordionItem>
+                        ))}
+                      </Accordion>
+                    ) : (
+                      /* Fallback: display raw data without template structure */
+                      <div className="space-y-4">
+                        <p className="text-sm text-gray-500 mb-4">Application data:</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {Object.entries(applicationData.application.applicationData || {}).map(([key, value]) => (
+                            <div key={key} className="space-y-1">
+                              <p className="text-sm font-medium text-gray-600">{key.replace(/([A-Z])/g, ' $1').replace(/[._]/g, ' ').trim()}</p>
+                              <p className="text-sm bg-gray-50 rounded px-3 py-2">
+                                {typeof value === 'object' ? JSON.stringify(value) : String(value || '—')}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <ClipboardList className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+                    <p>No application data available</p>
+                    <p className="text-sm mt-1">Your application details will appear here after submission.</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           {/* Documents Tab */}
           <TabsContent value="documents" className="space-y-4">

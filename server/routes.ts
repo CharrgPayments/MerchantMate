@@ -2870,6 +2870,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get prospect's application with template field configuration for read-only view
+  app.get("/api/prospects/:id/application", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const prospect = (req as any).prospect;
+      
+      // Verify prospect owns this resource
+      if (prospect.id !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) {
+        return res.status(500).json({ success: false, message: "Database connection not available" });
+      }
+      
+      const { prospectApplications, acquirerApplicationTemplates } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      
+      // Get the application with template data - use authenticated prospect's ID for security
+      const [applicationData] = await dbToUse.select({
+        application: prospectApplications,
+        template: acquirerApplicationTemplates
+      })
+      .from(prospectApplications)
+      .leftJoin(acquirerApplicationTemplates, eq(prospectApplications.templateId, acquirerApplicationTemplates.id))
+      .where(eq(prospectApplications.prospectId, prospect.id))
+      .limit(1);
+      
+      if (!applicationData || !applicationData.application) {
+        return res.json({ success: true, application: null });
+      }
+      
+      const { application, template } = applicationData;
+      
+      // Transform template fieldConfiguration to formSections for frontend display
+      let formSections: any[] = [];
+      if (template?.fieldConfiguration) {
+        try {
+          const fieldConfig = typeof template.fieldConfiguration === 'string' 
+            ? JSON.parse(template.fieldConfiguration) 
+            : template.fieldConfiguration;
+          
+          if (Array.isArray(fieldConfig)) {
+            // fieldConfiguration is already an array of sections
+            formSections = fieldConfig.map((section: any) => ({
+              id: section.id || section.name?.toLowerCase().replace(/\s+/g, '_') || 'section',
+              title: section.title || section.name || 'Section',
+              description: section.description || '',
+              fields: (section.fields || []).map((field: any) => ({
+                id: field.name || field.id,
+                type: field.type || 'text',
+                label: field.label || field.name,
+                required: field.required || false,
+                sensitive: field.sensitive || field.type === 'ssn' || field.name?.toLowerCase().includes('ssn') || field.name?.toLowerCase().includes('taxid')
+              }))
+            }));
+          }
+        } catch (parseError) {
+          console.error("Error parsing fieldConfiguration:", parseError);
+        }
+      }
+      
+      res.json({
+        success: true,
+        application: {
+          id: application.id,
+          prospectId: application.prospectId,
+          acquirerId: application.acquirerId,
+          templateId: application.templateId,
+          applicationData: application.applicationData || {},
+          status: application.status,
+          submittedAt: application.submittedAt,
+          template: template ? {
+            templateName: template.templateName,
+            formSections
+          } : null
+        }
+      });
+    } catch (error) {
+      console.error("Error fetching prospect application:", error);
+      res.status(500).json({ success: false, message: "Failed to fetch application" });
+    }
+  });
+
   // Get download URL for completed application PDF (prospect-accessible)
   app.get("/api/prospects/:id/applications/:appId/download-pdf", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
     try {
