@@ -463,15 +463,18 @@ export default function ProspectPortal() {
                           >
                             <Download className="w-4 h-4" />
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => deleteDocumentMutation.mutate(doc.id)}
-                            disabled={deleteDocumentMutation.isPending}
-                            data-testid={`button-delete-${doc.id}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          {/* Don't allow deleting application PDFs */}
+                          {!doc.storageKey.startsWith('applications/') && (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => deleteDocumentMutation.mutate(doc.id)}
+                              disabled={deleteDocumentMutation.isPending}
+                              data-testid={`button-delete-${doc.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
                         </div>
                       </div>
                     ))}
