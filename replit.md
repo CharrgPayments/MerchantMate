@@ -46,6 +46,7 @@ Preferred communication style: Simple, everyday language.
 - **Prospect Application Auto-Save**: Auto-save functionality with debounced saves for prospect application forms.
 - **Generic Workflow/Ticketing System**: Reusable workflow engine supporting multi-stage processing pipelines with pluggable handlers, checkpoint reviews, issue/task tracking, and automated stage execution.
 - **Disclosure Fields**: Scrollable disclosure components with mandatory scroll-through tracking and signature acknowledgment. Captures audit data (scroll start/completion times, duration, IP address) for compliance. Signature unlocks only after 100% scroll completion.
+- **PDF Rehydration**: Automatic generation of completed application PDFs on submission. Original PDF templates are filled with collected data and signatures using pdf-lib. Generated PDFs are stored in Object Storage with ACL rules granting access to PROSPECT_OWNER, ASSIGNED_AGENT, and ADMIN roles.
 
 ### System Design Choices
 - **Testing Framework**: TDD-style with Jest and React Testing Library.
