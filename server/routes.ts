@@ -2855,6 +2855,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get download URL for completed application PDF (prospect-accessible)
+  app.get("/api/prospects/:id/applications/:appId/download-pdf", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const applicationId = parseInt(req.params.appId);
+      const prospect = (req as any).prospect;
+      
+      // Verify prospect owns this resource
+      if (prospect.id !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) {
+        return res.status(500).json({ success: false, message: "Database connection not available" });
+      }
+      
+      const { prospectApplications, acquirers, acquirerApplicationTemplates } = await import("@shared/schema");
+      const { eq, and } = await import("drizzle-orm");
+      
+      // Get the application
+      const [applicationData] = await dbToUse.select({
+        application: prospectApplications,
+        acquirer: acquirers,
+        template: acquirerApplicationTemplates
+      })
+      .from(prospectApplications)
+      .leftJoin(acquirers, eq(prospectApplications.acquirerId, acquirers.id))
+      .leftJoin(acquirerApplicationTemplates, eq(prospectApplications.templateId, acquirerApplicationTemplates.id))
+      .where(and(
+        eq(prospectApplications.id, applicationId),
+        eq(prospectApplications.prospectId, prospectId)
+      ))
+      .limit(1);
+      
+      if (!applicationData || !applicationData.application) {
+        return res.status(404).json({ success: false, message: "Application not found" });
+      }
+      
+      const { application, acquirer } = applicationData;
+      
+      // Check if PDF has been generated
+      if (!application.generatedPdfPath) {
+        return res.status(404).json({ success: false, message: "Completed application PDF not yet available" });
+      }
+      
+      // Only allow PDF download for submitted applications
+      if (!['submitted', 'approved'].includes(application.status)) {
+        return res.status(400).json({ success: false, message: "PDF only available for submitted applications" });
+      }
+      
+      // Generate download URL from object storage
+      if (application.generatedPdfPath.startsWith('applications/')) {
+        const { objectStorageService } = await import('./objectStorage');
+        const downloadUrl = await objectStorageService.getDownloadUrl(application.generatedPdfPath, {
+          userId: prospect.userId?.toString()
+        });
+        
+        res.json({
+          success: true,
+          downloadUrl,
+          filename: `${acquirer?.name.replace(/[^a-zA-Z0-9]/g, '_') || 'Application'}_${prospect.firstName}_${prospect.lastName}_Application.pdf`
+        });
+      } else {
+        // Legacy file path - redirect to the file
+        res.json({
+          success: true,
+          downloadUrl: `/api/prospect-applications/${applicationId}/download-pdf`,
+          filename: `${acquirer?.name.replace(/[^a-zA-Z0-9]/g, '_') || 'Application'}_${prospect.firstName}_${prospect.lastName}_Application.pdf`
+        });
+      }
+    } catch (error) {
+      console.error("Error generating PDF download URL:", error);
+      res.status(500).json({ success: false, message: "Failed to generate download URL" });
+    }
+  });
+
   // Prospect Notification Endpoints
   
   // Get all notifications for a prospect
@@ -9753,7 +9830,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .returning();
       
       console.log(`Application ${applicationId} status updated to submitted`);
-      res.json(updatedApplication);
+      
+      // Generate rehydrated PDF after successful submission
+      let generatedPdfPath: string | null = null;
+      try {
+        const { acquirerApplicationTemplates } = await import("@shared/schema");
+        const { eq: eqOp } = await import("drizzle-orm");
+        const [template] = await dbToUse.select()
+          .from(acquirerApplicationTemplates)
+          .where(eqOp(acquirerApplicationTemplates.id, currentApp.templateId))
+          .limit(1);
+        
+        if (template && template.sourcePdfPath && template.pdfMappingConfiguration) {
+          const { pdfRehydrator } = await import('./pdfRehydrator');
+          const finalApplicationData = applicationData || (currentApp.applicationData as Record<string, any>) || {};
+          const pdfMappingConfig = typeof template.pdfMappingConfiguration === 'string'
+            ? JSON.parse(template.pdfMappingConfiguration)
+            : template.pdfMappingConfiguration;
+          const signatureGroups = typeof template.signatureGroups === 'string'
+            ? JSON.parse(template.signatureGroups)
+            : (template.signatureGroups || []);
+          
+          console.log(`[PDF Generation] Starting PDF rehydration for application ${applicationId}`);
+          
+          // Generate the filled PDF
+          const pdfBuffer = await pdfRehydrator.rehydratePdf(
+            template.sourcePdfPath,
+            finalApplicationData,
+            pdfMappingConfig,
+            signatureGroups
+          );
+          
+          // Get agent user ID if available
+          const agentUserId = assignedAgent?.userId?.toString();
+          const prospectUserId = prospect?.userId?.toString();
+          
+          // Save the rehydrated PDF with proper ACLs
+          generatedPdfPath = await pdfRehydrator.saveRehydratedPdf(
+            pdfBuffer,
+            currentApp.prospectId,
+            applicationId,
+            prospectUserId,
+            agentUserId
+          );
+          
+          // Update application with PDF path
+          await dbToUse.update(prospectApplications)
+            .set({ generatedPdfPath })
+            .where(eq(prospectApplications.id, applicationId));
+          
+          console.log(`[PDF Generation] Successfully generated and saved PDF: ${generatedPdfPath}`);
+        } else {
+          console.log(`[PDF Generation] Skipped - no source PDF template available for template ${currentApp.templateId}`);
+        }
+      } catch (pdfError) {
+        console.error('[PDF Generation] Error generating rehydrated PDF:', pdfError);
+        // Don't fail the submission if PDF generation fails
+      }
+      
+      res.json({ ...updatedApplication, generatedPdfPath });
       
     } catch (error) {
       console.error('Error submitting prospect application:', error);
@@ -12017,23 +12152,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "PDF not generated yet. Please generate the PDF first." });
       }
       
-      const path = await import("path");
-      const fs = await import("fs");
-      const fullPath = path.join(process.cwd(), 'public', application.generatedPdfPath);
-      
-      if (!fs.existsSync(fullPath)) {
-        return res.status(404).json({ error: "PDF file not found. Please regenerate the PDF." });
-      }
-      
       // Generate download filename
       const filename = `${acquirer?.name.replace(/[^a-zA-Z0-9]/g, '_') || 'Application'}_${prospect!.firstName}_${prospect!.lastName}_Application.pdf`;
       
-      // Send the file
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      res.sendFile(fullPath);
-      
-      console.log(`PDF downloaded successfully for application ${applicationId}`);
+      // Check if this is an object storage path (applications/ prefix) or local path
+      if (application.generatedPdfPath.startsWith('applications/')) {
+        // Object storage path - use objectStorageService
+        try {
+          const { objectStorageService } = await import('./objectStorage');
+          const downloadUrl = await objectStorageService.getDownloadUrl(application.generatedPdfPath, {
+            userId: req.user?.id?.toString()
+          });
+          
+          // Redirect to signed download URL
+          console.log(`PDF download redirecting to signed URL for application ${applicationId}`);
+          return res.redirect(downloadUrl);
+        } catch (storageError) {
+          console.error('Object storage download error:', storageError);
+          return res.status(404).json({ error: "PDF file not found in storage. Please regenerate the PDF." });
+        }
+      } else {
+        // Legacy file system path
+        const path = await import("path");
+        const fs = await import("fs");
+        const fullPath = path.join(process.cwd(), 'public', application.generatedPdfPath);
+        
+        if (!fs.existsSync(fullPath)) {
+          return res.status(404).json({ error: "PDF file not found. Please regenerate the PDF." });
+        }
+        
+        // Send the file
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.sendFile(fullPath);
+        
+        console.log(`PDF downloaded successfully for application ${applicationId}`);
+      }
       
     } catch (error) {
       console.error('PDF download error:', error);
