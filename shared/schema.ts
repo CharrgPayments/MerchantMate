@@ -961,11 +961,54 @@ export const acquirerApplicationTemplates = pgTable("acquirer_application_templa
   conditionalFields: jsonb("conditional_fields"), // JSON defining field visibility conditions
   addressGroups: jsonb("address_groups").default(sql`'[]'::jsonb`), // JSON defining address field groups: [{ type: 'business'|'mailing'|'shipping', sectionName: string, fieldMappings: { street1: 'merchant_businessAddress', street2: 'merchant_businessAddress2', city: 'merchant_businessCity', state: 'merchant_businessState', postalCode: 'merchant_businessZipCode', country: 'merchant_businessCountry' } }]
   signatureGroups: jsonb("signature_groups").default(sql`'[]'::jsonb`), // JSON defining signature field groups: [{ roleKey: 'owner1', displayLabel: 'Owner #1', signerType: 'owner', isRequired: true, orderPriority: 1, sectionName: string, fieldMappings: { signerName: 'merchantInfo_signature_owner1.signerName', signature: 'merchantInfo_signature_owner1.signature', initials: 'merchantInfo_signature_owner1.initials', email: 'merchantInfo_signature_owner1.email', dateSigned: 'merchantInfo_signature_owner1.dateSigned' }, pdfMappings: { signature: { page: 3, x: 100, y: 200, width: 200, height: 50 }, printedName: {...}, initials: {...}, email: {...}, dateSigned: {...} } }]
+  disclosureGroups: jsonb("disclosure_groups").default(sql`'[]'::jsonb`), // JSON defining disclosure field groups: [{ key: 'terms', disclosureSlug: 'terms-of-service', displayLabel: 'Terms of Service', sectionName: 'agreements', orderPriority: 1, isRequired: true, requiresSignature: true, linkedSignatureGroupKey: 'termsSignature' }]
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   uniqueAcquirerTemplate: unique().on(table.acquirerId, table.templateName, table.version),
 }));
+
+// Disclosure Contents - reusable disclosure text with version control
+export const disclosureContents = pgTable("disclosure_contents", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(), // "Terms of Service", "Privacy Policy", "E-Sign Consent"
+  slug: text("slug").notNull().unique(), // URL-safe identifier: "terms-of-service", "e-sign-consent"
+  title: text("title").notNull(), // Display title shown to prospect
+  content: text("content").notNull(), // Rich text/HTML content of the disclosure
+  version: text("version").notNull().default("1.0"), // Versioning for compliance tracking
+  isActive: boolean("is_active").notNull().default(true),
+  requiresSignature: boolean("requires_signature").notNull().default(true), // Whether signature is required after scrolling
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }), // Optional company-specific disclosures
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueSlugVersion: unique().on(table.slug, table.version),
+}));
+
+// Disclosure Acknowledgments - tracks prospect acceptance of disclosures
+export const disclosureAcknowledgments = pgTable("disclosure_acknowledgments", {
+  id: serial("id").primaryKey(),
+  disclosureContentId: integer("disclosure_content_id").notNull().references(() => disclosureContents.id),
+  disclosureVersion: text("disclosure_version").notNull(), // Snapshot of version at time of acknowledgment
+  prospectApplicationId: integer("prospect_application_id").references(() => prospectApplications.id, { onDelete: "cascade" }),
+  prospectId: integer("prospect_id").references(() => merchantProspects.id, { onDelete: "cascade" }),
+  // Scroll tracking for compliance
+  scrollStartedAt: timestamp("scroll_started_at"), // When prospect started reading
+  scrollCompletedAt: timestamp("scroll_completed_at"), // When prospect scrolled to bottom
+  scrollDurationMs: integer("scroll_duration_ms"), // Total time spent reading in milliseconds
+  scrollPercentage: integer("scroll_percentage").default(0), // Max scroll percentage reached
+  // Signature data (if requires signature)
+  signatureData: text("signature_data"), // Base64 signature image
+  signerName: text("signer_name"),
+  signerEmail: text("signer_email"),
+  signedAt: timestamp("signed_at"),
+  ipAddress: text("ip_address"), // For audit trail
+  userAgent: text("user_agent"), // Browser/device info for audit
+  // Status tracking
+  status: text("status").notNull().default("pending"), // pending, scrolled, acknowledged, signed
+  acknowledgedAt: timestamp("acknowledged_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
 // Prospect Applications - store acquirer-specific application data
 export const prospectApplications = pgTable("prospect_applications", {
@@ -1140,6 +1183,18 @@ export const insertProspectApplicationSchema = createInsertSchema(prospectApplic
   updatedAt: true,
 });
 
+// Disclosure management insert schemas
+export const insertDisclosureContentSchema = createInsertSchema(disclosureContents).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertDisclosureAcknowledgmentSchema = createInsertSchema(disclosureAcknowledgments).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Equipment management types
 export type EquipmentItem = typeof equipmentItems.$inferSelect;
 export type InsertEquipmentItem = z.infer<typeof insertEquipmentItemSchema>;
@@ -1176,6 +1231,29 @@ export type AcquirerApplicationTemplate = typeof acquirerApplicationTemplates.$i
 export type InsertAcquirerApplicationTemplate = z.infer<typeof insertAcquirerApplicationTemplateSchema>;
 export type ProspectApplication = typeof prospectApplications.$inferSelect;
 export type InsertProspectApplication = z.infer<typeof insertProspectApplicationSchema>;
+
+// Disclosure management types
+export type DisclosureContent = typeof disclosureContents.$inferSelect;
+export type InsertDisclosureContent = z.infer<typeof insertDisclosureContentSchema>;
+export type DisclosureAcknowledgment = typeof disclosureAcknowledgments.$inferSelect;
+export type InsertDisclosureAcknowledgment = z.infer<typeof insertDisclosureAcknowledgmentSchema>;
+
+// Disclosure group configuration type for templates
+export type DisclosureGroupConfig = {
+  key: string; // Unique identifier within template
+  disclosureSlug: string; // Reference to disclosureContents.slug
+  displayLabel: string; // Label shown to user
+  sectionName: string; // Which section this belongs to
+  orderPriority: number; // Display order
+  isRequired: boolean; // Must complete before submission
+  requiresSignature: boolean; // Needs signature after scrolling
+  linkedSignatureGroupKey?: string; // Optional link to existing signature group
+};
+
+// Extended type for disclosure with full content
+export type DisclosureAcknowledgmentWithContent = DisclosureAcknowledgment & {
+  disclosureContent: DisclosureContent;
+};
 
 // Extended types for acquirer management
 export type AcquirerWithTemplates = Acquirer & {
