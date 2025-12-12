@@ -2906,6 +2906,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { application, template } = applicationData;
       
       // Transform template fieldConfiguration to formSections for frontend display
+      // Template uses: fieldName (data key), fieldLabel (display label), fieldType
       let formSections: any[] = [];
       if (template?.fieldConfiguration) {
         try {
@@ -2914,18 +2915,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
             : template.fieldConfiguration;
           
           if (Array.isArray(fieldConfig)) {
-            // fieldConfiguration is already an array of sections
-            formSections = fieldConfig.map((section: any) => ({
-              id: section.id || section.name?.toLowerCase().replace(/\s+/g, '_') || 'section',
-              title: section.title || section.name || 'Section',
+            // Sort sections by order if available
+            const sortedSections = [...fieldConfig].sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
+            
+            formSections = sortedSections.map((section: any, sectionIndex: number) => ({
+              id: section.id || section.title?.toLowerCase().replace(/\s+/g, '_') || `section_${sectionIndex}`,
+              title: section.title || 'Section',
               description: section.description || '',
-              fields: (section.fields || []).map((field: any) => ({
-                id: field.name || field.id,
-                type: field.type || 'text',
-                label: field.label || field.name,
-                required: field.required || false,
-                sensitive: field.sensitive || field.type === 'ssn' || field.name?.toLowerCase().includes('ssn') || field.name?.toLowerCase().includes('taxid')
-              }))
+              order: section.order || sectionIndex,
+              fields: (section.fields || [])
+                .sort((a: any, b: any) => (a.position || 0) - (b.position || 0))
+                .map((field: any) => {
+                  const fieldName = field.fieldName || field.name || field.id;
+                  const fieldType = field.fieldType || field.type || 'text';
+                  return {
+                    id: fieldName,
+                    type: fieldType,
+                    label: field.fieldLabel || field.label || fieldName,
+                    required: field.isRequired || field.required || false,
+                    helpText: field.helpText || field.helperText || '',
+                    sensitive: field.sensitive || fieldType === 'ssn' || 
+                      fieldName?.toLowerCase().includes('ssn') || 
+                      fieldName?.toLowerCase().includes('taxid') ||
+                      fieldName?.toLowerCase().includes('federaltaxid') ||
+                      fieldName?.toLowerCase().includes('socialsecurity')
+                  };
+                })
             }));
           }
         } catch (parseError) {
