@@ -1,7 +1,7 @@
-import { companies, merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, prospectDocuments, prospectNotifications, signatureCaptures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, equipmentItems, campaignEquipment, campaignApplicationTemplates, acquirerApplicationTemplates, apiKeys, apiRequestLogs, emailWrappers, emailTemplates, emailActivity, emailTriggers, actionTemplates, triggerCatalog, triggerActions, userAlerts, acquirers,
+import { companies, merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, prospectDocuments, prospectNotifications, prospectMessages, signatureCaptures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, equipmentItems, campaignEquipment, campaignApplicationTemplates, acquirerApplicationTemplates, apiKeys, apiRequestLogs, emailWrappers, emailTemplates, emailActivity, emailTriggers, actionTemplates, triggerCatalog, triggerActions, userAlerts, acquirers,
   // Workflow System tables
   workflowDefinitions, workflowStages, workflowTickets, workflowTicketStages, workflowIssues, workflowTasks, workflowNotes, workflowArtifacts, workflowTransitions, workflowAssignments, mccPolicies, volumeThresholds, apiIntegrationConfigs,
-  type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type ProspectDocument, type InsertProspectDocument, type ProspectNotification, type InsertProspectNotification, type InsertProspectSignature, type SignatureCapture, type InsertSignatureCapture, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type CampaignApplicationTemplate, type InsertCampaignApplicationTemplate, type AcquirerApplicationTemplate, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailWrapper, type InsertEmailWrapper, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type ActionTemplate, type InsertActionTemplate, type TriggerCatalog, type InsertTriggerCatalog, type TriggerAction, type InsertTriggerAction, type UserAlert, type InsertUserAlert,
+  type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type ProspectDocument, type InsertProspectDocument, type ProspectNotification, type InsertProspectNotification, type ProspectMessage, type InsertProspectMessage, type InsertProspectSignature, type SignatureCapture, type InsertSignatureCapture, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type CampaignApplicationTemplate, type InsertCampaignApplicationTemplate, type AcquirerApplicationTemplate, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailWrapper, type InsertEmailWrapper, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type ActionTemplate, type InsertActionTemplate, type TriggerCatalog, type InsertTriggerCatalog, type TriggerAction, type InsertTriggerAction, type UserAlert, type InsertUserAlert,
   // Workflow System types
   type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowStage, type InsertWorkflowStage, type WorkflowTicket, type InsertWorkflowTicket, type WorkflowTicketStage, type InsertWorkflowTicketStage, type WorkflowIssue, type InsertWorkflowIssue, type WorkflowTask, type InsertWorkflowTask, type WorkflowNote, type InsertWorkflowNote, type WorkflowArtifact, type InsertWorkflowArtifact, type WorkflowTransition, type InsertWorkflowTransition, type WorkflowAssignment, type InsertWorkflowAssignment, type MccPolicy, type InsertMccPolicy, type VolumeThreshold, type InsertVolumeThreshold, type ApiIntegrationConfig, type InsertApiIntegrationConfig } from "@shared/schema";
 import { db, pool } from "./db";
@@ -62,6 +62,13 @@ export interface IStorage {
   updateProspectNotification(id: number, updates: Partial<InsertProspectNotification>): Promise<ProspectNotification | undefined>;
   markProspectNotificationAsRead(id: number): Promise<ProspectNotification | undefined>;
   deleteProspectNotification(id: number): Promise<boolean>;
+
+  // Prospect Message operations (prospect-agent communication)
+  getProspectMessages(prospectId: number): Promise<ProspectMessage[]>;
+  getProspectMessage(id: number): Promise<ProspectMessage | undefined>;
+  createProspectMessage(message: InsertProspectMessage): Promise<ProspectMessage>;
+  markProspectMessageAsRead(id: number): Promise<ProspectMessage | undefined>;
+  getUnreadProspectMessagesCount(prospectId: number, senderType?: string): Promise<number>;
 
   // Transaction operations
   getTransaction(id: number): Promise<Transaction | undefined>;
@@ -3240,6 +3247,37 @@ export class DatabaseStorage implements IStorage {
   async deleteProspectNotification(id: number): Promise<boolean> {
     const result = await this.db.delete(prospectNotifications).where(eq(prospectNotifications.id, id));
     return (result.rowCount || 0) > 0;
+  }
+
+  // Prospect Messages (prospect-agent communication)
+  async getProspectMessages(prospectId: number): Promise<ProspectMessage[]> {
+    return this.db.select().from(prospectMessages).where(eq(prospectMessages.prospectId, prospectId)).orderBy(desc(prospectMessages.createdAt));
+  }
+
+  async getProspectMessage(id: number): Promise<ProspectMessage | undefined> {
+    const [message] = await this.db.select().from(prospectMessages).where(eq(prospectMessages.id, id));
+    return message || undefined;
+  }
+
+  async createProspectMessage(message: InsertProspectMessage): Promise<ProspectMessage> {
+    const [created] = await this.db.insert(prospectMessages).values(message).returning();
+    return created;
+  }
+
+  async markProspectMessageAsRead(id: number): Promise<ProspectMessage | undefined> {
+    const [updated] = await this.db.update(prospectMessages).set({ isRead: true, readAt: new Date() }).where(eq(prospectMessages.id, id)).returning();
+    return updated || undefined;
+  }
+
+  async getUnreadProspectMessagesCount(prospectId: number, senderType?: string): Promise<number> {
+    let query = this.db.select({ count: sql<number>`count(*)::int` }).from(prospectMessages)
+      .where(and(
+        eq(prospectMessages.prospectId, prospectId),
+        eq(prospectMessages.isRead, false),
+        ...(senderType ? [eq(prospectMessages.senderType, senderType)] : [])
+      ));
+    const [result] = await query;
+    return result?.count || 0;
   }
 
   // =====================================================
