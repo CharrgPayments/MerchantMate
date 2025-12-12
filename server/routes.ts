@@ -7952,10 +7952,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`Found ${allCampaigns.length} campaigns in ${req.dbEnv} database`);
       
-      // Fetch templates for each campaign
+      // Fetch templates for each campaign using the dynamic database
+      const { campaignApplicationTemplates, acquirerApplicationTemplates } = await import("@shared/schema");
+      
       const campaignsWithTemplates = await Promise.all(
         allCampaigns.map(async (campaign) => {
-          const templates = await storage.getCampaignTemplates(campaign.id);
+          const result = await dbToUse
+            .select({
+              // Campaign template fields
+              id: campaignApplicationTemplates.id,
+              campaignId: campaignApplicationTemplates.campaignId,
+              templateId: campaignApplicationTemplates.templateId,
+              isPrimary: campaignApplicationTemplates.isPrimary,
+              displayOrder: campaignApplicationTemplates.displayOrder,
+              // Acquirer template fields (excluding source_pdf_path for compatibility)
+              templateName: acquirerApplicationTemplates.templateName,
+              templateAcquirerId: acquirerApplicationTemplates.acquirerId,
+              templateVersion: acquirerApplicationTemplates.version,
+              templateIsActive: acquirerApplicationTemplates.isActive,
+              templateFieldConfiguration: acquirerApplicationTemplates.fieldConfiguration,
+              templateRequiredFields: acquirerApplicationTemplates.requiredFields,
+              templateConditionalFields: acquirerApplicationTemplates.conditionalFields,
+              templateAddressGroups: acquirerApplicationTemplates.addressGroups,
+              templateSignatureGroups: acquirerApplicationTemplates.signatureGroups,
+              templateDisclosureGroups: acquirerApplicationTemplates.disclosureGroups,
+            })
+            .from(campaignApplicationTemplates)
+            .innerJoin(acquirerApplicationTemplates, eq(campaignApplicationTemplates.templateId, acquirerApplicationTemplates.id))
+            .where(eq(campaignApplicationTemplates.campaignId, campaign.id))
+            .orderBy(campaignApplicationTemplates.displayOrder);
+          
+          const templates = result.map(row => ({
+            id: row.id,
+            campaignId: row.campaignId,
+            templateId: row.templateId,
+            isPrimary: row.isPrimary,
+            displayOrder: row.displayOrder,
+            template: {
+              id: row.templateId,
+              templateName: row.templateName,
+              acquirerId: row.templateAcquirerId,
+              version: row.templateVersion,
+              isActive: row.templateIsActive,
+              fieldConfiguration: row.templateFieldConfiguration,
+              requiredFields: row.templateRequiredFields,
+              conditionalFields: row.templateConditionalFields,
+              addressGroups: row.templateAddressGroups,
+              signatureGroups: row.templateSignatureGroups,
+              disclosureGroups: row.templateDisclosureGroups,
+            },
+          }));
+          
           return {
             ...campaign,
             templates: templates

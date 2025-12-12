@@ -1177,7 +1177,7 @@ export class DatabaseStorage implements IStorage {
 
   // Campaign Application Template implementation
   async getCampaignTemplates(campaignId: number): Promise<(CampaignApplicationTemplate & { template: AcquirerApplicationTemplate })[]> {
-    const result = await db
+    const result = await this.db
       .select({
         campaignTemplate: campaignApplicationTemplates,
         template: acquirerApplicationTemplates,
