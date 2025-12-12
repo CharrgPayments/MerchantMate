@@ -9300,6 +9300,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }))
       };
 
+      // Save the original PDF to object storage for rehydration
+      let sourcePdfPath: string | null = null;
+      try {
+        const { objectStorageService } = await import('./objectStorage');
+        const safeFileName = originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+        const storageKey = `pdf-templates/acquirer_${validatedData.acquirerId}/${Date.now()}_${safeFileName}`;
+        await objectStorageService.saveBuffer(storageKey, buffer, {
+          contentType: 'application/pdf',
+        });
+        sourcePdfPath = storageKey;
+        console.log(`Saved source PDF template to: ${sourcePdfPath}`);
+      } catch (storageError) {
+        console.warn('Failed to save source PDF to object storage:', storageError);
+        // Continue without source PDF - rehydration won't be available
+      }
+
       // Create the application template with PDF-derived configuration
       const { acquirerApplicationTemplates } = await import("@shared/schema");
       
@@ -9307,6 +9323,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...validatedData,
         fieldConfiguration,
         pdfMappingConfiguration,
+        sourcePdfPath,
         requiredFields,
         conditionalFields: validatedData.conditionalFields || {},
         addressGroups: parseResult.addressGroups || [],
