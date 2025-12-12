@@ -3241,6 +3241,105 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // =====================================================
+  // PROSPECT MESSAGING ENDPOINTS (Prospect-Agent Communication)
+  // =====================================================
+
+  // Get messages for a prospect
+  app.get("/api/prospects/:id/messages", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const prospect = (req as any).prospect;
+      
+      if (prospect.id !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      const messages = await storage.getProspectMessages(prospectId);
+      res.json({ success: true, messages });
+    } catch (error) {
+      console.error("Error fetching messages:", error);
+      res.status(500).json({ success: false, message: "Failed to fetch messages" });
+    }
+  });
+
+  // Get unread message count for prospect
+  app.get("/api/prospects/:id/messages/unread-count", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const prospect = (req as any).prospect;
+      
+      if (prospect.id !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      // Count messages from agent that prospect hasn't read
+      const count = await storage.getUnreadProspectMessagesCount(prospectId, 'agent');
+      res.json({ success: true, count });
+    } catch (error) {
+      console.error("Error fetching unread count:", error);
+      res.status(500).json({ success: false, message: "Failed to fetch unread count" });
+    }
+  });
+
+  // Send message from prospect to assigned agent
+  app.post("/api/prospects/:id/messages", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const prospect = (req as any).prospect;
+      const userId = req.session.userId;
+      
+      if (prospect.id !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      const { subject, message } = req.body;
+      if (!subject || !message) {
+        return res.status(400).json({ success: false, message: "Subject and message are required" });
+      }
+      
+      // Create message
+      const newMessage = await storage.createProspectMessage({
+        prospectId,
+        agentId: prospect.agentId || null,
+        senderId: userId!,
+        senderType: 'prospect',
+        subject,
+        message,
+        isRead: false
+      });
+      
+      res.json({ success: true, message: newMessage });
+    } catch (error) {
+      console.error("Error sending message:", error);
+      res.status(500).json({ success: false, message: "Failed to send message" });
+    }
+  });
+
+  // Mark message as read
+  app.patch("/api/prospects/:id/messages/:messageId/read", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const messageId = parseInt(req.params.messageId);
+      const prospect = (req as any).prospect;
+      
+      if (prospect.id !== prospectId) {
+        return res.status(403).json({ success: false, message: "Access denied" });
+      }
+      
+      const msg = await storage.getProspectMessage(messageId);
+      if (!msg || msg.prospectId !== prospectId) {
+        return res.status(404).json({ success: false, message: "Message not found" });
+      }
+      
+      const updated = await storage.markProspectMessageAsRead(messageId);
+      res.json({ success: true, message: updated });
+    } catch (error) {
+      console.error("Error marking message as read:", error);
+      res.status(500).json({ success: false, message: "Failed to mark message as read" });
+    }
+  });
+
   // Get current prospect (for logged-in prospect portal)
   app.get("/api/prospects/me", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
     try {
