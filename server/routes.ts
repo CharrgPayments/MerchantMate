@@ -3043,7 +3043,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const prospect = (req as any).prospect;
       
       // Extract businessName from form_data for frontend display
-      const formData = prospect.formData || {};
+      // form_data may be stored as a string in the database, so parse it if needed
+      let formData: Record<string, any> = {};
+      if (prospect.formData) {
+        formData = typeof prospect.formData === 'string' 
+          ? JSON.parse(prospect.formData) 
+          : prospect.formData;
+      }
       const businessName = formData.merchant_company_name || 
                           formData.businessLegalName || 
                           formData.merchantLegalName ||
