@@ -84,12 +84,30 @@ export default function ProspectPortal() {
   const { data: documentsData, isLoading: documentsLoading } = useQuery<{ documents: ProspectDocument[] }>({
     queryKey: ['/api/prospects', prospect?.id, 'documents'],
     enabled: !!prospect?.id,
+    queryFn: async () => {
+      const res = await fetch(`/api/prospects/${prospect?.id}/documents`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        throw new Error('Failed to fetch documents');
+      }
+      return res.json();
+    },
   });
 
   // Fetch notifications
   const { data: notificationsData, isLoading: notificationsLoading } = useQuery<{ notifications: Notification[] }>({
     queryKey: ['/api/prospects', prospect?.id, 'notifications'],
     enabled: !!prospect?.id,
+    queryFn: async () => {
+      const res = await fetch(`/api/prospects/${prospect?.id}/notifications`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        throw new Error('Failed to fetch notifications');
+      }
+      return res.json();
+    },
   });
 
   // Fetch unread count
@@ -97,6 +115,15 @@ export default function ProspectPortal() {
     queryKey: ['/api/prospects', prospect?.id, 'notifications', 'unread-count'],
     enabled: !!prospect?.id,
     refetchInterval: 10000, // Refresh every 10 seconds
+    queryFn: async () => {
+      const res = await fetch(`/api/prospects/${prospect?.id}/notifications/unread-count`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        throw new Error('Failed to fetch unread count');
+      }
+      return res.json();
+    },
   });
 
   // Logout mutation
