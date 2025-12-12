@@ -269,3 +269,79 @@ export function isSignatureGroupField(fieldName: string): boolean {
          fieldName.includes('_signature_') ||
          fieldName.startsWith('signatureGroup_');
 }
+
+/**
+ * Check if field is a disclosure field
+ */
+export function isDisclosureField(fieldName: string): boolean {
+  const parsed = parseFieldName(fieldName);
+  return parsed.section === 'disclosures' || 
+         fieldName.startsWith('disclosure_') ||
+         parsed.parts.some(p => p === 'disclosure');
+}
+
+/**
+ * Parse disclosure field to get its components
+ * Pattern: disclosures.<key>.<field>
+ * Example: disclosures.termsOfService.scrolledAt
+ */
+export function parseDisclosureField(fieldName: string): {
+  isDisclosure: boolean;
+  disclosureKey?: string;
+  fieldKey?: string;
+} {
+  const parsed = parseFieldName(fieldName);
+  
+  if (parsed.section !== 'disclosures' || parsed.parts.length < 2) {
+    return { isDisclosure: false };
+  }
+  
+  return {
+    isDisclosure: true,
+    disclosureKey: parsed.parts[1],
+    fieldKey: parsed.parts.length > 2 ? parsed.parts.slice(2).join(FIELD_DELIMITER) : undefined,
+  };
+}
+
+/**
+ * Build a disclosure field name
+ * @param disclosureKey - The unique key for the disclosure (e.g., 'termsOfService')
+ * @param fieldKey - The specific field within the disclosure (e.g., 'scrolledAt', 'signature.data')
+ */
+export function buildDisclosureFieldName(disclosureKey: string, fieldKey?: string): string {
+  if (fieldKey) {
+    return buildFieldName('disclosures', disclosureKey, fieldKey);
+  }
+  return buildFieldName('disclosures', disclosureKey);
+}
+
+/**
+ * Get all disclosure-related field names for a disclosure key
+ */
+export function getDisclosureFieldNames(disclosureKey: string): {
+  scrollStartedAt: string;
+  scrollCompletedAt: string;
+  scrollDurationMs: string;
+  scrollPercentage: string;
+  acknowledged: string;
+  signature: {
+    signerName: string;
+    signature: string;
+    email: string;
+    dateSigned: string;
+  };
+} {
+  return {
+    scrollStartedAt: buildDisclosureFieldName(disclosureKey, 'scrollStartedAt'),
+    scrollCompletedAt: buildDisclosureFieldName(disclosureKey, 'scrollCompletedAt'),
+    scrollDurationMs: buildDisclosureFieldName(disclosureKey, 'scrollDurationMs'),
+    scrollPercentage: buildDisclosureFieldName(disclosureKey, 'scrollPercentage'),
+    acknowledged: buildDisclosureFieldName(disclosureKey, 'acknowledged'),
+    signature: {
+      signerName: buildDisclosureFieldName(disclosureKey, 'signature.signerName'),
+      signature: buildDisclosureFieldName(disclosureKey, 'signature.data'),
+      email: buildDisclosureFieldName(disclosureKey, 'signature.email'),
+      dateSigned: buildDisclosureFieldName(disclosureKey, 'signature.dateSigned'),
+    },
+  };
+}
