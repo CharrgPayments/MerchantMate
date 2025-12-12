@@ -195,6 +195,20 @@ export const prospectNotifications = pgTable("prospect_notifications", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Prospect-Agent messaging for communication within the portal
+export const prospectMessages = pgTable("prospect_messages", {
+  id: serial("id").primaryKey(),
+  prospectId: integer("prospect_id").notNull().references(() => merchantProspects.id, { onDelete: "cascade" }),
+  agentId: integer("agent_id").references(() => agents.id, { onDelete: "set null" }), // The assigned agent
+  senderId: varchar("sender_id").notNull().references(() => users.id, { onDelete: "cascade" }), // Who sent the message
+  senderType: text("sender_type").notNull(), // 'prospect' or 'agent'
+  subject: text("subject").notNull(),
+  message: text("message").notNull(),
+  isRead: boolean("is_read").notNull().default(false),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const transactions = pgTable("transactions", {
   id: serial("id").primaryKey(),
   transactionId: text("transaction_id").notNull().unique(),
@@ -804,6 +818,14 @@ export const insertProspectNotificationSchema = createInsertSchema(prospectNotif
 
 export type ProspectNotification = typeof prospectNotifications.$inferSelect;
 export type InsertProspectNotification = z.infer<typeof insertProspectNotificationSchema>;
+
+export const insertProspectMessageSchema = createInsertSchema(prospectMessages).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ProspectMessage = typeof prospectMessages.$inferSelect;
+export type InsertProspectMessage = z.infer<typeof insertProspectMessageSchema>;
 
 // Business Ownership table for tracking ownership percentages and signatures
 export const businessOwnership = pgTable("business_ownership", {
