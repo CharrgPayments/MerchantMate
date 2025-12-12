@@ -3041,7 +3041,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/prospects/me", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
     try {
       const prospect = (req as any).prospect;
-      res.json({ success: true, prospect });
+      
+      // Extract businessName from form_data for frontend display
+      const formData = prospect.formData || {};
+      const businessName = formData.merchant_company_name || 
+                          formData.businessLegalName || 
+                          formData.merchantLegalName ||
+                          formData.merchant_legal_name ||
+                          `${prospect.firstName} ${prospect.lastName}`;
+      
+      // Fetch documents for this prospect
+      const dbEnv = req.dbEnv || 'development';
+      const correctDb = getDynamicDatabase(dbEnv);
+      const requestStorage = createStorage(correctDb);
+      const documents = await requestStorage.getProspectDocuments(prospect.id);
+      
+      // Build enhanced prospect response
+      const enhancedProspect = {
+        ...prospect,
+        businessName,
+        documents
+      };
+      
+      res.json({ success: true, prospect: enhancedProspect });
     } catch (error) {
       console.error("Error fetching prospect:", error);
       res.status(500).json({ success: false, message: "Failed to fetch prospect data" });
