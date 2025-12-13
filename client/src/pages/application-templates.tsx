@@ -17,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus, Pencil, Eye, Copy, Download, Upload, Trash2, Settings, Circle, CheckCircle, ChevronDown, ChevronRight, GripVertical, FlaskConical, HelpCircle, Map, Link2, AlertTriangle, BookOpen, FileText, Hash, Type, Mail, Phone, Calendar, DollarSign, Percent, MapPin, PenTool, Users, Building, CreditCard, ToggleLeft, ListChecks, AlignLeft, Globe, Lock, Fingerprint, Navigation } from 'lucide-react';
+import { Plus, Pencil, Eye, Copy, Download, Upload, Trash2, Settings, Circle, CheckCircle, ChevronDown, ChevronRight, GripVertical, FlaskConical, HelpCircle, Map, Link2, AlertTriangle, BookOpen, FileText, Hash, Type, Mail, Phone, Calendar, DollarSign, Percent, MapPin, PenTool, Users, Building, CreditCard, ToggleLeft, ListChecks, AlignLeft, Globe, Lock, Fingerprint, Navigation, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useLocation } from 'wouter';
 import {
@@ -377,8 +377,8 @@ export default function ApplicationTemplatesPage() {
 
   if (templatesLoading || acquirersLoading) {
     return (
-      <div data-testid="page-application-templates" className="container mx-auto p-6 space-y-6">
-        <div className="text-center">Loading application templates...</div>
+      <div className="flex items-center justify-center h-64">
+        <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
