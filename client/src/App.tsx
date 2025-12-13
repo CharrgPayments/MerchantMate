@@ -77,9 +77,12 @@ const AuthContext = createContext<{
   isLoading: false,
 });
 
-// Update query client to handle auth errors
+// Update query client to handle auth errors (merge with existing defaults)
+const existingDefaults = queryClient.getDefaultOptions();
 queryClient.setDefaultOptions({
+  ...existingDefaults,
   queries: {
+    ...existingDefaults.queries,
     retry: (failureCount, error) => {
       if (isUnauthorizedError(error as Error)) {
         return false;

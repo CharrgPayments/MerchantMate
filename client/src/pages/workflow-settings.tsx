@@ -23,19 +23,21 @@ import {
 interface WorkflowStage {
   id: number;
   workflowDefinitionId: number;
-  stageKey: string;
+  code: string;
   name: string;
   description: string | null;
-  stageOrder: number;
+  orderIndex: number;
   stageType: string;
   handlerKey: string | null;
-  isCheckpoint: boolean;
+  isRequired: boolean;
+  requiresReview: boolean;
+  autoAdvance: boolean;
   isActive: boolean;
 }
 
 interface WorkflowDefinition {
   id: number;
-  workflowCode: string;
+  code: string;
   name: string;
   description: string | null;
   version: string;
@@ -253,7 +255,7 @@ export default function WorkflowSettings() {
                 variant={selectedWorkflow === def.id ? "default" : "outline"}
                 className="w-full justify-start"
                 onClick={() => setSelectedWorkflow(def.id)}
-                data-testid={`workflow-select-${def.workflowCode}`}
+                data-testid={`workflow-select-${def.code}`}
               >
                 {def.name}
               </Button>
@@ -354,7 +356,7 @@ export default function WorkflowSettings() {
                             <Button
                               size="sm"
                               onClick={() => handleEditConfig(stage)}
-                              data-testid={`edit-stage-${stage.stageKey}`}
+                              data-testid={`edit-stage-${stage.code}`}
                             >
                               {hasConfig ? <Edit className="w-4 h-4 mr-1" /> : <Plus className="w-4 h-4 mr-1" />}
                               {hasConfig ? 'Edit Configuration' : 'Add Configuration'}
@@ -368,7 +370,7 @@ export default function WorkflowSettings() {
                                     setSelectedStage(stage);
                                     handleTestConfig();
                                   }}
-                                  data-testid={`test-stage-${stage.stageKey}`}
+                                  data-testid={`test-stage-${stage.code}`}
                                 >
                                   <TestTube className="w-4 h-4 mr-1" />
                                   Test
@@ -377,7 +379,7 @@ export default function WorkflowSettings() {
                                   size="sm"
                                   variant="destructive"
                                   onClick={() => handleDeleteConfig(config.id)}
-                                  data-testid={`delete-stage-${stage.stageKey}`}
+                                  data-testid={`delete-stage-${stage.code}`}
                                 >
                                   <Trash2 className="w-4 h-4 mr-1" />
                                   Delete
