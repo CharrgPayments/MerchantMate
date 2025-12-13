@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { User, Shield, Mail, Phone, Settings } from "lucide-react";
+import { User, Shield, Mail, Phone, Settings, RefreshCw } from "lucide-react";
 import type { User as UserType } from "@shared/schema";
 import { formatPhoneNumber, unformatPhoneNumber } from "@/lib/utils";
 
@@ -124,8 +124,8 @@ export default function ProfilePage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+      <div className="flex items-center justify-center h-64">
+        <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }

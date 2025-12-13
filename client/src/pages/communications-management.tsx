@@ -25,7 +25,8 @@ import {
   Pencil,
   Plus,
   Bell,
-  Settings
+  Settings,
+  RefreshCw
 } from "lucide-react";
 
 // Import trigger keys dictionary
@@ -446,7 +447,11 @@ function TriggersManagement() {
   console.log('Triggers query state:', { triggers, isLoading, error });
 
   if (isLoading) {
-    return <div className="p-8 text-center">Loading triggers...</div>;
+    return (
+      <div className="flex items-center justify-center h-64">
+        <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
   if (error) {
