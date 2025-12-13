@@ -10,6 +10,7 @@ import { useState } from "react";
 const baseNavigation = [
   { name: "Dashboard", href: "/", icon: BarChart3, requiresRole: ['merchant', 'agent', 'admin', 'corporate', 'super_admin', 'underwriter'] },
   { name: "Agent Dashboard", href: "/agent-dashboard", icon: CreditCard, requiresRole: ['agent'] },
+  { name: "Agent Messages", href: "/agent-communications", icon: Mail, requiresRole: ['agent'] },
   { name: "Merchants", href: "/merchants", icon: Store, requiresRole: ['agent', 'admin', 'corporate', 'super_admin'] },
   { name: "Locations", href: "/locations", icon: MapPin, requiresRole: ['merchant'] },
   { name: "Agents", href: "/agents", icon: Users, requiresRole: ['admin', 'corporate', 'super_admin'] },

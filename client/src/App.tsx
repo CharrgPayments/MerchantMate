@@ -39,6 +39,7 @@ import ApplicationStatus from "@/pages/application-status";
 import ApplicationView from "@/pages/application-view";
 import ApplicationPrint from "@/pages/application-print";
 import AgentDashboard from "@/pages/agent-dashboard";
+import AgentCommunications from "@/pages/agent-communications";
 import Campaigns from "@/pages/campaigns";
 import CampaignView from "@/pages/campaign-view";
 import Equipment from "@/pages/equipment";
@@ -554,6 +555,22 @@ function AuthenticatedApp() {
                   />
                   <main className="flex-1 overflow-auto bg-gray-50">
                     <AgentDashboard />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/agent-communications">
+            {() => {
+              const pageInfo = { title: "Agent Messages" };
+              return (
+                <>
+                  <Header 
+                    title={pageInfo.title} 
+                    onSearch={setGlobalSearch}
+                  />
+                  <main className="flex-1 overflow-hidden bg-gray-50">
+                    <AgentCommunications />
                   </main>
                 </>
               );

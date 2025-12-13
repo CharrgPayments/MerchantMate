@@ -631,6 +631,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get current agent for logged-in user
+  app.get("/api/agent/current", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
+    try {
+      const userId = req.session.userId;
+      if (!userId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const agent = await storage.getAgentByUserId(userId);
+      if (!agent) {
+        return res.status(404).json({ message: "Agent not found" });
+      }
+
+      res.json({ agent });
+    } catch (error) {
+      console.error("Error fetching current agent:", error);
+      res.status(500).json({ message: "Failed to fetch agent" });
+    }
+  });
+
   // Agent dashboard endpoints
   app.get("/api/agent/dashboard/stats", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
