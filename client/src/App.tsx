@@ -61,6 +61,7 @@ import ProspectLogin from "@/pages/prospect-login";
 import ProspectSetPassword from "@/pages/prospect-set-password";
 import WorkflowDashboard from "@/pages/workflow-dashboard";
 import WorkflowTicket from "@/pages/workflow-ticket";
+import WorkflowSettings from "@/pages/workflow-settings";
 import PermissionManager from "@/pages/permission-manager";
 import { useState, useEffect, createContext, useContext } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -409,6 +410,23 @@ function AuthenticatedApp() {
                   />
                   <main className="flex-1 overflow-auto bg-gray-50">
                     <WorkflowTicket />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/workflow-settings">
+            {() => {
+              const userRoles = (user as any)?.roles || [];
+              if (!user || (!userRoles.includes('admin') && !userRoles.includes('super_admin'))) return <NotFound />;
+              return (
+                <>
+                  <Header 
+                    title="Workflow Settings" 
+                    onSearch={setGlobalSearch}
+                  />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <WorkflowSettings />
                   </main>
                 </>
               );
