@@ -1,9 +1,9 @@
 import { companies, merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, prospectDocuments, prospectNotifications, prospectMessages, signatureCaptures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, equipmentItems, campaignEquipment, campaignApplicationTemplates, acquirerApplicationTemplates, apiKeys, apiRequestLogs, emailWrappers, emailTemplates, emailActivity, emailTriggers, actionTemplates, triggerCatalog, triggerActions, userAlerts, acquirers,
   // Workflow System tables
-  workflowDefinitions, workflowStages, workflowTickets, workflowTicketStages, workflowIssues, workflowTasks, workflowNotes, workflowArtifacts, workflowTransitions, workflowAssignments, mccPolicies, volumeThresholds, apiIntegrationConfigs,
+  workflowDefinitions, workflowStages, workflowTickets, workflowTicketStages, workflowIssues, workflowTasks, workflowNotes, workflowArtifacts, workflowTransitions, workflowAssignments, mccPolicies, volumeThresholds, apiIntegrationConfigs, stageApiConfigs,
   type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type ProspectDocument, type InsertProspectDocument, type ProspectNotification, type InsertProspectNotification, type ProspectMessage, type InsertProspectMessage, type InsertProspectSignature, type SignatureCapture, type InsertSignatureCapture, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type CampaignApplicationTemplate, type InsertCampaignApplicationTemplate, type AcquirerApplicationTemplate, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailWrapper, type InsertEmailWrapper, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type ActionTemplate, type InsertActionTemplate, type TriggerCatalog, type InsertTriggerCatalog, type TriggerAction, type InsertTriggerAction, type UserAlert, type InsertUserAlert,
   // Workflow System types
-  type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowStage, type InsertWorkflowStage, type WorkflowTicket, type InsertWorkflowTicket, type WorkflowTicketStage, type InsertWorkflowTicketStage, type WorkflowIssue, type InsertWorkflowIssue, type WorkflowTask, type InsertWorkflowTask, type WorkflowNote, type InsertWorkflowNote, type WorkflowArtifact, type InsertWorkflowArtifact, type WorkflowTransition, type InsertWorkflowTransition, type WorkflowAssignment, type InsertWorkflowAssignment, type MccPolicy, type InsertMccPolicy, type VolumeThreshold, type InsertVolumeThreshold, type ApiIntegrationConfig, type InsertApiIntegrationConfig } from "@shared/schema";
+  type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowStage, type InsertWorkflowStage, type WorkflowTicket, type InsertWorkflowTicket, type WorkflowTicketStage, type InsertWorkflowTicketStage, type WorkflowIssue, type InsertWorkflowIssue, type WorkflowTask, type InsertWorkflowTask, type WorkflowNote, type InsertWorkflowNote, type WorkflowArtifact, type InsertWorkflowArtifact, type WorkflowTransition, type InsertWorkflowTransition, type WorkflowAssignment, type InsertWorkflowAssignment, type MccPolicy, type InsertMccPolicy, type VolumeThreshold, type InsertVolumeThreshold, type ApiIntegrationConfig, type InsertApiIntegrationConfig, type StageApiConfig, type InsertStageApiConfig } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, or, and, gte, sql, desc, inArray, like, ilike, not } from "drizzle-orm";
 
@@ -547,6 +547,14 @@ export interface IStorage {
   getApiIntegrationConfig(integrationKey: string): Promise<ApiIntegrationConfig | undefined>;
   createApiIntegrationConfig(config: InsertApiIntegrationConfig): Promise<ApiIntegrationConfig>;
   updateApiIntegrationConfig(id: number, updates: Partial<InsertApiIntegrationConfig>): Promise<ApiIntegrationConfig | undefined>;
+
+  // Stage API Configs
+  getStageApiConfig(stageId: number): Promise<StageApiConfig | undefined>;
+  getStageApiConfigById(id: number): Promise<StageApiConfig | undefined>;
+  getAllStageApiConfigs(): Promise<StageApiConfig[]>;
+  createStageApiConfig(config: InsertStageApiConfig): Promise<StageApiConfig>;
+  updateStageApiConfig(id: number, updates: Partial<InsertStageApiConfig>): Promise<StageApiConfig | undefined>;
+  deleteStageApiConfig(id: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3747,6 +3755,41 @@ export class DatabaseStorage implements IStorage {
       .where(eq(apiIntegrationConfigs.id, id))
       .returning();
     return updated || undefined;
+  }
+
+  // Stage API Configs
+  async getStageApiConfig(stageId: number): Promise<StageApiConfig | undefined> {
+    const [config] = await this.db.select().from(stageApiConfigs)
+      .where(eq(stageApiConfigs.stageId, stageId));
+    return config || undefined;
+  }
+
+  async getStageApiConfigById(id: number): Promise<StageApiConfig | undefined> {
+    const [config] = await this.db.select().from(stageApiConfigs)
+      .where(eq(stageApiConfigs.id, id));
+    return config || undefined;
+  }
+
+  async getAllStageApiConfigs(): Promise<StageApiConfig[]> {
+    return this.db.select().from(stageApiConfigs);
+  }
+
+  async createStageApiConfig(config: InsertStageApiConfig): Promise<StageApiConfig> {
+    const [created] = await this.db.insert(stageApiConfigs).values(config).returning();
+    return created;
+  }
+
+  async updateStageApiConfig(id: number, updates: Partial<InsertStageApiConfig>): Promise<StageApiConfig | undefined> {
+    const [updated] = await this.db.update(stageApiConfigs)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(stageApiConfigs.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteStageApiConfig(id: number): Promise<boolean> {
+    const result = await this.db.delete(stageApiConfigs).where(eq(stageApiConfigs.id, id));
+    return (result.rowCount || 0) > 0;
   }
 }
 
