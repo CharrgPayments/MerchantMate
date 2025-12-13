@@ -13575,7 +13575,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Workflow Definitions
   app.get('/api/workflow/definitions', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
-      const definitions = await storage.getWorkflowDefinitions();
+      const definitions = await storage.getAllWorkflowDefinitions();
       res.json({ success: true, definitions });
     } catch (error) {
       console.error('Get workflow definitions error:', error);
@@ -13601,14 +13601,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Workflow Tickets - List
   app.get('/api/workflow/tickets', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
-      const { status, workflowCode, entityType, assignedToId, limit = '50', offset = '0' } = req.query;
+      const { status, workflowCode, entityType, assignedToId } = req.query;
       const filters: any = {};
       if (status) filters.status = status;
       if (workflowCode) filters.workflowCode = workflowCode;
       if (entityType) filters.entityType = entityType;
       if (assignedToId) filters.assignedToId = assignedToId;
 
-      const tickets = await storage.getWorkflowTickets(filters, parseInt(limit as string), parseInt(offset as string));
+      const tickets = await storage.getAllWorkflowTickets(filters);
       res.json({ success: true, tickets });
     } catch (error) {
       console.error('Get workflow tickets error:', error);
@@ -13728,6 +13728,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, result, ticket, message: 'Stage executed' });
     } catch (error) {
       console.error('Execute workflow stage error:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: error instanceof Error ? error.message : 'Failed to execute workflow stage' 
+      });
+    }
+  });
+
+  // Workflow Tickets - Execute Specific Stage
+  app.post('/api/workflow/tickets/:id/stages/:stageId/execute', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
+    try {
+      const { id, stageId } = req.params;
+      const userId = req.user?.claims?.sub;
+
+      const { WorkflowEngine } = await import('./services/workflow-engine');
+      const { registerUnderwritingHandlers } = await import('./services/underwriting-handlers');
+      
+      const engine = new WorkflowEngine(storage);
+      registerUnderwritingHandlers(engine);
+
+      const ticket = await storage.getWorkflowTicket(parseInt(id));
+      if (!ticket) {
+        return res.status(404).json({ success: false, message: 'Ticket not found' });
+      }
+
+      // Auto-start processing if still pending/submitted
+      if (ticket.status === 'pending' || ticket.status === 'submitted') {
+        await engine.startProcessing(parseInt(id), userId);
+      }
+
+      // If stageId doesn't match current stage, switch to it first
+      if (ticket.currentStageId !== parseInt(stageId)) {
+        await storage.updateWorkflowTicket(parseInt(id), {
+          currentStageId: parseInt(stageId),
+        });
+      }
+
+      const result = await engine.executeCurrentStage(parseInt(id), userId);
+      const updatedTicket = await storage.getWorkflowTicket(parseInt(id));
+      
+      res.json({ success: true, result, ticket: updatedTicket, message: 'Stage executed' });
+    } catch (error) {
+      console.error('Execute specific workflow stage error:', error);
       res.status(500).json({ 
         success: false, 
         message: error instanceof Error ? error.message : 'Failed to execute workflow stage' 
@@ -13919,7 +13961,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user?.claims?.sub;
       const userRole = req.user?.role;
 
-      const allTickets = await storage.getWorkflowTickets({}, 1000, 0);
+      const allTickets = await storage.getAllWorkflowTickets({});
       
       const stats = {
         total: allTickets.length,

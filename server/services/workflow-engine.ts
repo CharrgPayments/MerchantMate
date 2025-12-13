@@ -104,8 +104,8 @@ export class WorkflowEngine {
       throw new Error(`Ticket not found: ${ticketId}`);
     }
 
-    if (ticket.status !== 'submitted') {
-      throw new Error(`Cannot start processing: ticket status is ${ticket.status}`);
+    if (ticket.status !== 'submitted' && ticket.status !== 'pending') {
+      throw new Error(`Cannot start processing: ticket status is ${ticket.status}. Must be 'pending' or 'submitted'.`);
     }
 
     const updated = await this.storage.updateWorkflowTicket(ticketId, {
@@ -118,7 +118,7 @@ export class WorkflowEngine {
       fromStageId: ticket.currentStageId,
       toStageId: ticket.currentStageId,
       transitionType: 'status_change',
-      fromValue: 'submitted',
+      fromValue: ticket.status,
       toValue: 'in_progress',
       triggeredBy: userId,
       notes: 'Processing started',
