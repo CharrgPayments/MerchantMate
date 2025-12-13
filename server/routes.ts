@@ -14256,7 +14256,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/rbac/roles', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
     const startTime = Date.now();
     const requestId = `rbac-roles-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const dbEnv = req.dbEnvironment || 'unknown';
+    const dbEnv = req.dbEnv || 'unknown';
     
     console.log(`[RBAC:roles] ${requestId} - Starting request (env: ${dbEnv})`);
     
@@ -14358,7 +14358,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/rbac/policies', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
     const startTime = Date.now();
     const requestId = `rbac-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const dbEnv = req.dbEnvironment || 'unknown';
+    const dbEnv = req.dbEnv || 'unknown';
     
     console.log(`[RBAC:policies] ${requestId} - Starting request (env: ${dbEnv})`);
     
