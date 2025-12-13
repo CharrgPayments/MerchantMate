@@ -5399,13 +5399,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Continue - trigger failures shouldn't block submission
       }
 
+      // Create underwriting workflow ticket for the submitted application
+      let underwritingTicketNumber = null;
+      try {
+        const { createWorkflowEngine } = await import('./services/workflow-engine');
+        const { registerUnderwritingHandlers } = await import('./services/underwriting-handlers');
+        
+        const engine = createWorkflowEngine(storage);
+        registerUnderwritingHandlers(engine);
+        
+        const underwritingTicket = await engine.createTicket({
+          workflowCode: 'merchant_underwriting',
+          entityType: 'prospect_application',
+          entityId: prospectId,
+          createdById: (req as any).user?.id || 'system',
+          priority: 'normal',
+          metadata: {
+            prospectId,
+            prospectEmail: prospect.email,
+            companyName: formData.companyName || formData.merchant_company_name || formData.businessName || prospect.companyName,
+            submittedAt: new Date().toISOString()
+          }
+        });
+        
+        underwritingTicketNumber = underwritingTicket.ticketNumber;
+        console.log(`[Underwriting] Created workflow ticket ${underwritingTicketNumber} for prospect ${prospectId}`);
+      } catch (workflowError) {
+        console.error('[Underwriting] Error creating workflow ticket:', workflowError);
+        // Don't fail the submission if workflow creation fails
+      }
+
       console.log(`Application submitted for prospect ${prospectId}`);
       res.json({ 
         success: true, 
         message: "Application submitted successfully",
         prospect: updatedProspect,
         statusUrl: `/application-status/${prospect.validationToken}`,
-        accountCreationResults: accountCreationResults.length > 0 ? accountCreationResults : undefined
+        accountCreationResults: accountCreationResults.length > 0 ? accountCreationResults : undefined,
+        underwritingTicketNumber
       });
     } catch (error) {
       console.error("Error submitting prospect application:", error);
@@ -10470,7 +10501,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Don't fail the submission if PDF generation fails
       }
       
-      res.json({ ...updatedApplication, generatedPdfPath });
+      // Create underwriting workflow ticket for the submitted application
+      let underwritingTicket = null;
+      try {
+        const { createWorkflowEngine } = await import('./services/workflow-engine');
+        const { registerUnderwritingHandlers } = await import('./services/underwriting-handlers');
+        
+        // Use request-scoped storage for dynamic DB environment
+        const requestStorage = createStorageForRequest(req);
+        const engine = createWorkflowEngine(requestStorage);
+        registerUnderwritingHandlers(engine);
+        
+        underwritingTicket = await engine.createTicket({
+          workflowCode: 'merchant_underwriting',
+          entityType: 'prospect_application',
+          entityId: applicationId,
+          createdById: req.user?.id || 'system',
+          priority: 'normal',
+          metadata: {
+            prospectId: currentApp.prospectId,
+            prospectEmail: prospect?.email,
+            applicationTemplateId: currentApp.templateId,
+            submittedAt: new Date().toISOString()
+          }
+        });
+        
+        console.log(`[Underwriting] Created workflow ticket ${underwritingTicket.ticketNumber} for application ${applicationId}`);
+      } catch (workflowError) {
+        console.error('[Underwriting] Error creating workflow ticket:', workflowError);
+        // Don't fail the submission if workflow creation fails
+      }
+      
+      res.json({ ...updatedApplication, generatedPdfPath, underwritingTicketNumber: underwritingTicket?.ticketNumber });
       
     } catch (error) {
       console.error('Error submitting prospect application:', error);
