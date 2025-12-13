@@ -69,6 +69,8 @@ export interface IStorage {
   createProspectMessage(message: InsertProspectMessage): Promise<ProspectMessage>;
   markProspectMessageAsRead(id: number): Promise<ProspectMessage | undefined>;
   getUnreadProspectMessagesCount(prospectId: number, senderType?: string): Promise<number>;
+  getAgentMessages(agentId: number): Promise<ProspectMessage[]>;
+  getAgentUnreadMessagesCount(agentId: number): Promise<number>;
 
   // Transaction operations
   getTransaction(id: number): Promise<Transaction | undefined>;
@@ -3277,6 +3279,23 @@ export class DatabaseStorage implements IStorage {
         ...(senderType ? [eq(prospectMessages.senderType, senderType)] : [])
       ));
     const [result] = await query;
+    return result?.count || 0;
+  }
+
+  async getAgentMessages(agentId: number): Promise<ProspectMessage[]> {
+    return this.db.select().from(prospectMessages)
+      .where(eq(prospectMessages.agentId, agentId))
+      .orderBy(desc(prospectMessages.createdAt));
+  }
+
+  async getAgentUnreadMessagesCount(agentId: number): Promise<number> {
+    const [result] = await this.db.select({ count: sql<number>`count(*)::int` })
+      .from(prospectMessages)
+      .where(and(
+        eq(prospectMessages.agentId, agentId),
+        eq(prospectMessages.isRead, false),
+        eq(prospectMessages.senderType, 'prospect')
+      ));
     return result?.count || 0;
   }
 

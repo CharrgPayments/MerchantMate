@@ -3340,6 +3340,166 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Agent message routes
+  app.get("/api/agents/:id/messages", dbEnvironmentMiddleware, isAuthenticated, requireRole(['agent', 'admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const agentId = parseInt(req.params.id);
+      const userId = req.session.userId;
+      
+      // Verify the agent owns this ID or user is admin
+      const user = await storage.getUser(userId!);
+      if (!user) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+      
+      const userRoles = (user as any).roles || [user.role];
+      const isAdmin = userRoles.includes('admin') || userRoles.includes('super_admin');
+      
+      if (!isAdmin) {
+        // Check if user is this agent
+        const agent = await storage.getAgent(agentId);
+        if (!agent || agent.userId !== userId) {
+          return res.status(403).json({ success: false, message: "Access denied" });
+        }
+      }
+      
+      const messages = await storage.getAgentMessages(agentId);
+      
+      // Enrich messages with prospect info
+      const enrichedMessages = await Promise.all(messages.map(async (msg) => {
+        const prospect = await storage.getMerchantProspect(msg.prospectId);
+        return {
+          ...msg,
+          prospectName: prospect ? `${prospect.firstName} ${prospect.lastName}` : 'Unknown',
+          prospectEmail: prospect?.email || ''
+        };
+      }));
+      
+      res.json({ success: true, messages: enrichedMessages });
+    } catch (error) {
+      console.error("Error fetching agent messages:", error);
+      res.status(500).json({ success: false, message: "Failed to fetch messages" });
+    }
+  });
+
+  app.get("/api/agents/:id/messages/unread-count", dbEnvironmentMiddleware, isAuthenticated, requireRole(['agent', 'admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const agentId = parseInt(req.params.id);
+      const userId = req.session.userId;
+      
+      // Verify the agent owns this ID or user is admin
+      const user = await storage.getUser(userId!);
+      if (!user) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+      
+      const userRoles = (user as any).roles || [user.role];
+      const isAdmin = userRoles.includes('admin') || userRoles.includes('super_admin');
+      
+      if (!isAdmin) {
+        const agent = await storage.getAgent(agentId);
+        if (!agent || agent.userId !== userId) {
+          return res.status(403).json({ success: false, message: "Access denied" });
+        }
+      }
+      
+      const count = await storage.getAgentUnreadMessagesCount(agentId);
+      res.json({ success: true, count });
+    } catch (error) {
+      console.error("Error fetching unread count:", error);
+      res.status(500).json({ success: false, message: "Failed to fetch unread count" });
+    }
+  });
+
+  // Agent reply to prospect message
+  app.post("/api/agents/:id/messages", dbEnvironmentMiddleware, isAuthenticated, requireRole(['agent', 'admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const agentId = parseInt(req.params.id);
+      const userId = req.session.userId;
+      
+      // Verify the agent owns this ID or user is admin
+      const user = await storage.getUser(userId!);
+      if (!user) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+      
+      const userRoles = (user as any).roles || [user.role];
+      const isAdmin = userRoles.includes('admin') || userRoles.includes('super_admin');
+      
+      if (!isAdmin) {
+        const agent = await storage.getAgent(agentId);
+        if (!agent || agent.userId !== userId) {
+          return res.status(403).json({ success: false, message: "Access denied" });
+        }
+      }
+      
+      const { prospectId, subject, message } = req.body;
+      if (!prospectId || !subject || !message) {
+        return res.status(400).json({ success: false, message: "prospectId, subject and message are required" });
+      }
+      
+      // Verify prospect is assigned to this agent
+      const prospect = await storage.getMerchantProspect(parseInt(prospectId));
+      if (!prospect) {
+        return res.status(404).json({ success: false, message: "Prospect not found" });
+      }
+      
+      if (!isAdmin && prospect.agentId !== agentId) {
+        return res.status(403).json({ success: false, message: "Prospect not assigned to this agent" });
+      }
+      
+      const newMessage = await storage.createProspectMessage({
+        prospectId: parseInt(prospectId),
+        agentId,
+        senderId: userId!,
+        senderType: 'agent',
+        subject,
+        message,
+        isRead: false
+      });
+      
+      res.json({ success: true, message: newMessage });
+    } catch (error) {
+      console.error("Error sending agent message:", error);
+      res.status(500).json({ success: false, message: "Failed to send message" });
+    }
+  });
+
+  // Agent mark message as read
+  app.patch("/api/agents/:id/messages/:messageId/read", dbEnvironmentMiddleware, isAuthenticated, requireRole(['agent', 'admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const agentId = parseInt(req.params.id);
+      const messageId = parseInt(req.params.messageId);
+      const userId = req.session.userId;
+      
+      const user = await storage.getUser(userId!);
+      if (!user) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+      
+      const userRoles = (user as any).roles || [user.role];
+      const isAdmin = userRoles.includes('admin') || userRoles.includes('super_admin');
+      
+      if (!isAdmin) {
+        const agent = await storage.getAgent(agentId);
+        if (!agent || agent.userId !== userId) {
+          return res.status(403).json({ success: false, message: "Access denied" });
+        }
+      }
+      
+      const msg = await storage.getProspectMessage(messageId);
+      if (!msg || msg.agentId !== agentId) {
+        return res.status(404).json({ success: false, message: "Message not found" });
+      }
+      
+      const updated = await storage.markProspectMessageAsRead(messageId);
+      res.json({ success: true, message: updated });
+    } catch (error) {
+      console.error("Error marking message as read:", error);
+      res.status(500).json({ success: false, message: "Failed to mark message as read" });
+    }
+  });
+
   // Get current prospect (for logged-in prospect portal)
   app.get("/api/prospects/me", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
     try {
