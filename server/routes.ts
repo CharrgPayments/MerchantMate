@@ -13576,7 +13576,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/workflow/definitions', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const definitions = await storage.getAllWorkflowDefinitions();
-      res.json({ success: true, definitions });
+      const definitionsWithStages = await Promise.all(
+        definitions.map(async (def) => {
+          const stages = await storage.getWorkflowStages(def.id);
+          return { ...def, stages };
+        })
+      );
+      res.json({ success: true, definitions: definitionsWithStages });
     } catch (error) {
       console.error('Get workflow definitions error:', error);
       res.status(500).json({ success: false, message: 'Failed to retrieve workflow definitions' });
