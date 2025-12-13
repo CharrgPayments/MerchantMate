@@ -335,7 +335,7 @@ export default function PermissionManager() {
               </div>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[600px] pr-4">
+              <ScrollArea className="h-[calc(100vh-280px)] min-h-[400px] pr-4">
                 {resourceTypeOrder.filter(type => groupedResources[type]).map(type => (
                   <div key={type} className="mb-6">
                     <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
