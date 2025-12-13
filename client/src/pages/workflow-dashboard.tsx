@@ -307,6 +307,18 @@ export default function WorkflowDashboard() {
                         <span className="capitalize">{ticket.entityType.replace('_', ' ')}</span>
                         <span className="mx-2">•</span>
                         <span>ID: {ticket.entityId}</span>
+                        {ticket.metadata?.prospectEmail && (
+                          <>
+                            <span className="mx-2">•</span>
+                            <span>{ticket.metadata.prospectEmail}</span>
+                          </>
+                        )}
+                        {ticket.metadata?.companyName && (
+                          <>
+                            <span className="mx-2">•</span>
+                            <span className="font-medium">{ticket.metadata.companyName}</span>
+                          </>
+                        )}
                         {ticket.submittedAt && (
                           <>
                             <span className="mx-2">•</span>
