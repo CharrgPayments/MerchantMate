@@ -545,6 +545,7 @@ export interface IStorage {
   // API Integration Configs
   getAllApiIntegrationConfigs(): Promise<ApiIntegrationConfig[]>;
   getApiIntegrationConfig(integrationKey: string): Promise<ApiIntegrationConfig | undefined>;
+  getApiIntegrationConfigById(id: number): Promise<ApiIntegrationConfig | undefined>;
   createApiIntegrationConfig(config: InsertApiIntegrationConfig): Promise<ApiIntegrationConfig>;
   updateApiIntegrationConfig(id: number, updates: Partial<InsertApiIntegrationConfig>): Promise<ApiIntegrationConfig | undefined>;
 
@@ -3741,6 +3742,12 @@ export class DatabaseStorage implements IStorage {
   async getApiIntegrationConfig(integrationKey: string): Promise<ApiIntegrationConfig | undefined> {
     const [config] = await this.db.select().from(apiIntegrationConfigs)
       .where(eq(apiIntegrationConfigs.integrationKey, integrationKey));
+    return config || undefined;
+  }
+
+  async getApiIntegrationConfigById(id: number): Promise<ApiIntegrationConfig | undefined> {
+    const [config] = await this.db.select().from(apiIntegrationConfigs)
+      .where(eq(apiIntegrationConfigs.id, id));
     return config || undefined;
   }
 
