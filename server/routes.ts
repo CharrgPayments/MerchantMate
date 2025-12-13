@@ -14070,6 +14070,155 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // =====================================================
+  // STAGE API CONFIGURATION ROUTES
+  // =====================================================
+
+  // Get all stage API configurations
+  app.get('/api/workflow/stage-configs', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const configs = await storage.getAllStageApiConfigs();
+      res.json({ success: true, configs });
+    } catch (error) {
+      console.error('Get stage API configs error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve stage API configurations' });
+    }
+  });
+
+  // Get stage API configuration by stage ID
+  app.get('/api/workflow/stage-configs/by-stage/:stageId', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
+    try {
+      const { stageId } = req.params;
+      const config = await storage.getStageApiConfig(parseInt(stageId));
+      if (!config) {
+        return res.status(404).json({ success: false, message: 'Stage API configuration not found' });
+      }
+      res.json({ success: true, config });
+    } catch (error) {
+      console.error('Get stage API config error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve stage API configuration' });
+    }
+  });
+
+  // Get stage API configuration by ID
+  app.get('/api/workflow/stage-configs/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const config = await storage.getStageApiConfigById(parseInt(id));
+      if (!config) {
+        return res.status(404).json({ success: false, message: 'Stage API configuration not found' });
+      }
+      res.json({ success: true, config });
+    } catch (error) {
+      console.error('Get stage API config error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve stage API configuration' });
+    }
+  });
+
+  // Create stage API configuration
+  app.post('/api/workflow/stage-configs', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      const {
+        stageId,
+        integrationId,
+        endpointUrl,
+        httpMethod,
+        headers,
+        authType,
+        authSecretKey,
+        requestMapping,
+        requestTemplate,
+        responseMapping,
+        rules,
+        timeoutSeconds,
+        maxRetries,
+        retryDelaySeconds,
+        fallbackOnError,
+        fallbackOnTimeout,
+        isActive,
+        testMode,
+        mockResponse
+      } = req.body;
+
+      if (!stageId) {
+        return res.status(400).json({ success: false, message: 'Stage ID is required' });
+      }
+
+      // Check if config already exists for this stage
+      const existingConfig = await storage.getStageApiConfig(stageId);
+      if (existingConfig) {
+        return res.status(400).json({ success: false, message: 'A configuration already exists for this stage. Use update instead.' });
+      }
+
+      const config = await storage.createStageApiConfig({
+        stageId,
+        integrationId: integrationId || null,
+        endpointUrl: endpointUrl || null,
+        httpMethod: httpMethod || 'POST',
+        headers: headers || {},
+        authType: authType || 'none',
+        authSecretKey: authSecretKey || null,
+        requestMapping: requestMapping || {},
+        requestTemplate: requestTemplate || null,
+        responseMapping: responseMapping || {},
+        rules: rules || [],
+        timeoutSeconds: timeoutSeconds || 30,
+        maxRetries: maxRetries || 3,
+        retryDelaySeconds: retryDelaySeconds || 5,
+        fallbackOnError: fallbackOnError || 'pending_review',
+        fallbackOnTimeout: fallbackOnTimeout || 'pending_review',
+        isActive: isActive !== false,
+        testMode: testMode || false,
+        mockResponse: mockResponse || null,
+        createdBy: userId,
+      });
+
+      res.json({ success: true, config, message: 'Stage API configuration created' });
+    } catch (error) {
+      console.error('Create stage API config error:', error);
+      res.status(500).json({ success: false, message: 'Failed to create stage API configuration' });
+    }
+  });
+
+  // Update stage API configuration
+  app.patch('/api/workflow/stage-configs/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+
+      // Remove fields that shouldn't be updated directly
+      delete updates.id;
+      delete updates.createdAt;
+      delete updates.createdBy;
+
+      const config = await storage.updateStageApiConfig(parseInt(id), updates);
+      if (!config) {
+        return res.status(404).json({ success: false, message: 'Stage API configuration not found' });
+      }
+
+      res.json({ success: true, config, message: 'Stage API configuration updated' });
+    } catch (error) {
+      console.error('Update stage API config error:', error);
+      res.status(500).json({ success: false, message: 'Failed to update stage API configuration' });
+    }
+  });
+
+  // Delete stage API configuration
+  app.delete('/api/workflow/stage-configs/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const deleted = await storage.deleteStageApiConfig(parseInt(id));
+      if (!deleted) {
+        return res.status(404).json({ success: false, message: 'Stage API configuration not found' });
+      }
+      res.json({ success: true, message: 'Stage API configuration deleted' });
+    } catch (error) {
+      console.error('Delete stage API config error:', error);
+      res.status(500).json({ success: false, message: 'Failed to delete stage API configuration' });
+    }
+  });
+
+  // =====================================================
   // RBAC (Role-Based Access Control) API ROUTES
   // =====================================================
 

@@ -2132,10 +2132,63 @@ export const apiIntegrationConfigs = pgTable("api_integration_configs", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Stage API Configurations - Configure how each workflow stage interacts with APIs
+export const stageApiConfigs = pgTable("stage_api_configs", {
+  id: serial("id").primaryKey(),
+  stageId: integer("stage_id").notNull().references(() => workflowStages.id, { onDelete: "cascade" }),
+  integrationId: integer("integration_id").references(() => apiIntegrationConfigs.id), // Optional link to global integration
+  
+  // API Configuration (can override integration settings)
+  endpointUrl: text("endpoint_url"), // Full URL or path to append to integration base URL
+  httpMethod: text("http_method").notNull().default("POST"), // GET, POST, PUT, etc.
+  headers: jsonb("headers").default('{}'), // Custom headers (not including auth)
+  authType: text("auth_type").default("none"), // "none", "api_key", "bearer", "basic", "oauth2"
+  authSecretKey: text("auth_secret_key"), // Reference to secret name in env vars
+  
+  // Request Configuration
+  requestMapping: jsonb("request_mapping").default('{}'), // Map entity fields to API request body
+  // Example: { "businessName": "$.company.name", "taxId": "$.entity.ein" }
+  requestTemplate: text("request_template"), // Optional JSON template with placeholders
+  
+  // Response Parsing
+  responseMapping: jsonb("response_mapping").default('{}'), // Extract fields from response
+  // Example: { "matchScore": "$.result.score", "status": "$.result.decision" }
+  
+  // Pass/Fail Rules (evaluated in order, first match wins)
+  rules: jsonb("rules").default('[]'),
+  // Example rules:
+  // [
+  //   { "condition": "$.status === 'clear'", "result": "passed", "message": "OFAC check passed" },
+  //   { "condition": "$.matchScore >= 80", "result": "failed", "severity": "critical", "message": "High match score" },
+  //   { "condition": "$.matchScore >= 50", "result": "pending_review", "severity": "high", "message": "Medium match score" },
+  //   { "condition": "true", "result": "passed", "message": "Default pass" }
+  // ]
+  
+  // Timeout and Retry
+  timeoutSeconds: integer("timeout_seconds").default(30),
+  maxRetries: integer("max_retries").default(3),
+  retryDelaySeconds: integer("retry_delay_seconds").default(5),
+  
+  // Fallback behavior
+  fallbackOnError: text("fallback_on_error").default("pending_review"), // "passed", "failed", "pending_review", "error"
+  fallbackOnTimeout: text("fallback_on_timeout").default("pending_review"),
+  
+  isActive: boolean("is_active").notNull().default(true),
+  testMode: boolean("test_mode").notNull().default(false), // When true, uses mock responses
+  mockResponse: jsonb("mock_response"), // Mock response for testing
+  
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  stageIdx: unique().on(table.stageId), // One config per stage
+}));
+
 // =====================================================
 // WORKFLOW SYSTEM ZOD SCHEMAS AND TYPES
 // =====================================================
 
+export const insertStageApiConfigSchema = createInsertSchema(stageApiConfigs).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkflowDefinitionSchema = createInsertSchema(workflowDefinitions).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkflowStageSchema = createInsertSchema(workflowStages).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkflowTicketSchema = createInsertSchema(workflowTickets).omit({ id: true, createdAt: true, updatedAt: true });
@@ -2176,6 +2229,8 @@ export type VolumeThreshold = typeof volumeThresholds.$inferSelect;
 export type InsertVolumeThreshold = z.infer<typeof insertVolumeThresholdSchema>;
 export type ApiIntegrationConfig = typeof apiIntegrationConfigs.$inferSelect;
 export type InsertApiIntegrationConfig = z.infer<typeof insertApiIntegrationConfigSchema>;
+export type StageApiConfig = typeof stageApiConfigs.$inferSelect;
+export type InsertStageApiConfig = z.infer<typeof insertStageApiConfigSchema>;
 
 // Underwriting Status Constants
 export const UNDERWRITING_STATUSES = {
