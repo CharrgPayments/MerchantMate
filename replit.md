@@ -58,6 +58,29 @@ Preferred communication style: Simple, everyday language.
 - **CRITICAL: Database Schema Change Workflow**: After every change to `shared/schema.ts`, a migration **MUST** be immediately generated using `tsx scripts/migration-manager.ts generate`.
 - **Production Protection**: Scripts enforce deployment pipeline (`Development → Test → Production`) blocking direct operations on production without explicit `--force-production`.
 
+### CRITICAL: Database Push Commands
+**NEVER run `npm run db:push` without a database environment prefix!**
+
+The `drizzle.config.ts` uses `DATABASE_URL` which points to **PRODUCTION**. Always prefix with the target environment:
+
+```bash
+# CORRECT - Always use these:
+DATABASE_URL=$DEV_DATABASE_URL npm run db:push      # Development (default for new features)
+DATABASE_URL=$TEST_DATABASE_URL npm run db:push     # Test environment
+DATABASE_URL=$DATABASE_URL npm run db:push          # Production (only after dev/test validation)
+
+# WRONG - Never do this:
+npm run db:push                                      # This pushes directly to PRODUCTION!
+```
+
+**Development Workflow:**
+1. Make schema changes in `shared/schema.ts`
+2. Push to DEV first: `DATABASE_URL=$DEV_DATABASE_URL npm run db:push`
+3. Test the feature in development
+4. Push to TEST: `DATABASE_URL=$TEST_DATABASE_URL npm run db:push`
+5. Validate in test environment
+6. Only then push to PROD: `DATABASE_URL=$DATABASE_URL npm run db:push`
+
 ### Field Naming Convention (Application Templates)
 Uses period (`.`) delimiter for hierarchical field names in application templates: `section.subsection.fieldName` or `section.index.fieldName`.
 
