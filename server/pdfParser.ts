@@ -110,19 +110,69 @@ export class PDFFormParser {
   }
 
   /**
-   * Parse field name according to convention: section_fieldname_optiontype_optionvalue
-   * Examples:
+   * Parse field name according to convention:
+   * - New format (dot notation): section.fieldName or section.subsection.fieldName
+   * - Legacy format (underscore): section_fieldname_optiontype_optionvalue
+   * 
+   * Examples (new format):
+   * - business.legalName
+   * - owners.1.firstName
+   * - location.address.street
+   * 
+   * Examples (legacy format):
    * - merchant_business_entity_radio_partnership
    * - merchant_company_email_text
    * - agent_name_text
    */
   private parseFieldName(fieldName: string): FieldNameParts {
+    // First check for dot notation (new format)
+    // A field is in dot notation if it contains dots and the first part is a valid section name
+    if (fieldName.includes('.')) {
+      const dotParts = fieldName.split('.');
+      if (dotParts.length >= 2 && dotParts[0].length > 0) {
+        const section = dotParts[0];
+        const restOfName = dotParts.slice(1).join('.');
+        
+        // Check for type suffix in the last part (e.g., business.entityType_radio)
+        const lastPart = dotParts[dotParts.length - 1];
+        const knownTypes = ['radio', 'checkbox', 'select', 'bool', 'boolean', 'text', 'textarea', 'email', 'phone', 'zipcode', 'ein', 'date', 'address'];
+        const typeMatch = lastPart.match(/_([a-z]+)$/);
+        
+        if (typeMatch && knownTypes.includes(typeMatch[1])) {
+          // Has type suffix like _radio, _checkbox
+          const optionType = typeMatch[1];
+          const fieldWithoutType = fieldName.replace(/_[a-z]+$/, '');
+          const cleanDotParts = fieldWithoutType.split('.');
+          
+          return {
+            section: cleanDotParts[0],
+            fieldName: cleanDotParts.slice(1).join('.'),
+            optionType,
+            optionValue: null,
+            isStructured: true
+          };
+        }
+        
+        // Standard dot notation without type suffix
+        return {
+          section,
+          fieldName: restOfName,
+          optionType: null,
+          optionValue: null,
+          isStructured: true
+        };
+      }
+    }
+    
+    // Fall back to underscore parsing for legacy format
     const parts = fieldName.split('_');
     
     // Need at least section_fieldname for structured fields
     if (parts.length < 2) {
+      // Single word field name without section - preserve as-is without adding "general"
+      // The field name becomes both the section and the field
       return {
-        section: 'general',
+        section: fieldName,
         fieldName: fieldName,
         optionType: null,
         optionValue: null,
