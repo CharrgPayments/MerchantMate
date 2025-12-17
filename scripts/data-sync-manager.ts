@@ -46,6 +46,12 @@ const lookupTables: LookupTableConfig[] = [
     preserveIds: true 
   },
   { 
+    name: 'mcc_codes', 
+    dependencies: [], 
+    description: 'Merchant Category Codes (MCC) master lookup table',
+    preserveIds: true 
+  },
+  { 
     name: 'fee_item_groups', 
     dependencies: ['fee_groups'], 
     description: 'Fee item sub-categories within fee groups',
