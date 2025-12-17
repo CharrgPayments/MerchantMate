@@ -63,6 +63,7 @@ import WorkflowDashboard from "@/pages/workflow-dashboard";
 import WorkflowTicket from "@/pages/workflow-ticket";
 import WorkflowSettings from "@/pages/workflow-settings";
 import PermissionManager from "@/pages/permission-manager";
+import MccPoliciesPage from "@/pages/mcc-policies";
 import { useState, useEffect, createContext, useContext } from "react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -174,6 +175,11 @@ function AuthenticatedApp() {
         return {
           title: "Permission Manager",
           subtitle: "Configure role-based access control for pages, widgets, and features"
+        };
+      case "/mcc-policies":
+        return {
+          title: "MCC Policy Management",
+          subtitle: "Manage merchant category code policies for underwriting decisions"
         };
       case "/pdf-forms":
         return {
@@ -484,6 +490,24 @@ function AuthenticatedApp() {
                   />
                   <main className="flex-1 overflow-auto bg-gray-50">
                     <PermissionManager />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/mcc-policies">
+            {() => {
+              const userRoles = (user as any)?.roles || [];
+              if (!user || (!userRoles.includes('admin') && !userRoles.includes('super_admin') && !userRoles.includes('underwriter'))) return <NotFound />;
+              const pageInfo = getPageInfo("/mcc-policies");
+              return (
+                <>
+                  <Header 
+                    title={pageInfo.title} 
+                    onSearch={setGlobalSearch}
+                  />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <MccPoliciesPage />
                   </main>
                 </>
               );

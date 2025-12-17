@@ -45,6 +45,7 @@ const baseNavigation = [
   },
   { name: "Reports", href: "/reports", icon: FileText, requiresRole: ['admin', 'corporate', 'super_admin'] },
   { name: "Security", href: "/security", icon: Shield, requiresRole: ['admin', 'super_admin'] },
+  { name: "MCC Policies", href: "/mcc-policies", icon: Shield, requiresRole: ['admin', 'super_admin', 'underwriter'] },
   { 
     name: "Workflows", 
     href: "/workflows", 
