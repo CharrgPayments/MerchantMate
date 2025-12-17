@@ -2063,22 +2063,36 @@ export const workflowAssignments = pgTable("workflow_assignments", {
 // UNDERWRITING-SPECIFIC LOOKUP TABLES
 // =====================================================
 
-// MCC Policies - Prohibited and auto-approved MCC codes
+// MCC Codes - Master lookup table for Merchant Category Codes
+export const mccCodes = pgTable("mcc_codes", {
+  id: serial("id").primaryKey(),
+  code: varchar("code", { length: 4 }).notNull().unique(), // 4-digit MCC code
+  description: text("description").notNull(), // Official MCC description
+  category: text("category").notNull(), // Category group (e.g., "Agricultural Services", "Retail")
+  riskLevel: text("risk_level").notNull().default("low"), // Default risk: "low", "medium", "high"
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  codeIdx: index("mcc_codes_code_idx").on(table.code),
+  categoryIdx: index("mcc_codes_category_idx").on(table.category),
+}));
+
+// MCC Policies - Acquirer-specific policies for MCC codes
 export const mccPolicies = pgTable("mcc_policies", {
   id: serial("id").primaryKey(),
-  mccCode: varchar("mcc_code", { length: 4 }).notNull(), // 4-digit MCC code
-  description: text("description").notNull(), // MCC description
-  category: text("category").notNull(), // "prohibited", "auto_approved", "review_required", "restricted"
+  mccCodeId: integer("mcc_code_id").notNull().references(() => mccCodes.id, { onDelete: "cascade" }), // Reference to mcc_codes
   acquirerId: integer("acquirer_id").references(() => acquirers.id), // Null = applies to all acquirers
-  riskLevel: text("risk_level"), // "low", "medium", "high" for review_required MCCs
+  policyType: text("policy_type").notNull(), // "prohibited", "auto_approved", "review_required", "restricted"
+  riskLevelOverride: text("risk_level_override"), // Override the default risk level: "low", "medium", "high"
   notes: text("notes"),
   isActive: boolean("is_active").notNull().default(true),
   createdBy: varchar("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
-  mccAcquirerIdx: unique().on(table.mccCode, table.acquirerId),
-  categoryIdx: index("mcc_policies_category_idx").on(table.category),
+  mccAcquirerIdx: unique().on(table.mccCodeId, table.acquirerId),
+  policyTypeIdx: index("mcc_policies_policy_type_idx").on(table.policyType),
 }));
 
 // Volume Thresholds - Per-acquirer processing limits
@@ -2199,6 +2213,7 @@ export const insertWorkflowNoteSchema = createInsertSchema(workflowNotes).omit({
 export const insertWorkflowArtifactSchema = createInsertSchema(workflowArtifacts).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkflowTransitionSchema = createInsertSchema(workflowTransitions).omit({ id: true, createdAt: true });
 export const insertWorkflowAssignmentSchema = createInsertSchema(workflowAssignments).omit({ id: true });
+export const insertMccCodeSchema = createInsertSchema(mccCodes).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertMccPolicySchema = createInsertSchema(mccPolicies).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertVolumeThresholdSchema = createInsertSchema(volumeThresholds).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertApiIntegrationConfigSchema = createInsertSchema(apiIntegrationConfigs).omit({ id: true, createdAt: true, updatedAt: true });
@@ -2223,6 +2238,8 @@ export type WorkflowTransition = typeof workflowTransitions.$inferSelect;
 export type InsertWorkflowTransition = z.infer<typeof insertWorkflowTransitionSchema>;
 export type WorkflowAssignment = typeof workflowAssignments.$inferSelect;
 export type InsertWorkflowAssignment = z.infer<typeof insertWorkflowAssignmentSchema>;
+export type MccCode = typeof mccCodes.$inferSelect;
+export type InsertMccCode = z.infer<typeof insertMccCodeSchema>;
 export type MccPolicy = typeof mccPolicies.$inferSelect;
 export type InsertMccPolicy = z.infer<typeof insertMccPolicySchema>;
 export type VolumeThreshold = typeof volumeThresholds.$inferSelect;
