@@ -9620,6 +9620,158 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // =====================================================
+  // MCC CODES AND POLICIES (Underwriting)
+  // =====================================================
+  
+  // Get all MCC codes (lookup table)
+  app.get('/api/mcc-codes', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const { search, category } = req.query;
+      console.log(`Fetching MCC codes - Database environment: ${req.dbEnv}, search: ${search}, category: ${category}`);
+      
+      let mccCodesList;
+      if (search || category) {
+        mccCodesList = await storage.searchMccCodes(
+          search as string || '', 
+          category as string || undefined
+        );
+      } else {
+        mccCodesList = await storage.getAllMccCodes();
+      }
+      
+      res.json(mccCodesList);
+    } catch (error) {
+      console.error('Error fetching MCC codes:', error);
+      res.status(500).json({ error: 'Failed to fetch MCC codes' });
+    }
+  });
+
+  // Get MCC code categories (distinct list)
+  app.get('/api/mcc-codes/categories', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const allCodes = await storage.getAllMccCodes();
+      const categories = [...new Set(allCodes.map(code => code.category))].sort();
+      res.json(categories);
+    } catch (error) {
+      console.error('Error fetching MCC categories:', error);
+      res.status(500).json({ error: 'Failed to fetch MCC categories' });
+    }
+  });
+
+  // Get all MCC policies (with joined MCC code data)
+  app.get('/api/mcc-policies', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: RequestWithDB, res: Response) => {
+    try {
+      console.log(`Fetching MCC policies - Database environment: ${req.dbEnv}`);
+      const policies = await storage.getAllMccPolicies();
+      res.json(policies);
+    } catch (error) {
+      console.error('Error fetching MCC policies:', error);
+      res.status(500).json({ error: 'Failed to fetch MCC policies' });
+    }
+  });
+
+  // Get single MCC policy
+  app.get('/api/mcc-policies/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const policyId = parseInt(req.params.id);
+      const policy = await storage.getMccPolicy(policyId);
+      
+      if (!policy) {
+        return res.status(404).json({ error: 'MCC policy not found' });
+      }
+      
+      res.json(policy);
+    } catch (error) {
+      console.error('Error fetching MCC policy:', error);
+      res.status(500).json({ error: 'Failed to fetch MCC policy' });
+    }
+  });
+
+  // Create MCC policy
+  app.post('/api/mcc-policies', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const { mccCodeId, acquirerId, policyType, riskLevelOverride, notes } = req.body;
+      
+      // Validate required fields
+      if (!mccCodeId || !policyType) {
+        return res.status(400).json({ error: 'mccCodeId and policyType are required' });
+      }
+      
+      // Check if MCC code exists
+      const mccCode = await storage.getMccCode(mccCodeId);
+      if (!mccCode) {
+        return res.status(404).json({ error: 'MCC code not found' });
+      }
+      
+      // Check for duplicate policy (same MCC code and acquirer)
+      const existingPolicy = await storage.getMccPolicyByCodeAndAcquirer(mccCodeId, acquirerId || undefined);
+      if (existingPolicy) {
+        return res.status(409).json({ error: 'A policy already exists for this MCC code and acquirer combination' });
+      }
+      
+      const policy = await storage.createMccPolicy({
+        mccCodeId,
+        acquirerId: acquirerId || null,
+        policyType,
+        riskLevelOverride: riskLevelOverride || null,
+        notes: notes || null,
+        createdBy: req.session?.userId || null,
+        isActive: true
+      });
+      
+      console.log(`Created MCC policy for code ID ${mccCodeId}: ${policyType}`);
+      res.status(201).json(policy);
+    } catch (error) {
+      console.error('Error creating MCC policy:', error);
+      res.status(500).json({ error: 'Failed to create MCC policy' });
+    }
+  });
+
+  // Update MCC policy
+  app.patch('/api/mcc-policies/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const policyId = parseInt(req.params.id);
+      const { policyType, riskLevelOverride, notes, isActive } = req.body;
+      
+      const updates: any = {};
+      if (policyType !== undefined) updates.policyType = policyType;
+      if (riskLevelOverride !== undefined) updates.riskLevelOverride = riskLevelOverride;
+      if (notes !== undefined) updates.notes = notes;
+      if (isActive !== undefined) updates.isActive = isActive;
+      
+      const updatedPolicy = await storage.updateMccPolicy(policyId, updates);
+      
+      if (!updatedPolicy) {
+        return res.status(404).json({ error: 'MCC policy not found' });
+      }
+      
+      console.log(`Updated MCC policy ${policyId}`);
+      res.json(updatedPolicy);
+    } catch (error) {
+      console.error('Error updating MCC policy:', error);
+      res.status(500).json({ error: 'Failed to update MCC policy' });
+    }
+  });
+
+  // Delete MCC policy
+  app.delete('/api/mcc-policies/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const policyId = parseInt(req.params.id);
+      const success = await storage.deleteMccPolicy(policyId);
+      
+      if (!success) {
+        return res.status(404).json({ error: 'MCC policy not found' });
+      }
+      
+      console.log(`Deleted MCC policy ${policyId}`);
+      res.json({ message: 'MCC policy deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting MCC policy:', error);
+      res.status(500).json({ error: 'Failed to delete MCC policy' });
+    }
+  });
+
   // Acquirer Application Templates
   app.get('/api/acquirer-application-templates', dbEnvironmentMiddleware, requireRole(['agent', 'admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
