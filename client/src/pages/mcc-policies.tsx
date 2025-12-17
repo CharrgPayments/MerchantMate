@@ -56,6 +56,13 @@ interface MccCode {
   defaultRiskLevel: string;
 }
 
+interface Acquirer {
+  id: number;
+  name: string;
+  displayName: string;
+  code: string;
+}
+
 interface MccPolicy {
   id: number;
   mccCodeId: number;
@@ -106,6 +113,7 @@ export default function MccPoliciesPage() {
   
   const [formData, setFormData] = useState({
     mccCodeId: 0,
+    acquirerId: 0,
     policyType: 'allowed',
     riskLevelOverride: '',
     notes: '',
@@ -124,6 +132,11 @@ export default function MccPoliciesPage() {
     queryFn,
   });
 
+  const { data: acquirers = [] } = useQuery<Acquirer[]>({
+    queryKey: ['/api/acquirers'],
+    queryFn,
+  });
+
   const { data: policies = [], isLoading: loadingPolicies } = useQuery<MccPolicy[]>({
     queryKey: ['/api/mcc-policies'],
     queryFn,
@@ -133,6 +146,7 @@ export default function MccPoliciesPage() {
     mutationFn: async (data: typeof formData) => {
       return apiRequest('POST', '/api/mcc-policies', {
         ...data,
+        acquirerId: data.acquirerId || null,
         riskLevelOverride: data.riskLevelOverride || null,
         notes: data.notes || null,
       });
@@ -207,6 +221,7 @@ export default function MccPoliciesPage() {
   const resetForm = () => {
     setFormData({
       mccCodeId: 0,
+      acquirerId: 0,
       policyType: 'allowed',
       riskLevelOverride: '',
       notes: '',
@@ -220,6 +235,7 @@ export default function MccPoliciesPage() {
     setSelectedMccCode(policy.mccCode);
     setFormData({
       mccCodeId: policy.mccCodeId,
+      acquirerId: policy.acquirerId || 0,
       policyType: policy.policyType,
       riskLevelOverride: policy.riskLevelOverride || '',
       notes: policy.notes || '',
@@ -238,6 +254,14 @@ export default function MccPoliciesPage() {
       toast({
         title: "Validation Error",
         description: "Please select an MCC code",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!formData.acquirerId) {
+      toast({
+        title: "Validation Error",
+        description: "Please select an acquirer",
         variant: "destructive",
       });
       return;
@@ -394,10 +418,10 @@ export default function MccPoliciesPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Acquirer</TableHead>
                     <TableHead>MCC Code</TableHead>
                     <TableHead>Description</TableHead>
                     <TableHead>Category</TableHead>
-                    <TableHead>Default Risk</TableHead>
                     <TableHead>Policy Type</TableHead>
                     <TableHead>Risk Override</TableHead>
                     <TableHead>Status</TableHead>
@@ -405,19 +429,25 @@ export default function MccPoliciesPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredPolicies.map((policy) => (
+                  {filteredPolicies.map((policy) => {
+                    const acquirer = acquirers.find(a => a.id === policy.acquirerId);
+                    return (
                     <TableRow key={policy.id} data-testid={`row-policy-${policy.id}`}>
+                      <TableCell>
+                        {acquirer ? (
+                          <Badge variant="outline">{acquirer.displayName || acquirer.name}</Badge>
+                        ) : (
+                          <span className="text-muted-foreground">Global</span>
+                        )}
+                      </TableCell>
                       <TableCell className="font-mono font-semibold">
                         {policy.mccCode.code}
                       </TableCell>
-                      <TableCell className="max-w-[250px] truncate">
+                      <TableCell className="max-w-[200px] truncate">
                         {policy.mccCode.description}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">{policy.mccCode.category}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        {getRiskLevelBadge(policy.mccCode.defaultRiskLevel)}
                       </TableCell>
                       <TableCell>
                         <Badge className={POLICY_TYPE_BADGES[policy.policyType] || ''}>
@@ -465,7 +495,8 @@ export default function MccPoliciesPage() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                  );
+                  })}
                 </TableBody>
               </Table>
             </ScrollArea>
@@ -509,6 +540,25 @@ export default function MccPoliciesPage() {
                   Default Risk: {selectedMccCode.defaultRiskLevel}
                 </div>
               )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Acquirer</Label>
+              <Select
+                value={formData.acquirerId?.toString() || ''}
+                onValueChange={(val) => setFormData({ ...formData, acquirerId: parseInt(val) })}
+              >
+                <SelectTrigger data-testid="select-acquirer">
+                  <SelectValue placeholder="Select an acquirer" />
+                </SelectTrigger>
+                <SelectContent>
+                  {acquirers.map((acquirer) => (
+                    <SelectItem key={acquirer.id} value={acquirer.id.toString()}>
+                      {acquirer.displayName || acquirer.name} ({acquirer.code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             
             <div className="space-y-2">
