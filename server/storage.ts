@@ -1,9 +1,9 @@
 import { companies, merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, prospectDocuments, prospectNotifications, prospectMessages, signatureCaptures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, equipmentItems, campaignEquipment, campaignApplicationTemplates, acquirerApplicationTemplates, apiKeys, apiRequestLogs, emailWrappers, emailTemplates, emailActivity, emailTriggers, actionTemplates, triggerCatalog, triggerActions, userAlerts, acquirers,
   // Workflow System tables
-  workflowDefinitions, workflowStages, workflowTickets, workflowTicketStages, workflowIssues, workflowTasks, workflowNotes, workflowArtifacts, workflowTransitions, workflowAssignments, mccPolicies, volumeThresholds, apiIntegrationConfigs, stageApiConfigs,
+  workflowDefinitions, workflowStages, workflowTickets, workflowTicketStages, workflowIssues, workflowTasks, workflowNotes, workflowArtifacts, workflowTransitions, workflowAssignments, mccCodes, mccPolicies, volumeThresholds, apiIntegrationConfigs, stageApiConfigs,
   type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type ProspectDocument, type InsertProspectDocument, type ProspectNotification, type InsertProspectNotification, type ProspectMessage, type InsertProspectMessage, type InsertProspectSignature, type SignatureCapture, type InsertSignatureCapture, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type CampaignApplicationTemplate, type InsertCampaignApplicationTemplate, type AcquirerApplicationTemplate, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailWrapper, type InsertEmailWrapper, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type ActionTemplate, type InsertActionTemplate, type TriggerCatalog, type InsertTriggerCatalog, type TriggerAction, type InsertTriggerAction, type UserAlert, type InsertUserAlert,
   // Workflow System types
-  type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowStage, type InsertWorkflowStage, type WorkflowTicket, type InsertWorkflowTicket, type WorkflowTicketStage, type InsertWorkflowTicketStage, type WorkflowIssue, type InsertWorkflowIssue, type WorkflowTask, type InsertWorkflowTask, type WorkflowNote, type InsertWorkflowNote, type WorkflowArtifact, type InsertWorkflowArtifact, type WorkflowTransition, type InsertWorkflowTransition, type WorkflowAssignment, type InsertWorkflowAssignment, type MccPolicy, type InsertMccPolicy, type VolumeThreshold, type InsertVolumeThreshold, type ApiIntegrationConfig, type InsertApiIntegrationConfig, type StageApiConfig, type InsertStageApiConfig } from "@shared/schema";
+  type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowStage, type InsertWorkflowStage, type WorkflowTicket, type InsertWorkflowTicket, type WorkflowTicketStage, type InsertWorkflowTicketStage, type WorkflowIssue, type InsertWorkflowIssue, type WorkflowTask, type InsertWorkflowTask, type WorkflowNote, type InsertWorkflowNote, type WorkflowArtifact, type InsertWorkflowArtifact, type WorkflowTransition, type InsertWorkflowTransition, type WorkflowAssignment, type InsertWorkflowAssignment, type MccCode, type MccPolicy, type InsertMccPolicy, type VolumeThreshold, type InsertVolumeThreshold, type ApiIntegrationConfig, type InsertApiIntegrationConfig, type StageApiConfig, type InsertStageApiConfig } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, or, and, gte, sql, desc, inArray, like, ilike, not } from "drizzle-orm";
 
@@ -529,9 +529,16 @@ export interface IStorage {
   createWorkflowAssignment(assignment: InsertWorkflowAssignment): Promise<WorkflowAssignment>;
   deactivateWorkflowAssignment(id: number): Promise<WorkflowAssignment | undefined>;
 
+  // MCC Codes (Lookup table - read-only for normal operations)
+  getAllMccCodes(): Promise<MccCode[]>;
+  getMccCode(id: number): Promise<MccCode | undefined>;
+  getMccCodeByCode(code: string): Promise<MccCode | undefined>;
+  searchMccCodes(query: string, category?: string): Promise<MccCode[]>;
+
   // MCC Policies (Underwriting)
-  getAllMccPolicies(): Promise<MccPolicy[]>;
-  getMccPolicy(mccCode: string, acquirerId?: number): Promise<MccPolicy | undefined>;
+  getAllMccPolicies(): Promise<(MccPolicy & { mccCode: MccCode })[]>;
+  getMccPolicy(id: number): Promise<(MccPolicy & { mccCode: MccCode }) | undefined>;
+  getMccPolicyByCodeAndAcquirer(mccCodeId: number, acquirerId?: number): Promise<MccPolicy | undefined>;
   createMccPolicy(policy: InsertMccPolicy): Promise<MccPolicy>;
   updateMccPolicy(id: number, updates: Partial<InsertMccPolicy>): Promise<MccPolicy | undefined>;
   deleteMccPolicy(id: number): Promise<boolean>;
@@ -3678,15 +3685,75 @@ export class DatabaseStorage implements IStorage {
     return updated || undefined;
   }
 
-  // MCC Policies (Underwriting)
-  async getAllMccPolicies(): Promise<MccPolicy[]> {
-    return this.db.select().from(mccPolicies).orderBy(mccPolicies.mccCode);
+  // MCC Codes (Lookup table)
+  async getAllMccCodes(): Promise<MccCode[]> {
+    return this.db.select().from(mccCodes).orderBy(mccCodes.code);
   }
 
-  async getMccPolicy(mccCode: string, acquirerId?: number): Promise<MccPolicy | undefined> {
-    const conditions = [eq(mccPolicies.mccCode, mccCode)];
+  async getMccCode(id: number): Promise<MccCode | undefined> {
+    const [code] = await this.db.select().from(mccCodes).where(eq(mccCodes.id, id));
+    return code || undefined;
+  }
+
+  async getMccCodeByCode(code: string): Promise<MccCode | undefined> {
+    const [mccCode] = await this.db.select().from(mccCodes).where(eq(mccCodes.code, code));
+    return mccCode || undefined;
+  }
+
+  async searchMccCodes(query: string, category?: string): Promise<MccCode[]> {
+    const conditions = [];
+    if (query) {
+      conditions.push(or(
+        ilike(mccCodes.code, `%${query}%`),
+        ilike(mccCodes.description, `%${query}%`)
+      ));
+    }
+    if (category) {
+      conditions.push(eq(mccCodes.category, category));
+    }
+    if (conditions.length === 0) {
+      return this.db.select().from(mccCodes).orderBy(mccCodes.code);
+    }
+    return this.db.select().from(mccCodes).where(and(...conditions)).orderBy(mccCodes.code);
+  }
+
+  // MCC Policies (Underwriting)
+  async getAllMccPolicies(): Promise<(MccPolicy & { mccCode: MccCode })[]> {
+    const result = await this.db.select({
+      policy: mccPolicies,
+      mccCode: mccCodes
+    }).from(mccPolicies)
+      .innerJoin(mccCodes, eq(mccPolicies.mccCodeId, mccCodes.id))
+      .orderBy(mccCodes.code);
+    
+    return result.map(row => ({
+      ...row.policy,
+      mccCode: row.mccCode
+    }));
+  }
+
+  async getMccPolicy(id: number): Promise<(MccPolicy & { mccCode: MccCode }) | undefined> {
+    const result = await this.db.select({
+      policy: mccPolicies,
+      mccCode: mccCodes
+    }).from(mccPolicies)
+      .innerJoin(mccCodes, eq(mccPolicies.mccCodeId, mccCodes.id))
+      .where(eq(mccPolicies.id, id));
+    
+    if (result.length === 0) return undefined;
+    
+    return {
+      ...result[0].policy,
+      mccCode: result[0].mccCode
+    };
+  }
+
+  async getMccPolicyByCodeAndAcquirer(mccCodeId: number, acquirerId?: number): Promise<MccPolicy | undefined> {
+    const conditions = [eq(mccPolicies.mccCodeId, mccCodeId)];
     if (acquirerId !== undefined) {
       conditions.push(eq(mccPolicies.acquirerId, acquirerId));
+    } else {
+      conditions.push(sql`${mccPolicies.acquirerId} IS NULL`);
     }
     const [policy] = await this.db.select().from(mccPolicies).where(and(...conditions));
     return policy || undefined;
