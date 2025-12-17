@@ -536,14 +536,14 @@ export default function MccPoliciesPage() {
             <div className="space-y-2">
               <Label>Risk Level Override (Optional)</Label>
               <Select
-                value={formData.riskLevelOverride}
-                onValueChange={(val) => setFormData({ ...formData, riskLevelOverride: val })}
+                value={formData.riskLevelOverride || "none"}
+                onValueChange={(val) => setFormData({ ...formData, riskLevelOverride: val === "none" ? "" : val })}
               >
                 <SelectTrigger data-testid="select-risk-override">
                   <SelectValue placeholder="Use default risk level" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Use default risk level</SelectItem>
+                  <SelectItem value="none">Use default risk level</SelectItem>
                   {RISK_LEVEL_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
@@ -623,14 +623,14 @@ export default function MccPoliciesPage() {
             <div className="space-y-2">
               <Label>Risk Level Override (Optional)</Label>
               <Select
-                value={formData.riskLevelOverride}
-                onValueChange={(val) => setFormData({ ...formData, riskLevelOverride: val })}
+                value={formData.riskLevelOverride || "none"}
+                onValueChange={(val) => setFormData({ ...formData, riskLevelOverride: val === "none" ? "" : val })}
               >
                 <SelectTrigger data-testid="select-edit-risk-override">
                   <SelectValue placeholder="Use default risk level" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Use default risk level</SelectItem>
+                  <SelectItem value="none">Use default risk level</SelectItem>
                   {RISK_LEVEL_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
