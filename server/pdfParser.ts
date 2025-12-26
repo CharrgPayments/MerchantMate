@@ -336,6 +336,88 @@ export class PDFFormParser {
           } else if (first.pdfField instanceof PDFCheckBox) {
             fieldType = 'checkbox';
             defaultValue = (first.pdfField as PDFCheckBox).isChecked() ? 'true' : 'false';
+            
+            // Check if this is a boolean field (Yes/No checkbox pair by naming convention)
+            const fieldNameLower = parsedName.fieldName.toLowerCase();
+            if (fieldNameLower.includes('_yes') || fieldNameLower.includes('_no') ||
+                fieldNameLower.endsWith('yes') || fieldNameLower.endsWith('no') ||
+                fieldNameLower.includes('.yes') || fieldNameLower.includes('.no')) {
+              console.log(`  → Detected boolean field from checkbox naming: ${first.pdfFieldId}`);
+              // Keep as checkbox - boolean grouping happens at a higher level
+            }
+          } else if (first.pdfField instanceof PDFRadioGroup) {
+            // Handle PDF radio button groups
+            fieldType = 'radio';
+            const radioGroup = first.pdfField as PDFRadioGroup;
+            const options = radioGroup.getOptions();
+            
+            console.log(`  → Detected PDFRadioGroup: ${first.pdfFieldId} with ${options.length} options`);
+            
+            // Get selected value if any
+            try {
+              const selected = radioGroup.getSelected();
+              if (selected) {
+                defaultValue = selected;
+              }
+            } catch (e) {
+              // No selection
+            }
+            
+            // If the radio group has options, create structured options
+            if (options.length > 0) {
+              parsedFields.push({
+                fieldName: this.buildNewFieldName(parsedName.section, parsedName.fieldName),
+                fieldType: 'radio',
+                fieldLabel: this.generateFieldLabel(parsedName.fieldName),
+                isRequired: false,
+                options: options.map((opt, idx) => ({
+                  label: this.generateFieldLabel(opt),
+                  value: opt,
+                  pdfFieldId: `${first.pdfFieldId}_${opt}`
+                })),
+                pdfFieldId: first.pdfFieldId,
+                pdfFieldIds: [first.pdfFieldId],
+                defaultValue,
+                position: first.position,
+                section: parsedName.section
+              });
+              return; // Skip the default push below since we handled it
+            }
+          } else if (first.pdfField instanceof PDFDropdown) {
+            // Handle dropdown/select fields
+            fieldType = 'select';
+            const dropdown = first.pdfField as PDFDropdown;
+            const options = dropdown.getOptions();
+            
+            console.log(`  → Detected PDFDropdown: ${first.pdfFieldId} with ${options.length} options`);
+            
+            try {
+              const selected = dropdown.getSelected();
+              if (selected && selected.length > 0) {
+                defaultValue = selected[0];
+              }
+            } catch (e) {
+              // No selection
+            }
+            
+            if (options.length > 0) {
+              parsedFields.push({
+                fieldName: this.buildNewFieldName(parsedName.section, parsedName.fieldName),
+                fieldType: 'select',
+                fieldLabel: this.generateFieldLabel(parsedName.fieldName),
+                isRequired: false,
+                options: options.map((opt) => ({
+                  label: this.generateFieldLabel(opt),
+                  value: opt,
+                  pdfFieldId: `${first.pdfFieldId}_${opt}`
+                })),
+                pdfFieldId: first.pdfFieldId,
+                defaultValue,
+                position: first.position,
+                section: parsedName.section
+              });
+              return; // Skip the default push below since we handled it
+            }
           }
           
           parsedFields.push({
