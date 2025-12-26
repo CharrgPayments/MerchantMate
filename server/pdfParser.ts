@@ -133,27 +133,56 @@ export class PDFFormParser {
         const section = dotParts[0];
         const restOfName = dotParts.slice(1).join('.');
         
-        // Check for type suffix in the last part (e.g., business.entityType_radio or business.entityType_radio_partnership)
-        const lastPart = dotParts[dotParts.length - 1];
+        // Check for type in dot parts (e.g., merchant.businessEntity.radio.partnership)
+        // Format: section.fieldName.type.optionValue or section.subsection.fieldName.type.optionValue
         const knownTypes = ['radio', 'checkbox', 'select', 'bool', 'boolean', 'text', 'textarea', 'email', 'phone', 'zipcode', 'ein', 'date', 'address'];
         
-        // Match pattern: fieldName_type or fieldName_type_optionValue
-        // Examples: entityType_radio, entityType_radio_partnership, hasLocations_bool_yes
-        const underscoreParts = lastPart.split('_');
+        // Find the type keyword in the dot parts
         let typeIndex = -1;
-        for (let i = 0; i < underscoreParts.length; i++) {
-          if (knownTypes.includes(underscoreParts[i])) {
+        for (let i = 1; i < dotParts.length; i++) {
+          if (knownTypes.includes(dotParts[i])) {
             typeIndex = i;
             break;
           }
         }
         
-        if (typeIndex > 0) {
+        if (typeIndex > 1) {
+          // Full dot notation: section.fieldName.type.optionValue
+          // Examples: merchant.businessEntity.radio.partnership, owners.1.ownerType.radio.individual
+          const optionType = dotParts[typeIndex];
+          const optionValue = typeIndex + 1 < dotParts.length 
+            ? dotParts.slice(typeIndex + 1).join('.') 
+            : null;
+          
+          // Field name is everything between section and type
+          const fieldNameParts = dotParts.slice(1, typeIndex);
+          
+          return {
+            section: dotParts[0],
+            fieldName: fieldNameParts.join('.'),
+            optionType,
+            optionValue,
+            isStructured: true
+          };
+        }
+        
+        // Also support hybrid format: section.fieldName_type_optionValue (for backward compatibility)
+        const lastPart = dotParts[dotParts.length - 1];
+        const underscoreParts = lastPart.split('_');
+        let underscoreTypeIndex = -1;
+        for (let i = 0; i < underscoreParts.length; i++) {
+          if (knownTypes.includes(underscoreParts[i])) {
+            underscoreTypeIndex = i;
+            break;
+          }
+        }
+        
+        if (underscoreTypeIndex > 0) {
           // Has type suffix like _radio, _checkbox, possibly with option value after
-          const optionType = underscoreParts[typeIndex];
-          const fieldNamePart = underscoreParts.slice(0, typeIndex).join('_');
-          const optionValue = typeIndex + 1 < underscoreParts.length 
-            ? underscoreParts.slice(typeIndex + 1).join('_') 
+          const optionType = underscoreParts[underscoreTypeIndex];
+          const fieldNamePart = underscoreParts.slice(0, underscoreTypeIndex).join('_');
+          const optionValue = underscoreTypeIndex + 1 < underscoreParts.length 
+            ? underscoreParts.slice(underscoreTypeIndex + 1).join('_') 
             : null;
           
           // Reconstruct the field name with section prefix
