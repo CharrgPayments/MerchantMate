@@ -133,22 +133,40 @@ export class PDFFormParser {
         const section = dotParts[0];
         const restOfName = dotParts.slice(1).join('.');
         
-        // Check for type suffix in the last part (e.g., business.entityType_radio)
+        // Check for type suffix in the last part (e.g., business.entityType_radio or business.entityType_radio_partnership)
         const lastPart = dotParts[dotParts.length - 1];
         const knownTypes = ['radio', 'checkbox', 'select', 'bool', 'boolean', 'text', 'textarea', 'email', 'phone', 'zipcode', 'ein', 'date', 'address'];
-        const typeMatch = lastPart.match(/_([a-z]+)$/);
         
-        if (typeMatch && knownTypes.includes(typeMatch[1])) {
-          // Has type suffix like _radio, _checkbox
-          const optionType = typeMatch[1];
-          const fieldWithoutType = fieldName.replace(/_[a-z]+$/, '');
-          const cleanDotParts = fieldWithoutType.split('.');
+        // Match pattern: fieldName_type or fieldName_type_optionValue
+        // Examples: entityType_radio, entityType_radio_partnership, hasLocations_bool_yes
+        const underscoreParts = lastPart.split('_');
+        let typeIndex = -1;
+        for (let i = 0; i < underscoreParts.length; i++) {
+          if (knownTypes.includes(underscoreParts[i])) {
+            typeIndex = i;
+            break;
+          }
+        }
+        
+        if (typeIndex > 0) {
+          // Has type suffix like _radio, _checkbox, possibly with option value after
+          const optionType = underscoreParts[typeIndex];
+          const fieldNamePart = underscoreParts.slice(0, typeIndex).join('_');
+          const optionValue = typeIndex + 1 < underscoreParts.length 
+            ? underscoreParts.slice(typeIndex + 1).join('_') 
+            : null;
+          
+          // Reconstruct the field name with section prefix
+          const sectionPrefix = dotParts.slice(0, -1).join('.');
+          const cleanFieldName = sectionPrefix ? `${sectionPrefix}.${fieldNamePart}` : fieldNamePart;
           
           return {
-            section: cleanDotParts[0],
-            fieldName: cleanDotParts.slice(1).join('.'),
+            section: dotParts[0],
+            fieldName: sectionPrefix.length > dotParts[0].length 
+              ? cleanFieldName.substring(dotParts[0].length + 1) 
+              : fieldNamePart,
             optionType,
-            optionValue: null,
+            optionValue,
             isStructured: true
           };
         }
