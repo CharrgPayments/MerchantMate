@@ -2835,9 +2835,9 @@ function PdfFieldNamingDocumentation({
     { type: 'zipcode', icon: MapPin, description: 'ZIP/Postal code with validation', example: 'location.address.postalcode', detection: 'Field name contains "zip" or "postal"', masking: 'None' },
     { type: 'url', icon: Globe, description: 'Website URL with validation', example: 'business.website, company.url', detection: 'Field name contains "url" or "website"', masking: 'None' },
     { type: 'select', icon: ListChecks, description: 'Dropdown selection list', example: 'business.entityType, location.address.state', detection: 'PDF dropdown fields', masking: 'None' },
-    { type: 'radio', icon: Circle, description: 'Radio button group', example: 'business.entityType_radio, payment.method', detection: 'PDF radio button groups with _radio suffix', masking: 'None' },
+    { type: 'radio', icon: Circle, description: 'Radio button group', example: 'business.entityType.radio.llc', detection: 'Dot notation: section.field.radio.option or PDF radio groups', masking: 'None' },
     { type: 'checkbox', icon: CheckCircle, description: 'Checkbox input', example: 'terms.accepted, processing.acceptsCredit', detection: 'PDF checkbox fields', masking: 'None' },
-    { type: 'boolean', icon: ToggleLeft, description: 'Yes/No toggle', example: 'business.isSeasonal, owner.isPreviousMerchant', detection: '_bool or _boolean suffix', masking: 'None' },
+    { type: 'boolean', icon: ToggleLeft, description: 'Yes/No toggle', example: 'business.isSeasonal.bool.yes', detection: 'Dot notation: section.field.bool.yes/no or _bool suffix', masking: 'None' },
     { type: 'address', icon: MapPin, description: 'Address autocomplete with Google Maps', example: 'location.address, owners.1.address', detection: 'Field name contains "address" or "street"', complex: true, masking: 'None' },
     { type: 'mcc-select', icon: CreditCard, description: 'Merchant Category Code selector', example: 'business.mcc, merchant.mccCode', detection: 'Field name contains "mcc"', complex: true, masking: 'None' },
     { type: 'signature', icon: PenTool, description: 'Digital signature capture', example: 'owners.1.signature, agent.signature', detection: 'Signature group pattern', complex: true, masking: 'Stored securely' },
@@ -3108,6 +3108,122 @@ function PdfFieldNamingDocumentation({
                           <p className="text-xs text-gray-500 mt-1">Owner 1 home address</p>
                         </div>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Radio Buttons and Boolean Fields */}
+            <Card className="border-amber-200">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Circle className="h-5 w-5 text-amber-600" />
+                  Radio Buttons &amp; Boolean Fields
+                </CardTitle>
+                <CardDescription>
+                  Multi-option selection and Yes/No toggle fields using dot notation
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
+                  <h4 className="font-semibold text-amber-800 mb-2">Naming Convention</h4>
+                  <p className="text-sm text-amber-700 mb-3">
+                    Use full dot notation with the field type keyword followed by the option value:
+                  </p>
+                  <code className="block bg-white p-2 rounded border border-amber-200 font-mono text-amber-700 mb-2">
+                    section.fieldName.type.optionValue
+                  </code>
+                  <p className="text-xs text-amber-600">
+                    The parser detects the type keyword (radio, bool, boolean, checkbox) and groups all fields with the same prefix together.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-white p-4 rounded-lg border">
+                    <h5 className="font-medium text-amber-700 mb-3 flex items-center gap-2">
+                      <Circle className="h-4 w-4" />
+                      Radio Button Groups
+                    </h5>
+                    <p className="text-sm text-gray-600 mb-3">
+                      Each option is a separate PDF field. Fields with the same section.fieldName.radio prefix are grouped together.
+                    </p>
+                    <div className="space-y-2">
+                      <div className="bg-amber-50 p-2 rounded text-sm">
+                        <div className="font-medium text-amber-800 mb-1">Entity Type Selection:</div>
+                        <div className="font-mono text-xs space-y-1 text-amber-700">
+                          <div>business.entityType.radio.sole_proprietorship</div>
+                          <div>business.entityType.radio.partnership</div>
+                          <div>business.entityType.radio.llc</div>
+                          <div>business.entityType.radio.corporation</div>
+                          <div>business.entityType.radio.non_profit</div>
+                        </div>
+                      </div>
+                      <div className="bg-amber-50 p-2 rounded text-sm">
+                        <div className="font-medium text-amber-800 mb-1">Owner Type (per owner):</div>
+                        <div className="font-mono text-xs space-y-1 text-amber-700">
+                          <div>owners.1.type.radio.individual</div>
+                          <div>owners.1.type.radio.business</div>
+                          <div>owners.2.type.radio.individual</div>
+                          <div>owners.2.type.radio.business</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-4 rounded-lg border">
+                    <h5 className="font-medium text-amber-700 mb-3 flex items-center gap-2">
+                      <ToggleLeft className="h-4 w-4" />
+                      Boolean (Yes/No) Fields
+                    </h5>
+                    <p className="text-sm text-gray-600 mb-3">
+                      Yes/No toggles using <code className="bg-gray-100 px-1 rounded">bool</code> or <code className="bg-gray-100 px-1 rounded">boolean</code> as the type keyword.
+                    </p>
+                    <div className="space-y-2">
+                      <div className="bg-amber-50 p-2 rounded text-sm">
+                        <div className="font-medium text-amber-800 mb-1">Accept Credit Cards:</div>
+                        <div className="font-mono text-xs space-y-1 text-amber-700">
+                          <div>business.acceptsCreditCards.bool.yes</div>
+                          <div>business.acceptsCreditCards.bool.no</div>
+                        </div>
+                      </div>
+                      <div className="bg-amber-50 p-2 rounded text-sm">
+                        <div className="font-medium text-amber-800 mb-1">Has DBA Name:</div>
+                        <div className="font-mono text-xs space-y-1 text-amber-700">
+                          <div>business.hasDba.boolean.yes</div>
+                          <div>business.hasDba.boolean.no</div>
+                        </div>
+                      </div>
+                      <div className="bg-amber-50 p-2 rounded text-sm">
+                        <div className="font-medium text-amber-800 mb-1">Seasonal Business:</div>
+                        <div className="font-mono text-xs space-y-1 text-amber-700">
+                          <div>business.isSeasonal.bool.yes</div>
+                          <div>business.isSeasonal.bool.no</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-amber-100 p-3 rounded-lg border border-amber-300">
+                  <h5 className="font-medium text-amber-800 mb-2">How Grouping Works</h5>
+                  <p className="text-sm text-amber-700">
+                    The parser automatically groups PDF fields that share the same <code className="bg-white px-1 rounded">section.fieldName.type</code> prefix.
+                    Each grouped set becomes one logical form field with multiple options. The option values after the type keyword become the selectable choices.
+                  </p>
+                </div>
+
+                <div className="bg-gray-100 p-3 rounded-lg border">
+                  <h5 className="font-medium text-gray-800 mb-2">Backward Compatibility</h5>
+                  <p className="text-sm text-gray-600">
+                    The parser also supports legacy formats for backward compatibility:
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs font-mono">
+                    <div className="bg-white p-2 rounded">
+                      <span className="text-gray-500">Hybrid:</span> business.entityType_radio_llc
+                    </div>
+                    <div className="bg-white p-2 rounded">
+                      <span className="text-gray-500">Legacy:</span> merchant_entity_type_radio_llc
                     </div>
                   </div>
                 </div>
