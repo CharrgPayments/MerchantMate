@@ -321,6 +321,27 @@ export class PDFFormParser {
       
       fields.forEach((field, index) => {
         const pdfFieldId = field.getName();
+        const fieldType = field.constructor.name;
+        
+        // Debug: Log checkbox fields with more detail
+        if (field instanceof PDFCheckBox) {
+          const checkbox = field as PDFCheckBox;
+          console.log(`🔲 Checkbox field: ${pdfFieldId} | isChecked: ${checkbox.isChecked()}`);
+          
+          // Check if this checkbox has widgets (multiple appearances)
+          try {
+            const acroField = (checkbox as any).acroField;
+            if (acroField) {
+              const widgets = acroField.getWidgets();
+              if (widgets && widgets.length > 1) {
+                console.log(`  → Has ${widgets.length} widgets (might be checkbox group)`);
+              }
+            }
+          } catch (e) {
+            // Ignore errors accessing internal structure
+          }
+        }
+        
         const parsedName = this.parseFieldName(pdfFieldId);
         
         // Create a group key based on section, fieldname, and optiontype
