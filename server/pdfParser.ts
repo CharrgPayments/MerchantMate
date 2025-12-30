@@ -349,6 +349,11 @@ export class PDFFormParser {
           ? `${parsedName.section}_${parsedName.fieldName}_${parsedName.optionType}`
           : `${parsedName.section}_${parsedName.fieldName}`;
         
+        // Debug: Log grouping for checkbox fields
+        if (pdfFieldId.includes('seasonal') && pdfFieldId.includes('checkbox')) {
+          console.log(`🔑 Grouping: ${pdfFieldId} → groupKey: ${groupKey} | section: ${parsedName.section} | fieldName: ${parsedName.fieldName} | optionType: ${parsedName.optionType} | optionValue: ${parsedName.optionValue}`);
+        }
+        
         if (!fieldGroups.has(groupKey)) {
           fieldGroups.set(groupKey, []);
         }
