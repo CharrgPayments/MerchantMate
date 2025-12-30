@@ -362,6 +362,33 @@ export class PDFFormParser {
             if (parsedName.optionType === 'bool') {
               fieldType = 'boolean';
             }
+            
+            // Handle single checkbox/radio/boolean fields with optionValue
+            // These should still have options array even if there's only one option in the PDF
+            if ((parsedName.optionType === 'checkbox' || parsedName.optionType === 'radio' || 
+                 parsedName.optionType === 'bool' || parsedName.optionType === 'boolean') && 
+                parsedName.optionValue) {
+              console.log(`  → Single ${parsedName.optionType} field with option: ${parsedName.optionValue}`);
+              
+              // Create options array with the single option
+              const options = group.map(item => ({
+                label: this.generateFieldLabel(item.parsedName.optionValue || ''),
+                value: item.parsedName.optionValue || '',
+                pdfFieldId: item.pdfFieldId
+              }));
+              
+              parsedFields.push({
+                fieldName: this.buildNewFieldName(parsedName.section, parsedName.fieldName),
+                fieldType,
+                fieldLabel: this.generateFieldLabel(parsedName.fieldName),
+                isRequired: false,
+                options,
+                pdfFieldIds: group.map(item => item.pdfFieldId),
+                position: first.position,
+                section: parsedName.section
+              });
+              return; // Skip the default push below since we handled it
+            }
           } else if (first.pdfField instanceof PDFTextField) {
             const textField = first.pdfField as PDFTextField;
             fieldType = textField.isMultiline() ? 'textarea' : 'text';
