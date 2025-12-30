@@ -146,20 +146,45 @@ export class PDFFormParser {
           }
         }
         
-        if (typeIndex > 1) {
-          // Full dot notation: section.fieldName.type.optionValue
-          // Examples: merchant.businessEntity.radio.partnership, owners.1.ownerType.radio.individual
+        if (typeIndex >= 1) {
+          // Dot notation with type keyword found
+          // Handles both:
+          // - section.type.optionValue (e.g., transactionInformation.checkbox.seasonal_jan)
+          // - section.fieldName.type.optionValue (e.g., merchant.businessEntity.radio.partnership)
           const optionType = dotParts[typeIndex];
-          const optionValue = typeIndex + 1 < dotParts.length 
-            ? dotParts.slice(typeIndex + 1).join('.') 
-            : null;
+          
+          // Get option value - handle both dot notation and underscore notation after type
+          let optionValue: string | null = null;
+          if (typeIndex + 1 < dotParts.length) {
+            // Option value is after type in dot notation (e.g., section.field.radio.partnership)
+            optionValue = dotParts.slice(typeIndex + 1).join('.');
+          }
+          // Also check if the last dot part after type contains underscore-delimited options
+          // e.g., transactionInformation.checkbox.seasonal_jan -> optionValue = "seasonal_jan"
           
           // Field name is everything between section and type
           const fieldNameParts = dotParts.slice(1, typeIndex);
           
+          // If type is at index 1 (immediately after section), use the option value as the field name
+          // e.g., transactionInformation.checkbox.seasonal_jan -> fieldName = "seasonal", optionValue extracted from underscore
+          let fieldName = fieldNameParts.join('.');
+          
+          // Handle underscore in option value to extract logical field name and option
+          // e.g., "seasonal_jan" -> fieldName = "seasonal", optionValue = "jan"
+          if (fieldName === '' && optionValue && optionValue.includes('_')) {
+            const underscoreParts = optionValue.split('_');
+            fieldName = underscoreParts[0]; // First part is the field name
+            optionValue = underscoreParts.slice(1).join('_'); // Rest is the option value
+            console.log(`  → Extracted from underscore: fieldName="${fieldName}", optionValue="${optionValue}"`);
+          } else if (fieldName === '' && optionValue) {
+            // No underscore, use the option value as the field name
+            fieldName = optionValue;
+            optionValue = null;
+          }
+          
           return {
             section: dotParts[0],
-            fieldName: fieldNameParts.join('.'),
+            fieldName,
             optionType,
             optionValue,
             isStructured: true
