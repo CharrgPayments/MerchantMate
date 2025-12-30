@@ -105,7 +105,13 @@ function createDynamicSchema(configuration: FormConfiguration, requiredFields: s
           fieldSchema = numberSchema;
           break;
         case 'checkbox':
-          fieldSchema = z.boolean();
+          // If field has options, it's a checkbox group (array of selected values)
+          // Otherwise, it's a single boolean checkbox
+          if (field.options && field.options.length > 0) {
+            fieldSchema = z.array(z.string()).default([]);
+          } else {
+            fieldSchema = z.boolean();
+          }
           break;
         case 'date':
           fieldSchema = z.string().refine(
@@ -460,14 +466,43 @@ export default function DynamicFormRenderer({
                   dataTestId={testId}
                 />
               ) : field.type === 'checkbox' ? (
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    checked={formField.value || false}
-                    onCheckedChange={formField.onChange}
-                    data-testid={testId}
-                  />
-                  <span className="text-sm">{field.description || field.label}</span>
-                </div>
+                field.options && field.options.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                    {field.options.map((option, idx) => {
+                      const optionValue = typeof option === 'string' ? option : option;
+                      const optionLabel = typeof option === 'string' 
+                        ? option.charAt(0).toUpperCase() + option.slice(1) 
+                        : option;
+                      const selectedValues = Array.isArray(formField.value) ? formField.value : [];
+                      const isChecked = selectedValues.includes(optionValue);
+                      
+                      return (
+                        <div key={optionValue} className="flex items-center space-x-2">
+                          <Checkbox
+                            checked={isChecked}
+                            onCheckedChange={(checked) => {
+                              const newValues = checked
+                                ? [...selectedValues, optionValue]
+                                : selectedValues.filter((v: string) => v !== optionValue);
+                              formField.onChange(newValues);
+                            }}
+                            data-testid={`${testId}-${optionValue}`}
+                          />
+                          <span className="text-sm">{optionLabel}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      checked={formField.value || false}
+                      onCheckedChange={formField.onChange}
+                      data-testid={testId}
+                    />
+                    <span className="text-sm">{field.description || field.label}</span>
+                  </div>
+                )
               ) : (
                 <Input
                   {...formField}
