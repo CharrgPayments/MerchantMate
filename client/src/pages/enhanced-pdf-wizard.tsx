@@ -1664,12 +1664,16 @@ export default function EnhancedPdfWizard() {
         description: section.description || '',
         icon: iconMap[section.title] || FileText,
         fields: fieldsWithGroups.map((field: any, fieldIndex: number) => {
-          // Transform options: if structured {label, value} objects, extract value strings
+          // Transform options: preserve {label, value} structure for display
           let normalizedOptions = field.options || null;
           if (Array.isArray(normalizedOptions) && normalizedOptions.length > 0) {
             // Check if options are structured objects vs simple strings
             if (typeof normalizedOptions[0] === 'object' && normalizedOptions[0] !== null) {
-              normalizedOptions = normalizedOptions.map((opt: any) => opt.value || opt.label || String(opt));
+              // Preserve label and value for proper display
+              normalizedOptions = normalizedOptions.map((opt: any) => ({
+                label: opt.label || opt.value || String(opt),
+                value: opt.value || opt.label || String(opt)
+              }));
             }
           }
           
