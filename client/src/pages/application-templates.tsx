@@ -1986,8 +1986,8 @@ function FieldConfigurationDialog({
                   </div>
                 </div>
 
-                {/* Show options for select, radio, checkbox, boolean fields */}
-                {(editingField.type === 'select' || editingField.type === 'radio' || editingField.type === 'checkbox' || editingField.type === 'boolean') && (
+                {/* Show options for select, radio, checkbox, checkbox-list, boolean fields */}
+                {(editingField.type === 'select' || editingField.type === 'radio' || editingField.type === 'checkbox' || editingField.type === 'checkbox-list' || editingField.type === 'boolean') && (
                   <div>
                     <label className="text-sm font-medium mb-2 block">Options</label>
                     <div className="space-y-2 max-h-60 overflow-y-auto border rounded-md p-3">
