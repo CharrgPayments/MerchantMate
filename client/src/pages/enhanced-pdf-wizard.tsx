@@ -3349,6 +3349,13 @@ export default function EnhancedPdfWizard() {
           return [];
         })();
 
+        // Determine layout: 'horizontal' (grid) or 'vertical' (stacked)
+        // Default to horizontal for better space efficiency
+        const checkboxLayout = (field as any).layout || 'horizontal';
+        const containerClass = checkboxLayout === 'horizontal' 
+          ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 border rounded-lg p-3 bg-gray-50'
+          : 'space-y-2 border rounded-lg p-3 bg-gray-50';
+
         return (
           <div className="space-y-2">
             <div className="flex items-center gap-1">
@@ -3367,14 +3374,14 @@ export default function EnhancedPdfWizard() {
                 </Tooltip>
               )}
             </div>
-            <div className="space-y-2 border rounded-lg p-3 bg-gray-50">
+            <div className={containerClass}>
               {field.options?.map((option: any) => {
                 const optionValue = typeof option === 'string' ? option : option.value;
                 const optionLabel = typeof option === 'string' ? option : option.label;
                 const isOptionChecked = selectedOptions.includes(optionValue);
                 
                 return (
-                  <div key={optionValue} className="flex items-start space-x-3">
+                  <div key={optionValue} className="flex items-center space-x-2">
                     <input
                       type="checkbox"
                       id={`${field.fieldName}-${optionValue}`}
@@ -3388,12 +3395,12 @@ export default function EnhancedPdfWizard() {
                         }
                         handleFieldChange(field.fieldName, JSON.stringify(newSelected));
                       }}
-                      className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       data-testid={`checkbox-${field.fieldName}-${optionValue}`}
                     />
                     <Label 
                       htmlFor={`${field.fieldName}-${optionValue}`}
-                      className="text-sm font-normal cursor-pointer flex-1"
+                      className="text-sm font-normal cursor-pointer"
                     >
                       {optionLabel}
                     </Label>
