@@ -5,7 +5,7 @@ import { buildFieldName } from '@shared/fieldNaming';
 
 interface ParsedFormField {
   fieldName: string;
-  fieldType: 'text' | 'number' | 'percentage' | 'ssn' | 'date' | 'select' | 'checkbox' | 'textarea' | 'phone' | 'email' | 'url' | 'mcc-select' | 'zipcode' | 'ein' | 'radio' | 'boolean' | 'address';
+  fieldType: 'text' | 'number' | 'percentage' | 'ssn' | 'date' | 'select' | 'checkbox' | 'checkbox-list' | 'textarea' | 'phone' | 'email' | 'url' | 'mcc-select' | 'zipcode' | 'ein' | 'radio' | 'boolean' | 'address';
   fieldLabel: string;
   isRequired: boolean;
   options?: Array<{
@@ -399,10 +399,15 @@ export class PDFFormParser {
             pdfFieldId: item.pdfFieldId
           }));
           
-          // Normalize 'bool' to 'boolean' field type
-          let fieldType = parsedName.optionType as ParsedFormField['fieldType'];
-          if (parsedName.optionType === 'bool') {
+          // Normalize field types for grouped options
+          let fieldType: ParsedFormField['fieldType'];
+          if (parsedName.optionType === 'checkbox') {
+            // Grouped checkboxes with multiple options become 'checkbox-list'
+            fieldType = 'checkbox-list';
+          } else if (parsedName.optionType === 'bool') {
             fieldType = 'boolean';
+          } else {
+            fieldType = parsedName.optionType as ParsedFormField['fieldType'];
           }
           
           // For grouped fields, use the groupPath to create a unique fieldName
