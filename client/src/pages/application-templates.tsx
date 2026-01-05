@@ -1752,7 +1752,7 @@ function FieldConfigurationDialog({
         {/* Field Editor Dialog */}
         {editingField && (
           <Dialog open={!!editingField} onOpenChange={() => setEditingField(null)}>
-            <DialogContent>
+            <DialogContent className="max-h-[85vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Edit Field</DialogTitle>
                 <DialogDescription>
