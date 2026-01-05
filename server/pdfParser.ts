@@ -416,12 +416,15 @@ export class PDFFormParser {
           // e.g., seasonal.checkbox → transactionInformation.seasonal.months
           const fieldNameForGroup = groupPathWithoutSection.replace(/\.checkbox$|\.radio$|\.bool$|\.boolean$/, '.months');
           
-          console.log(`  → Grouped field: groupPath=${parsedName.groupPath}, derived fieldName=${fieldNameForGroup}`);
+          // Generate a distinct label for grouped fields - append "Options" or "Selection"
+          const groupFieldLabel = this.generateFieldLabel(parsedName.fieldName) + ' Selection';
+          
+          console.log(`  → Grouped field: groupPath=${parsedName.groupPath}, derived fieldName=${fieldNameForGroup}, label=${groupFieldLabel}`);
           
           parsedFields.push({
             fieldName: `${parsedName.section}.${fieldNameForGroup}`,
             fieldType,
-            fieldLabel: this.generateFieldLabel(parsedName.fieldName),
+            fieldLabel: groupFieldLabel,
             isRequired: false,
             options,
             pdfFieldIds: group.map(item => item.pdfFieldId),
