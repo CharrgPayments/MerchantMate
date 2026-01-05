@@ -1442,6 +1442,7 @@ function FieldConfigurationDialog({
     { value: 'phone', label: 'Phone (Formatted)' },
     { value: 'ein', label: 'EIN/Tax ID' },
     { value: 'address', label: 'Address (Google Autocomplete)' },
+    { value: 'mcc-select', label: 'MCC Code (Business Category)' },
     { value: 'user_account', label: 'User Account (Auto-create)' }
   ];
 
