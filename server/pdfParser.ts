@@ -27,6 +27,7 @@ interface FieldNameParts {
   optionType: string | null;
   optionValue: string | null;
   isStructured: boolean; // Whether it follows the convention
+  groupPath: string; // Unique path for grouping (everything before optionValue)
 }
 
 interface ParsedFormSection {
@@ -182,12 +183,16 @@ export class PDFFormParser {
             optionValue = null;
           }
           
+          // groupPath is everything up to and including the type (but not optionValue)
+          const groupPath = dotParts.slice(0, typeIndex + 1).join('.');
+          
           return {
             section: dotParts[0],
             fieldName,
             optionType,
             optionValue,
-            isStructured: true
+            isStructured: true,
+            groupPath
           };
         }
         
@@ -214,6 +219,9 @@ export class PDFFormParser {
           const sectionPrefix = dotParts.slice(0, -1).join('.');
           const cleanFieldName = sectionPrefix ? `${sectionPrefix}.${fieldNamePart}` : fieldNamePart;
           
+          // groupPath: dot parts + underscore parts up to and including type
+          const groupPath = `${dotParts.slice(0, -1).join('.')}.${underscoreParts.slice(0, underscoreTypeIndex + 1).join('_')}`;
+          
           return {
             section: dotParts[0],
             fieldName: sectionPrefix.length > dotParts[0].length 
@@ -221,7 +229,8 @@ export class PDFFormParser {
               : fieldNamePart,
             optionType,
             optionValue,
-            isStructured: true
+            isStructured: true,
+            groupPath
           };
         }
         
@@ -231,7 +240,8 @@ export class PDFFormParser {
           fieldName: restOfName,
           optionType: null,
           optionValue: null,
-          isStructured: true
+          isStructured: true,
+          groupPath: fieldName // Use the original field name as groupPath
         };
       }
     }
@@ -248,7 +258,8 @@ export class PDFFormParser {
         fieldName: fieldName,
         optionType: null,
         optionValue: null,
-        isStructured: false
+        isStructured: false,
+        groupPath: fieldName
       };
     }
     
@@ -267,16 +278,19 @@ export class PDFFormParser {
     if (optionTypeIndex > 0) {
       // Structured field: section_fieldname_optiontype_optionvalue
       const section = parts[0];
-      const fieldName = parts.slice(1, optionTypeIndex).join('_');
+      const fieldNamePart = parts.slice(1, optionTypeIndex).join('_');
       const optionType = parts[optionTypeIndex];
       const optionValue = optionTypeIndex + 1 < parts.length ? parts.slice(optionTypeIndex + 1).join('_') : null;
+      // groupPath: everything up to and including optionType
+      const groupPath = parts.slice(0, optionTypeIndex + 1).join('_');
       
       return {
         section,
-        fieldName,
+        fieldName: fieldNamePart,
         optionType,
         optionValue,
-        isStructured: true
+        isStructured: true,
+        groupPath
       };
     } else {
       // Legacy format: just section_fieldname
@@ -285,7 +299,8 @@ export class PDFFormParser {
         fieldName: parts.slice(1).join('_'),
         optionType: null,
         optionValue: null,
-        isStructured: false
+        isStructured: false,
+        groupPath: fieldName // original input field name
       };
     }
   }
@@ -344,10 +359,10 @@ export class PDFFormParser {
         
         const parsedName = this.parseFieldName(pdfFieldId);
         
-        // Create a group key based on section, fieldname, and optiontype
-        const groupKey = parsedName.optionType 
-          ? `${parsedName.section}_${parsedName.fieldName}_${parsedName.optionType}`
-          : `${parsedName.section}_${parsedName.fieldName}`;
+        // Use groupPath for grouping - this preserves the original field structure
+        // e.g., transactionInformation.seasonal.checkbox.jan → groupPath: transactionInformation.seasonal.checkbox
+        // e.g., transactionInformation.checkbox.seasonal → groupPath: transactionInformation.checkbox.seasonal
+        const groupKey = parsedName.groupPath;
         
         // Debug: Log grouping for checkbox fields
         if (pdfFieldId.includes('seasonal') && pdfFieldId.includes('checkbox')) {
