@@ -2180,8 +2180,8 @@ function FieldConfigurationDialog({
                   </div>
                 )}
 
-                {/* Layout selector for checkbox-list fields */}
-                {editingField.type === 'checkbox-list' && (
+                {/* Layout selector for checkbox-list and radio fields */}
+                {(editingField.type === 'checkbox-list' || editingField.type === 'radio') && (
                   <div>
                     <label className="text-sm font-medium mb-2 block">Layout</label>
                     <Select

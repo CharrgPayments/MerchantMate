@@ -3042,6 +3042,12 @@ export default function EnhancedPdfWizard() {
         );
 
       case 'radio':
+        // Determine layout: 'horizontal' (grid) or 'vertical' (stacked)
+        const radioLayout = (field as any).layout || 'horizontal';
+        const radioContainerClass = radioLayout === 'horizontal' 
+          ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2'
+          : 'space-y-2';
+
         return (
           <div className="space-y-2">
             <div className="flex items-center gap-1">
@@ -3060,7 +3066,7 @@ export default function EnhancedPdfWizard() {
                 </Tooltip>
               )}
             </div>
-            <RadioGroup value={value} onValueChange={(value) => handleFieldChange(field.fieldName, value)}>
+            <RadioGroup value={value} onValueChange={(value) => handleFieldChange(field.fieldName, value)} className={radioContainerClass}>
               {field.options?.map((option: any) => {
                 const optionValue = typeof option === 'string' ? option : option.value;
                 const optionLabel = typeof option === 'string' ? option : option.label;
