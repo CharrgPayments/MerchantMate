@@ -2180,6 +2180,28 @@ function FieldConfigurationDialog({
                   </div>
                 )}
 
+                {/* Layout selector for checkbox-list fields */}
+                {editingField.type === 'checkbox-list' && (
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Layout</label>
+                    <Select
+                      value={editingField.layout || 'horizontal'}
+                      onValueChange={(value) => setEditingField({ ...editingField, layout: value })}
+                    >
+                      <SelectTrigger data-testid="select-checkbox-list-layout">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="horizontal">Horizontal (Grid - multiple per row)</SelectItem>
+                        <SelectItem value="vertical">Vertical (Stacked - one per row)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Horizontal displays options in a responsive grid. Vertical stacks them one per row.
+                    </p>
+                  </div>
+                )}
+
                 {/* User Account Field Configuration */}
                 {editingField.type === 'user_account' && (
                   <div>
