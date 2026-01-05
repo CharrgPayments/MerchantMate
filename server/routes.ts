@@ -10120,11 +10120,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }))
       };
 
-      // Extract required fields from parsed PDF
-      const requiredFields = parseResult.sections
-        .flatMap((section: any) => section.fields)
-        .filter((field: any) => field.isRequired)
-        .map((field: any) => field.fieldName);
+      // Use client-provided required fields, or start with empty array
+      // Don't auto-populate from parsed PDF as fallback templates have many fields marked required
+      const requiredFields = validatedData.requiredFields || [];
 
       // Create PDF mapping configuration
       const pdfMappingConfiguration = {
