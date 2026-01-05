@@ -405,8 +405,21 @@ export class PDFFormParser {
             fieldType = 'boolean';
           }
           
+          // For grouped fields, use the groupPath to create a unique fieldName
+          // e.g., transactionInformation.seasonal.checkbox → seasonal.months (derived from groupPath)
+          // This ensures checkbox groups with options have distinct field names
+          const groupPathWithoutSection = parsedName.groupPath.startsWith(parsedName.section + '.')
+            ? parsedName.groupPath.substring(parsedName.section.length + 1)
+            : parsedName.groupPath;
+          
+          // For checkbox/radio groups with options, use groupPath-derived name
+          // e.g., seasonal.checkbox → transactionInformation.seasonal.months
+          const fieldNameForGroup = groupPathWithoutSection.replace(/\.checkbox$|\.radio$|\.bool$|\.boolean$/, '.months');
+          
+          console.log(`  → Grouped field: groupPath=${parsedName.groupPath}, derived fieldName=${fieldNameForGroup}`);
+          
           parsedFields.push({
-            fieldName: this.buildNewFieldName(parsedName.section, parsedName.fieldName),
+            fieldName: `${parsedName.section}.${fieldNameForGroup}`,
             fieldType,
             fieldLabel: this.generateFieldLabel(parsedName.fieldName),
             isRequired: false,
