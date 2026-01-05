@@ -1663,22 +1663,33 @@ export default function EnhancedPdfWizard() {
         name: section.title,
         description: section.description || '',
         icon: iconMap[section.title] || FileText,
-        fields: fieldsWithGroups.map((field: any, fieldIndex: number) => ({
-          id: sectionIndex * 100 + fieldIndex,
-          fieldName: field.id,
-          fieldType: field.type,
-          fieldLabel: field.label,
-          isRequired: requiredFieldNames.includes(field.id),
-          options: field.options || null,
-          defaultValue: null,
-          validation: field.pattern || null,
-          position: sectionIndex * 100 + fieldIndex,
-          section: section.title,
-          description: field.description || null,
-          placeholder: field.placeholder || null,
-          addressGroupConfig: field.addressGroupConfig || null,
-          signatureGroupConfig: field.signatureGroupConfig || null,
-        }))
+        fields: fieldsWithGroups.map((field: any, fieldIndex: number) => {
+          // Transform options: if structured {label, value} objects, extract value strings
+          let normalizedOptions = field.options || null;
+          if (Array.isArray(normalizedOptions) && normalizedOptions.length > 0) {
+            // Check if options are structured objects vs simple strings
+            if (typeof normalizedOptions[0] === 'object' && normalizedOptions[0] !== null) {
+              normalizedOptions = normalizedOptions.map((opt: any) => opt.value || opt.label || String(opt));
+            }
+          }
+          
+          return {
+            id: sectionIndex * 100 + fieldIndex,
+            fieldName: field.id,
+            fieldType: field.type,
+            fieldLabel: field.label,
+            isRequired: requiredFieldNames.includes(field.id),
+            options: normalizedOptions,
+            defaultValue: null,
+            validation: field.pattern || null,
+            position: sectionIndex * 100 + fieldIndex,
+            section: section.title,
+            description: field.description || null,
+            placeholder: field.placeholder || null,
+            addressGroupConfig: field.addressGroupConfig || null,
+            signatureGroupConfig: field.signatureGroupConfig || null,
+          };
+        })
       };
     });
   };
