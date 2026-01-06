@@ -2004,6 +2004,21 @@ function FieldConfigurationDialog({
                           
                           return (
                             <div key={index} className="p-3 bg-muted/50 rounded border border-border">
+                              <div className="flex justify-end mb-1">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    const newOptions = editingField.options.filter((_: any, i: number) => i !== index);
+                                    setEditingField({ ...editingField, options: newOptions });
+                                  }}
+                                  className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                                  data-testid={`button-delete-option-${index}`}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
                               <div className="grid grid-cols-2 gap-2 items-center mb-2">
                                 <div>
                                   <label className="text-xs text-muted-foreground">Label</label>
