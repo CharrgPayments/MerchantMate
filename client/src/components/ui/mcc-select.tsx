@@ -133,15 +133,15 @@ export function MCCSelect({
             </div>
 
             {/* MCC Lists */}
-            <div className="flex-1 overflow-hidden">
+            <div className="flex-1 overflow-hidden flex flex-col">
               <Tabs defaultValue="popular" className="h-full flex flex-col">
-                <TabsList className="grid w-full grid-cols-2 m-2">
+                <TabsList className="grid w-full grid-cols-2 mx-2 mt-2 flex-shrink-0">
                   <TabsTrigger value="popular">Popular</TabsTrigger>
                   <TabsTrigger value="all">All Categories</TabsTrigger>
                 </TabsList>
                 
-                <TabsContent value="popular" className="flex-1 m-0">
-                  <ScrollArea className="h-full px-2">
+                <TabsContent value="popular" className="flex-1 m-0 overflow-hidden">
+                  <ScrollArea className="h-[280px] px-2">
                     <div className="space-y-1 p-2">
                       {(searchTerm ? filteredMCCs.slice(0, 20) : popularMCCs).map((mcc) => (
                         <button
@@ -178,8 +178,8 @@ export function MCCSelect({
                   </ScrollArea>
                 </TabsContent>
 
-                <TabsContent value="all" className="flex-1 m-0">
-                  <ScrollArea className="h-full px-2">
+                <TabsContent value="all" className="flex-1 m-0 overflow-hidden">
+                  <ScrollArea className="h-[280px] px-2">
                     <div className="p-2">
                       {Object.entries(mccsByCategory).map(([category, mccs]) => (
                         <div key={category} className="mb-6">
