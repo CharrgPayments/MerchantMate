@@ -1692,6 +1692,7 @@ export default function EnhancedPdfWizard() {
             placeholder: field.placeholder || null,
             addressGroupConfig: field.addressGroupConfig || null,
             signatureGroupConfig: field.signatureGroupConfig || null,
+            layout: field.layout || null,
           };
         })
       };
