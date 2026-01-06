@@ -137,7 +137,7 @@ export function MCCAutocompleteInput({
           ref={suggestionsRef}
           className="absolute z-50 w-full mt-1 shadow-lg border border-gray-200"
         >
-          <CardContent className="p-0 max-h-48 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+          <CardContent className="p-0 max-h-60 overflow-y-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-gray-100 [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-thumb]:rounded-full">
             {suggestions.map((mccCode, index) => (
               <div
                 key={`${mccCode.mcc}-${index}`}
