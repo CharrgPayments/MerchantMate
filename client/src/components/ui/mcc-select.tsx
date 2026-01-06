@@ -11,7 +11,7 @@ import { useQuery } from '@tanstack/react-query';
 
 interface MCCCode {
   id: number;
-  mcc: string;
+  code: string;
   description: string;
   category: string;
   riskLevel: 'low' | 'medium' | 'high';
@@ -47,7 +47,7 @@ export function MCCSelect({
   // Find selected MCC from fetched data
   const selectedMCC = useMemo(() => {
     if (!value || !mccCodes.length) return null;
-    return mccCodes.find(mcc => mcc.mcc === value) || null;
+    return mccCodes.find(mcc => mcc.code === value) || null;
   }, [value, mccCodes]);
 
   // Filter MCCs based on search term
@@ -60,7 +60,7 @@ export function MCCSelect({
     
     const query = searchTerm.toLowerCase();
     return mccCodes.filter(mcc => 
-      mcc.mcc.includes(query) ||
+      mcc.code.includes(query) ||
       mcc.description.toLowerCase().includes(query) ||
       mcc.category.toLowerCase().includes(query) ||
       (mcc.irsDescription && mcc.irsDescription.toLowerCase().includes(query))
@@ -122,7 +122,7 @@ export function MCCSelect({
               <Tag className="h-4 w-4 flex-shrink-0" />
               {selectedMCC ? (
                 <div className="flex items-center space-x-2 min-w-0">
-                  <span className="font-mono text-sm font-semibold">{selectedMCC.mcc}</span>
+                  <span className="font-mono text-sm font-semibold">{selectedMCC.code}</span>
                   <span className="truncate">{selectedMCC.description}</span>
                   <Badge 
                     variant="outline" 
@@ -156,7 +156,7 @@ export function MCCSelect({
                 <div className="mt-3 p-3 bg-blue-50 rounded-lg">
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="font-semibold text-sm">Selected: {selectedMCC.mcc}</div>
+                      <div className="font-semibold text-sm">Selected: {selectedMCC.code}</div>
                       <div className="text-sm text-gray-600">{selectedMCC.description}</div>
                       <div className="text-xs text-gray-500 mt-1">{selectedMCC.category}</div>
                     </div>
@@ -190,17 +190,17 @@ export function MCCSelect({
                       <div className="space-y-1 p-2">
                         {(searchTerm ? filteredMCCs.slice(0, 20) : popularMCCs).map((mcc) => (
                           <button
-                            key={mcc.mcc}
-                            onClick={() => handleSelect(mcc.mcc)}
+                            key={mcc.code}
+                            onClick={() => handleSelect(mcc.code)}
                             className={cn(
                               "w-full flex items-center justify-between p-3 text-left rounded-lg border transition-colors hover:bg-gray-50",
-                              value === mcc.mcc && "bg-blue-50 border-blue-200"
+                              value === mcc.code && "bg-blue-50 border-blue-200"
                             )}
-                            data-testid={`mcc-option-${mcc.mcc}`}
+                            data-testid={`mcc-option-${mcc.code}`}
                           >
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center space-x-2">
-                                <span className="font-mono text-sm font-semibold text-blue-600">{mcc.mcc}</span>
+                                <span className="font-mono text-sm font-semibold text-blue-600">{mcc.code}</span>
                                 <Badge className={cn("text-xs", getRiskLevelColor(mcc.riskLevel))}>
                                   {mcc.riskLevel}
                                 </Badge>
@@ -208,7 +208,7 @@ export function MCCSelect({
                               <div className="text-sm text-gray-900 mt-1">{mcc.description}</div>
                               <div className="text-xs text-gray-500">{mcc.category}</div>
                             </div>
-                            {value === mcc.mcc && (
+                            {value === mcc.code && (
                               <Check className="h-4 w-4 text-blue-600 flex-shrink-0" />
                             )}
                           </button>
@@ -235,24 +235,24 @@ export function MCCSelect({
                             <div className="space-y-1">
                               {mccs.map((mcc) => (
                                 <button
-                                  key={mcc.mcc}
-                                  onClick={() => handleSelect(mcc.mcc)}
+                                  key={mcc.code}
+                                  onClick={() => handleSelect(mcc.code)}
                                   className={cn(
                                     "w-full flex items-center justify-between p-3 text-left rounded-lg border transition-colors hover:bg-gray-50",
-                                    value === mcc.mcc && "bg-blue-50 border-blue-200"
+                                    value === mcc.code && "bg-blue-50 border-blue-200"
                                   )}
-                                  data-testid={`mcc-option-all-${mcc.mcc}`}
+                                  data-testid={`mcc-option-all-${mcc.code}`}
                                 >
                                   <div className="min-w-0 flex-1">
                                     <div className="flex items-center space-x-2">
-                                      <span className="font-mono text-sm font-semibold text-blue-600">{mcc.mcc}</span>
+                                      <span className="font-mono text-sm font-semibold text-blue-600">{mcc.code}</span>
                                       <Badge className={cn("text-xs", getRiskLevelColor(mcc.riskLevel))}>
                                         {mcc.riskLevel}
                                       </Badge>
                                     </div>
                                     <div className="text-sm text-gray-900 mt-1">{mcc.description}</div>
                                   </div>
-                                  {value === mcc.mcc && (
+                                  {value === mcc.code && (
                                     <Check className="h-4 w-4 text-blue-600 flex-shrink-0" />
                                   )}
                                 </button>
