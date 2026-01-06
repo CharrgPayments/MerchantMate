@@ -1,14 +1,23 @@
-import React, { useState, useMemo } from 'react';
-import { Check, ChevronDown, Search, Tag, AlertCircle } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Check, ChevronDown, Search, Tag, AlertCircle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { MCC_CODES, MCC_CATEGORIES, getMCCByCode, getMCCsByCategory, searchMCCs, getPopularMCCs, type MCCCode } from '@shared/mccCodes';
+import { useQuery } from '@tanstack/react-query';
+
+interface MCCCode {
+  id: number;
+  mcc: string;
+  description: string;
+  category: string;
+  riskLevel: 'low' | 'medium' | 'high';
+  irsDescription?: string;
+  irsReportable?: boolean;
+}
 
 interface MCCSelectProps {
   value?: string;
@@ -30,15 +39,33 @@ export function MCCSelect({
   const [open, setOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const selectedMCC = value ? getMCCByCode(value) : null;
+  // Fetch MCC codes from database
+  const { data: mccCodes = [], isLoading } = useQuery<MCCCode[]>({
+    queryKey: ['/api/mcc-codes'],
+  });
+
+  // Find selected MCC from fetched data
+  const selectedMCC = useMemo(() => {
+    if (!value || !mccCodes.length) return null;
+    return mccCodes.find(mcc => mcc.mcc === value) || null;
+  }, [value, mccCodes]);
 
   // Filter MCCs based on search term
   const filteredMCCs = useMemo(() => {
+    if (!mccCodes.length) return [];
+    
     if (!searchTerm.trim()) {
-      return getPopularMCCs(); // Show popular MCCs by default
+      return mccCodes;
     }
-    return searchMCCs(searchTerm);
-  }, [searchTerm]);
+    
+    const query = searchTerm.toLowerCase();
+    return mccCodes.filter(mcc => 
+      mcc.mcc.includes(query) ||
+      mcc.description.toLowerCase().includes(query) ||
+      mcc.category.toLowerCase().includes(query) ||
+      (mcc.irsDescription && mcc.irsDescription.toLowerCase().includes(query))
+    );
+  }, [mccCodes, searchTerm]);
 
   // Group MCCs by category for organized display
   const mccsByCategory = useMemo(() => {
@@ -52,7 +79,13 @@ export function MCCSelect({
     return categories;
   }, [filteredMCCs]);
 
-  const popularMCCs = getPopularMCCs();
+  // Get popular MCCs (first 10 from common categories)
+  const popularMCCs = useMemo(() => {
+    const popular = mccCodes.filter(mcc => 
+      ['Food & Beverage', 'Retail Outlet Services', 'Professional Services', 'Business Services'].includes(mcc.category)
+    ).slice(0, 12);
+    return popular.length > 0 ? popular : mccCodes.slice(0, 12);
+  }, [mccCodes]);
 
   const handleSelect = (mccCode: string) => {
     onValueChange(mccCode);
@@ -65,6 +98,7 @@ export function MCCSelect({
       case 'low': return 'bg-green-100 text-green-800 border-green-200';
       case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
       case 'high': return 'bg-red-100 text-red-800 border-red-200';
+      default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
 
@@ -82,12 +116,13 @@ export function MCCSelect({
               disabled && "opacity-50 cursor-not-allowed"
             )}
             disabled={disabled}
+            data-testid="button-mcc-select"
           >
             <div className="flex items-center space-x-2 min-w-0 flex-1">
               <Tag className="h-4 w-4 flex-shrink-0" />
               {selectedMCC ? (
                 <div className="flex items-center space-x-2 min-w-0">
-                  <span className="font-mono text-sm font-semibold">{selectedMCC.code}</span>
+                  <span className="font-mono text-sm font-semibold">{selectedMCC.mcc}</span>
                   <span className="truncate">{selectedMCC.description}</span>
                   <Badge 
                     variant="outline" 
@@ -106,7 +141,7 @@ export function MCCSelect({
         <PopoverContent className="w-[600px] p-0" align="start">
           <div className="flex flex-col h-[500px]">
             {/* Search Header */}
-            <div className="p-4 border-b">
+            <div className="p-4 border-b flex-shrink-0">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <Input
@@ -114,13 +149,14 @@ export function MCCSelect({
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
+                  data-testid="input-mcc-search"
                 />
               </div>
               {selectedMCC && (
                 <div className="mt-3 p-3 bg-blue-50 rounded-lg">
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="font-semibold text-sm">Selected: {selectedMCC.code}</div>
+                      <div className="font-semibold text-sm">Selected: {selectedMCC.mcc}</div>
                       <div className="text-sm text-gray-600">{selectedMCC.description}</div>
                       <div className="text-xs text-gray-500 mt-1">{selectedMCC.category}</div>
                     </div>
@@ -132,93 +168,113 @@ export function MCCSelect({
               )}
             </div>
 
-            {/* MCC Lists */}
-            <div className="flex-1 overflow-hidden flex flex-col">
-              <Tabs defaultValue="popular" className="h-full flex flex-col">
-                <TabsList className="grid w-full grid-cols-2 mx-2 mt-2 flex-shrink-0">
-                  <TabsTrigger value="popular">Popular</TabsTrigger>
-                  <TabsTrigger value="all">All Categories</TabsTrigger>
-                </TabsList>
-                
-                <TabsContent value="popular" className="flex-1 m-0 overflow-hidden">
-                  <ScrollArea className="h-[280px] px-2">
-                    <div className="space-y-1 p-2">
-                      {(searchTerm ? filteredMCCs.slice(0, 20) : popularMCCs).map((mcc) => (
-                        <button
-                          key={mcc.code}
-                          onClick={() => handleSelect(mcc.code)}
-                          className={cn(
-                            "w-full flex items-center justify-between p-3 text-left rounded-lg border transition-colors hover:bg-gray-50",
-                            value === mcc.code && "bg-blue-50 border-blue-200"
-                          )}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center space-x-2">
-                              <span className="font-mono text-sm font-semibold text-blue-600">{mcc.code}</span>
-                              <Badge className={cn("text-xs", getRiskLevelColor(mcc.riskLevel))}>
-                                {mcc.riskLevel}
-                              </Badge>
-                            </div>
-                            <div className="text-sm text-gray-900 mt-1">{mcc.description}</div>
-                            <div className="text-xs text-gray-500">{mcc.category}</div>
-                          </div>
-                          {value === mcc.code && (
-                            <Check className="h-4 w-4 text-blue-600 flex-shrink-0" />
-                          )}
-                        </button>
-                      ))}
-                      {(searchTerm ? filteredMCCs : popularMCCs).length === 0 && (
-                        <div className="text-center py-8 text-gray-500">
-                          <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                          <p>No MCC codes found matching "{searchTerm}"</p>
-                          <p className="text-sm mt-1">Try different keywords or browse categories</p>
-                        </div>
-                      )}
-                    </div>
-                  </ScrollArea>
-                </TabsContent>
+            {/* Loading State */}
+            {isLoading && (
+              <div className="flex-1 flex items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                <span className="ml-2 text-gray-500">Loading MCC codes...</span>
+              </div>
+            )}
 
-                <TabsContent value="all" className="flex-1 m-0 overflow-hidden">
-                  <ScrollArea className="h-[280px] px-2">
-                    <div className="p-2">
-                      {Object.entries(mccsByCategory).map(([category, mccs]) => (
-                        <div key={category} className="mb-6">
-                          <h4 className="font-semibold text-sm text-gray-700 mb-2 px-2">{category}</h4>
-                          <div className="space-y-1">
-                            {mccs.map((mcc) => (
-                              <button
-                                key={mcc.code}
-                                onClick={() => handleSelect(mcc.code)}
-                                className={cn(
-                                  "w-full flex items-center justify-between p-3 text-left rounded-lg border transition-colors hover:bg-gray-50",
-                                  value === mcc.code && "bg-blue-50 border-blue-200"
-                                )}
-                              >
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center space-x-2">
-                                    <span className="font-mono text-sm font-semibold text-blue-600">{mcc.code}</span>
-                                    <Badge className={cn("text-xs", getRiskLevelColor(mcc.riskLevel))}>
-                                      {mcc.riskLevel}
-                                    </Badge>
-                                  </div>
-                                  <div className="text-sm text-gray-900 mt-1">{mcc.description}</div>
-                                </div>
-                                {value === mcc.code && (
-                                  <Check className="h-4 w-4 text-blue-600 flex-shrink-0" />
-                                )}
-                              </button>
-                            ))}
+            {/* MCC Lists */}
+            {!isLoading && (
+              <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+                <Tabs defaultValue="popular" className="h-full flex flex-col">
+                  <TabsList className="grid w-full grid-cols-2 mx-2 mt-2 flex-shrink-0">
+                    <TabsTrigger value="popular">Popular ({popularMCCs.length})</TabsTrigger>
+                    <TabsTrigger value="all">All Categories ({mccCodes.length})</TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="popular" className="flex-1 m-0 mt-2 overflow-hidden">
+                    <ScrollArea className="h-[280px] px-2">
+                      <div className="space-y-1 p-2">
+                        {(searchTerm ? filteredMCCs.slice(0, 20) : popularMCCs).map((mcc) => (
+                          <button
+                            key={mcc.mcc}
+                            onClick={() => handleSelect(mcc.mcc)}
+                            className={cn(
+                              "w-full flex items-center justify-between p-3 text-left rounded-lg border transition-colors hover:bg-gray-50",
+                              value === mcc.mcc && "bg-blue-50 border-blue-200"
+                            )}
+                            data-testid={`mcc-option-${mcc.mcc}`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center space-x-2">
+                                <span className="font-mono text-sm font-semibold text-blue-600">{mcc.mcc}</span>
+                                <Badge className={cn("text-xs", getRiskLevelColor(mcc.riskLevel))}>
+                                  {mcc.riskLevel}
+                                </Badge>
+                              </div>
+                              <div className="text-sm text-gray-900 mt-1">{mcc.description}</div>
+                              <div className="text-xs text-gray-500">{mcc.category}</div>
+                            </div>
+                            {value === mcc.mcc && (
+                              <Check className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                            )}
+                          </button>
+                        ))}
+                        {(searchTerm ? filteredMCCs : popularMCCs).length === 0 && (
+                          <div className="text-center py-8 text-gray-500">
+                            <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                            <p>No MCC codes found matching "{searchTerm}"</p>
+                            <p className="text-sm mt-1">Try different keywords or browse categories</p>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                </TabsContent>
-              </Tabs>
-            </div>
+                        )}
+                      </div>
+                    </ScrollArea>
+                  </TabsContent>
+
+                  <TabsContent value="all" className="flex-1 m-0 mt-2 overflow-hidden">
+                    <ScrollArea className="h-[280px] px-2">
+                      <div className="p-2">
+                        {Object.entries(mccsByCategory).sort(([a], [b]) => a.localeCompare(b)).map(([category, mccs]) => (
+                          <div key={category} className="mb-6">
+                            <h4 className="font-semibold text-sm text-gray-700 mb-2 px-2 sticky top-0 bg-white py-1">
+                              {category} ({mccs.length})
+                            </h4>
+                            <div className="space-y-1">
+                              {mccs.map((mcc) => (
+                                <button
+                                  key={mcc.mcc}
+                                  onClick={() => handleSelect(mcc.mcc)}
+                                  className={cn(
+                                    "w-full flex items-center justify-between p-3 text-left rounded-lg border transition-colors hover:bg-gray-50",
+                                    value === mcc.mcc && "bg-blue-50 border-blue-200"
+                                  )}
+                                  data-testid={`mcc-option-all-${mcc.mcc}`}
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center space-x-2">
+                                      <span className="font-mono text-sm font-semibold text-blue-600">{mcc.mcc}</span>
+                                      <Badge className={cn("text-xs", getRiskLevelColor(mcc.riskLevel))}>
+                                        {mcc.riskLevel}
+                                      </Badge>
+                                    </div>
+                                    <div className="text-sm text-gray-900 mt-1">{mcc.description}</div>
+                                  </div>
+                                  {value === mcc.mcc && (
+                                    <Check className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                        {Object.keys(mccsByCategory).length === 0 && (
+                          <div className="text-center py-8 text-gray-500">
+                            <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                            <p>No MCC codes found</p>
+                          </div>
+                        )}
+                      </div>
+                    </ScrollArea>
+                  </TabsContent>
+                </Tabs>
+              </div>
+            )}
 
             {/* Footer with help text */}
-            <div className="p-3 border-t bg-gray-50 text-xs text-gray-600">
+            <div className="p-3 border-t bg-gray-50 text-xs text-gray-600 flex-shrink-0">
               <div className="flex items-center space-x-4">
                 <div className="flex items-center space-x-1">
                   <div className="w-2 h-2 bg-green-500 rounded-full"></div>
