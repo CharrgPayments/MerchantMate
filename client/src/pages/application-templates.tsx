@@ -1634,11 +1634,13 @@ function FieldConfigurationDialog({
   const handleSave = () => {
     const fieldConfiguration = { sections };
     
-    // Extract conditional rules from fields
+    // Extract conditional rules from fields using fieldName as the key
+    // This matches how enhanced-pdf-wizard.tsx evaluates conditionals using field.fieldName
     const conditionalFields: Record<string, any> = {};
     sections.forEach((section: any) => {
       section.fields.forEach((field: any) => {
-        if (field.conditional) {
+        if (field.conditional && field.id) {
+          // Use fieldName (the field's id) as the key for conditional lookup
           conditionalFields[field.id] = field.conditional;
         }
       });
