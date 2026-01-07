@@ -18,6 +18,7 @@ import { PhoneNumberInput } from '@/components/forms/PhoneNumberInput';
 import { EINInput } from '@/components/forms/EINInput';
 import { AddressAutocompleteInput } from '@/components/forms/AddressAutocompleteInput';
 import { SignatureGroupInput } from '@/components/forms/SignatureGroupInput';
+import { DisclosureField } from '@/components/forms/DisclosureField';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getOwnerNumberFromField, isSignatureGroupField } from '@shared/fieldNaming';
 
@@ -4496,6 +4497,54 @@ export default function EnhancedPdfWizard() {
               </Button>
             )}
             </div>
+          </div>
+        );
+
+      case 'disclosure':
+        // Disclosure field with scrollable content and signature requirement
+        const disclosureConfig = {
+          key: field.fieldName,
+          disclosureSlug: field.fieldName.replace('disclosures.', ''),
+          displayLabel: field.fieldLabel,
+          sectionName: field.section || 'Disclosures',
+          orderPriority: field.position,
+          isRequired: fieldIsRequired,
+          requiresSignature: true, // Disclosures typically require signatures
+        };
+        
+        // For preview mode, show placeholder content
+        const disclosureContent = {
+          id: field.id,
+          name: field.fieldName,
+          slug: field.fieldName.replace('disclosures.', ''),
+          title: field.fieldLabel,
+          content: field.description || `<p>This is a sample disclosure content for "${field.fieldLabel}". In production, this would contain the full legal disclosure text that the applicant must read and acknowledge.</p><p>The applicant must scroll through the entire disclosure before they can sign and acknowledge.</p>`,
+          version: '1.0',
+        };
+        
+        // Parse existing disclosure data or initialize empty
+        let disclosureValue = undefined;
+        try {
+          if (value && typeof value === 'string') {
+            disclosureValue = JSON.parse(value);
+          } else if (value && typeof value === 'object') {
+            disclosureValue = value;
+          }
+        } catch (e) {
+          // Invalid JSON, keep undefined
+        }
+        
+        return (
+          <div className="space-y-2">
+            <DisclosureField
+              config={disclosureConfig}
+              content={disclosureContent}
+              value={disclosureValue}
+              onChange={(data) => handleFieldChange(field.fieldName, JSON.stringify(data))}
+              disabled={isReadOnly}
+              dataTestId={`disclosure-${field.fieldName}`}
+            />
+            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
           </div>
         );
 
