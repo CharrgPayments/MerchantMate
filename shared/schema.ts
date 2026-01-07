@@ -1265,7 +1265,8 @@ export type InsertDisclosureAcknowledgment = z.infer<typeof insertDisclosureAckn
 // Disclosure group configuration type for templates
 export type DisclosureGroupConfig = {
   key: string; // Unique identifier within template
-  disclosureSlug: string; // Reference to disclosureContents.slug
+  disclosureSlug?: string; // Reference to disclosureContents.slug (legacy)
+  disclosureDefinitionId?: number; // Reference to disclosure_definitions.id (versioned system)
   displayLabel: string; // Label shown to user
   sectionName: string; // Which section this belongs to
   orderPriority: number; // Display order
