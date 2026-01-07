@@ -19,6 +19,7 @@ import { EINInput } from '@/components/forms/EINInput';
 import { AddressAutocompleteInput } from '@/components/forms/AddressAutocompleteInput';
 import { SignatureGroupInput } from '@/components/forms/SignatureGroupInput';
 import { DisclosureField } from '@/components/forms/DisclosureField';
+import { DisclosureFieldWrapper } from '@/components/forms/DisclosureFieldWrapper';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getOwnerNumberFromField, isSignatureGroupField } from '@shared/fieldNaming';
 
@@ -4541,16 +4542,30 @@ export default function EnhancedPdfWizard() {
           // Invalid JSON, keep undefined
         }
         
+        // Check if this disclosure references a versioned disclosure definition
+        const disclosureDefinitionId = disclosureField.disclosureDefinitionId;
+        
         return (
           <div className="space-y-2">
-            <DisclosureField
-              config={disclosureConfig}
-              content={disclosureContent}
-              value={disclosureValue}
-              onChange={(data) => handleFieldChange(field.fieldName, JSON.stringify(data))}
-              disabled={isReadOnly}
-              dataTestId={`disclosure-${field.fieldName}`}
-            />
+            {disclosureDefinitionId ? (
+              <DisclosureFieldWrapper
+                config={disclosureConfig}
+                disclosureDefinitionId={disclosureDefinitionId}
+                value={disclosureValue}
+                onChange={(data) => handleFieldChange(field.fieldName, JSON.stringify(data))}
+                disabled={isReadOnly}
+                dataTestId={`disclosure-${field.fieldName}`}
+              />
+            ) : (
+              <DisclosureField
+                config={disclosureConfig}
+                content={disclosureContent}
+                value={disclosureValue}
+                onChange={(data) => handleFieldChange(field.fieldName, JSON.stringify(data))}
+                disabled={isReadOnly}
+                dataTestId={`disclosure-${field.fieldName}`}
+              />
+            )}
             {hasError && <p className="text-xs text-red-500">{hasError}</p>}
           </div>
         );
