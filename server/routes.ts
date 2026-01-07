@@ -14733,6 +14733,301 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // =====================================================
+  // DISCLOSURE LIBRARY MANAGEMENT ROUTES
+  // =====================================================
+
+  // Get all disclosure definitions with their versions
+  app.get('/api/disclosures', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
+    try {
+      const disclosures = await storage.getAllDisclosureDefinitions();
+      res.json({ success: true, disclosures });
+    } catch (error) {
+      console.error('Get disclosures error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve disclosures' });
+    }
+  });
+
+  // Get single disclosure definition with versions
+  app.get('/api/disclosures/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const disclosure = await storage.getDisclosureDefinition(parseInt(id));
+      if (!disclosure) {
+        return res.status(404).json({ success: false, message: 'Disclosure not found' });
+      }
+      res.json({ success: true, disclosure });
+    } catch (error) {
+      console.error('Get disclosure error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve disclosure' });
+    }
+  });
+
+  // Get disclosure by slug (for form rendering)
+  app.get('/api/disclosures/by-slug/:slug', dbEnvironmentMiddleware, async (req: any, res) => {
+    try {
+      const { slug } = req.params;
+      const disclosure = await storage.getDisclosureDefinitionBySlug(slug);
+      if (!disclosure) {
+        return res.status(404).json({ success: false, message: 'Disclosure not found' });
+      }
+      res.json({ success: true, disclosure });
+    } catch (error) {
+      console.error('Get disclosure by slug error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve disclosure' });
+    }
+  });
+
+  // Create disclosure definition
+  app.post('/api/disclosures', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      const { slug, displayName, description, category, requiresSignature, companyId } = req.body;
+
+      if (!slug || !displayName) {
+        return res.status(400).json({ success: false, message: 'Slug and display name are required' });
+      }
+
+      // Check if slug already exists
+      const existing = await storage.getDisclosureDefinitionBySlug(slug);
+      if (existing) {
+        return res.status(400).json({ success: false, message: 'A disclosure with this slug already exists' });
+      }
+
+      const disclosure = await storage.createDisclosureDefinition({
+        slug,
+        displayName,
+        description: description || null,
+        category: category || 'general',
+        requiresSignature: requiresSignature !== false,
+        companyId: companyId || null,
+        createdBy: userId,
+        isActive: true,
+      });
+
+      res.json({ success: true, disclosure, message: 'Disclosure created successfully' });
+    } catch (error) {
+      console.error('Create disclosure error:', error);
+      res.status(500).json({ success: false, message: 'Failed to create disclosure' });
+    }
+  });
+
+  // Update disclosure definition
+  app.patch('/api/disclosures/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+      
+      const disclosure = await storage.updateDisclosureDefinition(parseInt(id), updates);
+      if (!disclosure) {
+        return res.status(404).json({ success: false, message: 'Disclosure not found' });
+      }
+      
+      res.json({ success: true, disclosure, message: 'Disclosure updated successfully' });
+    } catch (error) {
+      console.error('Update disclosure error:', error);
+      res.status(500).json({ success: false, message: 'Failed to update disclosure' });
+    }
+  });
+
+  // Delete disclosure definition
+  app.delete('/api/disclosures/:id', dbEnvironmentMiddleware, requireRole(['super_admin']), async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const success = await storage.deleteDisclosureDefinition(parseInt(id));
+      if (!success) {
+        return res.status(404).json({ success: false, message: 'Disclosure not found' });
+      }
+      res.json({ success: true, message: 'Disclosure deleted successfully' });
+    } catch (error) {
+      console.error('Delete disclosure error:', error);
+      res.status(500).json({ success: false, message: 'Failed to delete disclosure' });
+    }
+  });
+
+  // =====================================================
+  // DISCLOSURE VERSION ROUTES
+  // =====================================================
+
+  // Get all versions for a disclosure
+  app.get('/api/disclosures/:definitionId/versions', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
+    try {
+      const { definitionId } = req.params;
+      const versions = await storage.getDisclosureVersions(parseInt(definitionId));
+      res.json({ success: true, versions });
+    } catch (error) {
+      console.error('Get disclosure versions error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve disclosure versions' });
+    }
+  });
+
+  // Get current version for a disclosure
+  app.get('/api/disclosures/:definitionId/current-version', dbEnvironmentMiddleware, async (req: any, res) => {
+    try {
+      const { definitionId } = req.params;
+      const version = await storage.getCurrentDisclosureVersion(parseInt(definitionId));
+      if (!version) {
+        return res.status(404).json({ success: false, message: 'No current version found' });
+      }
+      res.json({ success: true, version });
+    } catch (error) {
+      console.error('Get current disclosure version error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve current disclosure version' });
+    }
+  });
+
+  // Create new disclosure version
+  app.post('/api/disclosures/:definitionId/versions', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      const { definitionId } = req.params;
+      const { version, title, content, requiresSignature } = req.body;
+
+      if (!version || !title || !content) {
+        return res.status(400).json({ success: false, message: 'Version, title, and content are required' });
+      }
+
+      // Generate content hash for tamper detection
+      const crypto = await import('crypto');
+      const contentHash = crypto.createHash('sha256').update(content).digest('hex');
+
+      const disclosureVersion = await storage.createDisclosureVersion({
+        definitionId: parseInt(definitionId),
+        version,
+        title,
+        content,
+        contentHash,
+        requiresSignature: requiresSignature !== false,
+        createdBy: userId,
+        effectiveDate: new Date(),
+        isCurrentVersion: true,
+      });
+
+      res.json({ success: true, version: disclosureVersion, message: 'Disclosure version created successfully' });
+    } catch (error) {
+      console.error('Create disclosure version error:', error);
+      res.status(500).json({ success: false, message: 'Failed to create disclosure version' });
+    }
+  });
+
+  // Retire a disclosure version
+  app.post('/api/disclosure-versions/:id/retire', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const version = await storage.retireDisclosureVersion(parseInt(id));
+      if (!version) {
+        return res.status(404).json({ success: false, message: 'Version not found' });
+      }
+      res.json({ success: true, version, message: 'Version retired successfully' });
+    } catch (error) {
+      console.error('Retire disclosure version error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retire disclosure version' });
+    }
+  });
+
+  // =====================================================
+  // DISCLOSURE SIGNATURE ROUTES
+  // =====================================================
+
+  // Get signatures for a specific version
+  app.get('/api/disclosure-versions/:versionId/signatures', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
+    try {
+      const { versionId } = req.params;
+      const signatures = await storage.getDisclosureSignatures(parseInt(versionId));
+      res.json({ success: true, signatures });
+    } catch (error) {
+      console.error('Get disclosure signatures error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve signatures' });
+    }
+  });
+
+  // Get signature report for a disclosure (all versions or specific version)
+  app.get('/api/disclosures/:definitionId/signature-report', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
+    try {
+      const { definitionId } = req.params;
+      const { versionId } = req.query;
+      
+      const report = await storage.getDisclosureSignatureReport(
+        parseInt(definitionId),
+        versionId ? parseInt(versionId as string) : undefined
+      );
+      
+      res.json({ success: true, report });
+    } catch (error) {
+      console.error('Get disclosure signature report error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve signature report' });
+    }
+  });
+
+  // Record a disclosure signature
+  app.post('/api/disclosure-signatures', dbEnvironmentMiddleware, async (req: any, res) => {
+    try {
+      const {
+        disclosureVersionId,
+        prospectId,
+        userId,
+        signerName,
+        signerEmail,
+        signerTitle,
+        signatureType,
+        signatureData,
+        scrollStartedAt,
+        scrollCompletedAt,
+        scrollDurationMs,
+        templateId,
+        applicationId,
+      } = req.body;
+
+      if (!disclosureVersionId || !signerName || !signatureType) {
+        return res.status(400).json({ success: false, message: 'Disclosure version ID, signer name, and signature type are required' });
+      }
+
+      // Get the version to capture the content hash
+      const version = await storage.getDisclosureVersion(disclosureVersionId);
+      if (!version) {
+        return res.status(404).json({ success: false, message: 'Disclosure version not found' });
+      }
+
+      const signature = await storage.createDisclosureSignature({
+        disclosureVersionId,
+        prospectId: prospectId || null,
+        userId: userId || null,
+        signerName,
+        signerEmail: signerEmail || null,
+        signerTitle: signerTitle || null,
+        signatureType,
+        signatureData: signatureData || null,
+        scrollStartedAt: scrollStartedAt ? new Date(scrollStartedAt) : null,
+        scrollCompletedAt: scrollCompletedAt ? new Date(scrollCompletedAt) : null,
+        scrollDurationMs: scrollDurationMs || null,
+        signedAt: new Date(),
+        ipAddress: req.ip || req.connection?.remoteAddress || null,
+        userAgent: req.headers['user-agent'] || null,
+        contentHashAtSigning: version.contentHash,
+        templateId: templateId || null,
+        applicationId: applicationId || null,
+        isRevoked: false,
+      });
+
+      res.json({ success: true, signature, message: 'Signature recorded successfully' });
+    } catch (error) {
+      console.error('Create disclosure signature error:', error);
+      res.status(500).json({ success: false, message: 'Failed to record signature' });
+    }
+  });
+
+  // Get signatures by prospect
+  app.get('/api/prospects/:prospectId/disclosure-signatures', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter', 'agent']), async (req: any, res) => {
+    try {
+      const { prospectId } = req.params;
+      const signatures = await storage.getDisclosureSignaturesByProspect(parseInt(prospectId));
+      res.json({ success: true, signatures });
+    } catch (error) {
+      console.error('Get prospect disclosure signatures error:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve signatures' });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
