@@ -1694,6 +1694,11 @@ export default function EnhancedPdfWizard() {
             addressGroupConfig: field.addressGroupConfig || null,
             signatureGroupConfig: field.signatureGroupConfig || null,
             layout: field.layout || null,
+            // Disclosure field properties
+            disclosureContent: field.disclosureContent || null,
+            disclosureTitle: field.disclosureTitle || null,
+            disclosureVersion: field.disclosureVersion || null,
+            requiresSignature: field.requiresSignature,
           };
         })
       };
@@ -4502,24 +4507,26 @@ export default function EnhancedPdfWizard() {
 
       case 'disclosure':
         // Disclosure field with scrollable content and signature requirement
+        // Access extended field properties from the template
+        const disclosureField = field as any;
         const disclosureConfig = {
           key: field.fieldName,
           disclosureSlug: field.fieldName.replace('disclosures.', ''),
-          displayLabel: field.fieldLabel,
+          displayLabel: disclosureField.disclosureTitle || field.fieldLabel,
           sectionName: field.section || 'Disclosures',
           orderPriority: field.position,
           isRequired: fieldIsRequired,
-          requiresSignature: true, // Disclosures typically require signatures
+          requiresSignature: disclosureField.requiresSignature !== false,
         };
         
-        // For preview mode, show placeholder content
+        // Use configured disclosure content, or fall back to description/placeholder
         const disclosureContent = {
           id: field.id,
           name: field.fieldName,
           slug: field.fieldName.replace('disclosures.', ''),
-          title: field.fieldLabel,
-          content: field.description || `<p>This is a sample disclosure content for "${field.fieldLabel}". In production, this would contain the full legal disclosure text that the applicant must read and acknowledge.</p><p>The applicant must scroll through the entire disclosure before they can sign and acknowledge.</p>`,
-          version: '1.0',
+          title: disclosureField.disclosureTitle || field.fieldLabel,
+          content: disclosureField.disclosureContent || field.description || `<p>This is a sample disclosure content for "${field.fieldLabel}". In production, this would contain the full legal disclosure text that the applicant must read and acknowledge.</p><p>The applicant must scroll through the entire disclosure before they can sign and acknowledge.</p>`,
+          version: disclosureField.disclosureVersion || '1.0',
         };
         
         // Parse existing disclosure data or initialize empty
