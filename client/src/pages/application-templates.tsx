@@ -1443,7 +1443,8 @@ function FieldConfigurationDialog({
     { value: 'ein', label: 'EIN/Tax ID' },
     { value: 'address', label: 'Address (Google Autocomplete)' },
     { value: 'mcc-select', label: 'MCC Code (Business Category)' },
-    { value: 'user_account', label: 'User Account (Auto-create)' }
+    { value: 'user_account', label: 'User Account (Auto-create)' },
+    { value: 'disclosure', label: 'Disclosure (Scrollable with Signature)' }
   ];
 
   const sensors = useSensors(
