@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { CreditCard, BarChart3, Store, Users, Receipt, FileText, LogOut, User, MapPin, Shield, UserPlus, DollarSign, ChevronLeft, ChevronRight, Monitor, ChevronDown, ChevronUp, Book, TestTube, Mail, Crown, Building2, Zap, GitBranch, Lock, Settings } from "lucide-react";
+import { CreditCard, BarChart3, Store, Users, Receipt, FileText, LogOut, User, MapPin, Shield, UserPlus, DollarSign, ChevronLeft, ChevronRight, Monitor, ChevronDown, ChevronUp, Book, TestTube, Mail, Crown, Building2, Zap, GitBranch, Lock, Settings, ScrollText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { canAccessAnalytics, canAccessMerchants, canAccessAgents, canAccessTransactions } from "@/lib/authUtils";
@@ -31,6 +31,7 @@ const baseNavigation = [
     requiresRole: ['admin', 'super_admin', 'underwriter'],
     subItems: [
       { name: "Application Templates", href: "/application-templates", icon: FileText, requiresRole: ['admin', 'super_admin'] },
+      { name: "Disclosure Library", href: "/disclosure-library", icon: ScrollText, requiresRole: ['admin', 'super_admin', 'underwriter'] },
       { name: "MCC Policies", href: "/mcc-policies", icon: Shield, requiresRole: ['admin', 'super_admin', 'underwriter'] }
     ]
   },
