@@ -1,9 +1,11 @@
-import { companies, merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, prospectDocuments, prospectNotifications, prospectMessages, signatureCaptures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, equipmentItems, campaignEquipment, campaignApplicationTemplates, acquirerApplicationTemplates, apiKeys, apiRequestLogs, emailWrappers, emailTemplates, emailActivity, emailTriggers, actionTemplates, triggerCatalog, triggerActions, userAlerts, acquirers,
+import { companies, merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, prospectDocuments, prospectNotifications, prospectMessages, signatureCaptures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, equipmentItems, campaignEquipment, campaignApplicationTemplates, acquirerApplicationTemplates, apiKeys, apiRequestLogs, emailWrappers, emailTemplates, emailActivity, emailTriggers, actionTemplates, triggerCatalog, triggerActions, userAlerts, acquirers, disclosureDefinitions, disclosureVersions, disclosureSignatures,
   // Workflow System tables
   workflowDefinitions, workflowStages, workflowTickets, workflowTicketStages, workflowIssues, workflowTasks, workflowNotes, workflowArtifacts, workflowTransitions, workflowAssignments, mccCodes, mccPolicies, volumeThresholds, apiIntegrationConfigs, stageApiConfigs,
   type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type ProspectDocument, type InsertProspectDocument, type ProspectNotification, type InsertProspectNotification, type ProspectMessage, type InsertProspectMessage, type InsertProspectSignature, type SignatureCapture, type InsertSignatureCapture, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type CampaignApplicationTemplate, type InsertCampaignApplicationTemplate, type AcquirerApplicationTemplate, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailWrapper, type InsertEmailWrapper, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type ActionTemplate, type InsertActionTemplate, type TriggerCatalog, type InsertTriggerCatalog, type TriggerAction, type InsertTriggerAction, type UserAlert, type InsertUserAlert,
   // Workflow System types
-  type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowStage, type InsertWorkflowStage, type WorkflowTicket, type InsertWorkflowTicket, type WorkflowTicketStage, type InsertWorkflowTicketStage, type WorkflowIssue, type InsertWorkflowIssue, type WorkflowTask, type InsertWorkflowTask, type WorkflowNote, type InsertWorkflowNote, type WorkflowArtifact, type InsertWorkflowArtifact, type WorkflowTransition, type InsertWorkflowTransition, type WorkflowAssignment, type InsertWorkflowAssignment, type MccCode, type MccPolicy, type InsertMccPolicy, type VolumeThreshold, type InsertVolumeThreshold, type ApiIntegrationConfig, type InsertApiIntegrationConfig, type StageApiConfig, type InsertStageApiConfig } from "@shared/schema";
+  type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowStage, type InsertWorkflowStage, type WorkflowTicket, type InsertWorkflowTicket, type WorkflowTicketStage, type InsertWorkflowTicketStage, type WorkflowIssue, type InsertWorkflowIssue, type WorkflowTask, type InsertWorkflowTask, type WorkflowNote, type InsertWorkflowNote, type WorkflowArtifact, type InsertWorkflowArtifact, type WorkflowTransition, type InsertWorkflowTransition, type WorkflowAssignment, type InsertWorkflowAssignment, type MccCode, type MccPolicy, type InsertMccPolicy, type VolumeThreshold, type InsertVolumeThreshold, type ApiIntegrationConfig, type InsertApiIntegrationConfig, type StageApiConfig, type InsertStageApiConfig,
+  // Disclosure types
+  type DisclosureDefinition, type InsertDisclosureDefinition, type DisclosureVersion, type InsertDisclosureVersion, type DisclosureSignature, type InsertDisclosureSignature, type DisclosureWithVersion } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, or, and, gte, sql, desc, inArray, like, ilike, not } from "drizzle-orm";
 
@@ -563,6 +565,28 @@ export interface IStorage {
   createStageApiConfig(config: InsertStageApiConfig): Promise<StageApiConfig>;
   updateStageApiConfig(id: number, updates: Partial<InsertStageApiConfig>): Promise<StageApiConfig | undefined>;
   deleteStageApiConfig(id: number): Promise<boolean>;
+
+  // Disclosure Definitions
+  getAllDisclosureDefinitions(): Promise<DisclosureWithVersion[]>;
+  getDisclosureDefinition(id: number): Promise<DisclosureWithVersion | undefined>;
+  getDisclosureDefinitionBySlug(slug: string): Promise<DisclosureWithVersion | undefined>;
+  createDisclosureDefinition(definition: InsertDisclosureDefinition): Promise<DisclosureDefinition>;
+  updateDisclosureDefinition(id: number, updates: Partial<InsertDisclosureDefinition>): Promise<DisclosureDefinition | undefined>;
+  deleteDisclosureDefinition(id: number): Promise<boolean>;
+
+  // Disclosure Versions
+  getDisclosureVersions(definitionId: number): Promise<DisclosureVersion[]>;
+  getDisclosureVersion(id: number): Promise<DisclosureVersion | undefined>;
+  getCurrentDisclosureVersion(definitionId: number): Promise<DisclosureVersion | undefined>;
+  createDisclosureVersion(version: InsertDisclosureVersion): Promise<DisclosureVersion>;
+  retireDisclosureVersion(id: number): Promise<DisclosureVersion | undefined>;
+
+  // Disclosure Signatures
+  getDisclosureSignatures(versionId: number): Promise<DisclosureSignature[]>;
+  getDisclosureSignaturesByProspect(prospectId: number): Promise<(DisclosureSignature & { version: DisclosureVersion; definition: DisclosureDefinition })[]>;
+  getDisclosureSignaturesByUser(userId: string): Promise<(DisclosureSignature & { version: DisclosureVersion; definition: DisclosureDefinition })[]>;
+  createDisclosureSignature(signature: InsertDisclosureSignature): Promise<DisclosureSignature>;
+  getDisclosureSignatureReport(definitionId: number, versionId?: number): Promise<{ version: DisclosureVersion; signatures: DisclosureSignature[]; signatureCount: number }[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3864,6 +3888,206 @@ export class DatabaseStorage implements IStorage {
   async deleteStageApiConfig(id: number): Promise<boolean> {
     const result = await this.db.delete(stageApiConfigs).where(eq(stageApiConfigs.id, id));
     return (result.rowCount || 0) > 0;
+  }
+
+  // =====================================================
+  // DISCLOSURE MANAGEMENT IMPLEMENTATIONS
+  // =====================================================
+
+  async getAllDisclosureDefinitions(): Promise<DisclosureWithVersion[]> {
+    const definitions = await this.db.select().from(disclosureDefinitions).orderBy(desc(disclosureDefinitions.createdAt));
+    const result: DisclosureWithVersion[] = [];
+    
+    for (const def of definitions) {
+      const versions = await this.db.select().from(disclosureVersions)
+        .where(eq(disclosureVersions.definitionId, def.id))
+        .orderBy(desc(disclosureVersions.createdAt));
+      
+      const currentVersion = versions.find(v => v.isCurrentVersion);
+      
+      // Count signatures for this disclosure
+      const signatureCounts = await this.db.select({ count: sql<number>`count(*)` })
+        .from(disclosureSignatures)
+        .innerJoin(disclosureVersions, eq(disclosureSignatures.disclosureVersionId, disclosureVersions.id))
+        .where(eq(disclosureVersions.definitionId, def.id));
+      
+      result.push({
+        ...def,
+        currentVersion,
+        versions,
+        signatureCount: Number(signatureCounts[0]?.count || 0)
+      });
+    }
+    
+    return result;
+  }
+
+  async getDisclosureDefinition(id: number): Promise<DisclosureWithVersion | undefined> {
+    const [definition] = await this.db.select().from(disclosureDefinitions).where(eq(disclosureDefinitions.id, id));
+    if (!definition) return undefined;
+    
+    const versions = await this.db.select().from(disclosureVersions)
+      .where(eq(disclosureVersions.definitionId, id))
+      .orderBy(desc(disclosureVersions.createdAt));
+    
+    const currentVersion = versions.find(v => v.isCurrentVersion);
+    
+    const signatureCounts = await this.db.select({ count: sql<number>`count(*)` })
+      .from(disclosureSignatures)
+      .innerJoin(disclosureVersions, eq(disclosureSignatures.disclosureVersionId, disclosureVersions.id))
+      .where(eq(disclosureVersions.definitionId, id));
+    
+    return {
+      ...definition,
+      currentVersion,
+      versions,
+      signatureCount: Number(signatureCounts[0]?.count || 0)
+    };
+  }
+
+  async getDisclosureDefinitionBySlug(slug: string): Promise<DisclosureWithVersion | undefined> {
+    const [definition] = await this.db.select().from(disclosureDefinitions).where(eq(disclosureDefinitions.slug, slug));
+    if (!definition) return undefined;
+    
+    return this.getDisclosureDefinition(definition.id);
+  }
+
+  async createDisclosureDefinition(definition: InsertDisclosureDefinition): Promise<DisclosureDefinition> {
+    const [created] = await this.db.insert(disclosureDefinitions).values(definition).returning();
+    return created;
+  }
+
+  async updateDisclosureDefinition(id: number, updates: Partial<InsertDisclosureDefinition>): Promise<DisclosureDefinition | undefined> {
+    const [updated] = await this.db.update(disclosureDefinitions)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(disclosureDefinitions.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteDisclosureDefinition(id: number): Promise<boolean> {
+    const result = await this.db.delete(disclosureDefinitions).where(eq(disclosureDefinitions.id, id));
+    return (result.rowCount || 0) > 0;
+  }
+
+  // Disclosure Versions
+  async getDisclosureVersions(definitionId: number): Promise<DisclosureVersion[]> {
+    return await this.db.select().from(disclosureVersions)
+      .where(eq(disclosureVersions.definitionId, definitionId))
+      .orderBy(desc(disclosureVersions.createdAt));
+  }
+
+  async getDisclosureVersion(id: number): Promise<DisclosureVersion | undefined> {
+    const [version] = await this.db.select().from(disclosureVersions).where(eq(disclosureVersions.id, id));
+    return version || undefined;
+  }
+
+  async getCurrentDisclosureVersion(definitionId: number): Promise<DisclosureVersion | undefined> {
+    const [version] = await this.db.select().from(disclosureVersions)
+      .where(and(
+        eq(disclosureVersions.definitionId, definitionId),
+        eq(disclosureVersions.isCurrentVersion, true)
+      ));
+    return version || undefined;
+  }
+
+  async createDisclosureVersion(version: InsertDisclosureVersion): Promise<DisclosureVersion> {
+    // Mark all other versions for this definition as not current
+    await this.db.update(disclosureVersions)
+      .set({ isCurrentVersion: false, retiredDate: new Date() })
+      .where(and(
+        eq(disclosureVersions.definitionId, version.definitionId),
+        eq(disclosureVersions.isCurrentVersion, true)
+      ));
+    
+    // Create new version as current
+    const [created] = await this.db.insert(disclosureVersions)
+      .values({ ...version, isCurrentVersion: true })
+      .returning();
+    return created;
+  }
+
+  async retireDisclosureVersion(id: number): Promise<DisclosureVersion | undefined> {
+    const [updated] = await this.db.update(disclosureVersions)
+      .set({ isCurrentVersion: false, retiredDate: new Date() })
+      .where(eq(disclosureVersions.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  // Disclosure Signatures
+  async getDisclosureSignatures(versionId: number): Promise<DisclosureSignature[]> {
+    return await this.db.select().from(disclosureSignatures)
+      .where(eq(disclosureSignatures.disclosureVersionId, versionId))
+      .orderBy(desc(disclosureSignatures.signedAt));
+  }
+
+  async getDisclosureSignaturesByProspect(prospectId: number): Promise<(DisclosureSignature & { version: DisclosureVersion; definition: DisclosureDefinition })[]> {
+    const signatures = await this.db.select({
+      signature: disclosureSignatures,
+      version: disclosureVersions,
+      definition: disclosureDefinitions
+    })
+    .from(disclosureSignatures)
+    .innerJoin(disclosureVersions, eq(disclosureSignatures.disclosureVersionId, disclosureVersions.id))
+    .innerJoin(disclosureDefinitions, eq(disclosureVersions.definitionId, disclosureDefinitions.id))
+    .where(eq(disclosureSignatures.prospectId, prospectId))
+    .orderBy(desc(disclosureSignatures.signedAt));
+    
+    return signatures.map(s => ({
+      ...s.signature,
+      version: s.version,
+      definition: s.definition
+    }));
+  }
+
+  async getDisclosureSignaturesByUser(userId: string): Promise<(DisclosureSignature & { version: DisclosureVersion; definition: DisclosureDefinition })[]> {
+    const signatures = await this.db.select({
+      signature: disclosureSignatures,
+      version: disclosureVersions,
+      definition: disclosureDefinitions
+    })
+    .from(disclosureSignatures)
+    .innerJoin(disclosureVersions, eq(disclosureSignatures.disclosureVersionId, disclosureVersions.id))
+    .innerJoin(disclosureDefinitions, eq(disclosureVersions.definitionId, disclosureDefinitions.id))
+    .where(eq(disclosureSignatures.userId, userId))
+    .orderBy(desc(disclosureSignatures.signedAt));
+    
+    return signatures.map(s => ({
+      ...s.signature,
+      version: s.version,
+      definition: s.definition
+    }));
+  }
+
+  async createDisclosureSignature(signature: InsertDisclosureSignature): Promise<DisclosureSignature> {
+    const [created] = await this.db.insert(disclosureSignatures).values(signature).returning();
+    return created;
+  }
+
+  async getDisclosureSignatureReport(definitionId: number, versionId?: number): Promise<{ version: DisclosureVersion; signatures: DisclosureSignature[]; signatureCount: number }[]> {
+    const versions = await this.db.select().from(disclosureVersions)
+      .where(versionId 
+        ? eq(disclosureVersions.id, versionId)
+        : eq(disclosureVersions.definitionId, definitionId)
+      )
+      .orderBy(desc(disclosureVersions.createdAt));
+    
+    const result: { version: DisclosureVersion; signatures: DisclosureSignature[]; signatureCount: number }[] = [];
+    
+    for (const version of versions) {
+      const signatures = await this.db.select().from(disclosureSignatures)
+        .where(eq(disclosureSignatures.disclosureVersionId, version.id))
+        .orderBy(desc(disclosureSignatures.signedAt));
+      
+      result.push({
+        version,
+        signatures,
+        signatureCount: signatures.length
+      });
+    }
+    
+    return result;
   }
 }
 
