@@ -2579,6 +2579,81 @@ function FieldConfigurationDialog({
                     </div>
                   </div>
                 )}
+
+                {/* Disclosure Field Configuration */}
+                {editingField.type === 'disclosure' && (
+                  <div className="space-y-4 border rounded-lg p-4 bg-indigo-50/50">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-5 w-5 text-indigo-600" />
+                      <label className="text-sm font-medium">Disclosure Configuration</label>
+                    </div>
+                    
+                    <p className="text-xs text-muted-foreground">
+                      Configure the disclosure text that users must read and acknowledge before signing.
+                    </p>
+
+                    {/* Disclosure Content */}
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">Disclosure Content (HTML supported)</label>
+                      <Textarea
+                        value={editingField.disclosureContent || ''}
+                        onChange={(e) => setEditingField({ ...editingField, disclosureContent: e.target.value })}
+                        placeholder="Enter the disclosure text that users must read and agree to. HTML tags like <p>, <strong>, <ul>, <li> are supported for formatting."
+                        className="min-h-[200px] font-mono text-sm"
+                        data-testid="textarea-disclosure-content"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Users must scroll through 100% of this content before they can sign and acknowledge.
+                      </p>
+                    </div>
+
+                    {/* Disclosure Version */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-sm font-medium mb-2 block">Version</label>
+                        <Input
+                          value={editingField.disclosureVersion || '1.0'}
+                          onChange={(e) => setEditingField({ ...editingField, disclosureVersion: e.target.value })}
+                          placeholder="1.0"
+                          data-testid="input-disclosure-version"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Version number for tracking disclosure changes.
+                        </p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium mb-2 block">Display Title</label>
+                        <Input
+                          value={editingField.disclosureTitle || editingField.label || ''}
+                          onChange={(e) => setEditingField({ ...editingField, disclosureTitle: e.target.value })}
+                          placeholder="Terms of Service"
+                          data-testid="input-disclosure-title"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Title shown in the disclosure header.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Requires Signature Toggle */}
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="requiresSignature"
+                        checked={editingField.requiresSignature !== false}
+                        onCheckedChange={(checked) => setEditingField({ 
+                          ...editingField, 
+                          requiresSignature: checked as boolean 
+                        })}
+                      />
+                      <label htmlFor="requiresSignature" className="text-sm cursor-pointer">
+                        Requires signature after reading
+                      </label>
+                    </div>
+                    <p className="text-xs text-muted-foreground -mt-2 ml-6">
+                      When enabled, users must sign (draw or type) after scrolling through the disclosure.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-2">
