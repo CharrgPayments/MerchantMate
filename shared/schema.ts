@@ -2376,5 +2376,126 @@ export interface RolePermissionMap {
   };
 }
 
+// =====================================================
+// DISCLOSURE MANAGEMENT TABLES (Versioned Disclosures)
+// =====================================================
+
+// Disclosure Definitions - Master record for each disclosure type
+export const disclosureDefinitions = pgTable("disclosure_definitions", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(), // e.g., "bank_terms", "privacy_policy", "ach_authorization"
+  displayName: text("display_name").notNull(), // Human-readable name
+  description: text("description"), // Internal description of the disclosure
+  category: text("category").notNull().default("general"), // Category for grouping: general, legal, banking, compliance
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }), // Optional company ownership
+  isActive: boolean("is_active").notNull().default(true),
+  requiresSignature: boolean("requires_signature").notNull().default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  slugIdx: uniqueIndex("disclosure_definitions_slug_idx").on(table.slug),
+  categoryIdx: index("disclosure_definitions_category_idx").on(table.category),
+  companyIdx: index("disclosure_definitions_company_idx").on(table.companyId),
+}));
+
+// Disclosure Versions - Immutable versions of disclosure content
+export const disclosureVersions = pgTable("disclosure_versions", {
+  id: serial("id").primaryKey(),
+  definitionId: integer("definition_id").notNull().references(() => disclosureDefinitions.id, { onDelete: "cascade" }),
+  version: text("version").notNull(), // e.g., "1.0", "1.1", "2.0"
+  title: text("title").notNull(), // Display title for this version
+  content: text("content").notNull(), // HTML content of the disclosure
+  contentHash: text("content_hash"), // SHA-256 hash for tamper detection
+  requiresSignature: boolean("requires_signature").notNull().default(true),
+  effectiveDate: timestamp("effective_date").defaultNow().notNull(), // When this version became active
+  retiredDate: timestamp("retired_date"), // When this version was retired (null = current)
+  isCurrentVersion: boolean("is_current_version").notNull().default(true), // Quick lookup for current version
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  metadata: jsonb("metadata").default('{}'), // Additional config (changelog notes, etc.)
+}, (table) => ({
+  definitionVersionIdx: uniqueIndex("disclosure_versions_def_version_idx").on(table.definitionId, table.version),
+  definitionIdx: index("disclosure_versions_definition_idx").on(table.definitionId),
+  currentVersionIdx: index("disclosure_versions_current_idx").on(table.definitionId, table.isCurrentVersion),
+}));
+
+// Disclosure Signatures - Append-only record of all signature events
+export const disclosureSignatures = pgTable("disclosure_signatures", {
+  id: serial("id").primaryKey(),
+  disclosureVersionId: integer("disclosure_version_id").notNull().references(() => disclosureVersions.id, { onDelete: "restrict" }),
+  
+  // Signer identification (one of these should be set)
+  prospectId: integer("prospect_id").references(() => merchantProspects.id, { onDelete: "set null" }),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
+  
+  // Signer details captured at time of signing
+  signerName: text("signer_name").notNull(),
+  signerEmail: text("signer_email"),
+  signerTitle: text("signer_title"), // e.g., "Owner", "Authorized Representative"
+  
+  // Signature data
+  signatureType: text("signature_type").notNull(), // 'draw', 'type', 'checkbox'
+  signatureData: text("signature_data"), // Base64 for drawn, text for typed
+  signatureStoragePath: text("signature_storage_path"), // Object storage path if stored externally
+  
+  // Audit trail data
+  scrollStartedAt: timestamp("scroll_started_at"),
+  scrollCompletedAt: timestamp("scroll_completed_at"),
+  scrollDurationMs: integer("scroll_duration_ms"),
+  signedAt: timestamp("signed_at").defaultNow().notNull(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  
+  // Verification data
+  contentHashAtSigning: text("content_hash_at_signing"), // Hash verification at time of signing
+  isRevoked: boolean("is_revoked").notNull().default(false),
+  revokedAt: timestamp("revoked_at"),
+  revokedBy: varchar("revoked_by").references(() => users.id),
+  revokedReason: text("revoked_reason"),
+  
+  // Context
+  applicationId: integer("application_id"), // Links to prospect application if applicable
+  templateId: integer("template_id").references(() => acquirerApplicationTemplates.id, { onDelete: "set null" }),
+  metadata: jsonb("metadata").default('{}'), // Additional context data
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  versionIdx: index("disclosure_signatures_version_idx").on(table.disclosureVersionId),
+  prospectIdx: index("disclosure_signatures_prospect_idx").on(table.prospectId),
+  userIdx: index("disclosure_signatures_user_idx").on(table.userId),
+  signedAtIdx: index("disclosure_signatures_signed_at_idx").on(table.signedAt),
+  templateIdx: index("disclosure_signatures_template_idx").on(table.templateId),
+}));
+
+// Disclosure Zod Schemas and Types
+export const insertDisclosureDefinitionSchema = createInsertSchema(disclosureDefinitions).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true 
+});
+export const insertDisclosureVersionSchema = createInsertSchema(disclosureVersions).omit({ 
+  id: true, 
+  createdAt: true 
+});
+export const insertDisclosureSignatureSchema = createInsertSchema(disclosureSignatures).omit({ 
+  id: true, 
+  createdAt: true 
+});
+
+export type DisclosureDefinition = typeof disclosureDefinitions.$inferSelect;
+export type InsertDisclosureDefinition = z.infer<typeof insertDisclosureDefinitionSchema>;
+export type DisclosureVersion = typeof disclosureVersions.$inferSelect;
+export type InsertDisclosureVersion = z.infer<typeof insertDisclosureVersionSchema>;
+export type DisclosureSignature = typeof disclosureSignatures.$inferSelect;
+export type InsertDisclosureSignature = z.infer<typeof insertDisclosureSignatureSchema>;
+
+// Disclosure with version info for display
+export interface DisclosureWithVersion extends DisclosureDefinition {
+  currentVersion?: DisclosureVersion;
+  versions?: DisclosureVersion[];
+  signatureCount?: number;
+}
+
 // Export Drizzle utilities
 export { sql, eq };
