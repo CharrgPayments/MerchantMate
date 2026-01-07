@@ -64,6 +64,7 @@ import WorkflowTicket from "@/pages/workflow-ticket";
 import WorkflowSettings from "@/pages/workflow-settings";
 import PermissionManager from "@/pages/permission-manager";
 import MccPoliciesPage from "@/pages/mcc-policies";
+import DisclosureLibraryPage from "@/pages/disclosure-library";
 import { useState, useEffect, createContext, useContext } from "react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -180,6 +181,11 @@ function AuthenticatedApp() {
         return {
           title: "MCC Policy Management",
           subtitle: "Manage merchant category code policies for underwriting decisions"
+        };
+      case "/disclosure-library":
+        return {
+          title: "Disclosure Library",
+          subtitle: "Manage versioned disclosure content for application forms"
         };
       case "/pdf-forms":
         return {
@@ -508,6 +514,24 @@ function AuthenticatedApp() {
                   />
                   <main className="flex-1 overflow-auto bg-gray-50">
                     <MccPoliciesPage />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/disclosure-library">
+            {() => {
+              const userRoles = (user as any)?.roles || [];
+              if (!user || (!userRoles.includes('admin') && !userRoles.includes('super_admin') && !userRoles.includes('underwriter'))) return <NotFound />;
+              const pageInfo = getPageInfo("/disclosure-library");
+              return (
+                <>
+                  <Header 
+                    title={pageInfo.title} 
+                    onSearch={setGlobalSearch}
+                  />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <DisclosureLibraryPage />
                   </main>
                 </>
               );
