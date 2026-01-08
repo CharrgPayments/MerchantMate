@@ -1417,11 +1417,11 @@ function FieldConfigurationDialog({
   );
 
   // Fetch disclosures from the disclosure library for the picker
-  const { data: disclosuresData } = useQuery<{ success: boolean; disclosures: Array<{ id: number; slug: string; displayName: string; status: string; currentVersion?: { id: number; version: string; title: string } }> }>({
+  const { data: disclosuresData } = useQuery<{ success: boolean; disclosures: Array<{ id: number; slug: string; displayName: string; isActive: boolean; currentVersion?: { id: number; version: string; title: string } }> }>({
     queryKey: ['/api/disclosures'],
     staleTime: 60000,
   });
-  const availableDisclosures = disclosuresData?.disclosures?.filter(d => d.status === 'active') || [];
+  const availableDisclosures = disclosuresData?.disclosures?.filter(d => d.isActive) || [];
 
   // Re-normalize when template changes
   useEffect(() => {
