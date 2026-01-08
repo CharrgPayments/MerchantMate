@@ -14,6 +14,7 @@ import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { WysiwygEditor } from '@/components/WysiwygEditor';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -2666,15 +2667,13 @@ function FieldConfigurationDialog({
                     {/* Disclosure Content - only show for custom content */}
                     {!editingField.disclosureDefinitionId && (
                       <div>
-                        <label className="text-sm font-medium mb-2 block">Disclosure Content (HTML supported)</label>
-                        <Textarea
+                        <label className="text-sm font-medium mb-2 block">Disclosure Content</label>
+                        <WysiwygEditor
                           value={editingField.disclosureContent || ''}
-                          onChange={(e) => setEditingField({ ...editingField, disclosureContent: e.target.value })}
-                          placeholder="Enter the disclosure text that users must read and agree to. HTML tags like <p>, <strong>, <ul>, <li> are supported for formatting."
-                          className="min-h-[200px] font-mono text-sm"
-                          data-testid="textarea-disclosure-content"
+                          onChange={(content) => setEditingField({ ...editingField, disclosureContent: content })}
+                          placeholder="Enter the disclosure text that users must read and agree to..."
                         />
-                        <p className="text-xs text-muted-foreground mt-1">
+                        <p className="text-xs text-muted-foreground mt-2">
                           Users must scroll through 100% of this content before they can sign and acknowledge.
                         </p>
                       </div>
