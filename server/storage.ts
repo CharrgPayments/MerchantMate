@@ -579,6 +579,8 @@ export interface IStorage {
   getDisclosureVersion(id: number): Promise<DisclosureVersion | undefined>;
   getCurrentDisclosureVersion(definitionId: number): Promise<DisclosureVersion | undefined>;
   createDisclosureVersion(version: InsertDisclosureVersion): Promise<DisclosureVersion>;
+  updateDisclosureVersion(id: number, updates: { title?: string; content?: string; version?: string }): Promise<DisclosureVersion | undefined>;
+  getDisclosureVersionSignatureCount(versionId: number): Promise<number>;
   retireDisclosureVersion(id: number): Promise<DisclosureVersion | undefined>;
 
   // Disclosure Signatures
@@ -4013,6 +4015,41 @@ export class DatabaseStorage implements IStorage {
       .where(eq(disclosureVersions.id, id))
       .returning();
     return updated || undefined;
+  }
+
+  async updateDisclosureVersion(id: number, updates: { title?: string; content?: string; version?: string }): Promise<DisclosureVersion | undefined> {
+    // Build update object with recalculated content hash if content changes
+    const updateData: any = {};
+    
+    if (updates.title !== undefined) {
+      updateData.title = updates.title;
+    }
+    if (updates.version !== undefined) {
+      updateData.version = updates.version;
+    }
+    if (updates.content !== undefined) {
+      updateData.content = updates.content;
+      // Recalculate content hash using crypto
+      const crypto = await import('crypto');
+      updateData.contentHash = crypto.createHash('sha256').update(updates.content).digest('hex');
+    }
+    
+    if (Object.keys(updateData).length === 0) {
+      return await this.getDisclosureVersion(id);
+    }
+    
+    const [updated] = await this.db.update(disclosureVersions)
+      .set(updateData)
+      .where(eq(disclosureVersions.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async getDisclosureVersionSignatureCount(versionId: number): Promise<number> {
+    const result = await this.db.select({ count: sql<number>`count(*)` })
+      .from(disclosureSignatures)
+      .where(eq(disclosureSignatures.disclosureVersionId, versionId));
+    return Number(result[0]?.count || 0);
   }
 
   // Disclosure Signatures

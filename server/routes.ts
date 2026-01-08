@@ -14910,6 +14910,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update disclosure version content (only if no signatures collected)
+  app.patch('/api/disclosure-versions/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { title, content, version } = req.body;
+      
+      // Check if this version has any signatures
+      const signatureCount = await storage.getDisclosureVersionSignatureCount(parseInt(id));
+      if (signatureCount > 0) {
+        return res.status(403).json({ 
+          success: false, 
+          message: `Cannot edit this version - it has ${signatureCount} signature(s) collected. Create a new version instead.`,
+          signatureCount
+        });
+      }
+      
+      // Validate at least one field is being updated
+      if (!title && !content && !version) {
+        return res.status(400).json({ success: false, message: 'At least one field (title, content, or version) must be provided' });
+      }
+      
+      const updatedVersion = await storage.updateDisclosureVersion(parseInt(id), { title, content, version });
+      if (!updatedVersion) {
+        return res.status(404).json({ success: false, message: 'Version not found' });
+      }
+      
+      res.json({ success: true, version: updatedVersion, message: 'Version updated successfully' });
+    } catch (error) {
+      console.error('Update disclosure version error:', error);
+      res.status(500).json({ success: false, message: 'Failed to update disclosure version' });
+    }
+  });
+
   // Retire a disclosure version
   app.post('/api/disclosure-versions/:id/retire', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
     try {
