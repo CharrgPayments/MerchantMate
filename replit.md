@@ -60,27 +60,33 @@ Preferred communication style: Simple, everyday language.
 - **Production Protection**: Scripts enforce deployment pipeline (`Development → Test → Production`) blocking direct operations on production without explicit `--force-production`.
 
 ### CRITICAL: Database Push Commands
-**NEVER run `npm run db:push` without a database environment prefix!**
+**🚨 NEVER run `npm run db:push` directly! It pushes to PRODUCTION! 🚨**
 
-The `drizzle.config.ts` uses `DATABASE_URL` which points to **PRODUCTION**. Always prefix with the target environment:
+Use the SAFE push script instead:
 
 ```bash
-# CORRECT - Always use these:
-DATABASE_URL=$DEV_DATABASE_URL npm run db:push      # Development (default for new features)
-DATABASE_URL=$TEST_DATABASE_URL npm run db:push     # Test environment
-DATABASE_URL=$DATABASE_URL npm run db:push          # Production (only after dev/test validation)
+# ✅ CORRECT - Always use these commands:
+node scripts/db-push-safe.js dev       # Push to DEVELOPMENT (default for new features)
+node scripts/db-push-safe.js test      # Push to TEST environment
+node scripts/db-push-safe.js prod      # Push to PRODUCTION (requires confirmation)
 
-# WRONG - Never do this:
-npm run db:push                                      # This pushes directly to PRODUCTION!
+# ❌ WRONG - NEVER do this:
+npm run db:push                        # DANGER: This pushes directly to PRODUCTION!
+DATABASE_URL=$DEV_DATABASE_URL npm run db:push  # Unreliable - variable substitution can fail
 ```
+
+**Why the Safe Script?**
+- `drizzle.config.ts` uses `DATABASE_URL` which points to PRODUCTION
+- Shell variable substitution like `DATABASE_URL=$DEV_DATABASE_URL npm run db:push` is unreliable
+- The safe script explicitly overrides the database URL and requires confirmation for production
 
 **Development Workflow:**
 1. Make schema changes in `shared/schema.ts`
-2. Push to DEV first: `DATABASE_URL=$DEV_DATABASE_URL npm run db:push`
+2. Push to DEV first: `node scripts/db-push-safe.js dev`
 3. Test the feature in development
-4. Push to TEST: `DATABASE_URL=$TEST_DATABASE_URL npm run db:push`
+4. Push to TEST: `node scripts/db-push-safe.js test`
 5. Validate in test environment
-6. Only then push to PROD: `DATABASE_URL=$DATABASE_URL npm run db:push`
+6. Only then push to PROD: `node scripts/db-push-safe.js prod` (will ask for confirmation)
 
 ### Field Naming Convention (Application Templates)
 Uses period (`.`) delimiter for hierarchical field names in application templates: `section.subsection.fieldName` or `section.index.fieldName`.
