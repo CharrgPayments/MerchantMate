@@ -1415,6 +1415,13 @@ function FieldConfigurationDialog({
     new Set(normalizeFieldIds(template.fieldConfiguration?.sections || []).map((s: any) => s.id))
   );
 
+  // Fetch disclosures from the disclosure library for the picker
+  const { data: disclosuresData } = useQuery<{ success: boolean; disclosures: Array<{ id: number; slug: string; displayName: string; status: string; currentVersion?: { id: number; version: string; title: string } }> }>({
+    queryKey: ['/api/disclosures'],
+    staleTime: 60000,
+  });
+  const availableDisclosures = disclosuresData?.disclosures?.filter(d => d.status === 'active') || [];
+
   // Re-normalize when template changes
   useEffect(() => {
     const normalized = normalizeFieldIds(template.fieldConfiguration?.sections || []);
@@ -2592,48 +2599,116 @@ function FieldConfigurationDialog({
                       Configure the disclosure text that users must read and acknowledge before signing.
                     </p>
 
-                    {/* Disclosure Content */}
+                    {/* Disclosure Library Picker */}
                     <div>
-                      <label className="text-sm font-medium mb-2 block">Disclosure Content (HTML supported)</label>
-                      <Textarea
-                        value={editingField.disclosureContent || ''}
-                        onChange={(e) => setEditingField({ ...editingField, disclosureContent: e.target.value })}
-                        placeholder="Enter the disclosure text that users must read and agree to. HTML tags like <p>, <strong>, <ul>, <li> are supported for formatting."
-                        className="min-h-[200px] font-mono text-sm"
-                        data-testid="textarea-disclosure-content"
-                      />
+                      <label className="text-sm font-medium mb-2 block">Select from Disclosure Library</label>
+                      <Select
+                        value={editingField.disclosureDefinitionId?.toString() || 'custom'}
+                        onValueChange={(value) => {
+                          if (value === 'custom') {
+                            setEditingField({ 
+                              ...editingField, 
+                              disclosureDefinitionId: undefined 
+                            });
+                          } else {
+                            const selectedDisclosure = availableDisclosures.find(d => d.id.toString() === value);
+                            setEditingField({ 
+                              ...editingField, 
+                              disclosureDefinitionId: parseInt(value),
+                              disclosureTitle: selectedDisclosure?.currentVersion?.title || selectedDisclosure?.displayName || editingField.disclosureTitle
+                            });
+                          }
+                        }}
+                      >
+                        <SelectTrigger data-testid="select-disclosure-library">
+                          <SelectValue placeholder="Choose a disclosure or enter custom content" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="custom">
+                            <span className="flex items-center gap-2">
+                              <Type className="h-4 w-4" />
+                              Custom Content (enter below)
+                            </span>
+                          </SelectItem>
+                          {availableDisclosures.map((disclosure) => (
+                            <SelectItem key={disclosure.id} value={disclosure.id.toString()}>
+                              <span className="flex items-center gap-2">
+                                <BookOpen className="h-4 w-4 text-indigo-600" />
+                                {disclosure.displayName}
+                                {disclosure.currentVersion && (
+                                  <Badge variant="outline" className="ml-2 text-xs">
+                                    v{disclosure.currentVersion.version}
+                                  </Badge>
+                                )}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Users must scroll through 100% of this content before they can sign and acknowledge.
+                        Select a disclosure from the library for automatic version tracking, or enter custom content below.
                       </p>
                     </div>
 
-                    {/* Disclosure Version */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-sm font-medium mb-2 block">Version</label>
-                        <Input
-                          value={editingField.disclosureVersion || '1.0'}
-                          onChange={(e) => setEditingField({ ...editingField, disclosureVersion: e.target.value })}
-                          placeholder="1.0"
-                          data-testid="input-disclosure-version"
-                        />
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Version number for tracking disclosure changes.
+                    {/* Show library disclosure info when selected */}
+                    {editingField.disclosureDefinitionId && (
+                      <div className="bg-indigo-100 border border-indigo-200 rounded-lg p-3">
+                        <div className="flex items-center gap-2 text-indigo-700">
+                          <BookOpen className="h-4 w-4" />
+                          <span className="text-sm font-medium">Using Library Disclosure</span>
+                        </div>
+                        <p className="text-xs text-indigo-600 mt-1">
+                          Content will be fetched from the Disclosure Library. Updates to the library will automatically apply to this form.
                         </p>
                       </div>
+                    )}
+
+                    {/* Disclosure Content - only show for custom content */}
+                    {!editingField.disclosureDefinitionId && (
                       <div>
-                        <label className="text-sm font-medium mb-2 block">Display Title</label>
-                        <Input
-                          value={editingField.disclosureTitle || editingField.label || ''}
-                          onChange={(e) => setEditingField({ ...editingField, disclosureTitle: e.target.value })}
-                          placeholder="Terms of Service"
-                          data-testid="input-disclosure-title"
+                        <label className="text-sm font-medium mb-2 block">Disclosure Content (HTML supported)</label>
+                        <Textarea
+                          value={editingField.disclosureContent || ''}
+                          onChange={(e) => setEditingField({ ...editingField, disclosureContent: e.target.value })}
+                          placeholder="Enter the disclosure text that users must read and agree to. HTML tags like <p>, <strong>, <ul>, <li> are supported for formatting."
+                          className="min-h-[200px] font-mono text-sm"
+                          data-testid="textarea-disclosure-content"
                         />
                         <p className="text-xs text-muted-foreground mt-1">
-                          Title shown in the disclosure header.
+                          Users must scroll through 100% of this content before they can sign and acknowledge.
                         </p>
                       </div>
-                    </div>
+                    )}
+
+                    {/* Disclosure Version - only show for custom content */}
+                    {!editingField.disclosureDefinitionId && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-sm font-medium mb-2 block">Version</label>
+                          <Input
+                            value={editingField.disclosureVersion || '1.0'}
+                            onChange={(e) => setEditingField({ ...editingField, disclosureVersion: e.target.value })}
+                            placeholder="1.0"
+                            data-testid="input-disclosure-version"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Version number for tracking disclosure changes.
+                          </p>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium mb-2 block">Display Title</label>
+                          <Input
+                            value={editingField.disclosureTitle || editingField.label || ''}
+                            onChange={(e) => setEditingField({ ...editingField, disclosureTitle: e.target.value })}
+                            placeholder="Terms of Service"
+                            data-testid="input-disclosure-title"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Title shown in the disclosure header.
+                          </p>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Requires Signature Toggle */}
                     <div className="flex items-center space-x-2">
