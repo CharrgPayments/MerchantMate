@@ -1699,6 +1699,7 @@ export default function EnhancedPdfWizard() {
             disclosureContent: field.disclosureContent || null,
             disclosureTitle: field.disclosureTitle || null,
             disclosureVersion: field.disclosureVersion || null,
+            disclosureDefinitionId: field.disclosureDefinitionId || null,
             requiresSignature: field.requiresSignature,
           };
         })
