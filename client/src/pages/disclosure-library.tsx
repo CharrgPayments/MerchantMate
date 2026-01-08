@@ -46,6 +46,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { WysiwygEditor } from "@/components/WysiwygEditor";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, getQueryFn } from "@/lib/queryClient";
 
@@ -726,19 +727,12 @@ export default function DisclosureLibraryPage() {
               </div>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="version-content">Content (HTML supported)</Label>
-              <Textarea
-                id="version-content"
+              <Label htmlFor="version-content">Content</Label>
+              <WysiwygEditor
                 value={versionFormData.content}
-                onChange={(e) => setVersionFormData(prev => ({ ...prev, content: e.target.value }))}
-                placeholder="Enter disclosure content. HTML formatting is supported."
-                rows={12}
-                className="font-mono text-sm"
-                data-testid="input-version-content"
+                onChange={(content) => setVersionFormData(prev => ({ ...prev, content }))}
+                placeholder="Enter the disclosure content that users must read..."
               />
-              <p className="text-xs text-muted-foreground">
-                Tip: You can use HTML tags like &lt;p&gt;, &lt;strong&gt;, &lt;ul&gt;, &lt;li&gt; for formatting.
-              </p>
             </div>
             <div className="flex items-center justify-between">
               <div>
