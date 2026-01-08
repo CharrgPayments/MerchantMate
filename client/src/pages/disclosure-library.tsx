@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 
   FileText, Search, Plus, Edit2, Trash2, History,
@@ -132,7 +132,14 @@ export default function DisclosureLibraryPage() {
   const [showVersionDialog, setShowVersionDialog] = useState(false);
   const [showVersionsPanel, setShowVersionsPanel] = useState(false);
   const [showSignaturesDialog, setShowSignaturesDialog] = useState(false);
+  const [showEditVersionDialog, setShowEditVersionDialog] = useState(false);
   const [selectedDisclosure, setSelectedDisclosure] = useState<DisclosureDefinition | null>(null);
+  const [selectedVersion, setSelectedVersion] = useState<DisclosureVersion | null>(null);
+  const [editVersionFormData, setEditVersionFormData] = useState({
+    version: '',
+    title: '',
+    content: '',
+  });
   
   const [formData, setFormData] = useState({
     slug: '',
@@ -159,13 +166,29 @@ export default function DisclosureLibraryPage() {
 
   const disclosures = disclosuresData?.disclosures || [];
 
+  // Sync selectedDisclosure with latest data when disclosures refetch
+  useEffect(() => {
+    if (selectedDisclosure && disclosures.length > 0) {
+      const updatedDisclosure = disclosures.find(d => d.id === selectedDisclosure.id);
+      if (updatedDisclosure && updatedDisclosure !== selectedDisclosure) {
+        setSelectedDisclosure(updatedDisclosure);
+      }
+    }
+  }, [disclosures]); // Only depend on disclosures array to avoid infinite loop
+
   const { data: signatureReportData } = useQuery<{ report: SignatureReport[] }>({
     queryKey: ['/api/disclosures', selectedDisclosure?.id, 'signature-report'],
     queryFn,
-    enabled: !!selectedDisclosure && showSignaturesDialog,
+    enabled: !!selectedDisclosure && (showSignaturesDialog || showVersionsPanel),
   });
 
   const signatureReport = signatureReportData?.report || [];
+  
+  // Helper to get signature count for a specific version
+  const getVersionSignatureCount = (versionId: number): number => {
+    const versionReport = signatureReport.find(sr => sr.version.id === versionId);
+    return versionReport?.signatureCount || 0;
+  };
 
   const createDisclosureMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
@@ -256,6 +279,32 @@ export default function DisclosureLibraryPage() {
     },
   });
 
+  const updateVersionMutation = useMutation({
+    mutationFn: async ({ versionId, data }: { versionId: number; data: { title?: string; content?: string; version?: string } }) => {
+      return apiRequest('PATCH', `/api/disclosure-versions/${versionId}`, data);
+    },
+    onSuccess: () => {
+      // Invalidate both disclosures and signature report queries
+      queryClient.invalidateQueries({ queryKey: ['/api/disclosures'] });
+      if (selectedDisclosure) {
+        queryClient.invalidateQueries({ queryKey: ['/api/disclosures', selectedDisclosure.id, 'signature-report'] });
+      }
+      setShowEditVersionDialog(false);
+      setSelectedVersion(null);
+      toast({
+        title: "Version Updated",
+        description: "Disclosure version has been updated successfully.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Cannot Edit Version",
+        description: error.message || "Failed to update version. This version may already have signatures.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const resetForm = () => {
     setFormData({
       slug: '',
@@ -320,6 +369,16 @@ export default function DisclosureLibraryPage() {
   const openVersionsPanel = (disclosure: DisclosureDefinition) => {
     setSelectedDisclosure(disclosure);
     setShowVersionsPanel(true);
+  };
+
+  const openEditVersionDialog = (version: DisclosureVersion) => {
+    setSelectedVersion(version);
+    setEditVersionFormData({
+      version: version.version,
+      title: version.title,
+      content: version.content,
+    });
+    setShowEditVersionDialog(true);
   };
 
   const openSignaturesDialog = (disclosure: DisclosureDefinition) => {
@@ -774,41 +833,66 @@ export default function DisclosureLibraryPage() {
           <ScrollArea className="h-[500px] pr-4">
             {selectedDisclosure?.versions?.length ? (
               <div className="space-y-4">
-                {selectedDisclosure.versions.map((version) => (
-                  <Card key={version.id} className={version.isCurrentVersion ? 'border-primary' : ''}>
-                    <CardHeader className="pb-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline">v{version.version}</Badge>
-                          <span className="font-medium">{version.title}</span>
-                          {version.isCurrentVersion && (
-                            <Badge className="bg-primary text-primary-foreground">Current</Badge>
-                          )}
+                {selectedDisclosure.versions.map((version) => {
+                  const sigCount = getVersionSignatureCount(version.id);
+                  const isEditable = sigCount === 0;
+                  return (
+                    <Card key={version.id} className={version.isCurrentVersion ? 'border-primary' : ''}>
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline">v{version.version}</Badge>
+                            <span className="font-medium">{version.title}</span>
+                            {version.isCurrentVersion && (
+                              <Badge className="bg-primary text-primary-foreground">Current</Badge>
+                            )}
+                            <Badge variant="secondary" className="flex items-center gap-1">
+                              <CheckCircle2 className="h-3 w-3" />
+                              {sigCount} signature{sigCount !== 1 ? 's' : ''}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {isEditable ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openEditVersionDialog(version)}
+                                data-testid={`button-edit-version-${version.id}`}
+                              >
+                                <Edit2 className="h-4 w-4 mr-1" />
+                                Edit Draft
+                              </Button>
+                            ) : (
+                              <Badge variant="outline" className="text-muted-foreground">
+                                Locked
+                              </Badge>
+                            )}
+                            <div className="text-sm text-muted-foreground flex items-center gap-1">
+                              <Clock className="h-4 w-4" />
+                              {formatDate(version.effectiveDate)}
+                              {version.retiredDate && (
+                                <span className="text-orange-600">
+                                  (Retired: {formatDate(version.retiredDate)})
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Clock className="h-4 w-4" />
-                          {formatDate(version.effectiveDate)}
-                          {version.retiredDate && (
-                            <span className="text-orange-600">
-                              (Retired: {formatDate(version.retiredDate)})
-                            </span>
-                          )}
+                      </CardHeader>
+                      <CardContent>
+                        <div className="bg-muted rounded p-3 max-h-[200px] overflow-y-auto">
+                          <div 
+                            className="prose prose-sm dark:prose-invert max-w-none"
+                            dangerouslySetInnerHTML={{ __html: version.content }}
+                          />
                         </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="bg-muted rounded p-3 max-h-[200px] overflow-y-auto">
-                        <div 
-                          className="prose prose-sm dark:prose-invert max-w-none"
-                          dangerouslySetInnerHTML={{ __html: version.content }}
-                        />
-                      </div>
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        Hash: <code>{version.contentHash.substring(0, 16)}...</code>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          Hash: <code>{version.contentHash?.substring(0, 16) || 'N/A'}...</code>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             ) : (
               <div className="text-center py-8 text-muted-foreground">
@@ -946,6 +1030,63 @@ export default function DisclosureLibraryPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={showEditVersionDialog} onOpenChange={setShowEditVersionDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>Edit Draft Version</DialogTitle>
+            <DialogDescription>
+              Edit version content before any signatures are collected. Once someone signs this version, it becomes locked.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-version-number">Version Number</Label>
+                <Input
+                  id="edit-version-number"
+                  value={editVersionFormData.version}
+                  onChange={(e) => setEditVersionFormData(prev => ({ ...prev, version: e.target.value }))}
+                  placeholder="e.g., 1.0, 2.0"
+                  data-testid="input-edit-version-number"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-version-title">Version Title</Label>
+                <Input
+                  id="edit-version-title"
+                  value={editVersionFormData.title}
+                  onChange={(e) => setEditVersionFormData(prev => ({ ...prev, title: e.target.value }))}
+                  placeholder="Enter version title"
+                  data-testid="input-edit-version-title"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-version-content">Content</Label>
+              <WysiwygEditor
+                value={editVersionFormData.content}
+                onChange={(value) => setEditVersionFormData(prev => ({ ...prev, content: value }))}
+                placeholder="Enter disclosure content..."
+                data-testid="editor-edit-version-content"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditVersionDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={() => selectedVersion && updateVersionMutation.mutate({ 
+                versionId: selectedVersion.id, 
+                data: editVersionFormData 
+              })}
+              disabled={!editVersionFormData.version || !editVersionFormData.title || !editVersionFormData.content || updateVersionMutation.isPending}
+              data-testid="button-save-version"
+            >
+              {updateVersionMutation.isPending ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
