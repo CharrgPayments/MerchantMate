@@ -1191,6 +1191,219 @@ function SortableField({
   );
 }
 
+// Sortable Option Item Wrapper Component for reordering options in field editor
+function SortableOptionItemWrapper({
+  id,
+  index,
+  option,
+  optionLabel,
+  optionValue,
+  pdfFieldId,
+  optionConditional,
+  isStructured,
+  onRemove,
+  onUpdateLabel,
+  onUpdateValue,
+  onMoveUp,
+  onMoveDown,
+  onUpdateConditional,
+  isFirst,
+  isLast,
+  sections,
+  editingFieldId
+}: {
+  id: string;
+  index: number;
+  option: any;
+  optionLabel: string;
+  optionValue: string;
+  pdfFieldId: string | undefined;
+  optionConditional: any;
+  isStructured: boolean;
+  onRemove: () => void;
+  onUpdateLabel: (value: string) => void;
+  onUpdateValue: (value: string) => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onUpdateConditional: (conditional: any) => void;
+  isFirst: boolean;
+  isLast: boolean;
+  sections: any[];
+  editingFieldId: string;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className="p-3 bg-muted/50 rounded border border-border">
+      <div className="flex items-center gap-2 mb-2">
+        <div
+          {...attributes}
+          {...listeners}
+          className="cursor-grab hover:cursor-grabbing p-1 hover:bg-muted rounded"
+          title="Drag to reorder"
+        >
+          <GripVertical className="h-4 w-4 text-muted-foreground" />
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onMoveUp}
+            disabled={isFirst}
+            className="h-4 w-4 p-0"
+            title="Move up"
+          >
+            <ChevronDown className="h-3 w-3 rotate-180" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onMoveDown}
+            disabled={isLast}
+            className="h-4 w-4 p-0"
+            title="Move down"
+          >
+            <ChevronDown className="h-3 w-3" />
+          </Button>
+        </div>
+        <span className="text-xs text-muted-foreground font-mono">#{index + 1}</span>
+        <div className="flex-1" />
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onRemove}
+          className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+          data-testid={`button-delete-option-${index}`}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+      <div className="grid grid-cols-2 gap-2 items-center mb-2">
+        <div>
+          <label className="text-xs text-muted-foreground">Label</label>
+          <Input
+            value={optionLabel}
+            onChange={(e) => onUpdateLabel(e.target.value)}
+            className="h-8"
+            data-testid={`input-option-label-${index}`}
+          />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground">Value</label>
+          <Input
+            value={optionValue}
+            onChange={(e) => onUpdateValue(e.target.value)}
+            className="h-8"
+            data-testid={`input-option-value-${index}`}
+          />
+        </div>
+        {pdfFieldId && (
+          <div className="col-span-2">
+            <label className="text-xs text-muted-foreground">PDF Field ID (read-only)</label>
+            <Input
+              value={pdfFieldId}
+              disabled
+              className="h-7 text-xs bg-muted"
+              title="PDF field binding - cannot be modified"
+            />
+          </div>
+        )}
+      </div>
+      
+      {/* Per-option conditional trigger */}
+      <div className="mt-2 pt-2 border-t border-border/50">
+        <div className="flex items-center gap-2 mb-2">
+          <Switch
+            checked={!!optionConditional}
+            onCheckedChange={(checked) => {
+              if (checked) {
+                onUpdateConditional({ action: 'show', targetField: '' });
+              } else {
+                onUpdateConditional(null);
+              }
+            }}
+            data-testid={`switch-option-conditional-${index}`}
+          />
+          <span className="text-xs text-muted-foreground">Trigger field when selected</span>
+        </div>
+        
+        {optionConditional && (
+          <div className="ml-6 space-y-2 p-2 bg-background rounded">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-muted-foreground">Action</label>
+                <Select
+                  value={optionConditional.action}
+                  onValueChange={(value) => {
+                    onUpdateConditional({ ...optionConditional, action: value });
+                  }}
+                >
+                  <SelectTrigger className="h-7 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="show">Show</SelectItem>
+                    <SelectItem value="hide">Hide</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Target Field</label>
+                <Select
+                  value={optionConditional.targetField || ''}
+                  onValueChange={(value) => {
+                    onUpdateConditional({ ...optionConditional, targetField: value });
+                  }}
+                >
+                  <SelectTrigger className="h-7 text-xs">
+                    <SelectValue placeholder="Select field" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sections.flatMap((s: any) => 
+                      s.fields
+                        .filter((f: any) => f.id !== editingFieldId)
+                        .map((f: any) => (
+                          <SelectItem key={f.id} value={f.id}>
+                            {f.label} ({s.title})
+                          </SelectItem>
+                        ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="text-xs text-muted-foreground bg-muted/50 p-1 rounded">
+              {optionConditional.action === 'show' ? 'Show' : 'Hide'}{' '}
+              <strong>
+                {optionConditional.targetField ? 
+                  sections.flatMap((s: any) => s.fields).find((f: any) => f.id === optionConditional.targetField)?.label || optionConditional.targetField
+                  : '(select field)'}
+              </strong>{' '}
+              when this option is selected
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Sortable Section Component
 function SortableSection({
   section,
@@ -1583,6 +1796,24 @@ function FieldConfigurationDialog({
       }
     }
     
+    // Normalize options to ensure stable _sortId for drag-and-drop reordering
+    if (field.options && Array.isArray(field.options)) {
+      field.options = field.options.map((opt: any) => {
+        if (typeof opt === 'object' && opt !== null) {
+          if (!opt._sortId) {
+            return { ...opt, _sortId: crypto.randomUUID() };
+          }
+          return opt;
+        }
+        // Convert string options to structured format with _sortId
+        return { 
+          label: opt, 
+          value: String(opt).toLowerCase().replace(/\s+/g, '_'), 
+          _sortId: crypto.randomUUID() 
+        };
+      });
+    }
+    
     setEditingField(field);
   };
 
@@ -1611,6 +1842,17 @@ function FieldConfigurationDialog({
         
         // Remove transient UI-only property
         delete fieldToSave.userAccountConfig;
+      }
+      
+      // Strip _sortId from options before saving (UI-only property for drag-and-drop)
+      if (fieldToSave.options && Array.isArray(fieldToSave.options)) {
+        fieldToSave.options = fieldToSave.options.map((opt: any) => {
+          if (typeof opt === 'object' && opt !== null) {
+            const { _sortId, ...rest } = opt;
+            return rest;
+          }
+          return opt;
+        });
       }
       
       // Create deep copy to avoid mutation
@@ -2002,200 +2244,106 @@ function FieldConfigurationDialog({
                 {(editingField.type === 'select' || editingField.type === 'radio' || editingField.type === 'checkbox' || editingField.type === 'checkbox-list' || editingField.type === 'boolean') && (
                   <div>
                     <label className="text-sm font-medium mb-2 block">Options</label>
-                    <div className="space-y-2 max-h-60 overflow-y-auto border rounded-md p-3">
-                      {editingField.options && Array.isArray(editingField.options) && editingField.options.length > 0 ? (
-                        editingField.options.map((option: any, index: number) => {
-                          // Check if option is structured (object) or simple (string)
-                          const isStructured = typeof option === 'object' && option !== null;
-                          const optionLabel = isStructured ? option.label : option;
-                          const optionValue = isStructured ? option.value : option.toLowerCase().replace(/\s+/g, '_');
-                          const pdfFieldId = isStructured ? option.pdfFieldId : undefined;
-                          
-                          const optionConditional = isStructured ? option.conditional : undefined;
-                          
-                          return (
-                            <div key={index} className="p-3 bg-muted/50 rounded border border-border">
-                              <div className="flex justify-end mb-1">
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    const newOptions = editingField.options.filter((_: any, i: number) => i !== index);
+                    <p className="text-xs text-muted-foreground mb-2">Drag options to reorder, or use the arrow buttons</p>
+                    <DndContext
+                      sensors={useSensors(
+                        useSensor(PointerSensor),
+                        useSensor(KeyboardSensor, {
+                          coordinateGetter: sortableKeyboardCoordinates,
+                        })
+                      )}
+                      collisionDetection={closestCenter}
+                      onDragEnd={(event: DragEndEvent) => {
+                        const { active, over } = event;
+                        if (over && active.id !== over.id) {
+                          const options = editingField.options || [];
+                          const oldIndex = options.findIndex((opt: any) => opt._sortId === active.id);
+                          const newIndex = options.findIndex((opt: any) => opt._sortId === over.id);
+                          if (oldIndex !== -1 && newIndex !== -1) {
+                            const newOptions = arrayMove(options, oldIndex, newIndex);
+                            setEditingField({ ...editingField, options: newOptions });
+                          }
+                        }
+                      }}
+                    >
+                      <SortableContext
+                        items={(editingField.options || []).map((opt: any) => opt._sortId)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <div className="space-y-2 max-h-60 overflow-y-auto border rounded-md p-3">
+                          {editingField.options && editingField.options.length > 0 ? (
+                            editingField.options.map((option: any, index: number) => {
+                              return (
+                                <SortableOptionItemWrapper
+                                  key={option._sortId}
+                                  id={option._sortId}
+                                  index={index}
+                                  option={option}
+                                  optionLabel={option.label || ''}
+                                  optionValue={option.value || ''}
+                                  pdfFieldId={option.pdfFieldId}
+                                  optionConditional={option.conditional}
+                                  isStructured={true}
+                                  isFirst={index === 0}
+                                  isLast={index === editingField.options.length - 1}
+                                  onRemove={() => {
+                                    const newOptions = editingField.options.filter((opt: any) => opt._sortId !== option._sortId);
                                     setEditingField({ ...editingField, options: newOptions });
                                   }}
-                                  className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                                  data-testid={`button-delete-option-${index}`}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                              <div className="grid grid-cols-2 gap-2 items-center mb-2">
-                                <div>
-                                  <label className="text-xs text-muted-foreground">Label</label>
-                                  <Input
-                                    value={optionLabel}
-                                    onChange={(e) => {
-                                      const newOptions = [...editingField.options];
-                                      if (isStructured) {
-                                        newOptions[index] = { ...option, label: e.target.value };
-                                      } else {
-                                        newOptions[index] = e.target.value;
-                                      }
+                                  onUpdateLabel={(value: string) => {
+                                    const newOptions = [...editingField.options];
+                                    newOptions[index] = { ...option, label: value };
+                                    setEditingField({ ...editingField, options: newOptions });
+                                  }}
+                                  onUpdateValue={(value: string) => {
+                                    const newOptions = [...editingField.options];
+                                    newOptions[index] = { ...option, value: value };
+                                    setEditingField({ ...editingField, options: newOptions });
+                                  }}
+                                  onMoveUp={() => {
+                                    if (index > 0) {
+                                      const newOptions = arrayMove(editingField.options, index, index - 1);
                                       setEditingField({ ...editingField, options: newOptions });
-                                    }}
-                                    className="h-8"
-                                    data-testid={`input-option-label-${index}`}
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-xs text-muted-foreground">Value</label>
-                                  <Input
-                                    value={optionValue}
-                                    onChange={(e) => {
-                                      const newOptions = [...editingField.options];
-                                      if (isStructured) {
-                                        newOptions[index] = { ...option, value: e.target.value };
-                                      } else {
-                                        newOptions[index] = e.target.value;
-                                      }
+                                    }
+                                  }}
+                                  onMoveDown={() => {
+                                    if (index < editingField.options.length - 1) {
+                                      const newOptions = arrayMove(editingField.options, index, index + 1);
                                       setEditingField({ ...editingField, options: newOptions });
-                                    }}
-                                    className="h-8"
-                                    data-testid={`input-option-value-${index}`}
-                                  />
-                                </div>
-                                {pdfFieldId && (
-                                  <div className="col-span-2">
-                                    <label className="text-xs text-muted-foreground">PDF Field ID (read-only)</label>
-                                    <Input
-                                      value={pdfFieldId}
-                                      disabled
-                                      className="h-7 text-xs bg-muted"
-                                      title="PDF field binding - cannot be modified"
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                              
-                              {/* Per-option conditional trigger */}
-                              <div className="mt-2 pt-2 border-t border-border/50">
-                                <div className="flex items-center gap-2 mb-2">
-                                  <Switch
-                                    checked={!!optionConditional}
-                                    onCheckedChange={(checked) => {
-                                      const newOptions = [...editingField.options];
-                                      if (checked) {
-                                        newOptions[index] = {
-                                          ...option,
-                                          conditional: {
-                                            action: 'show',
-                                            targetField: '',
-                                          }
-                                        };
-                                      } else {
-                                        const { conditional, ...rest } = option;
-                                        newOptions[index] = rest;
-                                      }
-                                      setEditingField({ ...editingField, options: newOptions });
-                                    }}
-                                    data-testid={`switch-option-conditional-${index}`}
-                                  />
-                                  <span className="text-xs text-muted-foreground">Trigger field when selected</span>
-                                </div>
-                                
-                                {optionConditional && (
-                                  <div className="ml-6 space-y-2 p-2 bg-background rounded">
-                                    <div className="grid grid-cols-2 gap-2">
-                                      <div>
-                                        <label className="text-xs text-muted-foreground">Action</label>
-                                        <Select
-                                          value={optionConditional.action}
-                                          onValueChange={(value) => {
-                                            const newOptions = [...editingField.options];
-                                            newOptions[index] = {
-                                              ...option,
-                                              conditional: { ...optionConditional, action: value }
-                                            };
-                                            setEditingField({ ...editingField, options: newOptions });
-                                          }}
-                                        >
-                                          <SelectTrigger className="h-7 text-xs">
-                                            <SelectValue />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            <SelectItem value="show">Show</SelectItem>
-                                            <SelectItem value="hide">Hide</SelectItem>
-                                          </SelectContent>
-                                        </Select>
-                                      </div>
-                                      <div>
-                                        <label className="text-xs text-muted-foreground">Target Field</label>
-                                        <Select
-                                          value={optionConditional.targetField || ''}
-                                          onValueChange={(value) => {
-                                            const newOptions = [...editingField.options];
-                                            newOptions[index] = {
-                                              ...option,
-                                              conditional: { ...optionConditional, targetField: value }
-                                            };
-                                            setEditingField({ ...editingField, options: newOptions });
-                                          }}
-                                        >
-                                          <SelectTrigger className="h-7 text-xs">
-                                            <SelectValue placeholder="Select field" />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {sections.flatMap((s: any) => 
-                                              s.fields
-                                                .filter((f: any) => f.id !== editingField.id)
-                                                .map((f: any) => (
-                                                  <SelectItem key={f.id} value={f.id}>
-                                                    {f.label} ({s.title})
-                                                  </SelectItem>
-                                                ))
-                                            )}
-                                          </SelectContent>
-                                        </Select>
-                                      </div>
-                                    </div>
-                                    <div className="text-xs text-muted-foreground bg-muted/50 p-1 rounded">
-                                      {optionConditional.action === 'show' ? 'Show' : 'Hide'}{' '}
-                                      <strong>
-                                        {optionConditional.targetField ? 
-                                          sections.flatMap((s: any) => s.fields).find((f: any) => f.id === optionConditional.targetField)?.label || optionConditional.targetField
-                                          : '(select field)'}
-                                      </strong>{' '}
-                                      when this option is selected
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })
-                      ) : (
-                        <p className="text-sm text-muted-foreground text-center py-2">
-                          No options defined
-                        </p>
-                      )}
-                    </div>
+                                    }
+                                  }}
+                                  onUpdateConditional={(conditional: any) => {
+                                    const newOptions = [...editingField.options];
+                                    if (conditional === null) {
+                                      const { conditional: _, ...rest } = option;
+                                      newOptions[index] = rest;
+                                    } else {
+                                      newOptions[index] = { ...option, conditional };
+                                    }
+                                    setEditingField({ ...editingField, options: newOptions });
+                                  }}
+                                  sections={sections}
+                                  editingFieldId={editingField.id}
+                                />
+                              );
+                            })
+                          ) : (
+                            <p className="text-sm text-muted-foreground text-center py-2">
+                              No options defined
+                            </p>
+                          )}
+                        </div>
+                      </SortableContext>
+                    </DndContext>
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
                       onClick={() => {
                         const currentOptions = editingField.options || [];
-                        // Always use structured format for consistency
-                        const isStructured = currentOptions.length === 0 || typeof currentOptions[0] === 'object';
                         const newOptions = [...currentOptions];
-                        
-                        if (isStructured) {
-                          newOptions.push({ label: '', value: '', pdfFieldId: '' });
-                        } else {
-                          // Convert old string format to structured format
-                          newOptions.push('');
-                        }
+                        // Always add as structured option with stable _sortId for drag-and-drop
+                        newOptions.push({ label: '', value: '', pdfFieldId: '', _sortId: crypto.randomUUID() });
                         setEditingField({ ...editingField, options: newOptions });
                       }}
                       className="mt-2"
