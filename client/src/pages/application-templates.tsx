@@ -2257,12 +2257,7 @@ function FieldConfigurationDialog({
                     <label className="text-sm font-medium mb-2 block">Options</label>
                     <p className="text-xs text-muted-foreground mb-2">Drag options to reorder, or use the arrow buttons</p>
                     <DndContext
-                      sensors={useSensors(
-                        useSensor(PointerSensor),
-                        useSensor(KeyboardSensor, {
-                          coordinateGetter: sortableKeyboardCoordinates,
-                        })
-                      )}
+                      sensors={sensors}
                       collisionDetection={closestCenter}
                       onDragEnd={(event: DragEndEvent) => {
                         const { active, over } = event;
