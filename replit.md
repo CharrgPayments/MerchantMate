@@ -92,6 +92,13 @@ DATABASE_URL=$DEV_DATABASE_URL npm run db:push  # Unreliable - variable substitu
 ### Field Naming Convention (Application Templates)
 Uses period (`.`) delimiter for hierarchical field names in application templates: `section.subsection.fieldName` or `section.index.fieldName`.
 
+### "Other" Option Auto-Detection
+Radio buttons and checkbox lists automatically detect options with the label "Other" (case-insensitive). When an "Other" option is selected/checked:
+- A required text input appears below the field prompting "Please specify"
+- The value is stored in a separate field named `{fieldName}_other`
+- The text input is cleared automatically when a different option is selected/unchecked
+- Visual validation feedback shows the field as required when empty
+
 ## External Dependencies
 - **pg**: Native PostgreSQL driver.
 - **drizzle-orm**: Type-safe ORM for PostgreSQL.
