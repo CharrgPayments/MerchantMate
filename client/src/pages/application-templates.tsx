@@ -86,7 +86,18 @@ const templateFormSchema = z.object({
         pattern: z.string().optional(),
         min: z.number().optional(),
         max: z.number().optional(),
-        options: z.array(z.string()).optional(),
+        options: z.array(z.union([
+          z.string(),
+          z.object({
+            label: z.string(),
+            value: z.string(),
+            pdfFieldId: z.string().optional(),
+            conditional: z.object({
+              action: z.enum(['show', 'hide']),
+              targetField: z.string()
+            }).optional()
+          })
+        ])).optional(),
         sensitive: z.boolean().optional(),
         placeholder: z.string().optional(),
         description: z.string().optional(),
