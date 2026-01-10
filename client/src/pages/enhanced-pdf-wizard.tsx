@@ -3057,6 +3057,19 @@ export default function EnhancedPdfWizard() {
           ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2'
           : 'space-y-2';
 
+        // Check if "Other" option is selected (case-insensitive)
+        const radioOtherFieldName = `${field.fieldName}_other`;
+        const radioOtherValue = formData[radioOtherFieldName] || '';
+        const radioHasOtherOption = field.options?.some((opt: any) => {
+          const label = typeof opt === 'string' ? opt : opt.label;
+          return label.toLowerCase().trim() === 'other';
+        });
+        const radioIsOtherSelected = radioHasOtherOption && field.options?.some((opt: any) => {
+          const optValue = typeof opt === 'string' ? opt : opt.value;
+          const label = typeof opt === 'string' ? opt : opt.label;
+          return label.toLowerCase().trim() === 'other' && value === optValue;
+        });
+
         return (
           <div className="space-y-2">
             <div className="flex items-center gap-1">
@@ -3075,7 +3088,22 @@ export default function EnhancedPdfWizard() {
                 </Tooltip>
               )}
             </div>
-            <RadioGroup value={value} onValueChange={(value) => handleFieldChange(field.fieldName, value)} className={radioContainerClass}>
+            <RadioGroup 
+              value={value} 
+              onValueChange={(newValue) => {
+                handleFieldChange(field.fieldName, newValue);
+                // Clear "Other" text field when a non-"Other" option is selected
+                const selectedOpt = field.options?.find((opt: any) => {
+                  const optVal = typeof opt === 'string' ? opt : opt.value;
+                  return optVal === newValue;
+                });
+                const selectedLabel = typeof selectedOpt === 'string' ? selectedOpt : selectedOpt?.label || '';
+                if (selectedLabel.toLowerCase().trim() !== 'other') {
+                  handleFieldChange(radioOtherFieldName, '');
+                }
+              }} 
+              className={radioContainerClass}
+            >
               {field.options?.map((option: any) => {
                 const optionValue = typeof option === 'string' ? option : option.value;
                 const optionLabel = typeof option === 'string' ? option : option.label;
@@ -3097,6 +3125,25 @@ export default function EnhancedPdfWizard() {
                 );
               })}
             </RadioGroup>
+            {radioIsOtherSelected && (
+              <div className="mt-2 pl-6">
+                <Label htmlFor={radioOtherFieldName} className="text-sm font-medium text-gray-700">
+                  Please specify <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id={radioOtherFieldName}
+                  type="text"
+                  value={radioOtherValue}
+                  onChange={(e) => handleFieldChange(radioOtherFieldName, e.target.value)}
+                  placeholder="Please specify..."
+                  className={!radioOtherValue ? 'border-red-500' : ''}
+                  data-testid={`input-${radioOtherFieldName}`}
+                />
+                {!radioOtherValue && (
+                  <p className="text-xs text-red-500 mt-1">This field is required when "Other" is selected</p>
+                )}
+              </div>
+            )}
             {hasError && <p className="text-xs text-red-500">{hasError}</p>}
           </div>
         );
@@ -3375,6 +3422,15 @@ export default function EnhancedPdfWizard() {
           ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 border rounded-lg p-3 bg-gray-50'
           : 'space-y-2 border rounded-lg p-3 bg-gray-50';
 
+        // Check if "Other" option is checked (case-insensitive)
+        const checkboxOtherFieldName = `${field.fieldName}_other`;
+        const checkboxOtherValue = formData[checkboxOtherFieldName] || '';
+        const checkboxIsOtherChecked = field.options?.some((opt: any) => {
+          const optValue = typeof opt === 'string' ? opt : opt.value;
+          const label = typeof opt === 'string' ? opt : opt.label;
+          return label.toLowerCase().trim() === 'other' && selectedOptions.includes(optValue);
+        });
+
         return (
           <div className="space-y-2">
             <div className="flex items-center gap-1">
@@ -3411,6 +3467,11 @@ export default function EnhancedPdfWizard() {
                           newSelected = [...selectedOptions, optionValue];
                         } else {
                           newSelected = selectedOptions.filter((v: string) => v !== optionValue);
+                          // Clear the "Other" text field if "Other" is unchecked
+                          const isOtherOption = optionLabel.toLowerCase().trim() === 'other';
+                          if (isOtherOption) {
+                            handleFieldChange(checkboxOtherFieldName, '');
+                          }
                         }
                         handleFieldChange(field.fieldName, JSON.stringify(newSelected));
                       }}
@@ -3427,6 +3488,25 @@ export default function EnhancedPdfWizard() {
                 );
               })}
             </div>
+            {checkboxIsOtherChecked && (
+              <div className="mt-2 pl-6">
+                <Label htmlFor={checkboxOtherFieldName} className="text-sm font-medium text-gray-700">
+                  Please specify <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id={checkboxOtherFieldName}
+                  type="text"
+                  value={checkboxOtherValue}
+                  onChange={(e) => handleFieldChange(checkboxOtherFieldName, e.target.value)}
+                  placeholder="Please specify..."
+                  className={!checkboxOtherValue ? 'border-red-500' : ''}
+                  data-testid={`input-${checkboxOtherFieldName}`}
+                />
+                {!checkboxOtherValue && (
+                  <p className="text-xs text-red-500 mt-1">This field is required when "Other" is selected</p>
+                )}
+              </div>
+            )}
             {field.helpText && (
               <p className="text-xs text-gray-500">{field.helpText}</p>
             )}
