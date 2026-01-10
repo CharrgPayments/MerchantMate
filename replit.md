@@ -99,6 +99,22 @@ Radio buttons and checkbox lists automatically detect options with the label "Ot
 - The text input is cleared automatically when a different option is selected/unchecked
 - Visual validation feedback shows the field as required when empty
 
+### Field Option Reordering (Drag-and-Drop)
+Field options (for select, radio, checkbox-list, and boolean field types) can be reordered using drag-and-drop or keyboard-accessible up/down arrow buttons.
+
+**Implementation Details:**
+- Uses @dnd-kit library with `SortableContext` and `useSortable` hook
+- Each option is assigned a stable `_sortId` (UUID) on dialog open for reliable drag-and-drop
+- Options are normalized to structured objects when the field editor opens
+- The `_sortId` is stripped before saving to avoid schema pollution
+- Options support: label, value, pdfFieldId (for PDF mapping), and conditional triggers
+
+**UI Features:**
+- Drag handle (grip icon) for mouse/touch reordering
+- Up/down arrow buttons for keyboard accessibility
+- Visual position indicator (#1, #2, etc.)
+- Smooth transition animations during drag
+
 ## External Dependencies
 - **pg**: Native PostgreSQL driver.
 - **drizzle-orm**: Type-safe ORM for PostgreSQL.
