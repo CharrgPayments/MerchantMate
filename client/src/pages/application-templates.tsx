@@ -1677,6 +1677,8 @@ function FieldConfigurationDialog({
     { value: 'mcc-select', label: 'MCC Code (Business Category)' },
     { value: 'user_account', label: 'User Account (Auto-create)' },
     { value: 'signature', label: 'Signature (Digital Capture)' },
+    { value: 'bank_routing', label: 'Bank Routing Number (Masked)' },
+    { value: 'bank_account', label: 'Bank Account Number (Masked)' },
     { value: 'disclosure', label: 'Disclosure (Scrollable with Signature)' }
   ];
 
