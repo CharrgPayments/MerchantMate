@@ -1676,6 +1676,7 @@ function FieldConfigurationDialog({
     { value: 'address', label: 'Address (Google Autocomplete)' },
     { value: 'mcc-select', label: 'MCC Code (Business Category)' },
     { value: 'user_account', label: 'User Account (Auto-create)' },
+    { value: 'signature', label: 'Signature (Digital Capture)' },
     { value: 'disclosure', label: 'Disclosure (Scrollable with Signature)' }
   ];
 
