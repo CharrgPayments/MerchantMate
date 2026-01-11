@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { Building, FileText, CheckCircle, ArrowLeft, ArrowRight, Users, Upload, Signature, PenTool, Type, RotateCcw, Check, X, AlertTriangle, Monitor, Info, Lock, User } from 'lucide-react';
+import { Building, FileText, CheckCircle, ArrowLeft, ArrowRight, Users, Upload, Signature, PenTool, Type, RotateCcw, Check, X, AlertTriangle, Monitor, Info, Lock, User, Eye, EyeOff } from 'lucide-react';
 import { MCCSelect } from '@/components/ui/mcc-select';
 import { PhoneNumberInput } from '@/components/forms/PhoneNumberInput';
 import { EINInput } from '@/components/forms/EINInput';
@@ -79,6 +79,7 @@ export default function EnhancedPdfWizard() {
   const [activeOwnerSlots, setActiveOwnerSlots] = useState<Set<number>>(new Set([1])); // Start with owner1 active
   const [totalOwnership, setTotalOwnership] = useState<number>(0); // Store calculated total ownership
   const [ownershipPercentages, setOwnershipPercentages] = useState<Record<number, number>>({}); // Track each owner's %
+  const [visibleSensitiveFields, setVisibleSensitiveFields] = useState<Set<string>>(new Set()); // Track which sensitive fields are visible
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
@@ -3347,6 +3348,96 @@ export default function EnhancedPdfWizard() {
               maxLength={11}
               data-testid={`input-${field.fieldName}`}
             />
+            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
+          </div>
+        );
+
+      case 'bank_routing':
+        const isRoutingVisible = visibleSensitiveFields.has(field.fieldName);
+        const routingDigits = (value || '').replace(/\D/g, '');
+        return (
+          <div className="space-y-2">
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <div className="relative">
+              <Input
+                id={field.fieldName}
+                type={isRoutingVisible ? 'text' : 'password'}
+                value={routingDigits}
+                onChange={(e) => {
+                  let val = e.target.value.replace(/\D/g, ''); // Remove non-digits
+                  if (val.length > 9) val = val.slice(0, 9); // Routing numbers are 9 digits
+                  handleFieldChange(field.fieldName, val);
+                }}
+                className={`pr-10 ${hasError ? 'border-red-500' : ''}`}
+                placeholder="9-digit routing number"
+                maxLength={9}
+                data-testid={`input-${field.fieldName}`}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const newSet = new Set(visibleSensitiveFields);
+                  if (isRoutingVisible) {
+                    newSet.delete(field.fieldName);
+                  } else {
+                    newSet.add(field.fieldName);
+                  }
+                  setVisibleSensitiveFields(newSet);
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+              >
+                {isRoutingVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">ABA routing number (9 digits)</p>
+            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
+          </div>
+        );
+
+      case 'bank_account':
+        const isAccountVisible = visibleSensitiveFields.has(field.fieldName);
+        const accountDigits = (value || '').replace(/\D/g, '');
+        return (
+          <div className="space-y-2">
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <div className="relative">
+              <Input
+                id={field.fieldName}
+                type={isAccountVisible ? 'text' : 'password'}
+                value={accountDigits}
+                onChange={(e) => {
+                  let val = e.target.value.replace(/\D/g, ''); // Remove non-digits
+                  if (val.length > 17) val = val.slice(0, 17); // Account numbers typically 8-17 digits
+                  handleFieldChange(field.fieldName, val);
+                }}
+                className={`pr-10 ${hasError ? 'border-red-500' : ''}`}
+                placeholder="Account number"
+                maxLength={17}
+                data-testid={`input-${field.fieldName}`}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const newSet = new Set(visibleSensitiveFields);
+                  if (isAccountVisible) {
+                    newSet.delete(field.fieldName);
+                  } else {
+                    newSet.add(field.fieldName);
+                  }
+                  setVisibleSensitiveFields(newSet);
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+              >
+                {isAccountVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">Bank account number (8-17 digits)</p>
             {hasError && <p className="text-xs text-red-500">{hasError}</p>}
           </div>
         );
