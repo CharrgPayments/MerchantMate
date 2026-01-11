@@ -80,6 +80,8 @@ export default function EnhancedPdfWizard() {
   const [totalOwnership, setTotalOwnership] = useState<number>(0); // Store calculated total ownership
   const [ownershipPercentages, setOwnershipPercentages] = useState<Record<number, number>>({}); // Track each owner's %
   const [visibleSensitiveFields, setVisibleSensitiveFields] = useState<Set<string>>(new Set()); // Track which sensitive fields are visible
+  const [signatureDrawingState, setSignatureDrawingState] = useState<Record<string, { isDrawing: boolean; lastPos: { x: number; y: number } | null }>>({});
+  const signatureCanvasRefs = useRef<Record<string, HTMLCanvasElement | null>>({});
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
@@ -4738,6 +4740,124 @@ export default function EnhancedPdfWizard() {
                 dataTestId={`disclosure-${field.fieldName}`}
               />
             )}
+            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
+          </div>
+        );
+
+      case 'signature':
+        const sigFieldKey = field.fieldName;
+        const sigState = signatureDrawingState[sigFieldKey] || { isDrawing: false, lastPos: null };
+        
+        const getSignatureCoords = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+          const canvas = signatureCanvasRefs.current[sigFieldKey];
+          if (!canvas) return { x: 0, y: 0 };
+          const rect = canvas.getBoundingClientRect();
+          if ('touches' in e) {
+            return { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top };
+          }
+          return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        };
+        
+        const initSignatureCanvas = (canvas: HTMLCanvasElement | null) => {
+          if (!canvas) return;
+          signatureCanvasRefs.current[sigFieldKey] = canvas;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+          canvas.width = canvas.offsetWidth || 400;
+          canvas.height = 150;
+          ctx.strokeStyle = '#000';
+          ctx.lineWidth = 2;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          if (value) {
+            const img = new Image();
+            img.onload = () => ctx.drawImage(img, 0, 0);
+            img.src = value;
+          }
+        };
+        
+        const startSignatureDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+          e.preventDefault();
+          setSignatureDrawingState(prev => ({
+            ...prev,
+            [sigFieldKey]: { isDrawing: true, lastPos: getSignatureCoords(e) }
+          }));
+        };
+        
+        const drawSignature = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+          if (!sigState.isDrawing || !sigState.lastPos) return;
+          e.preventDefault();
+          const canvas = signatureCanvasRefs.current[sigFieldKey];
+          const ctx = canvas?.getContext('2d');
+          if (!canvas || !ctx) return;
+          const coords = getSignatureCoords(e);
+          ctx.beginPath();
+          ctx.moveTo(sigState.lastPos.x, sigState.lastPos.y);
+          ctx.lineTo(coords.x, coords.y);
+          ctx.stroke();
+          setSignatureDrawingState(prev => ({
+            ...prev,
+            [sigFieldKey]: { ...prev[sigFieldKey], lastPos: coords }
+          }));
+        };
+        
+        const endSignatureDrawing = () => {
+          if (sigState.isDrawing) {
+            setSignatureDrawingState(prev => ({
+              ...prev,
+              [sigFieldKey]: { isDrawing: false, lastPos: null }
+            }));
+            const canvas = signatureCanvasRefs.current[sigFieldKey];
+            if (canvas) {
+              const dataUrl = canvas.toDataURL('image/png');
+              handleFieldChange(field.fieldName, dataUrl);
+            }
+          }
+        };
+        
+        const clearSignature = () => {
+          const canvas = signatureCanvasRefs.current[sigFieldKey];
+          const ctx = canvas?.getContext('2d');
+          if (canvas && ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            handleFieldChange(field.fieldName, '');
+          }
+        };
+        
+        return (
+          <div className="space-y-2">
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <div className="border rounded-lg p-3 bg-white">
+              <canvas
+                ref={initSignatureCanvas}
+                className="w-full border border-gray-200 rounded cursor-crosshair bg-white touch-none"
+                style={{ height: '150px' }}
+                onMouseDown={startSignatureDrawing}
+                onMouseMove={drawSignature}
+                onMouseUp={endSignatureDrawing}
+                onMouseLeave={endSignatureDrawing}
+                onTouchStart={startSignatureDrawing}
+                onTouchMove={drawSignature}
+                onTouchEnd={endSignatureDrawing}
+                data-testid={`signature-canvas-${field.fieldName}`}
+              />
+              <div className="flex justify-between items-center mt-2">
+                <p className="text-xs text-muted-foreground">Draw your signature above</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={clearSignature}
+                  data-testid={`signature-clear-${field.fieldName}`}
+                >
+                  <RotateCcw className="w-4 h-4 mr-1" />
+                  Clear
+                </Button>
+              </div>
+            </div>
             {hasError && <p className="text-xs text-red-500">{hasError}</p>}
           </div>
         );
