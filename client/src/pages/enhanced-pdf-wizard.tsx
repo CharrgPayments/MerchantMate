@@ -4747,7 +4747,8 @@ export default function EnhancedPdfWizard() {
 
       case 'signature':
         // Collect available disclosure fields from the form for linking
-        const availableDisclosures = allFields
+        const allFormFields = filteredSections.flatMap(section => section.fields || []);
+        const availableDisclosures = allFormFields
           .filter(f => f.fieldType === 'disclosure')
           .map(f => ({
             fieldName: f.fieldName,
