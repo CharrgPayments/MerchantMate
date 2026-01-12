@@ -19,6 +19,7 @@ import { EINInput } from '@/components/forms/EINInput';
 import { AddressAutocompleteInput } from '@/components/forms/AddressAutocompleteInput';
 import { SignatureGroupInput } from '@/components/forms/SignatureGroupInput';
 import { EnhancedSignatureField } from '@/components/forms/EnhancedSignatureField';
+import OwnerGroupField, { OwnerGroupValidation } from '@/components/forms/OwnerGroupField';
 import { DisclosureField } from '@/components/forms/DisclosureField';
 import { DisclosureFieldWrapper } from '@/components/forms/DisclosureFieldWrapper';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -4792,6 +4793,60 @@ export default function EnhancedPdfWizard() {
             applicationId={prospectData?.application?.id}
             linkedFields={linkedFieldsInfo}
             dataTestId={`signature-${field.fieldName}`}
+          />
+        );
+
+      case 'owner_group':
+        // Parse existing owner group data
+        let ownerGroupValue: any[] = [];
+        try {
+          if (value && typeof value === 'string') {
+            ownerGroupValue = JSON.parse(value);
+          } else if (value && Array.isArray(value)) {
+            ownerGroupValue = value;
+          }
+        } catch (e) {
+          // Invalid JSON, use empty array
+        }
+        
+        // Get config from field
+        const ownerGroupConfig = (field as any).ownerGroupConfig || {};
+        
+        // Handle validation changes from owner group
+        const handleOwnerGroupValidation = (validation: OwnerGroupValidation) => {
+          setValidationErrors(prev => {
+            const currentError = prev[field.fieldName];
+            const newError = !validation.isValid 
+              ? (validation.errors[0] || 
+                 (validation.missingRequiredFields[0] ? `Missing: ${validation.missingRequiredFields[0]}` : 'Owner information incomplete'))
+              : undefined;
+            
+            // Only update if error state changed
+            if (currentError === newError || (!currentError && !newError)) {
+              return prev;
+            }
+            
+            const newErrors = { ...prev };
+            if (newError) {
+              newErrors[field.fieldName] = newError;
+            } else {
+              delete newErrors[field.fieldName];
+            }
+            return newErrors;
+          });
+        };
+        
+        return (
+          <OwnerGroupField
+            fieldId={field.fieldName}
+            value={ownerGroupValue}
+            onChange={(owners) => handleFieldChange(field.fieldName, JSON.stringify(owners))}
+            onValidationChange={handleOwnerGroupValidation}
+            config={{
+              maxOwners: ownerGroupConfig.maxOwners || 5,
+              requireSignatureThreshold: ownerGroupConfig.signatureThreshold || 25,
+            }}
+            disabled={isReadOnly}
           />
         );
 

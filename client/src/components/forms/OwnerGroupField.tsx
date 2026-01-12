@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -47,10 +47,19 @@ export interface Owner {
   signature?: SignatureEnvelope;
 }
 
+export interface OwnerGroupValidation {
+  isValid: boolean;
+  errors: string[];
+  ownershipTotal: number;
+  pendingSignatures: number;
+  missingRequiredFields: string[];
+}
+
 interface OwnerGroupFieldProps {
   fieldId: string;
   value: Owner[];
   onChange: (owners: Owner[]) => void;
+  onValidationChange?: (validation: OwnerGroupValidation) => void;
   config?: {
     maxOwners?: number;
     requireSignatureThreshold?: number;
@@ -110,6 +119,7 @@ export default function OwnerGroupField({
   fieldId,
   value = [],
   onChange,
+  onValidationChange,
   config = {},
   disabled = false,
   errors = {}
@@ -132,6 +142,78 @@ export default function OwnerGroupField({
 
   const totalOwnership = owners.reduce((sum, o) => sum + (o.ownershipPercent || 0), 0);
   const remainingOwnership = 100 - totalOwnership;
+
+  const validateOwner = (owner: Owner): string[] => {
+    const ownerErrors: string[] = [];
+    if (!owner.firstName.trim()) ownerErrors.push('First name is required');
+    if (!owner.lastName.trim()) ownerErrors.push('Last name is required');
+    if (!owner.title) ownerErrors.push('Title is required');
+    if (!owner.email.trim()) ownerErrors.push('Email is required');
+    if (!owner.phone.trim()) ownerErrors.push('Phone is required');
+    if (!owner.dateOfBirth) ownerErrors.push('Date of birth is required');
+    if (!owner.ssn.trim() || owner.ssn.replace(/\D/g, '').length !== 9) ownerErrors.push('Valid SSN is required');
+    if (!owner.address.street1.trim()) ownerErrors.push('Street address is required');
+    if (!owner.address.city.trim()) ownerErrors.push('City is required');
+    if (!owner.address.state) ownerErrors.push('State is required');
+    if (!owner.address.zipCode.trim() || owner.address.zipCode.length !== 5) ownerErrors.push('Valid ZIP code is required');
+    return ownerErrors;
+  };
+
+  const getValidation = (): OwnerGroupValidation => {
+    const validationErrors: string[] = [];
+    const missingFields: string[] = [];
+    
+    if (totalOwnership !== 100) {
+      validationErrors.push(`Total ownership must equal 100% (currently ${totalOwnership}%)`);
+    }
+    if (totalOwnership > 100) {
+      validationErrors.push(`Total ownership exceeds 100% (currently ${totalOwnership}%)`);
+    }
+    
+    const beneficialOwnersList = owners.filter(o => o.ownershipPercent >= signatureThreshold);
+    const pendingSigs = beneficialOwnersList.filter(o => !o.signature || o.signature.status !== 'signed');
+    
+    if (pendingSigs.length > 0) {
+      validationErrors.push(`${pendingSigs.length} beneficial owner(s) require signature`);
+      pendingSigs.forEach(o => {
+        missingFields.push(`${o.firstName || 'Owner'} ${o.lastName || ''} signature`);
+      });
+    }
+    
+    owners.forEach((owner, idx) => {
+      const ownerErrors = validateOwner(owner);
+      if (ownerErrors.length > 0) {
+        const ownerName = owner.firstName && owner.lastName 
+          ? `${owner.firstName} ${owner.lastName}` 
+          : `Owner ${idx + 1}`;
+        ownerErrors.forEach(err => {
+          missingFields.push(`${ownerName}: ${err}`);
+        });
+      }
+    });
+    
+    return {
+      isValid: validationErrors.length === 0 && missingFields.length === 0,
+      errors: validationErrors,
+      ownershipTotal: totalOwnership,
+      pendingSignatures: pendingSigs.length,
+      missingRequiredFields: missingFields,
+    };
+  };
+
+  const prevValidationRef = useRef<string>('');
+  
+  useEffect(() => {
+    if (onValidationChange) {
+      const validation = getValidation();
+      const validationKey = JSON.stringify(validation);
+      
+      if (validationKey !== prevValidationRef.current) {
+        prevValidationRef.current = validationKey;
+        onValidationChange(validation);
+      }
+    }
+  }, [owners]);
   const isComplete = totalOwnership === 100;
   const hasOverage = totalOwnership > 100;
 
@@ -574,6 +656,43 @@ export default function OwnerGroupField({
           </AlertDescription>
         </Alert>
       )}
+
+      {/* Validation Summary */}
+      {(() => {
+        const validation = getValidation();
+        if (validation.isValid) {
+          return (
+            <Alert className="border-green-200 bg-green-50">
+              <CheckCircle2 className="h-4 w-4 text-green-600" />
+              <AlertDescription className="text-green-700">
+                <strong>Owner information complete</strong> - All required fields filled and signatures collected.
+              </AlertDescription>
+            </Alert>
+          );
+        }
+        
+        return (
+          <Alert variant="destructive" className="mt-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              <div className="space-y-2">
+                <p className="font-medium">Please correct the following issues:</p>
+                <ul className="list-disc list-inside text-sm space-y-1">
+                  {validation.errors.map((error, idx) => (
+                    <li key={`err-${idx}`}>{error}</li>
+                  ))}
+                  {validation.missingRequiredFields.slice(0, 5).map((field, idx) => (
+                    <li key={`field-${idx}`}>{field}</li>
+                  ))}
+                  {validation.missingRequiredFields.length > 5 && (
+                    <li>...and {validation.missingRequiredFields.length - 5} more issues</li>
+                  )}
+                </ul>
+              </div>
+            </AlertDescription>
+          </Alert>
+        );
+      })()}
     </div>
   );
 }
