@@ -1680,7 +1680,8 @@ function FieldConfigurationDialog({
     { value: 'signature', label: 'Signature (Digital Capture)' },
     { value: 'bank_routing', label: 'Bank Routing Number (Masked)' },
     { value: 'bank_account', label: 'Bank Account Number (Masked)' },
-    { value: 'disclosure', label: 'Disclosure (Scrollable with Signature)' }
+    { value: 'disclosure', label: 'Disclosure (Scrollable with Signature)' },
+    { value: 'owner_group', label: 'Owner Group (Beneficial Owners & Control Persons)' }
   ];
 
   const sensors = useSensors(
@@ -3264,6 +3265,7 @@ function PdfFieldNamingDocumentation({
     { type: 'signature', icon: PenTool, description: 'Digital signature capture', example: 'owners.1.signature, agent.signature', detection: 'Signature group pattern', complex: true, masking: 'Stored securely' },
     { type: 'user_account', icon: Users, description: 'Automatic user account creation', example: 'prospect.account', detection: 'Special field type for account creation', complex: true, masking: 'Password masked' },
     { type: 'disclosure', icon: FileText, description: 'Scrollable disclosure with signature', example: 'disclosures.termsOfService, disclosures.eSignConsent', detection: 'Field in disclosures section', complex: true, masking: 'Audit trail' },
+    { type: 'owner_group', icon: Users, description: 'Beneficial owners & control persons with auto-signatures', example: 'business.owners', detection: 'Owner/beneficial owner collection', complex: true, masking: 'SSN masked' },
   ];
 
   return (
