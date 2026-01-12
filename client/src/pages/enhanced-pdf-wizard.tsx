@@ -4746,15 +4746,28 @@ export default function EnhancedPdfWizard() {
         );
 
       case 'signature':
-        // Collect available disclosure fields from the form for linking
-        const allFormFields = filteredSections.flatMap(section => section.fields || []);
-        const availableDisclosures = allFormFields
-          .filter(f => f.fieldType === 'disclosure')
-          .map(f => ({
-            fieldName: f.fieldName,
-            label: f.fieldLabel,
-            definitionId: (f as any).disclosureDefinitionId,
-          }));
+        // Get linked fields from template configuration
+        const allFormFields = filteredSections.flatMap(section => ({
+          sectionTitle: section.name,
+          fields: section.fields || []
+        }));
+        const configuredLinkedFieldIds = (field as any).linkedFields || [];
+        const linkedFieldsInfo = configuredLinkedFieldIds
+          .map((fieldId: string) => {
+            for (const section of allFormFields) {
+              const foundField = section.fields.find((f: any) => f.fieldName === fieldId || f.id === fieldId);
+              if (foundField) {
+                return {
+                  fieldId: foundField.fieldName || foundField.id,
+                  fieldLabel: foundField.fieldLabel || foundField.label,
+                  fieldType: foundField.fieldType || foundField.type,
+                  sectionTitle: section.sectionTitle,
+                };
+              }
+            }
+            return null;
+          })
+          .filter(Boolean);
         
         // Parse existing signature envelope from formData
         let signatureEnvelope = null;
@@ -4777,7 +4790,7 @@ export default function EnhancedPdfWizard() {
             disabled={isReadOnly}
             isRequired={fieldIsRequired}
             applicationId={prospectData?.application?.id}
-            availableDisclosures={availableDisclosures}
+            linkedFields={linkedFieldsInfo}
             dataTestId={`signature-${field.fieldName}`}
           />
         );
