@@ -13718,6 +13718,124 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/signatures/request - Enhanced signature request from form fields
+  app.post('/api/signatures/request', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
+    try {
+      const { email, name, fieldName, applicationId, linkedDisclosures } = req.body;
+      
+      if (!email || !name || !fieldName) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Missing required fields: email, name, fieldName' 
+        });
+      }
+
+      const requestToken = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
+
+      const signature = await storage.createSignatureCapture({
+        applicationId: applicationId || null,
+        prospectId: null,
+        roleKey: fieldName,
+        signerType: 'form_field',
+        signerName: name,
+        signerEmail: email,
+        signature: null,
+        signatureType: null,
+        initials: null,
+        dateSigned: null,
+        timestampSigned: null,
+        timestampRequested: new Date(),
+        timestampExpires: expiresAt,
+        requestToken,
+        status: 'requested',
+        notes: linkedDisclosures?.length ? `Linked disclosures: ${linkedDisclosures.join(', ')}` : null,
+        ownershipPercentage: null,
+      });
+
+      // Create disclosure links if provided
+      if (linkedDisclosures?.length && signature.id) {
+        for (const disclosureFieldName of linkedDisclosures) {
+          try {
+            await storage.createSignatureDisclosureLink({
+              signatureCaptureId: signature.id,
+              disclosureFieldName,
+              isRequired: true,
+              signerRole: 'signer',
+            });
+          } catch (linkError) {
+            console.error('Error creating disclosure link:', linkError);
+          }
+        }
+      }
+
+      const { emailService } = await import('./emailService');
+      const currentUser = req.user;
+      
+      let companyName = 'Signature Request';
+      if (applicationId) {
+        const application = await storage.getApplication(applicationId);
+        if (application?.businessName) {
+          companyName = application.businessName;
+        }
+      }
+      
+      const emailSent = await emailService.sendSignatureRequestEmail({
+        ownerName: name,
+        ownerEmail: email,
+        companyName,
+        ownershipPercentage: 'N/A',
+        signatureToken: requestToken,
+        requesterName: currentUser?.username || 'System',
+        agentName: currentUser?.firstName && currentUser?.lastName 
+          ? `${currentUser.firstName} ${currentUser.lastName}` 
+          : currentUser?.username || 'Agent',
+        dbEnv: req.dbEnv,
+      });
+
+      if (!emailSent) {
+        await storage.updateSignatureCapture(signature.id, { 
+          status: 'pending',
+          notes: 'Email delivery failed - request not sent'
+        });
+        return res.status(500).json({ 
+          success: false, 
+          message: 'Failed to send signature request email. Please try again.',
+        });
+      }
+
+      // Return a complete SignatureEnvelope that the frontend can store
+      const signatureEnvelope = {
+        signerName: name,
+        signerEmail: email,
+        signature: '',
+        signatureType: 'drawn' as const,
+        status: 'requested' as const,
+        linkedDisclosures: linkedDisclosures || [],
+        requestToken,
+        requestedAt: new Date().toISOString(),
+        expiresAt: expiresAt.toISOString(),
+      };
+
+      res.json({ 
+        success: true, 
+        message: 'Signature request sent successfully',
+        signature,
+        signatureEnvelope,
+        requestToken,
+        expiresAt
+      });
+    } catch (error) {
+      console.error('Enhanced signature request error:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: 'Failed to send signature request',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
   // =====================================================
   // WORKFLOW API ROUTES
   // =====================================================
