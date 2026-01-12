@@ -2498,5 +2498,77 @@ export interface DisclosureWithVersion extends DisclosureDefinition {
   signatureCount?: number;
 }
 
+// ============================================
+// Enhanced Signature Fields with Disclosure Association
+// ============================================
+
+// Junction table linking signature requests to disclosure fields they acknowledge
+export const signatureDisclosureLinks = pgTable("signature_disclosure_links", {
+  id: serial("id").primaryKey(),
+  signatureCaptureId: integer("signature_capture_id").references(() => signatureCaptures.id, { onDelete: 'cascade' }).notNull(),
+  disclosureFieldName: text("disclosure_field_name").notNull(), // The field name in the form (e.g., "disclosures.personalGuarantor")
+  disclosureDefinitionId: integer("disclosure_definition_id").references(() => disclosureDefinitions.id),
+  disclosureVersionId: integer("disclosure_version_id").references(() => disclosureVersions.id),
+  isRequired: boolean("is_required").notNull().default(true),
+  signerRole: text("signer_role"), // e.g., "owner", "guarantor", "witness"
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Signature request tokens for email-based signature collection
+export const signatureRequests = pgTable("signature_requests", {
+  id: serial("id").primaryKey(),
+  signatureCaptureId: integer("signature_capture_id").references(() => signatureCaptures.id, { onDelete: 'cascade' }).notNull(),
+  applicationId: integer("application_id").references(() => prospectApplications.id, { onDelete: 'cascade' }),
+  requestToken: text("request_token").notNull().unique(), // Unique token for email link
+  signerEmail: text("signer_email").notNull(),
+  signerName: text("signer_name").notNull(),
+  status: text("status").notNull().default("pending"), // pending, sent, opened, signed, expired, cancelled
+  expiresAt: timestamp("expires_at").notNull(),
+  sentAt: timestamp("sent_at"),
+  openedAt: timestamp("opened_at"),
+  signedAt: timestamp("signed_at"),
+  cancelledAt: timestamp("cancelled_at"),
+  reminderCount: integer("reminder_count").notNull().default(0),
+  lastReminderAt: timestamp("last_reminder_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdBy: varchar("created_by").references(() => users.id),
+});
+
+// Zod schemas and types for signature disclosure links
+export const insertSignatureDisclosureLinkSchema = createInsertSchema(signatureDisclosureLinks).omit({
+  id: true,
+  createdAt: true,
+});
+export type SignatureDisclosureLink = typeof signatureDisclosureLinks.$inferSelect;
+export type InsertSignatureDisclosureLink = z.infer<typeof insertSignatureDisclosureLinkSchema>;
+
+// Zod schemas and types for signature requests
+export const insertSignatureRequestSchema = createInsertSchema(signatureRequests).omit({
+  id: true,
+  createdAt: true,
+});
+export type SignatureRequest = typeof signatureRequests.$inferSelect;
+export type InsertSignatureRequest = z.infer<typeof insertSignatureRequestSchema>;
+
+// Enhanced signature envelope type for form field storage (JSON serialized in formData)
+export interface SignatureEnvelope {
+  signerName: string;
+  signerEmail: string;
+  signature: string; // Base64 data URL for drawn, or SVG for typed
+  signatureType: 'drawn' | 'typed';
+  typedFontStyle?: string; // Font used for typed signature
+  status: 'pending' | 'requested' | 'signed' | 'expired' | 'cancelled';
+  linkedDisclosures?: string[]; // Array of disclosure field names this signature acknowledges
+  requestToken?: string; // Token if sent for remote signature
+  requestedAt?: string; // ISO timestamp
+  signedAt?: string; // ISO timestamp
+  expiresAt?: string; // ISO timestamp
+  auditTrail?: {
+    ipAddress?: string;
+    userAgent?: string;
+    timestamp: string;
+  };
+}
+
 // Export Drizzle utilities
 export { sql, eq };
