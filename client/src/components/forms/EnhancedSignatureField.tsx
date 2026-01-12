@@ -78,6 +78,7 @@ export function EnhancedSignatureField({
   const isSigned = status === 'signed';
   const isRequested = status === 'requested';
   const isExpired = status === 'expired';
+  const isLocked = isSigned || isRequested; // Lock editing when signed or request is pending
 
   useEffect(() => {
     if (value) {
@@ -293,7 +294,7 @@ export function EnhancedSignatureField({
               value={signerName}
               onChange={(e) => setSignerName(e.target.value)}
               placeholder="Enter full legal name"
-              disabled={disabled || isSigned}
+              disabled={disabled || isLocked}
               data-testid={`${fieldName}-signer-name`}
             />
           </div>
@@ -307,7 +308,7 @@ export function EnhancedSignatureField({
               value={signerEmail}
               onChange={(e) => setSignerEmail(e.target.value)}
               placeholder="Enter email address"
-              disabled={disabled || isSigned}
+              disabled={disabled || isLocked}
               data-testid={`${fieldName}-signer-email`}
             />
           </div>
@@ -325,7 +326,7 @@ export function EnhancedSignatureField({
                     id={`link-${disclosure.fieldName}`}
                     checked={linkedDisclosures.includes(disclosure.fieldName)}
                     onCheckedChange={() => toggleDisclosureLink(disclosure.fieldName)}
-                    disabled={disabled || isSigned}
+                    disabled={disabled || isLocked}
                   />
                   <label
                     htmlFor={`link-${disclosure.fieldName}`}
@@ -339,7 +340,34 @@ export function EnhancedSignatureField({
           </div>
         )}
 
-        {!isSigned && !isRequested && (
+        {isRequested && (
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center gap-2 text-blue-800">
+              <Clock className="w-4 h-4" />
+              <span className="font-medium">Signature request pending</span>
+            </div>
+            <p className="text-sm text-blue-700 mt-1">
+              An email has been sent to {signerEmail || 'the signer'}. Waiting for their signature.
+            </p>
+            {value?.requestToken && (
+              <p className="text-xs text-blue-600 mt-2">Request ID: {value.requestToken.slice(0, 8)}...</p>
+            )}
+          </div>
+        )}
+
+        {isExpired && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-center gap-2 text-red-800">
+              <AlertCircle className="w-4 h-4" />
+              <span className="font-medium">Signature request expired</span>
+            </div>
+            <p className="text-sm text-red-700 mt-1">
+              The signature request has expired. You can send a new request.
+            </p>
+          </div>
+        )}
+
+        {!isLocked && !isExpired && (
           <Tabs value={signatureType} onValueChange={(v) => setSignatureType(v as 'draw' | 'type')} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="draw" className="flex items-center gap-2">
@@ -433,27 +461,12 @@ export function EnhancedSignatureField({
           </div>
         )}
 
-        {isRequested && (
-          <div className="p-4 border rounded-lg bg-blue-50 text-center">
-            <Clock className="w-8 h-8 mx-auto text-blue-500 mb-2" />
-            <p className="font-medium">Signature Requested</p>
-            <p className="text-sm text-muted-foreground">
-              Waiting for {signerName} ({signerEmail}) to sign
-            </p>
-            {value?.requestedAt && (
-              <p className="text-xs text-muted-foreground mt-1">
-                Request sent {new Date(value.requestedAt).toLocaleString()}
-              </p>
-            )}
-          </div>
-        )}
-
-        {!isSigned && (
+        {!isSigned && !isRequested && (
           <div className="flex flex-wrap gap-2 pt-2 border-t">
             <Button
               type="button"
               onClick={handleSaveSignature}
-              disabled={disabled || isRequested || (!drawnSignature && signatureType === 'draw') || !signerName.trim()}
+              disabled={disabled || (!drawnSignature && signatureType === 'draw') || !signerName.trim()}
               data-testid={`${fieldName}-save-btn`}
             >
               <CheckCircle className="w-4 h-4 mr-2" />
@@ -468,7 +481,7 @@ export function EnhancedSignatureField({
               data-testid={`${fieldName}-send-btn`}
             >
               <Send className="w-4 h-4 mr-2" />
-              {sendSignatureRequestMutation.isPending ? 'Sending...' : 'Send for Signature'}
+              {sendSignatureRequestMutation.isPending ? 'Sending...' : (isExpired ? 'Resend Request' : 'Send for Signature')}
             </Button>
           </div>
         )}
