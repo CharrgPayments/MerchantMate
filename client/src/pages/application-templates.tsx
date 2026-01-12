@@ -1636,6 +1636,7 @@ function FieldConfigurationDialog({
   const [editingField, setEditingField] = useState<any>(null);
   const [editingSectionIndex, setEditingSectionIndex] = useState<number>(-1);
   const [editingFieldIndex, setEditingFieldIndex] = useState<number>(-1);
+  const [linkedFieldSearch, setLinkedFieldSearch] = useState('');
   const [openSections, setOpenSections] = useState<Set<string>>(() => 
     new Set(normalizeFieldIds(template.fieldConfiguration?.sections || []).map((s: any) => s.id))
   );
@@ -1792,6 +1793,7 @@ function FieldConfigurationDialog({
   const openFieldEditor = (sectionIndex: number, fieldIndex: number) => {
     setEditingSectionIndex(sectionIndex);
     setEditingFieldIndex(fieldIndex);
+    setLinkedFieldSearch(''); // Reset search when opening editor
     
     const field = { ...sections[sectionIndex].fields[fieldIndex] };
     
@@ -2893,41 +2895,64 @@ function FieldConfigurationDialog({
                     <p className="text-xs text-muted-foreground mb-3">
                       Select fields that this signature acknowledges or is associated with. This is used for compliance tracking.
                     </p>
+                    <div className="mb-2">
+                      <Input
+                        placeholder="Search fields..."
+                        value={linkedFieldSearch}
+                        onChange={(e) => setLinkedFieldSearch(e.target.value)}
+                        className="h-8"
+                      />
+                    </div>
                     <div className="space-y-2 max-h-48 overflow-y-auto border rounded-md p-3 bg-muted/30">
-                      {sections.flatMap((section: any, sectionIndex: number) => 
-                        section.fields
-                          .filter((f: any) => f.id !== editingField.id)
-                          .map((field: any) => {
-                            const linkedFields = editingField.linkedFields || [];
-                            const isLinked = linkedFields.includes(field.id);
-                            return (
-                              <div key={field.id} className="flex items-center space-x-2">
-                                <Checkbox
-                                  id={`link-field-${field.id}`}
-                                  checked={isLinked}
-                                  onCheckedChange={(checked) => {
-                                    const newLinkedFields = checked
-                                      ? [...linkedFields, field.id]
-                                      : linkedFields.filter((id: string) => id !== field.id);
-                                    setEditingField({ ...editingField, linkedFields: newLinkedFields });
-                                  }}
-                                />
-                                <label
-                                  htmlFor={`link-field-${field.id}`}
-                                  className="text-sm cursor-pointer flex-1"
-                                >
-                                  <span className="font-medium">{field.label}</span>
-                                  <span className="text-xs text-muted-foreground ml-2">({section.title} - {field.type})</span>
-                                </label>
-                              </div>
-                            );
-                          })
-                      )}
-                      {sections.flatMap((s: any) => s.fields).filter((f: any) => f.id !== editingField.id).length === 0 && (
-                        <p className="text-sm text-muted-foreground text-center py-2">
-                          No other fields available to link
-                        </p>
-                      )}
+                      {(() => {
+                        const searchTerm = linkedFieldSearch.toLowerCase().trim();
+                        const allAvailableFields = sections.flatMap((section: any) => 
+                          section.fields
+                            .filter((f: any) => f.id !== editingField.id)
+                            .map((field: any) => ({ ...field, sectionTitle: section.title }))
+                        );
+                        const filteredFields = searchTerm 
+                          ? allAvailableFields.filter((field: any) => 
+                              field.label?.toLowerCase().includes(searchTerm) ||
+                              field.type?.toLowerCase().includes(searchTerm) ||
+                              field.sectionTitle?.toLowerCase().includes(searchTerm)
+                            )
+                          : allAvailableFields;
+
+                        if (filteredFields.length === 0) {
+                          return (
+                            <p className="text-sm text-muted-foreground text-center py-2">
+                              {searchTerm ? 'No fields match your search' : 'No other fields available to link'}
+                            </p>
+                          );
+                        }
+
+                        return filteredFields.map((field: any) => {
+                          const linkedFields = editingField.linkedFields || [];
+                          const isLinked = linkedFields.includes(field.id);
+                          return (
+                            <div key={field.id} className="flex items-center space-x-2">
+                              <Checkbox
+                                id={`link-field-${field.id}`}
+                                checked={isLinked}
+                                onCheckedChange={(checked) => {
+                                  const newLinkedFields = checked
+                                    ? [...linkedFields, field.id]
+                                    : linkedFields.filter((id: string) => id !== field.id);
+                                  setEditingField({ ...editingField, linkedFields: newLinkedFields });
+                                }}
+                              />
+                              <label
+                                htmlFor={`link-field-${field.id}`}
+                                className="text-sm cursor-pointer flex-1"
+                              >
+                                <span className="font-medium">{field.label}</span>
+                                <span className="text-xs text-muted-foreground ml-2">({field.sectionTitle} - {field.type})</span>
+                              </label>
+                            </div>
+                          );
+                        });
+                      })()}
                     </div>
                     <p className="text-xs text-muted-foreground mt-2">
                       {(editingField.linkedFields || []).length} field(s) linked
