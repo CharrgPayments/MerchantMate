@@ -5,7 +5,9 @@ import { companies, merchants, agents, transactions, users, loginAttempts, twoFa
   // Workflow System types
   type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowStage, type InsertWorkflowStage, type WorkflowTicket, type InsertWorkflowTicket, type WorkflowTicketStage, type InsertWorkflowTicketStage, type WorkflowIssue, type InsertWorkflowIssue, type WorkflowTask, type InsertWorkflowTask, type WorkflowNote, type InsertWorkflowNote, type WorkflowArtifact, type InsertWorkflowArtifact, type WorkflowTransition, type InsertWorkflowTransition, type WorkflowAssignment, type InsertWorkflowAssignment, type MccCode, type MccPolicy, type InsertMccPolicy, type VolumeThreshold, type InsertVolumeThreshold, type ApiIntegrationConfig, type InsertApiIntegrationConfig, type StageApiConfig, type InsertStageApiConfig,
   // Disclosure types
-  type DisclosureDefinition, type InsertDisclosureDefinition, type DisclosureVersion, type InsertDisclosureVersion, type DisclosureSignature, type InsertDisclosureSignature, type DisclosureWithVersion } from "@shared/schema";
+  type DisclosureDefinition, type InsertDisclosureDefinition, type DisclosureVersion, type InsertDisclosureVersion, type DisclosureSignature, type InsertDisclosureSignature, type DisclosureWithVersion,
+  // Signature Disclosure Link types
+  signatureDisclosureLinks, type SignatureDisclosureLink, type InsertSignatureDisclosureLink } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, or, and, gte, sql, desc, inArray, like, ilike, not } from "drizzle-orm";
 
@@ -181,6 +183,11 @@ export interface IStorage {
   updateSignatureCapture(id: number, updates: Partial<InsertSignatureCapture>): Promise<SignatureCapture | undefined>;
   getExpiredSignatureCaptures(): Promise<SignatureCapture[]>;
   getSignatureCapturesByStatus(status: string): Promise<SignatureCapture[]>;
+  
+  // Signature Disclosure Link operations
+  createSignatureDisclosureLink(link: InsertSignatureDisclosureLink): Promise<SignatureDisclosureLink>;
+  getSignatureDisclosureLinks(signatureCaptureId: number): Promise<SignatureDisclosureLink[]>;
+  getDisclosureSignatures(disclosureFieldName: string): Promise<SignatureDisclosureLink[]>;
 
   // Email Management operations
   getAllEmailWrappers(): Promise<EmailWrapper[]>;
@@ -1635,6 +1642,22 @@ export class DatabaseStorage implements IStorage {
 
   async getSignatureCapturesByStatus(status: string): Promise<SignatureCapture[]> {
     return await this.db.select().from(signatureCaptures).where(eq(signatureCaptures.status, status));
+  }
+
+  // Signature Disclosure Link implementations
+  async createSignatureDisclosureLink(link: InsertSignatureDisclosureLink): Promise<SignatureDisclosureLink> {
+    const [created] = await this.db.insert(signatureDisclosureLinks).values(link).returning();
+    return created;
+  }
+
+  async getSignatureDisclosureLinks(signatureCaptureId: number): Promise<SignatureDisclosureLink[]> {
+    return await this.db.select().from(signatureDisclosureLinks)
+      .where(eq(signatureDisclosureLinks.signatureCaptureId, signatureCaptureId));
+  }
+
+  async getDisclosureSignatures(disclosureFieldName: string): Promise<SignatureDisclosureLink[]> {
+    return await this.db.select().from(signatureDisclosureLinks)
+      .where(eq(signatureDisclosureLinks.disclosureFieldName, disclosureFieldName));
   }
 
   async getAgentByUserId(userId: string): Promise<Agent | undefined> {
