@@ -2885,6 +2885,55 @@ function FieldConfigurationDialog({
                     </p>
                   </div>
                 )}
+
+                {/* Signature Field - Linked Fields Configuration */}
+                {editingField.type === 'signature' && (
+                  <div className="border-t pt-4">
+                    <label className="text-sm font-medium mb-2 block">Linked Fields</label>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Select fields that this signature acknowledges or is associated with. This is used for compliance tracking.
+                    </p>
+                    <div className="space-y-2 max-h-48 overflow-y-auto border rounded-md p-3 bg-muted/30">
+                      {sections.flatMap((section: any, sectionIndex: number) => 
+                        section.fields
+                          .filter((f: any) => f.id !== editingField.id)
+                          .map((field: any) => {
+                            const linkedFields = editingField.linkedFields || [];
+                            const isLinked = linkedFields.includes(field.id);
+                            return (
+                              <div key={field.id} className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`link-field-${field.id}`}
+                                  checked={isLinked}
+                                  onCheckedChange={(checked) => {
+                                    const newLinkedFields = checked
+                                      ? [...linkedFields, field.id]
+                                      : linkedFields.filter((id: string) => id !== field.id);
+                                    setEditingField({ ...editingField, linkedFields: newLinkedFields });
+                                  }}
+                                />
+                                <label
+                                  htmlFor={`link-field-${field.id}`}
+                                  className="text-sm cursor-pointer flex-1"
+                                >
+                                  <span className="font-medium">{field.label}</span>
+                                  <span className="text-xs text-muted-foreground ml-2">({section.title} - {field.type})</span>
+                                </label>
+                              </div>
+                            );
+                          })
+                      )}
+                      {sections.flatMap((s: any) => s.fields).filter((f: any) => f.id !== editingField.id).length === 0 && (
+                        <p className="text-sm text-muted-foreground text-center py-2">
+                          No other fields available to link
+                        </p>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      {(editingField.linkedFields || []).length} field(s) linked
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-2">

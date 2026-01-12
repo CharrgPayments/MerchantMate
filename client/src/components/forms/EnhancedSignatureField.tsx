@@ -5,7 +5,6 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
 import { 
   PenTool, 
   Type, 
@@ -24,10 +23,11 @@ import { useMutation } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 
-interface DisclosureOption {
-  fieldName: string;
-  label: string;
-  definitionId?: number;
+interface LinkedFieldInfo {
+  fieldId: string;
+  fieldLabel: string;
+  fieldType: string;
+  sectionTitle?: string;
 }
 
 interface EnhancedSignatureFieldProps {
@@ -38,7 +38,7 @@ interface EnhancedSignatureFieldProps {
   disabled?: boolean;
   isRequired?: boolean;
   applicationId?: number;
-  availableDisclosures?: DisclosureOption[];
+  linkedFields?: LinkedFieldInfo[];
   dataTestId?: string;
 }
 
@@ -57,7 +57,7 @@ export function EnhancedSignatureField({
   disabled = false,
   isRequired = false,
   applicationId,
-  availableDisclosures = [],
+  linkedFields = [],
   dataTestId,
 }: EnhancedSignatureFieldProps) {
   const { toast } = useToast();
@@ -69,7 +69,9 @@ export function EnhancedSignatureField({
   const [drawnSignature, setDrawnSignature] = useState(value?.signatureType === 'drawn' ? value?.signature || '' : '');
   const [typedSignature, setTypedSignature] = useState(value?.signatureType === 'typed' ? value?.signature || '' : '');
   const [selectedFont, setSelectedFont] = useState(value?.typedFontStyle || SIGNATURE_FONTS[0].style);
-  const [linkedDisclosures, setLinkedDisclosures] = useState<string[]>(value?.linkedDisclosures || []);
+  
+  // Linked fields are now pre-configured in the template - extract field IDs for storage
+  const linkedFieldIds = linkedFields.map(f => f.fieldId);
   
   const [isDrawing, setIsDrawing] = useState(false);
   const [lastPos, setLastPos] = useState<{ x: number; y: number } | null>(null);
@@ -84,7 +86,6 @@ export function EnhancedSignatureField({
     if (value) {
       setSignerName(value.signerName || '');
       setSignerEmail(value.signerEmail || '');
-      setLinkedDisclosures(value.linkedDisclosures || []);
       if (value.signature) {
         if (value.signatureType === 'drawn') {
           setDrawnSignature(value.signature);
@@ -194,7 +195,7 @@ export function EnhancedSignatureField({
       signatureType: signatureType === 'draw' ? 'drawn' : 'typed',
       typedFontStyle: signatureType === 'type' ? selectedFont : undefined,
       status: 'signed',
-      linkedDisclosures,
+      linkedDisclosures: linkedFieldIds,
       signedAt: new Date().toISOString(),
       auditTrail: {
         timestamp: new Date().toISOString(),
@@ -222,7 +223,7 @@ export function EnhancedSignatureField({
           signature: '',
           signatureType: 'drawn',
           status: 'requested',
-          linkedDisclosures,
+          linkedDisclosures: linkedFieldIds,
           requestedAt: new Date().toISOString(),
         };
         onChange(envelope);
@@ -248,16 +249,8 @@ export function EnhancedSignatureField({
       name: signerName,
       fieldName,
       applicationId,
-      linkedDisclosures,
+      linkedDisclosures: linkedFieldIds,
     });
-  };
-
-  const toggleDisclosureLink = (disclosureFieldName: string) => {
-    setLinkedDisclosures(prev => 
-      prev.includes(disclosureFieldName)
-        ? prev.filter(d => d !== disclosureFieldName)
-        : [...prev, disclosureFieldName]
-    );
   };
 
   const getStatusBadge = () => {
@@ -314,27 +307,17 @@ export function EnhancedSignatureField({
           </div>
         </div>
 
-        {availableDisclosures.length > 0 && (
+        {linkedFields.length > 0 && (
           <div className="space-y-2 p-3 bg-slate-50 rounded-lg border">
             <Label className="text-xs text-muted-foreground flex items-center gap-1">
-              <Link2 className="w-3 h-3" /> Link to Disclosures (acknowledges these documents)
+              <Link2 className="w-3 h-3" /> This signature acknowledges the following fields:
             </Label>
-            <div className="space-y-2">
-              {availableDisclosures.map((disclosure) => (
-                <div key={disclosure.fieldName} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`link-${disclosure.fieldName}`}
-                    checked={linkedDisclosures.includes(disclosure.fieldName)}
-                    onCheckedChange={() => toggleDisclosureLink(disclosure.fieldName)}
-                    disabled={disabled || isLocked}
-                  />
-                  <label
-                    htmlFor={`link-${disclosure.fieldName}`}
-                    className="text-sm cursor-pointer"
-                  >
-                    {disclosure.label}
-                  </label>
-                </div>
+            <div className="flex flex-wrap gap-2">
+              {linkedFields.map((field) => (
+                <Badge key={field.fieldId} variant="secondary" className="text-xs">
+                  {field.fieldLabel}
+                  {field.sectionTitle && <span className="text-muted-foreground ml-1">({field.sectionTitle})</span>}
+                </Badge>
               ))}
             </div>
           </div>
