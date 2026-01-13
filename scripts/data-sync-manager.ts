@@ -79,9 +79,27 @@ const lookupTables: LookupTableConfig[] = [
     preserveIds: true 
   },
   { 
+    name: 'email_wrappers', 
+    dependencies: [], 
+    description: 'Reusable email wrapper templates',
+    preserveIds: true 
+  },
+  { 
     name: 'email_templates', 
     dependencies: [], 
     description: 'Pre-defined email templates',
+    preserveIds: true 
+  },
+  { 
+    name: 'trigger_catalog', 
+    dependencies: [], 
+    description: 'Central registry of system events that can trigger actions',
+    preserveIds: true 
+  },
+  { 
+    name: 'action_templates', 
+    dependencies: [], 
+    description: 'Generic templates for all action types (email, sms, webhook, etc.)',
     preserveIds: true 
   },
   // Dependent tables last
@@ -89,6 +107,12 @@ const lookupTables: LookupTableConfig[] = [
     name: 'email_triggers', 
     dependencies: ['email_templates'], 
     description: 'Automated email trigger configurations',
+    preserveIds: true 
+  },
+  { 
+    name: 'trigger_actions', 
+    dependencies: ['trigger_catalog', 'action_templates'], 
+    description: 'Junction linking triggers to action templates with execution rules',
     preserveIds: true 
   },
   { 
