@@ -1033,8 +1033,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/auth/user', isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      const user = await envStorage.getUser(userId);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -1100,6 +1101,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/users/:id/role", dbEnvironmentMiddleware, requireRole(['super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
       const { role, password } = req.body;
       
@@ -1109,7 +1111,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Verify the current user's password
-      const currentUser = await storage.getUser(req.session!.userId!);
+      const currentUser = await envStorage.getUser(req.session!.userId!);
       if (!currentUser) {
         return res.status(404).json({ message: "Current user not found" });
       }
@@ -1124,7 +1126,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid role" });
       }
 
-      const user = await storage.updateUserRole(id, role);
+      const user = await envStorage.updateUserRole(id, role);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -1137,6 +1139,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/users/:id/status", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
       const { status, password } = req.body;
       
@@ -1146,7 +1149,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Verify the current user's password
-      const currentUser = await storage.getUser(req.session!.userId!);
+      const currentUser = await envStorage.getUser(req.session!.userId!);
       if (!currentUser) {
         return res.status(404).json({ message: "Current user not found" });
       }
@@ -1161,7 +1164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid status" });
       }
 
-      const user = await storage.updateUserStatus(id, status);
+      const user = await envStorage.updateUserStatus(id, status);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -1173,11 +1176,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete user account
-  app.delete("/api/users/:id", requireRole(['super_admin']), async (req, res) => {
+  app.delete("/api/users/:id", dbEnvironmentMiddleware, requireRole(['super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
       
-      const success = await storage.deleteUser(id);
+      const success = await envStorage.deleteUser(id);
       if (!success) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -1200,6 +1204,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update user account information
   app.patch("/api/users/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const userId = req.params.id;
       const updates = req.body;
       
@@ -1218,7 +1223,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         // Verify the current user's password
-        const currentUser = await storage.getUser(req.session!.userId!);
+        const currentUser = await envStorage.getUser(req.session!.userId!);
         if (!currentUser) {
           return res.status(404).json({ message: "Current user not found" });
         }
@@ -1363,15 +1368,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Agent password reset
   app.post("/api/agents/:id/reset-password", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
-      const agent = await storage.getAgent(parseInt(id));
+      const agent = await envStorage.getAgent(parseInt(id));
       
       if (!agent) {
         return res.status(404).json({ message: "Agent not found" });
       }
 
       // Get the user account for this agent
-      const user = await storage.getAgentUser(parseInt(id));
+      const user = await envStorage.getAgentUser(parseInt(id));
       if (!user) {
         return res.status(404).json({ message: "User account not found for agent" });
       }
@@ -1382,7 +1388,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const passwordHash = await bcrypt.hash(temporaryPassword, 10);
 
       // Update user password
-      await storage.updateUser(user.id, { passwordHash });
+      await envStorage.updateUser(user.id, { passwordHash });
 
       res.json({
         username: user.username,
@@ -1398,15 +1404,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Merchant password reset
   app.post("/api/merchants/:id/reset-password", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
-      const merchant = await storage.getMerchant(parseInt(id));
+      const merchant = await envStorage.getMerchant(parseInt(id));
       
       if (!merchant) {
         return res.status(404).json({ message: "Merchant not found" });
       }
 
       // Get the user account for this merchant
-      const user = await storage.getMerchantUser(parseInt(id));
+      const user = await envStorage.getMerchantUser(parseInt(id));
       if (!user) {
         return res.status(404).json({ message: "User account not found for merchant" });
       }
@@ -1417,7 +1424,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const passwordHash = await bcrypt.hash(temporaryPassword, 10);
 
       // Update user password
-      await storage.updateUser(user.id, { passwordHash });
+      await envStorage.updateUser(user.id, { passwordHash });
 
       res.json({
         username: user.username,
@@ -1433,11 +1440,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Merchant routes with role-based access
   app.get("/api/merchants", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const userId = req.user?.id || req.user?.claims?.sub;
       const { search } = req.query;
 
       // Use role-based filtering from storage layer
-      const merchants = await storage.getMerchantsForUser(userId);
+      const merchants = await envStorage.getMerchantsForUser(userId);
 
       if (search) {
         const filteredMerchants = merchants.filter(merchant =>
@@ -1457,9 +1465,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Location routes with role-based access
   app.get("/api/merchants/:merchantId/locations", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { merchantId } = req.params;
       const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      const user = await envStorage.getUser(userId);
       
       // For merchant users, only allow access to their own merchant data
       if (user?.role === 'merchant') {
@@ -1470,7 +1479,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      const locations = await storage.getLocationsByMerchant(parseInt(merchantId));
+      const locations = await envStorage.getLocationsByMerchant(parseInt(merchantId));
       res.json(locations);
     } catch (error) {
       console.error("Error fetching locations:", error);
@@ -1480,9 +1489,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/merchants/:merchantId/locations", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { merchantId } = req.params;
       const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      const user = await envStorage.getUser(userId);
       
       // For merchant users, only allow access to their own merchant data
       if (user?.role === 'merchant') {
@@ -1496,7 +1506,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         merchantId: parseInt(merchantId)
       });
       
-      const location = await storage.createLocation(validatedData);
+      const location = await envStorage.createLocation(validatedData);
       res.json(location);
     } catch (error) {
       console.error("Error creating location:", error);
@@ -1508,12 +1518,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/locations/:locationId", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { locationId } = req.params;
       const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      const user = await envStorage.getUser(userId);
       
       // Get location to check merchant ownership
-      const location = await storage.getLocation(parseInt(locationId));
+      const location = await envStorage.getLocation(parseInt(locationId));
       if (!location) {
         return res.status(404).json({ message: "Location not found" });
       }
@@ -1524,7 +1535,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const validatedData = insertLocationSchema.partial().parse(req.body);
-      const updatedLocation = await storage.updateLocation(parseInt(locationId), validatedData);
+      const updatedLocation = await envStorage.updateLocation(parseInt(locationId), validatedData);
       
       if (!updatedLocation) {
         return res.status(404).json({ message: "Location not found" });
@@ -1539,12 +1550,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/locations/:locationId", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { locationId } = req.params;
       const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      const user = await envStorage.getUser(userId);
       
       // Get location to check merchant ownership
-      const location = await storage.getLocation(parseInt(locationId));
+      const location = await envStorage.getLocation(parseInt(locationId));
       if (!location) {
         return res.status(404).json({ message: "Location not found" });
       }
@@ -1554,7 +1566,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
       
-      const success = await storage.deleteLocation(parseInt(locationId));
+      const success = await envStorage.deleteLocation(parseInt(locationId));
       if (!success) {
         return res.status(404).json({ message: "Location not found" });
       }
@@ -1567,14 +1579,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Address routes with role-based access and geolocation support
-  app.get("/api/locations/:locationId/addresses", isAuthenticated, async (req: any, res) => {
+  app.get("/api/locations/:locationId/addresses", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { locationId } = req.params;
       const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      const user = await envStorage.getUser(userId);
       
       // Get location to check merchant ownership
-      const location = await storage.getLocation(parseInt(locationId));
+      const location = await envStorage.getLocation(parseInt(locationId));
       if (!location) {
         return res.status(404).json({ message: "Location not found" });
       }
@@ -1584,7 +1597,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
       
-      const addresses = await storage.getAddressesByLocation(parseInt(locationId));
+      const addresses = await envStorage.getAddressesByLocation(parseInt(locationId));
       res.json(addresses);
     } catch (error) {
       console.error("Error fetching addresses:", error);
@@ -1592,14 +1605,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/locations/:locationId/addresses", isAuthenticated, async (req: any, res) => {
+  app.post("/api/locations/:locationId/addresses", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { locationId } = req.params;
       const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      const user = await envStorage.getUser(userId);
       
       // Get location to check merchant ownership
-      const location = await storage.getLocation(parseInt(locationId));
+      const location = await envStorage.getLocation(parseInt(locationId));
       if (!location) {
         return res.status(404).json({ message: "Location not found" });
       }
@@ -1614,7 +1628,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         locationId: parseInt(locationId)
       });
       
-      const address = await storage.createAddress(validatedData);
+      const address = await envStorage.createAddress(validatedData);
       res.json(address);
     } catch (error) {
       console.error("Error creating address:", error);
@@ -1622,19 +1636,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/addresses/:addressId", isAuthenticated, async (req: any, res) => {
+  app.put("/api/addresses/:addressId", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { addressId } = req.params;
       const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      const user = await envStorage.getUser(userId);
       
       // Get address and location to check merchant ownership
-      const address = await storage.getAddress(parseInt(addressId));
+      const address = await envStorage.getAddress(parseInt(addressId));
       if (!address) {
         return res.status(404).json({ message: "Address not found" });
       }
       
-      const location = await storage.getLocation(address.locationId);
+      const location = await envStorage.getLocation(address.locationId);
       if (!location) {
         return res.status(404).json({ message: "Location not found" });
       }
@@ -1645,7 +1660,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const validatedData = insertAddressSchema.partial().parse(req.body);
-      const updatedAddress = await storage.updateAddress(parseInt(addressId), validatedData);
+      const updatedAddress = await envStorage.updateAddress(parseInt(addressId), validatedData);
       
       if (!updatedAddress) {
         return res.status(404).json({ message: "Address not found" });
@@ -1658,19 +1673,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/addresses/:addressId", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/addresses/:addressId", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { addressId } = req.params;
       const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      const user = await envStorage.getUser(userId);
       
       // Get address and location to check merchant ownership
-      const address = await storage.getAddress(parseInt(addressId));
+      const address = await envStorage.getAddress(parseInt(addressId));
       if (!address) {
         return res.status(404).json({ message: "Address not found" });
       }
       
-      const location = await storage.getLocation(address.locationId);
+      const location = await envStorage.getLocation(address.locationId);
       if (!location) {
         return res.status(404).json({ message: "Location not found" });
       }
@@ -1680,7 +1696,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
       
-      const success = await storage.deleteAddress(parseInt(addressId));
+      const success = await envStorage.deleteAddress(parseInt(addressId));
       if (!success) {
         return res.status(404).json({ message: "Address not found" });
       }
@@ -1693,10 +1709,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Transaction routes with role-based access
-  app.get("/api/transactions", isAuthenticated, async (req: any, res) => {
+  app.get("/api/transactions", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      const user = await envStorage.getUser(userId);
       const { search } = req.query;
 
       if (!user) {
@@ -1705,7 +1722,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // For agents, only show transactions for their assigned merchants
       if (user.role === 'agent') {
-        const transactions = await storage.getTransactionsForUser(userId);
+        const transactions = await envStorage.getTransactionsForUser(userId);
         
         if (search) {
           const filteredTransactions = transactions.filter(t => 
@@ -1722,7 +1739,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // For merchants, only show their own transactions
       if (user.role === 'merchant') {
-        const transactions = await storage.getTransactionsForUser(userId);
+        const transactions = await envStorage.getTransactionsForUser(userId);
         
         if (search) {
           const filteredTransactions = transactions.filter(t => 
@@ -1739,16 +1756,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // For admin/corporate/super_admin, show all transactions
       if (['admin', 'corporate', 'super_admin'].includes(user.role)) {
         if (search) {
-          const transactions = await storage.searchTransactions(search as string);
+          const transactions = await envStorage.searchTransactions(search as string);
           return res.json(transactions);
         } else {
-          const transactions = await storage.getAllTransactions();
+          const transactions = await envStorage.getAllTransactions();
           return res.json(transactions);
         }
       }
 
       // Default fallback - use role-based filtering from storage layer
-      const transactions = await storage.getTransactionsForUser(userId);
+      const transactions = await envStorage.getTransactionsForUser(userId);
 
       if (search) {
         const filteredTransactions = transactions.filter(transaction =>
@@ -1768,14 +1785,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get transactions by MID (location-specific transactions)
-  app.get("/api/transactions/mid/:mid", isAuthenticated, async (req: any, res) => {
+  app.get("/api/transactions/mid/:mid", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { mid } = req.params;
       const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      const user = await envStorage.getUser(userId);
       
       // Get location by MID to check access permissions
-      const locations = await storage.getLocationsByMerchant(0); // Get all locations first
+      const locations = await envStorage.getLocationsByMerchant(0); // Get all locations first
       const location = locations.find(loc => loc.mid === mid);
       
       if (!location) {
@@ -1787,7 +1805,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
       
-      const transactions = await storage.getTransactionsByMID(mid);
+      const transactions = await envStorage.getTransactionsByMID(mid);
       res.json(transactions);
     } catch (error) {
       console.error("Error fetching transactions by MID:", error);
@@ -1798,12 +1816,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Agent-merchant assignment routes (admin only)
   app.post("/api/agents/:agentId/merchants/:merchantId", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { agentId, merchantId } = req.params;
       const userId = (req as any).user.claims.sub;
-      const dynamicDB = getRequestDB(req);
       console.log(`Agent assignment endpoint - Database environment: ${req.dbEnv}`);
 
-      const assignment = await storage.assignAgentToMerchant(
+      const assignment = await envStorage.assignAgentToMerchant(
         parseInt(agentId),
         parseInt(merchantId),
         userId
@@ -1818,11 +1836,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/agents/:agentId/merchants/:merchantId", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { agentId, merchantId } = req.params;
-      const dynamicDB = getRequestDB(req);
       console.log(`Agent unassignment endpoint - Database environment: ${req.dbEnv}`);
 
-      const success = await storage.unassignAgentFromMerchant(
+      const success = await envStorage.unassignAgentFromMerchant(
         parseInt(agentId),
         parseInt(merchantId)
       );
