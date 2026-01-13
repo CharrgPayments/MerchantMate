@@ -72,9 +72,33 @@ class EnvironmentManager {
   
   /**
    * Resolve environment for a request object
+   * PRIORITY: Session-based environment > Global environment
    */
   public resolveFromRequest(req: any): EnvironmentConfig {
     const host = req.get ? req.get('host') : req.headers?.host || '';
+    const isProductionUrl = host === 'crm.charrg.com';
+    
+    // Production URL always uses production - no override allowed
+    if (isProductionUrl) {
+      return {
+        environment: 'production',
+        isProduction: true,
+        url: host
+      };
+    }
+    
+    // PRIORITY: Check session-based environment (per-user isolation)
+    const sessionDbEnv = req.session?.dbEnv;
+    if (sessionDbEnv && ['test', 'development', 'production'].includes(sessionDbEnv)) {
+      console.log(`🔐 Session-based environment: ${sessionDbEnv}`);
+      return {
+        environment: sessionDbEnv,
+        isProduction: false,
+        url: host
+      };
+    }
+    
+    // Fallback: Use global environment
     return this.resolveEnvironment(host);
   }
 }
