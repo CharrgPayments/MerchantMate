@@ -8,6 +8,7 @@ export interface RequestWithDB extends Request {
   dbEnv?: string;
   dynamicDB?: ReturnType<typeof getDynamicDatabase>;
   db?: ReturnType<typeof getDynamicDatabase>;
+  storage?: ReturnType<typeof createStorage>;
   userId?: string;
 }
 
@@ -29,6 +30,7 @@ export const dbEnvironmentMiddleware = (req: RequestWithDB, res: Response, next:
     req.dbEnv = 'production';
     req.dynamicDB = getDynamicDatabase('production');
     req.db = req.dynamicDB;
+    req.storage = createStorage(req.dynamicDB);
     res.setHeader('X-Database-Environment', 'production');
     console.log('Production domain: using production database');
     next();
@@ -51,6 +53,7 @@ export const dbEnvironmentMiddleware = (req: RequestWithDB, res: Response, next:
   req.dbEnv = globalEnv;
   req.dynamicDB = getDynamicDatabase(globalEnv);
   req.db = req.dynamicDB;
+  req.storage = createStorage(req.dynamicDB);
   res.setHeader('X-Database-Environment', globalEnv);
   console.log(`Non-production domain: using ${globalEnv} database (global selection)`);
   
@@ -84,6 +87,7 @@ export const adminDbMiddleware = (req: RequestWithDB, res: Response, next: NextF
     // Force production database for production deployments - no selection allowed
     req.dbEnv = 'production';
     req.dynamicDB = getDynamicDatabase('production');
+    req.storage = createStorage(req.dynamicDB);
     res.setHeader('X-Database-Environment', 'production');
     console.log('Admin middleware: production deployment - forcing production database');
     next();
@@ -100,6 +104,7 @@ export const adminDbMiddleware = (req: RequestWithDB, res: Response, next: NextF
     // Regular users always use production database
     req.dbEnv = 'production';
     req.dynamicDB = getDynamicDatabase('production');
+    req.storage = createStorage(req.dynamicDB);
     res.setHeader('X-Database-Environment', 'production');
     console.log('Admin middleware: non-super_admin user - using production database');
     next();
