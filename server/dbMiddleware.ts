@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { getDynamicDatabase, extractDbEnv } from './db';
 import { createStorage } from './storage';
+import { environmentManager } from './environmentManager';
 
 // Extend the Request interface to include database environment info
 export interface RequestWithDB extends Request {
@@ -19,12 +20,11 @@ export const dbEnvironmentMiddleware = (req: RequestWithDB, res: Response, next:
     req.userId = (req.user as any).id;
   }
   
-  // Check if we're in a production or test deployment environment 
+  // Check if we're in production deployment environment 
   const host = req.get('host') || '';
   const isProductionDomain = host === 'crm.charrg.com';
-  const isTestDomain = host === 'test-crm.charrg.com';
   
-  // URL-based environments take precedence over session
+  // Only production domain is locked to production database
   if (isProductionDomain) {
     req.dbEnv = 'production';
     req.dynamicDB = getDynamicDatabase('production');
@@ -35,61 +35,14 @@ export const dbEnvironmentMiddleware = (req: RequestWithDB, res: Response, next:
     return;
   }
   
-  if (isTestDomain) {
-    req.dbEnv = 'test';
-    req.dynamicDB = getDynamicDatabase('test');
-    req.db = req.dynamicDB;
-    res.setHeader('X-Database-Environment', 'test');
-    console.log('Test domain: using test database');
-    next();
-    return;
-  }
-  
-  // For non-dedicated domains, check if there's a stored database environment in session
-  const sessionDbEnv = (req.session as any)?.dbEnv;
-  if (sessionDbEnv && ['test', 'development', 'dev', 'production'].includes(sessionDbEnv)) {
-    req.dbEnv = sessionDbEnv;
-    req.dynamicDB = getDynamicDatabase(sessionDbEnv);
-    req.db = req.dynamicDB;
-    res.setHeader('X-Database-Environment', sessionDbEnv);
-    console.log(`Session database: using ${sessionDbEnv} database from session`);
-    next();
-    return;
-  }
-  
-  // Check request body for database selection (e.g., from login form)
-  const bodyDbEnv = req.body?.database;
-  if (bodyDbEnv && ['test', 'development', 'dev', 'production'].includes(bodyDbEnv)) {
-    const normalizedEnv = bodyDbEnv === 'dev' ? 'development' : bodyDbEnv;
-    req.dbEnv = normalizedEnv;
-    req.dynamicDB = getDynamicDatabase(normalizedEnv);
-    req.db = req.dynamicDB;
-    res.setHeader('X-Database-Environment', normalizedEnv);
-    console.log(`Database from request body: using ${normalizedEnv} database`);
-    next();
-    return;
-  }
-  
-  // Extract database environment from URL parameters, headers, or subdomain
-  const dbEnv = extractDbEnv(req);
-  
-  // Allow explicit environment switching even on production domains for development/testing
-  if (dbEnv && ['test', 'development', 'dev'].includes(dbEnv)) {
-    req.dbEnv = dbEnv;
-    req.dynamicDB = getDynamicDatabase(dbEnv);
-    req.db = req.dynamicDB;
-    res.setHeader('X-Database-Environment', dbEnv);
-    console.log(`Database switching: using ${dbEnv} database (production domain: ${isProductionDomain})`);
-    next();
-    return;
-  }
-  
-  // If no explicit environment selection, use development database for non-production domains
-  req.dbEnv = 'development';
-  req.dynamicDB = getDynamicDatabase('development');
+  // For non-production domains, use the globally selected environment (via admin dropdown)
+  // This takes precedence over session to allow runtime environment switching
+  const globalEnv = environmentManager.getGlobalEnvironment();
+  req.dbEnv = globalEnv;
+  req.dynamicDB = getDynamicDatabase(globalEnv);
   req.db = req.dynamicDB;
-  res.setHeader('X-Database-Environment', 'development');
-  console.log('Non-production domain: using default development database');
+  res.setHeader('X-Database-Environment', globalEnv);
+  console.log(`Non-production domain: using ${globalEnv} database (global selection)`);
   
   next();
 };
@@ -114,27 +67,15 @@ export const createStorageForRequest = (req: RequestWithDB) => {
  * Middleware specifically for admin routes that allows database switching for super_admin users
  */
 export const adminDbMiddleware = (req: RequestWithDB, res: Response, next: NextFunction) => {
-  // Check if we're in a production or test deployment environment
-  const host = req.get('host') || '';
-  const isProductionDomain = host === 'crm.charrg.com';
-  const isTestDomain = host === 'test-crm.charrg.com';
+  // Check if we're in production deployment environment
+  const isProductionDomain = req.get('host') === 'crm.charrg.com';
   
   if (isProductionDomain) {
-    // Force production database for production deployments
+    // Force production database for production deployments - no selection allowed
     req.dbEnv = 'production';
     req.dynamicDB = getDynamicDatabase('production');
     res.setHeader('X-Database-Environment', 'production');
     console.log('Admin middleware: production deployment - forcing production database');
-    next();
-    return;
-  }
-  
-  if (isTestDomain) {
-    // Force test database for test deployments
-    req.dbEnv = 'test';
-    req.dynamicDB = getDynamicDatabase('test');
-    res.setHeader('X-Database-Environment', 'test');
-    console.log('Admin middleware: test deployment - forcing test database');
     next();
     return;
   }
