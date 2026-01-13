@@ -93,6 +93,38 @@ const lookupTables: LookupTableConfig[] = [
     dependencies: ['fee_groups', 'fee_items', 'fee_item_groups'], 
     description: 'Many-to-many relationship between fee groups and fee items',
     preserveIds: false 
+  },
+  // Disclosure system (definitions and versions, not user signatures)
+  { 
+    name: 'disclosure_contents', 
+    dependencies: [], 
+    description: 'Reusable disclosure text content (legacy system)',
+    preserveIds: true 
+  },
+  { 
+    name: 'disclosure_definitions', 
+    dependencies: [], 
+    description: 'Disclosure definition templates',
+    preserveIds: true 
+  },
+  { 
+    name: 'disclosure_versions', 
+    dependencies: ['disclosure_definitions'], 
+    description: 'Versioned disclosure content (depends on definitions)',
+    preserveIds: true 
+  },
+  // Workflow system (definitions and stages, not tickets/instances)
+  { 
+    name: 'workflow_definitions', 
+    dependencies: [], 
+    description: 'Workflow template definitions',
+    preserveIds: true 
+  },
+  { 
+    name: 'workflow_stages', 
+    dependencies: ['workflow_definitions'], 
+    description: 'Workflow stage configurations (depends on definitions)',
+    preserveIds: true 
   }
 ];
 
