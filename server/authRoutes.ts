@@ -28,7 +28,7 @@ export function setupAuthRoutes(app: Express) {
     // Use storage layer for consistent user lookup across environments
     let user;
     try {
-      user = await storage.getUser(req.session.userId);
+      user = await req.storage!.getUser(req.session.userId);
     } catch (error) {
       console.error("Error fetching user from storage:", error);
       user = null;
@@ -283,7 +283,7 @@ export function setupAuthRoutes(app: Express) {
         return res.status(400).json({ available: false, message: "Username required" });
       }
       
-      const existingUser = await storage.getUserByUsername(username);
+      const existingUser = await req.storage!.getUserByUsername(username);
       res.json({ 
         available: !existingUser,
         message: existingUser ? "Username already taken" : "Username available"
@@ -302,7 +302,7 @@ export function setupAuthRoutes(app: Express) {
         return res.status(400).json({ available: false, message: "Email required" });
       }
       
-      const existingUser = await storage.getUserByEmail(email);
+      const existingUser = await req.storage!.getUserByEmail(email);
       res.json({ 
         available: !existingUser,
         message: existingUser ? "Email already registered" : "Email available"

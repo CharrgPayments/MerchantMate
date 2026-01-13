@@ -11164,12 +11164,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Campaigns endpoints
   app.get("/api/campaigns", requireRole(['agent', 'admin', 'super_admin']), async (req: Request, res: Response) => {
     try {
-      const campaigns = await storage.getAllCampaigns();
+      const campaigns = await req.storage!.getAllCampaigns();
       
       // Fetch templates for each campaign
       const campaignsWithTemplates = await Promise.all(
         campaigns.map(async (campaign) => {
-          const templates = await storage.getCampaignTemplates(campaign.id);
+          const templates = await req.storage!.getCampaignTemplates(campaign.id);
           return {
             ...campaign,
             templates: templates
@@ -11187,7 +11187,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/campaigns", requireRole(['admin', 'super_admin']), async (req: Request, res: Response) => {
     try {
       const { equipmentIds = [], feeValues = [], templateIds = [], ...campaignData } = req.body;
-      const campaign = await storage.createCampaign(campaignData, feeValues, equipmentIds, templateIds);
+      const campaign = await req.storage!.createCampaign(campaignData, feeValues, equipmentIds, templateIds);
       res.status(201).json(campaign);
     } catch (error) {
       console.error("Error creating campaign:", error);
@@ -11208,7 +11208,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/campaigns/:id/equipment", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const equipment = await storage.getCampaignEquipment(id);
+      const equipment = await req.storage!.getCampaignEquipment(id);
       res.json(equipment);
     } catch (error) {
       console.error("Error fetching campaign equipment:", error);
@@ -11219,7 +11219,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/campaigns/:id/templates", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const templates = await storage.getCampaignTemplates(id);
+      const templates = await req.storage!.getCampaignTemplates(id);
       res.json(templates);
     } catch (error) {
       console.error("Error fetching campaign templates:", error);
@@ -11359,7 +11359,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all API keys
   app.get("/api/admin/api-keys", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
-      const apiKeys = await storage.getAllApiKeys();
+      const apiKeys = await req.storage!.getAllApiKeys();
       // Don't send the secret in the response
       const safeApiKeys = apiKeys.map(key => ({
         ...key,
@@ -11398,7 +11398,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdBy: req.user?.claims?.sub || req.session?.userId || 'admin-demo-123',
       };
 
-      const apiKey = await storage.createApiKey(apiKeyData);
+      const apiKey = await req.storage!.createApiKey(apiKeyData);
 
       // Return the full key only once
       res.status(201).json({
@@ -11430,7 +11430,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (isActive !== undefined) updateData.isActive = isActive;
       if (expiresAt !== undefined) updateData.expiresAt = expiresAt ? new Date(expiresAt) : null;
 
-      const apiKey = await storage.updateApiKey(id, updateData);
+      const apiKey = await req.storage!.updateApiKey(id, updateData);
       if (!apiKey) {
         return res.status(404).json({ message: "API key not found" });
       }
@@ -11450,7 +11450,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/admin/api-keys/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const success = await storage.deleteApiKey(id);
+      const success = await req.storage!.deleteApiKey(id);
       
       if (!success) {
         return res.status(404).json({ message: "API key not found" });
@@ -11469,7 +11469,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const id = parseInt(req.params.id);
       const timeRange = req.query.timeRange as string || '24h';
       
-      const stats = await storage.getApiUsageStats(id, timeRange);
+      const stats = await req.storage!.getApiUsageStats(id, timeRange);
       res.json(stats);
     } catch (error) {
       console.error("Error fetching API usage stats:", error);
@@ -11483,7 +11483,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const apiKeyId = req.query.apiKeyId ? parseInt(req.query.apiKeyId as string) : undefined;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
       
-      const logs = await storage.getApiRequestLogs(apiKeyId, limit);
+      const logs = await req.storage!.getApiRequestLogs(apiKeyId, limit);
       res.json(logs);
     } catch (error) {
       console.error("Error fetching API logs:", error);
@@ -11505,7 +11505,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Public merchants API
   app.get('/api/v1/merchants', requireApiPermission('merchants:read'), async (req: any, res) => {
     try {
-      const merchants = await storage.getAllMerchants();
+      const merchants = await req.storage!.getAllMerchants();
       res.json(merchants);
     } catch (error) {
       console.error('Error fetching merchants via API:', error);
@@ -11519,7 +11519,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/v1/merchants/:id', requireApiPermission('merchants:read'), async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      const merchant = await storage.getMerchant(id);
+      const merchant = await req.storage!.getMerchant(id);
       
       if (!merchant) {
         return res.status(404).json({ 
@@ -11549,7 +11549,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const merchant = await storage.createMerchant(result.data);
+      const merchant = await req.storage!.createMerchant(result.data);
       res.status(201).json(merchant);
     } catch (error) {
       console.error('Error creating merchant via API:', error);
@@ -11563,7 +11563,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Public agents API
   app.get('/api/v1/agents', requireApiPermission('agents:read'), async (req: any, res) => {
     try {
-      const agents = await storage.getAllAgents();
+      const agents = await req.storage!.getAllAgents();
       res.json(agents);
     } catch (error) {
       console.error('Error fetching agents via API:', error);
@@ -11577,7 +11577,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/v1/agents/:id', requireApiPermission('agents:read'), async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      const agent = await storage.getAgent(id);
+      const agent = await req.storage!.getAgent(id);
       
       if (!agent) {
         return res.status(404).json({ 
@@ -11599,7 +11599,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Public transactions API
   app.get('/api/v1/transactions', requireApiPermission('transactions:read'), async (req: any, res) => {
     try {
-      const transactions = await storage.getAllTransactions();
+      const transactions = await req.storage!.getAllTransactions();
       res.json(transactions);
     } catch (error) {
       console.error('Error fetching transactions via API:', error);
@@ -11621,7 +11621,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const transaction = await storage.createTransaction(result.data);
+      const transaction = await req.storage!.createTransaction(result.data);
       res.status(201).json(transaction);
     } catch (error) {
       console.error('Error creating transaction via API:', error);
@@ -11640,7 +11640,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all email wrappers
   app.get("/api/admin/email-wrappers", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
-      const wrappers = await storage.getAllEmailWrappers();
+      const wrappers = await req.storage!.getAllEmailWrappers();
       res.json(wrappers);
     } catch (error) {
       console.error("Error fetching email wrappers:", error);
@@ -11652,7 +11652,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/email-wrappers/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const wrapper = await storage.getEmailWrapper(id);
+      const wrapper = await req.storage!.getEmailWrapper(id);
       
       if (!wrapper) {
         return res.status(404).json({ message: "Email wrapper not found" });
@@ -11678,7 +11678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const wrapper = await storage.createEmailWrapper(result.data);
+      const wrapper = await req.storage!.createEmailWrapper(result.data);
       res.status(201).json(wrapper);
     } catch (error) {
       console.error("Error creating email wrapper:", error);
@@ -11703,7 +11703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const wrapper = await storage.updateEmailWrapper(id, result.data);
+      const wrapper = await req.storage!.updateEmailWrapper(id, result.data);
       
       if (!wrapper) {
         return res.status(404).json({ message: "Email wrapper not found" });
@@ -11723,7 +11723,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/admin/email-wrappers/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const deleted = await storage.deleteEmailWrapper(id);
+      const deleted = await req.storage!.deleteEmailWrapper(id);
       
       if (!deleted) {
         return res.status(404).json({ message: "Email wrapper not found" });
@@ -11748,7 +11748,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/email-templates", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       // Fetch action templates with type 'email'
-      const actionTemplates = await storage.getActionTemplatesByType('email');
+      const actionTemplates = await req.storage!.getActionTemplatesByType('email');
       
       // Transform to email template format for UI compatibility
       const emailTemplates = actionTemplates.map(at => ({
@@ -11783,7 +11783,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Public endpoint for email templates (development bypass)
   app.get("/api/email-templates", async (req, res) => {
     try {
-      const templates = await storage.getAllEmailTemplates();
+      const templates = await req.storage!.getAllEmailTemplates();
       res.json(templates);
     } catch (error) {
       console.error("Error fetching email templates:", error);
@@ -11796,7 +11796,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/email-templates/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const actionTemplate = await storage.getActionTemplate(id);
+      const actionTemplate = await req.storage!.getActionTemplate(id);
       
       if (!actionTemplate || actionTemplate.actionType !== 'email') {
         return res.status(404).json({ message: "Email template not found" });
@@ -11847,7 +11847,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Create as action template with type 'email' so it's available for trigger actions
-      const actionTemplate = await storage.createActionTemplate({
+      const actionTemplate = await req.storage!.createActionTemplate({
         name: result.data.name,
         description: result.data.description || '',
         actionType: 'email',
@@ -11924,7 +11924,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (result.data.isActive !== undefined) updates.isActive = result.data.isActive;
       
       // Build config updates
-      const existing = await storage.getActionTemplate(id);
+      const existing = await req.storage!.getActionTemplate(id);
       if (!existing || existing.actionType !== 'email') {
         return res.status(404).json({ message: "Email template not found" });
       }
@@ -11945,7 +11945,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       updates.config = configUpdates;
       if (result.data.variables !== undefined) updates.variables = result.data.variables;
       
-      const actionTemplate = await storage.updateActionTemplate(id, updates);
+      const actionTemplate = await req.storage!.updateActionTemplate(id, updates);
       
       if (!actionTemplate) {
         return res.status(404).json({ message: "Email template not found" });
@@ -11986,12 +11986,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const id = parseInt(req.params.id);
       
       // Verify it's an email type action template before deleting
-      const template = await storage.getActionTemplate(id);
+      const template = await req.storage!.getActionTemplate(id);
       if (!template || template.actionType !== 'email') {
         return res.status(404).json({ message: "Email template not found" });
       }
       
-      const success = await storage.deleteActionTemplate(id);
+      const success = await req.storage!.deleteActionTemplate(id);
       
       if (!success) {
         return res.status(404).json({ message: "Email template not found" });
@@ -12017,7 +12017,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Get template from action_templates
-      const actionTemplate = await storage.getActionTemplate(id);
+      const actionTemplate = await req.storage!.getActionTemplate(id);
       if (!actionTemplate || actionTemplate.actionType !== 'email') {
         return res.status(404).json({ message: "Email template not found" });
       }
@@ -12084,7 +12084,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all email triggers
   app.get("/api/admin/email-triggers", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
-      const triggers = await storage.getAllEmailTriggers();
+      const triggers = await req.storage!.getAllEmailTriggers();
       res.json(triggers);
     } catch (error) {
       console.error("Error fetching email triggers:", error);
@@ -12105,7 +12105,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const trigger = await storage.createEmailTrigger(result.data);
+      const trigger = await req.storage!.createEmailTrigger(result.data);
       res.status(201).json(trigger);
     } catch (error) {
       console.error("Error creating email trigger:", error);
@@ -12127,7 +12127,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const trigger = await storage.updateEmailTrigger(id, result.data);
+      const trigger = await req.storage!.updateEmailTrigger(id, result.data);
       
       if (!trigger) {
         return res.status(404).json({ message: "Email trigger not found" });
@@ -12144,7 +12144,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/admin/email-triggers/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const success = await storage.deleteEmailTrigger(id);
+      const success = await req.storage!.deleteEmailTrigger(id);
       
       if (!success) {
         return res.status(404).json({ message: "Email trigger not found" });
@@ -12167,7 +12167,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (req.query.templateId) filters.templateId = parseInt(req.query.templateId as string);
       if (req.query.recipientEmail) filters.recipientEmail = req.query.recipientEmail as string;
       
-      const activity = await storage.getEmailActivity(limit, filters);
+      const activity = await req.storage!.getEmailActivity(limit, filters);
       res.json(activity);
     } catch (error) {
       console.error("Error fetching email activity:", error);
@@ -12185,7 +12185,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (req.query.templateId) filters.templateId = parseInt(req.query.templateId as string);
       if (req.query.recipientEmail) filters.recipientEmail = req.query.recipientEmail as string;
       
-      const activity = await storage.getEmailActivity(limit, filters);
+      const activity = await req.storage!.getEmailActivity(limit, filters);
       res.json(activity);
     } catch (error) {
       console.error("Error fetching email activity:", error);
@@ -12196,7 +12196,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get email activity statistics
   app.get("/api/admin/email-stats", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
-      const stats = await storage.getEmailActivityStats();
+      const stats = await req.storage!.getEmailActivityStats();
       res.json(stats);
     } catch (error) {
       console.error("Error fetching email statistics:", error);
@@ -12211,7 +12211,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all action templates
   app.get("/api/admin/action-templates", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
-      const templates = await storage.getAllActionTemplates();
+      const templates = await req.storage!.getAllActionTemplates();
       res.json(templates);
     } catch (error) {
       console.error("Error fetching action templates:", error);
@@ -12222,7 +12222,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get action templates by type
   app.get("/api/admin/action-templates/type/:actionType", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
-      const templates = await storage.getActionTemplatesByType(req.params.actionType);
+      const templates = await req.storage!.getActionTemplatesByType(req.params.actionType);
       res.json(templates);
     } catch (error) {
       console.error("Error fetching action templates by type:", error);
@@ -12234,7 +12234,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/action-templates/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const template = await storage.getActionTemplate(id);
+      const template = await req.storage!.getActionTemplate(id);
       
       if (!template) {
         return res.status(404).json({ message: "Action template not found" });
@@ -12260,7 +12260,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const template = await storage.createActionTemplate(result.data);
+      const template = await req.storage!.createActionTemplate(result.data);
       res.status(201).json(template);
     } catch (error) {
       console.error("Error creating action template:", error);
@@ -12285,7 +12285,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const template = await storage.updateActionTemplate(id, result.data);
+      const template = await req.storage!.updateActionTemplate(id, result.data);
       
       if (!template) {
         return res.status(404).json({ message: "Action template not found" });
@@ -12302,7 +12302,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/admin/action-templates/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const success = await storage.deleteActionTemplate(id);
+      const success = await req.storage!.deleteActionTemplate(id);
       
       if (!success) {
         return res.status(404).json({ message: "Action template not found" });
@@ -12319,7 +12319,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/action-templates/:id/usage", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const usage = await storage.getActionTemplateUsage(id);
+      const usage = await req.storage!.getActionTemplateUsage(id);
       res.json(usage);
     } catch (error) {
       console.error("Error fetching action template usage:", error);
@@ -12330,7 +12330,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all template usage
   app.get("/api/admin/action-templates-usage", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
-      const usage = await storage.getAllActionTemplateUsage();
+      const usage = await req.storage!.getAllActionTemplateUsage();
       res.json(usage);
     } catch (error) {
       console.error("Error fetching action template usage:", error);
@@ -12345,7 +12345,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all action templates (public - authenticated users)
   app.get("/api/action-templates", isAuthenticated, async (req, res) => {
     try {
-      const templates = await storage.getAllActionTemplates();
+      const templates = await req.storage!.getAllActionTemplates();
       res.json(templates);
     } catch (error) {
       console.error("Error fetching action templates:", error);
@@ -12356,7 +12356,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all template usage (public - authenticated users)
   app.get("/api/action-templates/usage", isAuthenticated, async (req, res) => {
     try {
-      const usage = await storage.getAllActionTemplateUsage();
+      const usage = await req.storage!.getAllActionTemplateUsage();
       res.json(usage);
     } catch (error) {
       console.error("Error fetching action template usage:", error);
@@ -12367,7 +12367,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create action template (admin only)
   app.post("/api/action-templates", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
-      const template = await storage.createActionTemplate(req.body);
+      const template = await req.storage!.createActionTemplate(req.body);
       res.status(201).json(template);
     } catch (error) {
       console.error("Error creating action template:", error);
@@ -12379,7 +12379,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/action-templates/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const template = await storage.updateActionTemplate(id, req.body);
+      const template = await req.storage!.updateActionTemplate(id, req.body);
       
       if (!template) {
         return res.status(404).json({ message: "Action template not found" });
@@ -12398,7 +12398,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const id = parseInt(req.params.id);
       
       // Check if template is in use
-      const usage = await storage.getActionTemplateUsage(id);
+      const usage = await req.storage!.getActionTemplateUsage(id);
       if (usage && usage.length > 0) {
         return res.status(400).json({ 
           message: "Cannot delete template that is in use by triggers",
@@ -12406,7 +12406,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      const deleted = await storage.deleteActionTemplate(id);
+      const deleted = await req.storage!.deleteActionTemplate(id);
       
       if (!deleted) {
         return res.status(404).json({ message: "Action template not found" });
@@ -12432,7 +12432,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Get template from action_templates
-      const actionTemplate = await storage.getActionTemplate(id);
+      const actionTemplate = await req.storage!.getActionTemplate(id);
       if (!actionTemplate || actionTemplate.actionType !== 'email') {
         return res.status(404).json({ message: "Email template not found" });
       }
@@ -12527,7 +12527,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/trigger-catalog/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const trigger = await storage.getTriggerCatalog(id);
+      const trigger = await req.storage!.getTriggerCatalog(id);
       
       if (!trigger) {
         return res.status(404).json({ message: "Trigger not found" });
@@ -12550,7 +12550,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid trigger data", errors: result.error.errors });
       }
       
-      const trigger = await storage.createTriggerCatalog(result.data);
+      const trigger = await req.storage!.createTriggerCatalog(result.data);
       res.status(201).json(trigger);
     } catch (error) {
       console.error("Error creating trigger:", error);
@@ -12562,7 +12562,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/admin/trigger-catalog/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const trigger = await storage.updateTriggerCatalog(id, req.body);
+      const trigger = await req.storage!.updateTriggerCatalog(id, req.body);
       
       if (!trigger) {
         return res.status(404).json({ message: "Trigger not found" });
@@ -12579,7 +12579,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/admin/trigger-catalog/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const success = await storage.deleteTriggerCatalog(id);
+      const success = await req.storage!.deleteTriggerCatalog(id);
       
       if (!success) {
         return res.status(404).json({ message: "Trigger not found" });
@@ -12600,7 +12600,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/trigger-catalog/:triggerId/actions", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const triggerId = parseInt(req.params.triggerId);
-      const actions = await storage.getTriggerActions(triggerId);
+      const actions = await req.storage!.getTriggerActions(triggerId);
       res.json(actions);
     } catch (error) {
       console.error("Error fetching trigger actions:", error);
@@ -12618,7 +12618,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid trigger action data", errors: result.error.errors });
       }
       
-      const action = await storage.createTriggerAction(result.data);
+      const action = await req.storage!.createTriggerAction(result.data);
       res.status(201).json(action);
     } catch (error) {
       console.error("Error creating trigger action:", error);
@@ -12630,7 +12630,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/admin/trigger-actions/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const action = await storage.updateTriggerAction(id, req.body);
+      const action = await req.storage!.updateTriggerAction(id, req.body);
       
       if (!action) {
         return res.status(404).json({ message: "Trigger action not found" });
@@ -12647,7 +12647,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/admin/trigger-actions/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const success = await storage.deleteTriggerAction(id);
+      const success = await req.storage!.deleteTriggerAction(id);
       
       if (!success) {
         return res.status(404).json({ message: "Trigger action not found" });
@@ -12863,7 +12863,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`Processing ${eventType} event for ${email}`);
 
         try {
-          await storage.updateEmailActivityByWebhook(
+          await req.storage!.updateEmailActivityByWebhook(
             email,
             eventType,
             timestamp ? new Date(timestamp * 1000) : new Date(),
@@ -12897,7 +12897,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/audit-logs", async (req, res) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
-      const auditLogs = await storage.getAuditLogs(limit);
+      const auditLogs = await req.storage!.getAuditLogs(limit);
       res.json(auditLogs);
     } catch (error) {
       console.error("Error fetching audit logs:", error);
@@ -13180,7 +13180,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const includeRead = req.query.includeRead === 'true';
-      const alerts = await storage.getUserAlerts(userId, includeRead);
+      const alerts = await req.storage!.getUserAlerts(userId, includeRead);
       
       res.json({ alerts });
     } catch (error) {
@@ -13196,7 +13196,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      const count = await storage.getUnreadAlertCount(userId);
+      const count = await req.storage!.getUnreadAlertCount(userId);
       
       res.json({ count });
     } catch (error) {
@@ -13217,7 +13217,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: 'Invalid alert ID' });
       }
 
-      const alert = await storage.markAlertAsRead(alertId, userId);
+      const alert = await req.storage!.markAlertAsRead(alertId, userId);
       
       if (!alert) {
         return res.status(404).json({ error: 'Alert not found' });
@@ -13237,7 +13237,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      const count = await storage.markAllAlertsAsRead(userId);
+      const count = await req.storage!.markAllAlertsAsRead(userId);
       
       res.json({ count, message: `${count} alerts marked as read` });
     } catch (error) {
@@ -13258,7 +13258,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: 'Invalid alert ID' });
       }
 
-      const success = await storage.deleteAlert(alertId, userId);
+      const success = await req.storage!.deleteAlert(alertId, userId);
       
       if (!success) {
         return res.status(404).json({ error: 'Alert not found' });
@@ -13293,7 +13293,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (phone !== undefined) updates.phone = phone;
       if (communicationPreference !== undefined) updates.communicationPreference = communicationPreference;
 
-      const updatedUser = await storage.updateUser(userId, updates);
+      const updatedUser = await req.storage!.updateUser(userId, updates);
       
       if (!updatedUser) {
         return res.status(404).json({ message: "User not found" });
@@ -13323,7 +13323,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get current user
-      const user = await storage.getUser(userId);
+      const user = await req.storage!.getUser(userId);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -13340,7 +13340,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const passwordHash = await bcrypt.hash(newPassword, 10);
 
       // Update password
-      await storage.updateUser(userId, { passwordHash });
+      await req.storage!.updateUser(userId, { passwordHash });
 
       res.json({ message: "Password changed successfully" });
     } catch (error) {
@@ -13356,7 +13356,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      const count = await storage.deleteAllReadAlerts(userId);
+      const count = await req.storage!.deleteAllReadAlerts(userId);
       
       res.json({ count, message: `${count} read alerts deleted` });
     } catch (error) {
@@ -13400,7 +13400,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ];
 
       const createdAlerts = await Promise.all(
-        testAlerts.map(alert => storage.createUserAlert(alert))
+        testAlerts.map(alert => req.storage!.createUserAlert(alert))
       );
 
       res.json({ 
@@ -13439,7 +13439,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       expiresAt.setDate(expiresAt.getDate() + 7);
 
       // Create signature capture record
-      const signature = await storage.createSignatureCapture({
+      const signature = await req.storage!.createSignatureCapture({
         applicationId: applicationId || null,
         prospectId: prospectId || null,
         roleKey,
@@ -13462,12 +13462,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get application/prospect data for email context
       let companyName = 'Merchant Application';
       if (applicationId) {
-        const application = await storage.getApplication(applicationId);
+        const application = await req.storage!.getApplication(applicationId);
         if (application?.businessName) {
           companyName = application.businessName;
         }
       } else if (prospectId) {
-        const prospect = await storage.getMerchantProspect(prospectId);
+        const prospect = await req.storage!.getMerchantProspect(prospectId);
         if (prospect?.businessName) {
           companyName = prospect.businessName;
         }
@@ -13492,7 +13492,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // If email failed, update status and return error
       if (!emailSent) {
-        await storage.updateSignatureCapture(signature.id, { 
+        await req.storage!.updateSignatureCapture(signature.id, { 
           status: 'pending',
           notes: 'Email delivery failed - request not sent'
         });
@@ -13561,7 +13561,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Find signature capture by token
-      const capture = await storage.getSignatureCaptureByToken(token);
+      const capture = await req.storage!.getSignatureCaptureByToken(token);
       
       if (!capture) {
         return res.status(404).json({ 
@@ -13580,7 +13580,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Check if expired
       if (capture.timestampExpires && capture.timestampExpires < new Date()) {
-        await storage.updateSignatureCapture(capture.id, { status: 'expired' });
+        await req.storage!.updateSignatureCapture(capture.id, { status: 'expired' });
         return res.status(400).json({ 
           success: false, 
           message: 'This signature request has expired' 
@@ -13588,7 +13588,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Update signature capture
-      const updated = await storage.updateSignatureCapture(capture.id, {
+      const updated = await req.storage!.updateSignatureCapture(capture.id, {
         signature,
         signatureType,
         initials: initials || null,
@@ -13606,13 +13606,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let agentName = 'Agent';
         
         if (updated.applicationId) {
-          const application = await storage.getApplication(updated.applicationId);
+          const application = await req.storage!.getApplication(updated.applicationId);
           if (application?.businessName) {
             companyName = application.businessName;
           }
           // Try to get agent info from application if available
           if (application?.createdBy) {
-            const creator = await storage.getUserByIdOrUsername(application.createdBy);
+            const creator = await req.storage!.getUserByIdOrUsername(application.createdBy);
             if (creator && creator.firstName && creator.lastName) {
               agentName = `${creator.firstName} ${creator.lastName}`;
             } else if (creator && creator.username) {
@@ -13620,13 +13620,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
         } else if (updated.prospectId) {
-          const prospect = await storage.getMerchantProspect(updated.prospectId);
+          const prospect = await req.storage!.getMerchantProspect(updated.prospectId);
           if (prospect?.businessName) {
             companyName = prospect.businessName;
           }
           // Try to get agent info from prospect if available
           if (prospect?.createdBy) {
-            const creator = await storage.getUserByIdOrUsername(prospect.createdBy);
+            const creator = await req.storage!.getUserByIdOrUsername(prospect.createdBy);
             if (creator && creator.firstName && creator.lastName) {
               agentName = `${creator.firstName} ${creator.lastName}`;
             } else if (creator && creator.username) {
@@ -13676,7 +13676,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { token } = req.params;
       
-      const capture = await storage.getSignatureCaptureByToken(token);
+      const capture = await req.storage!.getSignatureCaptureByToken(token);
       
       if (!capture) {
         return res.status(404).json({ 
@@ -13688,7 +13688,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check if expired
       const isExpired = capture.timestampExpires && capture.timestampExpires < new Date();
       if (isExpired && capture.status !== 'expired') {
-        await storage.updateSignatureCapture(capture.id, { status: 'expired' });
+        await req.storage!.updateSignatureCapture(capture.id, { status: 'expired' });
       }
 
       res.json({ 
@@ -13718,7 +13718,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { token } = req.params;
       
-      const capture = await storage.getSignatureCaptureByToken(token);
+      const capture = await req.storage!.getSignatureCaptureByToken(token);
       
       if (!capture) {
         return res.status(404).json({ 
@@ -13741,7 +13741,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       expiresAt.setDate(expiresAt.getDate() + 7);
 
       // Update signature capture
-      const updated = await storage.updateSignatureCapture(capture.id, {
+      const updated = await req.storage!.updateSignatureCapture(capture.id, {
         requestToken: newToken,
         timestampRequested: new Date(),
         timestampExpires: expiresAt,
@@ -13767,7 +13767,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // If email failed, revert status and return error
       if (!emailSent) {
-        await storage.updateSignatureCapture(capture.id, { 
+        await req.storage!.updateSignatureCapture(capture.id, { 
           requestToken: token, // Revert to old token
           timestampRequested: capture.timestampRequested, // Revert timestamp
           timestampExpires: capture.timestampExpires, // Revert expiration
@@ -13802,7 +13802,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { applicationId } = req.params;
       
-      const signatures = await storage.getSignatureCapturesByApplication(parseInt(applicationId));
+      const signatures = await req.storage!.getSignatureCapturesByApplication(parseInt(applicationId));
       
       res.json({ 
         success: true, 
@@ -13823,7 +13823,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { prospectId } = req.params;
       
-      const signatures = await storage.getSignatureCapturesByProspect(parseInt(prospectId));
+      const signatures = await req.storage!.getSignatureCapturesByProspect(parseInt(prospectId));
       
       res.json({ 
         success: true, 
@@ -13855,7 +13855,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);
 
-      const signature = await storage.createSignatureCapture({
+      const signature = await req.storage!.createSignatureCapture({
         applicationId: applicationId || null,
         prospectId: null,
         roleKey: fieldName,
@@ -13879,7 +13879,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (linkedDisclosures?.length && signature.id) {
         for (const disclosureFieldName of linkedDisclosures) {
           try {
-            await storage.createSignatureDisclosureLink({
+            await req.storage!.createSignatureDisclosureLink({
               signatureCaptureId: signature.id,
               disclosureFieldName,
               isRequired: true,
@@ -13896,7 +13896,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       let companyName = 'Signature Request';
       if (applicationId) {
-        const application = await storage.getApplication(applicationId);
+        const application = await req.storage!.getApplication(applicationId);
         if (application?.businessName) {
           companyName = application.businessName;
         }
@@ -13916,7 +13916,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       if (!emailSent) {
-        await storage.updateSignatureCapture(signature.id, { 
+        await req.storage!.updateSignatureCapture(signature.id, { 
           status: 'pending',
           notes: 'Email delivery failed - request not sent'
         });
@@ -13964,10 +13964,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Workflow Definitions
   app.get('/api/workflow/definitions', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
-      const definitions = await storage.getAllWorkflowDefinitions();
+      const definitions = await req.storage!.getAllWorkflowDefinitions();
       const definitionsWithStages = await Promise.all(
         definitions.map(async (def) => {
-          const stages = await storage.getWorkflowStages(def.id);
+          const stages = await req.storage!.getWorkflowStages(def.id);
           return { ...def, stages };
         })
       );
@@ -13981,11 +13981,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/workflow/definitions/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const { id } = req.params;
-      const definition = await storage.getWorkflowDefinition(parseInt(id));
+      const definition = await req.storage!.getWorkflowDefinition(parseInt(id));
       if (!definition) {
         return res.status(404).json({ success: false, message: 'Workflow definition not found' });
       }
-      const stages = await storage.getWorkflowStages(definition.id);
+      const stages = await req.storage!.getWorkflowStages(definition.id);
       res.json({ success: true, definition, stages });
     } catch (error) {
       console.error('Get workflow definition error:', error);
@@ -14003,7 +14003,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (entityType) filters.entityType = entityType;
       if (assignedToId) filters.assignedToId = assignedToId;
 
-      const tickets = await storage.getAllWorkflowTickets(filters);
+      const tickets = await req.storage!.getAllWorkflowTickets(filters);
       res.json({ success: true, tickets });
     } catch (error) {
       console.error('Get workflow tickets error:', error);
@@ -14015,18 +14015,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/workflow/tickets/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const { id } = req.params;
-      const ticket = await storage.getWorkflowTicket(parseInt(id));
+      const ticket = await req.storage!.getWorkflowTicket(parseInt(id));
       if (!ticket) {
         return res.status(404).json({ success: false, message: 'Workflow ticket not found' });
       }
 
-      const definition = await storage.getWorkflowDefinition(ticket.workflowDefinitionId);
-      const stages = await storage.getWorkflowStages(ticket.workflowDefinitionId);
-      const ticketStages = await storage.getWorkflowTicketStages(ticket.id);
-      const issues = await storage.getWorkflowIssues(ticket.id);
-      const tasks = await storage.getWorkflowTasks(ticket.id);
-      const transitions = await storage.getWorkflowTransitions(ticket.id);
-      const notes = await storage.getWorkflowNotes(ticket.id);
+      const definition = await req.storage!.getWorkflowDefinition(ticket.workflowDefinitionId);
+      const stages = await req.storage!.getWorkflowStages(ticket.workflowDefinitionId);
+      const ticketStages = await req.storage!.getWorkflowTicketStages(ticket.id);
+      const issues = await req.storage!.getWorkflowIssues(ticket.id);
+      const tasks = await req.storage!.getWorkflowTasks(ticket.id);
+      const transitions = await req.storage!.getWorkflowTransitions(ticket.id);
+      const notes = await req.storage!.getWorkflowNotes(ticket.id);
       const currentStage = ticket.currentStageId ? stages.find(s => s.id === ticket.currentStageId) : null;
 
       res.json({
@@ -14119,7 +14119,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const result = await engine.executeCurrentStage(parseInt(id), userId);
       
-      const ticket = await storage.getWorkflowTicket(parseInt(id));
+      const ticket = await req.storage!.getWorkflowTicket(parseInt(id));
       res.json({ success: true, result, ticket, message: 'Stage executed' });
     } catch (error) {
       console.error('Execute workflow stage error:', error);
@@ -14142,7 +14142,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const engine = new WorkflowEngine(storage);
       registerUnderwritingHandlers(engine);
 
-      const ticket = await storage.getWorkflowTicket(parseInt(id));
+      const ticket = await req.storage!.getWorkflowTicket(parseInt(id));
       if (!ticket) {
         return res.status(404).json({ success: false, message: 'Ticket not found' });
       }
@@ -14154,13 +14154,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // If stageId doesn't match current stage, switch to it first
       if (ticket.currentStageId !== parseInt(stageId)) {
-        await storage.updateWorkflowTicket(parseInt(id), {
+        await req.storage!.updateWorkflowTicket(parseInt(id), {
           currentStageId: parseInt(stageId),
         });
       }
 
       const result = await engine.executeCurrentStage(parseInt(id), userId);
-      const updatedTicket = await storage.getWorkflowTicket(parseInt(id));
+      const updatedTicket = await req.storage!.getWorkflowTicket(parseInt(id));
       
       res.json({ success: true, result, ticket: updatedTicket, message: 'Stage executed' });
     } catch (error) {
@@ -14184,12 +14184,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const engine = new WorkflowEngine(storage);
       registerUnderwritingHandlers(engine);
 
-      const ticket = await storage.getWorkflowTicket(parseInt(id));
+      const ticket = await req.storage!.getWorkflowTicket(parseInt(id));
       if (!ticket || !ticket.currentStageId) {
         return res.status(404).json({ success: false, message: 'Ticket not found or has no current stage' });
       }
 
-      const currentStage = await storage.getWorkflowStage(ticket.currentStageId);
+      const currentStage = await req.storage!.getWorkflowStage(ticket.currentStageId);
       if (!currentStage) {
         return res.status(404).json({ success: false, message: 'Current stage not found' });
       }
@@ -14249,7 +14249,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await engine.assignTicket(parseInt(id), assigneeId, userId, notes);
       
-      const ticket = await storage.getWorkflowTicket(parseInt(id));
+      const ticket = await req.storage!.getWorkflowTicket(parseInt(id));
       res.json({ success: true, ticket, message: 'Ticket assigned' });
     } catch (error) {
       console.error('Assign ticket error:', error);
@@ -14276,7 +14276,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await engine.addNote(parseInt(id), noteType, content, userId, isInternal);
       
-      const notes = await storage.getWorkflowNotes(parseInt(id));
+      const notes = await req.storage!.getWorkflowNotes(parseInt(id));
       res.json({ success: true, notes, message: 'Note added' });
     } catch (error) {
       console.error('Add note error:', error);
@@ -14294,18 +14294,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { status, resolution, overrideReason } = req.body;
       const userId = req.user?.claims?.sub;
 
-      const issue = await storage.getWorkflowIssue(parseInt(id));
+      const issue = await req.storage!.getWorkflowIssue(parseInt(id));
       if (!issue) {
         return res.status(404).json({ success: false, message: 'Issue not found' });
       }
 
       if (status === 'overridden' && overrideReason) {
-        await storage.overrideWorkflowIssue(parseInt(id), overrideReason, userId);
+        await req.storage!.overrideWorkflowIssue(parseInt(id), overrideReason, userId);
       } else {
-        await storage.updateWorkflowIssue(parseInt(id), { status, resolution });
+        await req.storage!.updateWorkflowIssue(parseInt(id), { status, resolution });
       }
 
-      const updatedIssue = await storage.getWorkflowIssue(parseInt(id));
+      const updatedIssue = await req.storage!.getWorkflowIssue(parseInt(id));
       res.json({ success: true, issue: updatedIssue, message: 'Issue updated' });
     } catch (error) {
       console.error('Update issue error:', error);
@@ -14337,9 +14337,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updates.assignedAt = new Date();
       }
 
-      await storage.updateWorkflowTask(parseInt(id), updates);
+      await req.storage!.updateWorkflowTask(parseInt(id), updates);
       
-      const task = await storage.getWorkflowTask(parseInt(id));
+      const task = await req.storage!.getWorkflowTask(parseInt(id));
       res.json({ success: true, task, message: 'Task updated' });
     } catch (error) {
       console.error('Update task error:', error);
@@ -14356,7 +14356,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user?.claims?.sub;
       const userRole = req.user?.role;
 
-      const allTickets = await storage.getAllWorkflowTickets({});
+      const allTickets = await req.storage!.getAllWorkflowTickets({});
       
       const stats = {
         total: allTickets.length,
@@ -14388,7 +14388,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // MCC Policies - List
   app.get('/api/workflow/mcc-policies', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
-      const policies = await storage.getMccPolicies();
+      const policies = await req.storage!.getMccPolicies();
       res.json({ success: true, policies });
     } catch (error) {
       console.error('Get MCC policies error:', error);
@@ -14406,7 +14406,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ success: false, message: 'MCC code, description, and category are required' });
       }
 
-      const policy = await storage.createMccPolicy({
+      const policy = await req.storage!.createMccPolicy({
         mccCode,
         description,
         category,
@@ -14427,7 +14427,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Volume Thresholds - List
   app.get('/api/workflow/volume-thresholds', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
-      const thresholds = await storage.getVolumeThresholds();
+      const thresholds = await req.storage!.getVolumeThresholds();
       res.json({ success: true, thresholds });
     } catch (error) {
       console.error('Get volume thresholds error:', error);
@@ -14445,7 +14445,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ success: false, message: 'Threshold type, action, and severity are required' });
       }
 
-      const threshold = await storage.createVolumeThreshold({
+      const threshold = await req.storage!.createVolumeThreshold({
         thresholdType,
         minValue: minValue || null,
         maxValue: maxValue || null,
@@ -14471,7 +14471,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all stage API configurations
   app.get('/api/workflow/stage-configs', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
     try {
-      const configs = await storage.getAllStageApiConfigs();
+      const configs = await req.storage!.getAllStageApiConfigs();
       res.json({ success: true, configs });
     } catch (error) {
       console.error('Get stage API configs error:', error);
@@ -14483,7 +14483,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/workflow/stage-configs/by-stage/:stageId', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
       const { stageId } = req.params;
-      const config = await storage.getStageApiConfig(parseInt(stageId));
+      const config = await req.storage!.getStageApiConfig(parseInt(stageId));
       if (!config) {
         return res.status(404).json({ success: false, message: 'Stage API configuration not found' });
       }
@@ -14498,7 +14498,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/workflow/stage-configs/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
     try {
       const { id } = req.params;
-      const config = await storage.getStageApiConfigById(parseInt(id));
+      const config = await req.storage!.getStageApiConfigById(parseInt(id));
       if (!config) {
         return res.status(404).json({ success: false, message: 'Stage API configuration not found' });
       }
@@ -14540,12 +14540,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check if config already exists for this stage
-      const existingConfig = await storage.getStageApiConfig(stageId);
+      const existingConfig = await req.storage!.getStageApiConfig(stageId);
       if (existingConfig) {
         return res.status(400).json({ success: false, message: 'A configuration already exists for this stage. Use update instead.' });
       }
 
-      const config = await storage.createStageApiConfig({
+      const config = await req.storage!.createStageApiConfig({
         stageId,
         integrationId: integrationId || null,
         endpointUrl: endpointUrl || null,
@@ -14586,7 +14586,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       delete updates.createdAt;
       delete updates.createdBy;
 
-      const config = await storage.updateStageApiConfig(parseInt(id), updates);
+      const config = await req.storage!.updateStageApiConfig(parseInt(id), updates);
       if (!config) {
         return res.status(404).json({ success: false, message: 'Stage API configuration not found' });
       }
@@ -14602,7 +14602,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete('/api/workflow/stage-configs/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
     try {
       const { id } = req.params;
-      const deleted = await storage.deleteStageApiConfig(parseInt(id));
+      const deleted = await req.storage!.deleteStageApiConfig(parseInt(id));
       if (!deleted) {
         return res.status(404).json({ success: false, message: 'Stage API configuration not found' });
       }
@@ -15268,12 +15268,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get the version to capture the content hash
-      const version = await storage.getDisclosureVersion(disclosureVersionId);
+      const version = await req.storage!.getDisclosureVersion(disclosureVersionId);
       if (!version) {
         return res.status(404).json({ success: false, message: 'Disclosure version not found' });
       }
 
-      const signature = await storage.createDisclosureSignature({
+      const signature = await req.storage!.createDisclosureSignature({
         disclosureVersionId,
         prospectId: prospectId || null,
         userId: userId || null,
@@ -15305,7 +15305,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/prospects/:prospectId/disclosure-signatures', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter', 'agent']), async (req: any, res) => {
     try {
       const { prospectId } = req.params;
-      const signatures = await storage.getDisclosureSignaturesByProspect(parseInt(prospectId));
+      const signatures = await req.storage!.getDisclosureSignaturesByProspect(parseInt(prospectId));
       res.json({ success: true, signatures });
     } catch (error) {
       console.error('Get prospect disclosure signatures error:', error);
