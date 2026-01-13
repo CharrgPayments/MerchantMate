@@ -21,18 +21,31 @@ export const dbEnvironmentMiddleware = (req: RequestWithDB, res: Response, next:
     req.userId = (req.user as any).id;
   }
   
-  // Check if we're in production deployment environment 
+  // Check if we're in production or test deployment environment 
   const host = req.get('host') || '';
   const isProductionDomain = host === 'crm.charrg.com';
+  const isTestDomain = host === 'test-crm.charrg.com';
   
-  // Only production domain is locked to production database
+  // Production domain is locked to production database
   if (isProductionDomain) {
     req.dbEnv = 'production';
     req.dynamicDB = getDynamicDatabase('production');
     req.db = req.dynamicDB;
     req.storage = createStorage(req.dynamicDB);
     res.setHeader('X-Database-Environment', 'production');
-    console.log('Production domain: using production database');
+    console.log('🔒 Production domain: using production database');
+    next();
+    return;
+  }
+  
+  // Test domain is locked to test database
+  if (isTestDomain) {
+    req.dbEnv = 'test';
+    req.dynamicDB = getDynamicDatabase('test');
+    req.db = req.dynamicDB;
+    req.storage = createStorage(req.dynamicDB);
+    res.setHeader('X-Database-Environment', 'test');
+    console.log('🧪 Test domain: using test database');
     next();
     return;
   }

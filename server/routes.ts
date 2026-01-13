@@ -1888,7 +1888,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Merchant Prospect routes
   app.get("/api/prospects", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
-      const envStorage = createStorageForRequest(req);
+      console.log(`🔍 PROSPECTS ENDPOINT - req.dbEnv: ${req.dbEnv}, session.dbEnv: ${(req.session as any)?.dbEnv}`);
+      console.log(`🔍 PROSPECTS ENDPOINT - Host: ${req.get('host')}`);
+      
+      // Use req.storage set by middleware, fallback to createStorageForRequest
+      const envStorage = req.storage || createStorageForRequest(req);
+      console.log(`🔍 PROSPECTS ENDPOINT - Using storage from: ${req.storage ? 'req.storage (middleware)' : 'createStorageForRequest'}`);
+      
       const { search } = req.query;
       const userId = (req.session as any).userId;
       const user = await envStorage.getUser(userId);
