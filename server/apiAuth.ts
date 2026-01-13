@@ -1,12 +1,13 @@
 import type { Request, Response, NextFunction } from "express";
 import bcrypt from "bcrypt";
-import { storage } from "./storage";
+import { storage, createStorage } from "./storage";
 import type { ApiKey } from "@shared/schema";
 
 // Extended request interface for API authentication
 export interface ApiRequest extends Request {
   apiKey?: ApiKey;
   apiKeyId?: number;
+  storage?: ReturnType<typeof createStorage>;
 }
 
 // Rate limiting storage (in production, use Redis)
@@ -44,7 +45,7 @@ export const authenticateApiKey = async (
     }
 
     // Find API key in database
-    const apiKey = await storage.getApiKeyByKeyId(keyId);
+    const apiKey = await req.storage!.getApiKeyByKeyId(keyId);
     if (!apiKey) {
       res.status(401).json({
         error: 'Invalid API key',
@@ -101,7 +102,7 @@ export const authenticateApiKey = async (
     });
 
     // Update last used timestamp
-    await storage.updateApiKeyLastUsed(apiKey.id);
+    await req.storage!.updateApiKeyLastUsed(apiKey.id);
 
     // Attach API key info to request
     req.apiKey = apiKey;
@@ -171,7 +172,7 @@ export const logApiRequest = async (
       const responseTime = Date.now() - startTime;
       const requestSize = JSON.stringify(req.body || {}).length;
       
-      await storage.createApiRequestLog({
+      await req.storage!.createApiRequestLog({
         apiKeyId: req.apiKeyId || null,
         endpoint: req.path,
         method: req.method,

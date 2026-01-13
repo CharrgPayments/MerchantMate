@@ -6,8 +6,14 @@ import session from "express-session";
 import type { Express, RequestHandler } from "express";
 import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
-import { storage } from "./storage";
+import { storage, createStorage } from "./storage";
 import { v4 as uuidv4 } from "uuid";
+
+// Extended request type with storage
+interface RequestWithStorage {
+  storage?: ReturnType<typeof createStorage>;
+  dynamicDB?: any;
+}
 
 // Helper function to get user from dynamic database
 async function getUserFromDynamicDB(dynamicDB: any, userId: string) {
@@ -178,8 +184,9 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     try {
       let dbUser;
       
-      // Always use storage layer for user lookup to avoid schema mismatch issues
-      dbUser = await storage.getUser(sessionUserId);
+      // Use request storage if available, otherwise fallback to static storage
+      const reqStorage = (req as RequestWithStorage).storage || storage;
+      dbUser = await reqStorage.getUser(sessionUserId);
       console.log('Session Auth - Using storage layer for user lookup');
       
       console.log('Session Auth - Found user:', dbUser ? `${dbUser.username} (${dbUser.roles.join(', ')})` : 'NULL');
@@ -207,7 +214,8 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     (req.session as any).sessionId = uuidv4();
     
     try {
-      const dbUser = await storage.getUser(userId);
+      const reqStorage = (req as RequestWithStorage).storage || storage;
+      const dbUser = await reqStorage.getUser(userId);
       if (!dbUser) {
         return res.status(401).json({ message: "User not found" });
       }
@@ -241,7 +249,8 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     // Attach user data to request
     try {
       if (user.claims?.sub) {
-        const dbUser = await storage.getUser(user.claims.sub);
+        const reqStorage = (req as RequestWithStorage).storage || storage;
+        const dbUser = await reqStorage.getUser(user.claims.sub);
         (req as any).currentUser = dbUser;
       }
     } catch (error) {
@@ -263,7 +272,8 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     
     // Attach user data to request after refresh
     if (user.claims?.sub) {
-      const dbUser = await storage.getUser(user.claims.sub);
+      const reqStorage = (req as RequestWithStorage).storage || storage;
+      const dbUser = await reqStorage.getUser(user.claims.sub);
       (req as any).currentUser = dbUser;
     }
     return next();
@@ -280,11 +290,10 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
     const sessionUserId = (req.session as any)?.userId;
     if (sessionUserId) {
       try {
-        // Use dynamic database from request if available, otherwise fallback to global storage
-        const reqWithDB = req as any;
-        const dbUser = reqWithDB.dynamicDB 
-          ? await getUserFromDynamicDB(reqWithDB.dynamicDB, sessionUserId)
-          : await storage.getUser(sessionUserId);
+        // Use request storage if available, otherwise fallback to global storage
+        const reqWithDB = req as RequestWithStorage;
+        const reqStorage = reqWithDB.storage || storage;
+        const dbUser = await reqStorage.getUser(sessionUserId);
         if (!dbUser) {
           return res.status(401).json({ message: "User not found" });
         }
@@ -320,11 +329,10 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
       (req.session as any).sessionId = uuidv4();
       
       try {
-        // Use dynamic database from request if available, otherwise fallback to global storage
-        const reqWithDB = req as any;
-        const dbUser = reqWithDB.dynamicDB 
-          ? await getUserFromDynamicDB(reqWithDB.dynamicDB, userId)
-          : await storage.getUser(userId);
+        // Use request storage if available, otherwise fallback to global storage
+        const reqWithDB = req as RequestWithStorage;
+        const reqStorage = reqWithDB.storage || storage;
+        const dbUser = await reqStorage.getUser(userId);
         if (!dbUser) {
           return res.status(401).json({ message: "User not found" });
         }
@@ -363,7 +371,8 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
     }
 
     try {
-      const dbUser = await storage.getUser(user.claims.sub);
+      const reqStorage = (req as RequestWithStorage).storage || storage;
+      const dbUser = await reqStorage.getUser(user.claims.sub);
       if (!dbUser) {
         return res.status(401).json({ message: "User not found" });
       }
@@ -398,7 +407,8 @@ export const requirePermission = (permission: string): RequestHandler => {
     }
 
     try {
-      const dbUser = await storage.getUser(user.claims.sub);
+      const reqStorage = (req as RequestWithStorage).storage || storage;
+      const dbUser = await reqStorage.getUser(user.claims.sub);
       if (!dbUser) {
         return res.status(401).json({ message: "User not found" });
       }
