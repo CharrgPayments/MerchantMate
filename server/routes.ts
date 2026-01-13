@@ -1856,11 +1856,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Merchant Prospect routes
-  app.get("/api/prospects", isAuthenticated, async (req, res) => {
+  app.get("/api/prospects", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { search } = req.query;
       const userId = (req.session as any).userId;
-      const user = await storage.getUser(userId);
+      const user = await envStorage.getUser(userId);
       
       if (!user) {
         return res.status(401).json({ message: "User not found" });
@@ -1873,12 +1874,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (userRoles.includes('agent')) {
         // Agents can only see their assigned prospects
-        let agent = await storage.getAgentByUserId(userId);
+        let agent = await envStorage.getAgentByUserId(userId);
         
         // If no agent found, use fallback for development/testing
         if (!agent && userId === 'user_agent_1') {
           // For development, fallback to agent ID 2 (Mike Chen)
-          agent = await storage.getAgent(2);
+          agent = await envStorage.getAgent(2);
           console.log('Using fallback agent for prospects:', agent?.firstName, agent?.lastName);
         }
         
@@ -1887,16 +1888,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         if (search) {
-          prospects = await storage.searchMerchantProspectsByAgent(agent.id, search as string);
+          prospects = await envStorage.searchMerchantProspectsByAgent(agent.id, search as string);
         } else {
-          prospects = await storage.getMerchantProspectsByAgent(agent.id);
+          prospects = await envStorage.getMerchantProspectsByAgent(agent.id);
         }
       } else if (userRoles.some(role => ['admin', 'corporate', 'super_admin'].includes(role))) {
         // Admins can see all prospects
         if (search) {
-          prospects = await storage.searchMerchantProspects(search as string);
+          prospects = await envStorage.searchMerchantProspects(search as string);
         } else {
-          prospects = await storage.getAllMerchantProspects();
+          prospects = await envStorage.getAllMerchantProspects();
         }
       } else {
         return res.status(403).json({ message: "Access denied" });
@@ -1905,7 +1906,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Include campaign assignment for each prospect
       const prospectsWithCampaign = await Promise.all(
         prospects.map(async (prospect) => {
-          const campaignAssignment = await storage.getProspectCampaignAssignment(prospect.id);
+          const campaignAssignment = await envStorage.getProspectCampaignAssignment(prospect.id);
           return {
             ...prospect,
             campaignId: campaignAssignment?.campaignId || null,
@@ -1920,14 +1921,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/prospects", isAuthenticated, async (req, res) => {
+  app.post("/api/prospects", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { insertMerchantProspectSchema } = await import("@shared/schema");
       const { emailService } = await import("./emailService");
       
       // Check user role authorization
       const userId = (req.session as any).userId;
-      const user = await storage.getUser(userId);
+      const user = await envStorage.getUser(userId);
       
       if (!user) {
         return res.status(401).json({ message: "User not found" });
@@ -1951,7 +1953,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // If user is an agent, automatically use their agent ID
       let finalAgentId = prospectData.agentId;
       if (userRoles.includes('agent')) {
-        const agentRecord = await storage.getAgentByUserId(userId);
+        const agentRecord = await envStorage.getAgentByUserId(userId);
         if (agentRecord) {
           finalAgentId = agentRecord.id;
           console.log(`Auto-assigned agent ID ${finalAgentId} for user ${userId}`);
@@ -1969,7 +1971,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Validate agentId
-      const agent = await storage.getAgent(result.data.agentId);
+      const agent = await envStorage.getAgent(result.data.agentId);
       if (!agent) {
         return res.status(400).json({ message: `Invalid agent ID: ${result.data.agentId}. Agent not found.` });
       }
@@ -1980,14 +1982,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Create prospect with validation token and capture the database environment
       const adminDbEnv = (req.session as any)?.dbEnv || 'development';
-      const prospect = await storage.createMerchantProspect({
+      const prospect = await envStorage.createMerchantProspect({
         ...result.data,
         validationToken,
         databaseEnv: adminDbEnv
       });
       
       // Create campaign assignment
-      await storage.assignCampaignToProspect(campaignId, prospect.id, userId);
+      await envStorage.assignCampaignToProspect(campaignId, prospect.id, userId);
       
       // Auto-create prospect application if campaign has a template assigned
       const { campaignApplicationTemplates, acquirerApplicationTemplates, prospectApplications } = await import("@shared/schema");
@@ -2073,14 +2075,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/prospects/:id", requireRole(['agent', 'admin', 'corporate', 'super_admin']), async (req, res) => {
+  app.put("/api/prospects/:id", dbEnvironmentMiddleware, requireRole(['agent', 'admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
       const prospectId = parseInt(id);
       
       // If email is being updated, check if it already exists for a different prospect
       if (req.body.email) {
-        const existingProspect = await storage.getMerchantProspectByEmail(req.body.email);
+        const existingProspect = await envStorage.getMerchantProspectByEmail(req.body.email);
         if (existingProspect && existingProspect.id !== prospectId) {
           return res.status(400).json({ 
             message: "A prospect with this email already exists" 
@@ -2088,7 +2091,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      const prospect = await storage.updateMerchantProspect(prospectId, req.body);
+      const prospect = await envStorage.updateMerchantProspect(prospectId, req.body);
       
       if (!prospect) {
         return res.status(404).json({ message: "Prospect not found" });
@@ -2169,18 +2172,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Save agent signature for a prospect
-  app.post("/api/prospects/:id/agent-signature", async (req, res) => {
+  app.post("/api/prospects/:id/agent-signature", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
       const { agentSignature, agentSignatureType } = req.body;
       
-      const prospect = await storage.getMerchantProspect(parseInt(id));
+      const prospect = await envStorage.getMerchantProspect(parseInt(id));
       if (!prospect) {
         return res.status(404).json({ message: "Prospect not found" });
       }
       
       // Update prospect with agent signature
-      const updatedProspect = await storage.updateMerchantProspect(parseInt(id), {
+      const updatedProspect = await envStorage.updateMerchantProspect(parseInt(id), {
         agentSignature,
         agentSignatureType,
         agentSignedAt: new Date().toISOString(),
@@ -2197,13 +2201,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/prospects/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/prospects/:id", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
       
       // Check user role authorization
       const userId = (req.session as any).userId;
-      const user = await storage.getUser(userId);
+      const user = await envStorage.getUser(userId);
       
       if (!user) {
         return res.status(401).json({ message: "User not found" });
@@ -2216,7 +2221,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       
-      const success = await storage.deleteMerchantProspect(parseInt(id));
+      const success = await envStorage.deleteMerchantProspect(parseInt(id));
       
       if (success) {
         res.json({ success: true });
@@ -2230,8 +2235,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Bulk operations for prospects
-  app.post("/api/prospects/bulk-delete", requireRole(['admin', 'corporate', 'super_admin']), async (req, res) => {
+  app.post("/api/prospects/bulk-delete", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { ids } = req.body;
       
       if (!Array.isArray(ids) || ids.length === 0) {
@@ -2240,7 +2246,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Delete all prospects with the given IDs
       const deletedCount = await Promise.all(
-        ids.map(id => storage.deleteMerchantProspect(id))
+        ids.map(id => envStorage.deleteMerchantProspect(id))
       ).then(results => results.filter(Boolean).length);
       
       res.json({ 
@@ -2254,8 +2260,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/prospects/bulk-status-update", requireRole(['admin', 'corporate', 'super_admin']), async (req, res) => {
+  app.post("/api/prospects/bulk-status-update", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { ids, status } = req.body;
       
       if (!Array.isArray(ids) || ids.length === 0) {
@@ -2268,7 +2275,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Update all prospects with the new status
       const updatedProspects = await Promise.all(
-        ids.map(id => storage.updateMerchantProspect(id, { status }))
+        ids.map(id => envStorage.updateMerchantProspect(id, { status }))
       );
       
       const successCount = updatedProspects.filter(Boolean).length;
@@ -2285,8 +2292,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get individual prospect for application view
-  app.get("/api/prospects/view/:id", isAuthenticated, async (req: any, res) => {
+  app.get("/api/prospects/view/:id", dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
       console.log('Fetching prospect ID:', id);
       
@@ -2294,7 +2302,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('User ID from session:', userId);
       
       // Get user data
-      const user = await storage.getUser(userId);
+      const user = await envStorage.getUser(userId);
       if (!user) {
         console.log('User not found for ID:', userId);
         return res.status(404).json({ message: "User not found" });
@@ -2302,7 +2310,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('Found user:', user.email, 'role:', user.role);
 
       // Get prospect data
-      const prospect = await storage.getMerchantProspect(parseInt(id));
+      const prospect = await envStorage.getMerchantProspect(parseInt(id));
       if (!prospect) {
         console.log('Prospect not found for ID:', id);
         return res.status(404).json({ message: "Prospect not found" });
@@ -2311,12 +2319,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // For agents, check if this prospect is assigned to them
       if (user.role === 'agent') {
-        let agent = await storage.getAgentByUserId(userId);
+        let agent = await envStorage.getAgentByUserId(userId);
         
         // If no agent found, use fallback for development/testing
         if (!agent && userId === 'user_agent_1') {
           // For development, fallback to agent ID 2 (Mike Chen)
-          agent = await storage.getAgent(2);
+          agent = await envStorage.getAgent(2);
           console.log('Using fallback agent for prospect view:', agent?.firstName, agent?.lastName);
         }
         
@@ -2330,7 +2338,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get assigned agent details
       let assignedAgent = 'Unassigned';
       if (prospect.agentId) {
-        const agent = await storage.getAgent(prospect.agentId);
+        const agent = await envStorage.getAgent(prospect.agentId);
         if (agent) {
           assignedAgent = `${agent.firstName} ${agent.lastName}`;
         }
