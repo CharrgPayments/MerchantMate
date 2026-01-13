@@ -2144,19 +2144,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/prospects/:id/resend-invitation", requireRole(['agent', 'admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post("/api/prospects/:id/resend-invitation", dbEnvironmentMiddleware, requireRole(['agent', 'admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
       const { emailService } = await import("./emailService");
       
       // Get prospect details
-      const prospect = await storage.getMerchantProspect(parseInt(id));
+      const prospect = await envStorage.getMerchantProspect(parseInt(id));
       if (!prospect) {
         return res.status(404).json({ message: "Prospect not found" });
       }
 
       // Get agent information
-      const agent = await storage.getAgent(prospect.agentId);
+      const agent = await envStorage.getAgent(prospect.agentId);
       if (!agent) {
         return res.status(404).json({ message: "Agent not found" });
       }
@@ -2168,7 +2169,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         validationToken = crypto.randomUUID();
         
         // Update prospect with the new validation token
-        const updatedProspect = await storage.updateMerchantProspect(parseInt(id), {
+        const updatedProspect = await envStorage.updateMerchantProspect(parseInt(id), {
           validationToken
         });
         
@@ -2387,15 +2388,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Prospect validation route (public, no auth required)
-  app.post("/api/prospects/validate", async (req, res) => {
+  app.post("/api/prospects/validate", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { email } = req.body;
       
       if (!email) {
         return res.status(400).json({ message: "Email is required" });
       }
 
-      const prospect = await storage.getMerchantProspectByEmail(email);
+      const prospect = await envStorage.getMerchantProspectByEmail(email);
       
       if (!prospect) {
         return res.status(404).json({ message: "No invitation found for this email address. Please check that you entered the correct email address that received the invitation." });
@@ -2423,7 +2425,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Update validation timestamp for first-time validation
-      await storage.updateMerchantProspect(prospect.id, {
+      await envStorage.updateMerchantProspect(prospect.id, {
         validatedAt: new Date(),
         status: 'contacted'
       });
@@ -2446,15 +2448,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Validate prospect by token (public, no auth required)
-  app.post("/api/prospects/validate-token", async (req, res) => {
+  app.post("/api/prospects/validate-token", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { token } = req.body;
       
       if (!token) {
         return res.status(400).json({ message: "Token is required" });
       }
 
-      const prospect = await storage.getMerchantProspectByToken(token);
+      const prospect = await envStorage.getMerchantProspectByToken(token);
       
       if (!prospect) {
         return res.status(404).json({ message: "Invalid or expired token" });
@@ -2462,7 +2465,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Update validation timestamp if not already validated
       if (!prospect.validatedAt) {
-        await storage.updateMerchantProspect(prospect.id, {
+        await envStorage.updateMerchantProspect(prospect.id, {
           validatedAt: new Date(),
           status: 'contacted'
         });
@@ -2640,8 +2643,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Get prospect record linked to this user
-      const prospect = await storage.getProspectByUserId(user.id);
+      // Get prospect record linked to this user using environment-aware storage
+      const envStorage = createStorageForRequest(req);
+      const prospect = await envStorage.getProspectByUserId(user.id);
       
       if (!prospect) {
         return res.status(404).json({ 
@@ -2801,8 +2805,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         acl: 'PROSPECT_OWNER'
       });
       
-      // Create document record
-      const document = await storage.createProspectDocument({
+      // Create document record using environment-aware storage
+      const envStorage = createStorageForRequest(req);
+      const document = await envStorage.createProspectDocument({
         prospectId,
         fileName,
         originalFileName: originalFileName || fileName,
@@ -2903,8 +2908,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ success: false, message: "Access denied" });
       }
       
-      // Get document metadata
-      const document = await storage.getProspectDocument(docId);
+      // Get document metadata using environment-aware storage
+      const envStorage = createStorageForRequest(req);
+      const document = await envStorage.getProspectDocument(docId);
       if (!document) {
         return res.status(404).json({ success: false, message: "Document not found" });
       }
@@ -2919,7 +2925,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await objectStorageService.deleteFile(document.storageKey);
       
       // Delete metadata from database
-      await storage.deleteProspectDocument(docId);
+      await envStorage.deleteProspectDocument(docId);
       
       res.json({ success: true, message: "Document deleted successfully" });
     } catch (error) {
@@ -3199,6 +3205,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all notifications for a prospect
   app.get("/api/prospects/:id/notifications", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const prospectId = parseInt(req.params.id);
       const prospect = (req as any).prospect;
       
@@ -3207,7 +3214,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ success: false, message: "Access denied" });
       }
       
-      const notifications = await storage.getProspectNotifications(prospectId);
+      const notifications = await envStorage.getProspectNotifications(prospectId);
       res.json({ success: true, notifications });
     } catch (error) {
       console.error("Error fetching notifications:", error);
@@ -3218,6 +3225,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get unread notification count for a prospect
   app.get("/api/prospects/:id/notifications/unread-count", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const prospectId = parseInt(req.params.id);
       const prospect = (req as any).prospect;
       
@@ -3226,7 +3234,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ success: false, message: "Access denied" });
       }
       
-      const unreadNotifications = await storage.getUnreadProspectNotifications(prospectId);
+      const unreadNotifications = await envStorage.getUnreadProspectNotifications(prospectId);
       res.json({ success: true, count: unreadNotifications.length });
     } catch (error) {
       console.error("Error fetching unread count:", error);
@@ -3237,6 +3245,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Mark notification as read
   app.patch("/api/prospects/:id/notifications/:notificationId/read", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const prospectId = parseInt(req.params.id);
       const notificationId = parseInt(req.params.notificationId);
       const prospect = (req as any).prospect;
@@ -3247,7 +3256,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Get notification to verify ownership
-      const notification = await storage.getProspectNotification(notificationId);
+      const notification = await envStorage.getProspectNotification(notificationId);
       if (!notification) {
         return res.status(404).json({ success: false, message: "Notification not found" });
       }
@@ -3258,7 +3267,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Mark as read
-      const updatedNotification = await storage.markProspectNotificationAsRead(notificationId);
+      const updatedNotification = await envStorage.markProspectNotificationAsRead(notificationId);
       res.json({ success: true, notification: updatedNotification });
     } catch (error) {
       console.error("Error marking notification as read:", error);
@@ -3269,6 +3278,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create notification (admin/agent endpoint - for task 14, added here for completeness)
   app.post("/api/prospects/:id/notifications", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'agent']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const prospectId = parseInt(req.params.id);
       const { subject, message, type, metadata } = req.body;
       
@@ -3277,13 +3287,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Verify prospect exists
-      const prospect = await storage.getMerchantProspect(prospectId);
+      const prospect = await envStorage.getMerchantProspect(prospectId);
       if (!prospect) {
         return res.status(404).json({ success: false, message: "Prospect not found" });
       }
       
       // Create notification
-      const notification = await storage.createProspectNotification({
+      const notification = await envStorage.createProspectNotification({
         prospectId,
         subject,
         message,
@@ -3306,6 +3316,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get messages for a prospect
   app.get("/api/prospects/:id/messages", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const prospectId = parseInt(req.params.id);
       const prospect = (req as any).prospect;
       
@@ -3313,7 +3324,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ success: false, message: "Access denied" });
       }
       
-      const messages = await storage.getProspectMessages(prospectId);
+      const messages = await envStorage.getProspectMessages(prospectId);
       res.json({ success: true, messages });
     } catch (error) {
       console.error("Error fetching messages:", error);
@@ -3324,6 +3335,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get unread message count for prospect
   app.get("/api/prospects/:id/messages/unread-count", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const prospectId = parseInt(req.params.id);
       const prospect = (req as any).prospect;
       
@@ -3332,7 +3344,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Count messages from agent that prospect hasn't read
-      const count = await storage.getUnreadProspectMessagesCount(prospectId, 'agent');
+      const count = await envStorage.getUnreadProspectMessagesCount(prospectId, 'agent');
       res.json({ success: true, count });
     } catch (error) {
       console.error("Error fetching unread count:", error);
@@ -3343,6 +3355,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Send message from prospect to assigned agent
   app.post("/api/prospects/:id/messages", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const prospectId = parseInt(req.params.id);
       const prospect = (req as any).prospect;
       const userId = req.session.userId;
@@ -3357,7 +3370,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Create message
-      const newMessage = await storage.createProspectMessage({
+      const newMessage = await envStorage.createProspectMessage({
         prospectId,
         agentId: prospect.agentId || null,
         senderId: userId!,
@@ -3377,6 +3390,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Mark message as read
   app.patch("/api/prospects/:id/messages/:messageId/read", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const prospectId = parseInt(req.params.id);
       const messageId = parseInt(req.params.messageId);
       const prospect = (req as any).prospect;
@@ -3385,12 +3399,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ success: false, message: "Access denied" });
       }
       
-      const msg = await storage.getProspectMessage(messageId);
+      const msg = await envStorage.getProspectMessage(messageId);
       if (!msg || msg.prospectId !== prospectId) {
         return res.status(404).json({ success: false, message: "Message not found" });
       }
       
-      const updated = await storage.markProspectMessageAsRead(messageId);
+      const updated = await envStorage.markProspectMessageAsRead(messageId);
       res.json({ success: true, message: updated });
     } catch (error) {
       console.error("Error marking message as read:", error);
@@ -3401,11 +3415,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Agent message routes
   app.get("/api/agents/:id/messages", dbEnvironmentMiddleware, isAuthenticated, requireRole(['agent', 'admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const agentId = parseInt(req.params.id);
       const userId = req.session.userId;
       
       // Verify the agent owns this ID or user is admin
-      const user = await storage.getUser(userId!);
+      const user = await envStorage.getUser(userId!);
       if (!user) {
         return res.status(401).json({ success: false, message: "Unauthorized" });
       }
@@ -3415,17 +3430,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (!isAdmin) {
         // Check if user is this agent
-        const agent = await storage.getAgent(agentId);
+        const agent = await envStorage.getAgent(agentId);
         if (!agent || agent.userId !== userId) {
           return res.status(403).json({ success: false, message: "Access denied" });
         }
       }
       
-      const messages = await storage.getAgentMessages(agentId);
+      const messages = await envStorage.getAgentMessages(agentId);
       
       // Enrich messages with prospect info
       const enrichedMessages = await Promise.all(messages.map(async (msg) => {
-        const prospect = await storage.getMerchantProspect(msg.prospectId);
+        const prospect = await envStorage.getMerchantProspect(msg.prospectId);
         return {
           ...msg,
           prospectName: prospect ? `${prospect.firstName} ${prospect.lastName}` : 'Unknown',
@@ -3442,11 +3457,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/agents/:id/messages/unread-count", dbEnvironmentMiddleware, isAuthenticated, requireRole(['agent', 'admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const agentId = parseInt(req.params.id);
       const userId = req.session.userId;
       
       // Verify the agent owns this ID or user is admin
-      const user = await storage.getUser(userId!);
+      const user = await envStorage.getUser(userId!);
       if (!user) {
         return res.status(401).json({ success: false, message: "Unauthorized" });
       }
@@ -3455,13 +3471,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isAdmin = userRoles.includes('admin') || userRoles.includes('super_admin');
       
       if (!isAdmin) {
-        const agent = await storage.getAgent(agentId);
+        const agent = await envStorage.getAgent(agentId);
         if (!agent || agent.userId !== userId) {
           return res.status(403).json({ success: false, message: "Access denied" });
         }
       }
       
-      const count = await storage.getAgentUnreadMessagesCount(agentId);
+      const count = await envStorage.getAgentUnreadMessagesCount(agentId);
       res.json({ success: true, count });
     } catch (error) {
       console.error("Error fetching unread count:", error);
@@ -3472,11 +3488,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Agent reply to prospect message
   app.post("/api/agents/:id/messages", dbEnvironmentMiddleware, isAuthenticated, requireRole(['agent', 'admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const agentId = parseInt(req.params.id);
       const userId = req.session.userId;
       
       // Verify the agent owns this ID or user is admin
-      const user = await storage.getUser(userId!);
+      const user = await envStorage.getUser(userId!);
       if (!user) {
         return res.status(401).json({ success: false, message: "Unauthorized" });
       }
@@ -3485,7 +3502,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isAdmin = userRoles.includes('admin') || userRoles.includes('super_admin');
       
       if (!isAdmin) {
-        const agent = await storage.getAgent(agentId);
+        const agent = await envStorage.getAgent(agentId);
         if (!agent || agent.userId !== userId) {
           return res.status(403).json({ success: false, message: "Access denied" });
         }
@@ -3497,7 +3514,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Verify prospect is assigned to this agent
-      const prospect = await storage.getMerchantProspect(parseInt(prospectId));
+      const prospect = await envStorage.getMerchantProspect(parseInt(prospectId));
       if (!prospect) {
         return res.status(404).json({ success: false, message: "Prospect not found" });
       }
@@ -3506,7 +3523,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ success: false, message: "Prospect not assigned to this agent" });
       }
       
-      const newMessage = await storage.createProspectMessage({
+      const newMessage = await envStorage.createProspectMessage({
         prospectId: parseInt(prospectId),
         agentId,
         senderId: userId!,
@@ -3526,11 +3543,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Agent mark message as read
   app.patch("/api/agents/:id/messages/:messageId/read", dbEnvironmentMiddleware, isAuthenticated, requireRole(['agent', 'admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const agentId = parseInt(req.params.id);
       const messageId = parseInt(req.params.messageId);
       const userId = req.session.userId;
       
-      const user = await storage.getUser(userId!);
+      const user = await envStorage.getUser(userId!);
       if (!user) {
         return res.status(401).json({ success: false, message: "Unauthorized" });
       }
@@ -3539,18 +3557,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isAdmin = userRoles.includes('admin') || userRoles.includes('super_admin');
       
       if (!isAdmin) {
-        const agent = await storage.getAgent(agentId);
+        const agent = await envStorage.getAgent(agentId);
         if (!agent || agent.userId !== userId) {
           return res.status(403).json({ success: false, message: "Access denied" });
         }
       }
       
-      const msg = await storage.getProspectMessage(messageId);
+      const msg = await envStorage.getProspectMessage(messageId);
       if (!msg || msg.agentId !== agentId) {
         return res.status(404).json({ success: false, message: "Message not found" });
       }
       
-      const updated = await storage.markProspectMessageAsRead(messageId);
+      const updated = await envStorage.markProspectMessageAsRead(messageId);
       res.json({ success: true, message: updated });
     } catch (error) {
       console.error("Error marking message as read:", error);
@@ -3600,6 +3618,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update prospect profile
   app.patch("/api/prospects/:id", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const prospectId = parseInt(req.params.id);
       const prospect = (req as any).prospect;
       
@@ -3611,7 +3630,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { contactEmail, contactPhone } = req.body;
       
       // Update prospect
-      const updatedProspect = await storage.updateMerchantProspect(prospectId, {
+      const updatedProspect = await envStorage.updateMerchantProspect(prospectId, {
         contactEmail: contactEmail || null,
         contactPhone: contactPhone || null,
       });
@@ -3626,6 +3645,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Change prospect password
   app.post("/api/prospects/auth/change-password", dbEnvironmentMiddleware, requireProspectAuth, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const prospect = (req as any).prospect;
       const { currentPassword, newPassword } = req.body;
       
@@ -3643,7 +3663,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Get user account
-      const user = await storage.getUser(prospect.userId!);
+      const user = await envStorage.getUser(prospect.userId!);
       if (!user) {
         return res.status(404).json({ success: false, message: "User account not found" });
       }
@@ -3658,7 +3678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const passwordHash = await bcrypt.hash(newPassword, 10);
       
       // Update user password
-      await storage.updateUser(user.id, { passwordHash });
+      await envStorage.updateUser(user.id, { passwordHash });
       
       res.json({ success: true, message: "Password changed successfully" });
     } catch (error) {
@@ -3668,25 +3688,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get prospect by token (for starting application)
-  app.get("/api/prospects/token/:token", async (req: RequestWithDB, res) => {
+  app.get("/api/prospects/token/:token", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { token} = req.params;
       
-      // Get environment-specific database connection
-      const dynamicDB = getRequestDB(req);
-      
       // Use storage method (uses the same DB connection as other operations)
-      const prospect = await storage.getMerchantProspectByToken(token);
+      const prospect = await envStorage.getMerchantProspectByToken(token);
       
       if (!prospect) {
         return res.status(404).json({ message: "Invalid or expired token" });
       }
 
       // Get agent information
-      const agent = await storage.getAgent(prospect.agentId);
+      const agent = await envStorage.getAgent(prospect.agentId);
 
       // Get campaign assignment for this prospect
-      const campaignAssignment = await storage.getProspectCampaignAssignment(prospect.id);
+      const campaignAssignment = await envStorage.getProspectCampaignAssignment(prospect.id);
       let campaign = null;
       let campaignEquipment = [];
       let applicationTemplate = null;
@@ -3694,12 +3712,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (campaignAssignment) {
         // Get campaign details
-        campaign = await storage.getCampaignWithDetails(campaignAssignment.campaignId);
+        campaign = await envStorage.getCampaignWithDetails(campaignAssignment.campaignId);
         
         // Get equipment associated with this campaign
-        campaignEquipment = await storage.getCampaignEquipment(campaignAssignment.campaignId);
+        campaignEquipment = await envStorage.getCampaignEquipment(campaignAssignment.campaignId);
         
         // Get the specific template assigned to this campaign using environment-specific DB
+        const dynamicDB = getRequestDB(req);
         const campaignTemplates = await dynamicDB
           .select()
           .from(campaignApplicationTemplates)
@@ -3716,6 +3735,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get prospect's application from prospect_applications table
       const { prospectApplications } = await import("@shared/schema");
+      const dynamicDB = getRequestDB(req);
       const applications = await dynamicDB
         .select()
         .from(prospectApplications)
@@ -3763,15 +3783,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Public API endpoint for application status lookup by token (no auth required)
-  app.get("/api/prospects/status/:token", async (req, res) => {
+  app.get("/api/prospects/status/:token", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { token } = req.params;
       
       if (!token) {
         return res.status(400).json({ message: "Token is required" });
       }
 
-      const prospect = await storage.getMerchantProspectByToken(token);
+      const prospect = await envStorage.getMerchantProspectByToken(token);
       
       if (!prospect) {
         return res.status(404).json({ message: "Application not found" });
@@ -3797,14 +3818,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Clear all prospect applications (Super Admin only)
-  app.delete("/api/admin/clear-prospects", requireRole(['super_admin']), async (req, res) => {
+  app.delete("/api/admin/clear-prospects", dbEnvironmentMiddleware, requireRole(['super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       // Get current counts for reporting
-      const allProspects = await storage.getAllMerchantProspects();
+      const allProspects = await envStorage.getAllMerchantProspects();
       const prospectCount = allProspects.length;
 
       // Clear all prospect data using storage methods
-      await storage.clearAllProspectData();
+      await envStorage.clearAllProspectData();
 
       console.log(`Super Admin cleared prospect data: ${prospectCount} prospects and related data`);
 
@@ -4942,10 +4964,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Download application PDF for prospects  
-  app.get("/api/prospects/:id/download-pdf", async (req, res) => {
+  app.get("/api/prospects/:id/download-pdf", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     console.log(`PDF Download - Route hit for prospect ${req.params.id}`);
     
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
       const prospectId = parseInt(id);
 
@@ -4956,7 +4979,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`PDF Download - Looking up prospect ID: ${prospectId}`);
 
-      const prospect = await storage.getMerchantProspect(prospectId);
+      const prospect = await envStorage.getMerchantProspect(prospectId);
       if (!prospect) {
         console.log(`PDF Download - Prospect ${prospectId} not found`);
         return res.status(404).json({ message: "Prospect not found" });
@@ -5005,13 +5028,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Submit complete application for prospects
-  app.post("/api/prospects/:id/submit-application", async (req, res) => {
+  app.post("/api/prospects/:id/submit-application", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
       const { formData, status } = req.body;
       const prospectId = parseInt(id);
 
-      const prospect = await storage.getMerchantProspect(prospectId);
+      const prospect = await envStorage.getMerchantProspect(prospectId);
       if (!prospect) {
         return res.status(404).json({ message: "Prospect not found" });
       }
@@ -5048,7 +5072,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get agent information
-      const agent = await storage.getAgent(prospect.agentId);
+      const agent = await envStorage.getAgent(prospect.agentId);
       if (!agent) {
         return res.status(404).json({ message: "Agent not found" });
       }
@@ -5059,7 +5083,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (prospect.campaignId) {
         // Get the specific template(s) assigned to this campaign
-        const dynamicDB = await getDynamicDatabase((req as any).dbEnv);
+        const dynamicDB = await getDynamicDatabase(req.dbEnv);
         const { campaignApplicationTemplates } = await import('@shared/schema');
         
         const campaignTemplates = await dynamicDB
@@ -5070,7 +5094,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (campaignTemplates && campaignTemplates.length > 0) {
           // Get the first template for this campaign
           const templateId = campaignTemplates[0].templateId;
-          const templates = await storage.getAcquirerApplicationTemplates();
+          const templates = await envStorage.getAcquirerApplicationTemplates();
           templateForMapping = templates.find(t => t.id === templateId);
           
           if (templateForMapping && templateForMapping.addressGroups) {
@@ -5179,7 +5203,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Update prospect with final form data and status
-      const updatedProspect = await storage.updateMerchantProspect(prospectId, {
+      const updatedProspect = await envStorage.updateMerchantProspect(prospectId, {
         formData: JSON.stringify(mappedFormData),
         status: 'submitted'
       });
@@ -5188,7 +5212,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let portalAccountCreated = false;
       let resetToken: string | undefined;
       try {
-        const accountResult = await storage.createProspectPortalAccount(prospectId);
+        const accountResult = await envStorage.createProspectPortalAccount(prospectId);
         resetToken = accountResult.resetToken;
         portalAccountCreated = true;
         console.log(`Created portal account for prospect ${prospectId}, userId: ${accountResult.user.id}`);
@@ -5241,7 +5265,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 timestampSigned: new Date(),
                 status: 'signed' as const,
               };
-              await storage.createSignatureCapture(captureData);
+              await envStorage.createSignatureCapture(captureData);
               capturedSignatures.push(`owner${i + 1}`);
             }
           }
@@ -5269,7 +5293,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 timestampSigned: new Date(),
                 status: 'signed' as const,
               };
-              await storage.createSignatureCapture(captureData);
+              await envStorage.createSignatureCapture(captureData);
               capturedSignatures.push(roleKey);
             }
           } catch (parseError) {
@@ -5330,14 +5354,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log(`Saved application PDF to object storage: ${storageKey}`);
             
             // Update prospect with PDF path
-            await storage.updateMerchantProspect(prospectId, {
+            await envStorage.updateMerchantProspect(prospectId, {
               formData: JSON.stringify({ ...mappedFormData, _pdfStoragePath: pdfStoragePath })
             });
             
             // Create a document record for the generated PDF
             try {
               const docFileName = `${companySlug}_application.pdf`;
-              await storage.createProspectDocument({
+              await envStorage.createProspectDocument({
                 prospectId,
                 fileName: docFileName,
                 originalFileName: docFileName,
@@ -5483,17 +5507,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Application status lookup
-  app.get("/api/application-status/:token", async (req, res) => {
+  app.get("/api/application-status/:token", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { token } = req.params;
       
-      const prospect = await storage.getMerchantProspectByToken(token);
+      const prospect = await envStorage.getMerchantProspectByToken(token);
       if (!prospect) {
         return res.status(404).json({ message: "Application not found" });
       }
 
       // Get agent information
-      const agent = await storage.getAgent(prospect.agentId);
+      const agent = await envStorage.getAgent(prospect.agentId);
       
       const response = {
         ...prospect,
@@ -5512,8 +5537,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Send signature request email
-  app.post("/api/signature-request", async (req, res) => {
+  app.post("/api/signature-request", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { 
         ownerName, 
         ownerEmail, 
@@ -5535,19 +5561,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const signatureToken = `sig_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
       // Create or update prospect owner in database
-      const existingOwners = await storage.getProspectOwners(prospectId);
+      const existingOwners = await envStorage.getProspectOwners(prospectId);
       const existingOwner = existingOwners.find(owner => owner.email === ownerEmail);
 
       if (existingOwner) {
         // Update existing owner with signature token
-        await storage.updateProspectOwner(existingOwner.id, {
+        await envStorage.updateProspectOwner(existingOwner.id, {
           signatureToken,
           emailSent: true,
           emailSentAt: new Date()
         });
       } else {
         // Create new prospect owner
-        await storage.createProspectOwner({
+        await envStorage.createProspectOwner({
           prospectId,
           name: ownerName,
           email: ownerEmail,
@@ -5594,8 +5620,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Submit signature (public endpoint)
-  app.post("/api/signature-submit", async (req, res) => {
+  app.post("/api/signature-submit", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { signatureToken, signature, signatureType } = req.body;
 
       if (!signatureToken || !signature) {
@@ -5606,7 +5633,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Find the prospect owner by signature token
-      const owner = await storage.getProspectOwnerBySignatureToken(signatureToken);
+      const owner = await envStorage.getProspectOwnerBySignatureToken(signatureToken);
       if (!owner) {
         return res.status(404).json({ 
           success: false, 
@@ -5615,7 +5642,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Create the signature record in database
-      await storage.createProspectSignature({
+      await envStorage.createProspectSignature({
         prospectId: owner.prospectId,
         ownerId: owner.id,
         signatureToken,
@@ -5641,8 +5668,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Save inline signature (for signatures created within the application)
-  app.post("/api/prospects/:id/save-inline-signature", async (req, res) => {
+  app.post("/api/prospects/:id/save-inline-signature", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
       const { ownerEmail, ownerName, signature, signatureType, ownershipPercentage } = req.body;
       const prospectId = parseInt(id);
@@ -5655,7 +5683,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Server-side application locking - prevent signature modifications after submission
-      const prospect = await storage.getMerchantProspect(prospectId);
+      const prospect = await envStorage.getMerchantProspect(prospectId);
       if (prospect) {
         const lockedStatuses = ['submitted', 'applied', 'approved', 'rejected', 'under_review', 'pending_review'];
         if (lockedStatuses.includes(prospect.status)) {
@@ -5668,7 +5696,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // First, ensure the prospect owner exists in the database
-      let owner = await storage.getProspectOwnerByEmailAndProspectId(ownerEmail, prospectId);
+      let owner = await envStorage.getProspectOwnerByEmailAndProspectId(ownerEmail, prospectId);
       
       if (!owner) {
         // Create the owner record if it doesn't exist
@@ -5679,14 +5707,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ownershipPercentage: ownershipPercentage || '0'
         };
         
-        owner = await storage.createProspectOwner(ownerData);
+        owner = await envStorage.createProspectOwner(ownerData);
       }
 
       // Generate a signature token for the inline signature
       const signatureToken = `inline_sig_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
       // Create the signature record in database
-      await storage.createProspectSignature({
+      await envStorage.createProspectSignature({
         prospectId,
         ownerId: owner.id,
         signatureToken,
@@ -5712,12 +5740,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get application context by signature token (for signature request page)
-  app.get("/api/signature-request/:token", async (req, res) => {
+  app.get("/api/signature-request/:token", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { token } = req.params;
       
       // First, try to find in the new signature_captures table
-      const signatureCapture = await storage.getSignatureCaptureByToken(token);
+      const signatureCapture = await envStorage.getSignatureCaptureByToken(token);
       
       if (signatureCapture) {
         // New signature capture system - get prospect/application details
@@ -5729,7 +5758,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let prospect: any = null;
         
         if (signatureCapture.prospectId) {
-          prospect = await storage.getMerchantProspect(signatureCapture.prospectId);
+          prospect = await envStorage.getMerchantProspect(signatureCapture.prospectId);
           if (prospect) {
             applicantName = `${prospect.firstName} ${prospect.lastName}`;
             applicantEmail = prospect.email;
@@ -5745,7 +5774,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
             
             // Get agent information
-            const agent = await storage.getAgent(prospect.agentId);
+            const agent = await envStorage.getAgent(prospect.agentId);
             if (agent) {
               agentName = `${agent.firstName} ${agent.lastName}`;
               agentEmail = agent.email;
@@ -5802,7 +5831,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Fallback: Find the prospect owner by signature token (legacy system)
-      const owner = await storage.getProspectOwnerBySignatureToken(token);
+      const owner = await envStorage.getProspectOwnerBySignatureToken(token);
       if (!owner) {
         return res.status(404).json({ 
           success: false, 
@@ -5811,7 +5840,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get prospect details
-      const prospect = await storage.getMerchantProspect(owner.prospectId);
+      const prospect = await envStorage.getMerchantProspect(owner.prospectId);
       if (!prospect) {
         return res.status(404).json({ 
           success: false, 
@@ -5831,7 +5860,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get agent information
-      const agent = await storage.getAgent(prospect.agentId);
+      const agent = await envStorage.getAgent(prospect.agentId);
 
       res.json({ 
         success: true, 
@@ -5858,11 +5887,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get signature by token (for retrieving submitted signatures)
-  app.get("/api/signature/:token", async (req, res) => {
+  app.get("/api/signature/:token", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { token } = req.params;
       
-      const signature = await storage.getProspectSignature(token);
+      const signature = await envStorage.getProspectSignature(token);
       
       if (!signature) {
         return res.status(404).json({ 
@@ -5890,14 +5920,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get prospect owners with their signatures
-  app.get("/api/prospects/:prospectId/owners-with-signatures", async (req, res) => {
+  app.get("/api/prospects/:prospectId/owners-with-signatures", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { prospectId } = req.params;
-      const owners = await storage.getProspectOwners(parseInt(prospectId));
-      const signatures = await storage.getProspectSignaturesByProspect(parseInt(prospectId));
+      const owners = await envStorage.getProspectOwners(parseInt(prospectId));
+      const signatures = await envStorage.getProspectSignaturesByProspect(parseInt(prospectId));
       
       // Also get signature captures (new unified table)
-      const signatureCaptures = await storage.getSignatureCapturesByProspect(parseInt(prospectId));
+      const signatureCaptures = await envStorage.getSignatureCapturesByProspect(parseInt(prospectId));
       
       // Merge owners with their signatures
       const ownersWithSignatures = owners.map(owner => {
@@ -5943,10 +5974,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get signature status for a prospect (for application view)
-  app.get("/api/prospects/:prospectId/signature-status", async (req, res) => {
+  app.get("/api/prospects/:prospectId/signature-status", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { prospectId } = req.params;
-      const prospect = await storage.getMerchantProspect(parseInt(prospectId));
+      const prospect = await envStorage.getMerchantProspect(parseInt(prospectId));
       
       if (!prospect) {
         return res.status(404).json({ message: "Prospect not found" });
@@ -5960,8 +5992,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         formData = {};
       }
 
-      const dbSignatures = await storage.getProspectSignaturesByProspect(parseInt(prospectId));
-      const prospectOwners = await storage.getProspectOwners(parseInt(prospectId));
+      const dbSignatures = await envStorage.getProspectSignaturesByProspect(parseInt(prospectId));
+      const prospectOwners = await envStorage.getProspectOwners(parseInt(prospectId));
 
       // Calculate signature status using database signatures
       const owners = formData.owners || [];
@@ -5999,11 +6031,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Search signatures by email (database-backed)
-  app.get("/api/signatures/by-email/:email", async (req, res) => {
+  app.get("/api/signatures/by-email/:email", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const email = decodeURIComponent(req.params.email);
       
-      const signatures = await storage.getProspectSignaturesByOwnerEmail(email);
+      const signatures = await envStorage.getProspectSignaturesByOwnerEmail(email);
       
       if (signatures.length === 0) {
         return res.status(404).json({ 
@@ -6264,12 +6297,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Current agent info (for logged-in agents)
-  app.get("/api/current-agent", isAuthenticated, async (req: any, res) => {
+  app.get("/api/current-agent", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const envStorage = createStorageForRequest(req);
+      const userId = (req as any).user.claims.sub;
       console.log("Current Agent API - UserId:", userId);
       
-      const agent = await storage.getAgentByUserId(userId);
+      const agent = await envStorage.getAgentByUserId(userId);
       if (!agent) {
         console.log("Agent not found for userId:", userId);
         return res.status(404).json({ message: "Agent not found" });
@@ -7083,11 +7117,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Agent and Merchant User Management
   app.get("/api/agents/:id/user", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const agentId = parseInt(req.params.id);
-      const dynamicDB = getRequestDB(req);
       console.log(`Agent user endpoint - Database environment: ${req.dbEnv}`);
       
-      const user = await storage.getAgentUser(agentId);
+      const user = await envStorage.getAgentUser(agentId);
       
       if (!user) {
         return res.status(404).json({ message: "User not found for this agent" });
@@ -7102,10 +7136,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/merchants/:id/user", requireRole(['admin', 'corporate', 'super_admin']), async (req, res) => {
+  app.get("/api/merchants/:id/user", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const merchantId = parseInt(req.params.id);
-      const user = await storage.getMerchantUser(merchantId);
+      const user = await envStorage.getMerchantUser(merchantId);
       
       if (!user) {
         return res.status(404).json({ message: "User not found for this merchant" });
@@ -7121,10 +7156,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Reset password for agent/merchant user accounts
-  app.post("/api/agents/:id/reset-password", requireRole(['admin', 'corporate', 'super_admin']), async (req, res) => {
+  app.post("/api/agents/:id/reset-password", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const agentId = parseInt(req.params.id);
-      const user = await storage.getAgentUser(agentId);
+      const user = await envStorage.getAgentUser(agentId);
       
       if (!user) {
         return res.status(404).json({ message: "User not found for this agent" });
@@ -7141,7 +7177,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const bcrypt = await import('bcrypt');
       const passwordHash = await bcrypt.hash(newPassword, 10);
       
-      await storage.updateUser(user.id, { passwordHash });
+      await envStorage.updateUser(user.id, { passwordHash });
       
       res.json({
         success: true,
@@ -7155,10 +7191,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/merchants/:id/reset-password", requireRole(['admin', 'corporate', 'super_admin']), async (req, res) => {
+  app.post("/api/merchants/:id/reset-password", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const merchantId = parseInt(req.params.id);
-      const user = await storage.getMerchantUser(merchantId);
+      const user = await envStorage.getMerchantUser(merchantId);
       
       if (!user) {
         return res.status(404).json({ message: "User not found for this merchant" });
@@ -7175,7 +7212,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const bcrypt = await import('bcrypt');
       const passwordHash = await bcrypt.hash(newPassword, 10);
       
-      await storage.updateUser(user.id, { passwordHash });
+      await envStorage.updateUser(user.id, { passwordHash });
       
       res.json({
         success: true,
@@ -7190,15 +7227,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Transaction routes (admin only for all operations)
-  app.get("/api/transactions/all", requireRole(['admin', 'corporate', 'super_admin']), async (req, res) => {
+  app.get("/api/transactions/all", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { search } = req.query;
       
       if (search) {
-        const transactions = await storage.searchTransactions(search as string);
+        const transactions = await envStorage.searchTransactions(search as string);
         res.json(transactions);
       } else {
-        const transactions = await storage.getAllTransactions();
+        const transactions = await envStorage.getAllTransactions();
         res.json(transactions);
       }
     } catch (error) {
@@ -7207,14 +7245,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/transactions", requireRole(['admin', 'corporate', 'super_admin']), async (req, res) => {
+  app.post("/api/transactions", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const result = insertTransactionSchema.safeParse(req.body);
       if (!result.success) {
         return res.status(400).json({ message: "Invalid transaction data", errors: result.error.errors });
       }
 
-      const transaction = await storage.createTransaction(result.data);
+      const transaction = await envStorage.createTransaction(result.data);
       res.status(201).json(transaction);
     } catch (error) {
       console.error("Error creating transaction:", error);
@@ -7223,9 +7262,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Analytics routes
-  app.get("/api/analytics/dashboard", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/dashboard", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
-      const metrics = await storage.getDashboardMetrics();
+      const envStorage = createStorageForRequest(req);
+      const metrics = await envStorage.getDashboardMetrics();
       res.json(metrics);
     } catch (error) {
       console.error("Error fetching dashboard metrics:", error);
@@ -7233,9 +7273,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/analytics/top-merchants", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/top-merchants", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
-      const topMerchants = await storage.getTopMerchants();
+      const envStorage = createStorageForRequest(req);
+      const topMerchants = await envStorage.getTopMerchants();
       res.json(topMerchants);
     } catch (error) {
       console.error("Error fetching top merchants:", error);
@@ -7243,10 +7284,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/analytics/recent-transactions", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/recent-transactions", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
-      const recentTransactions = await storage.getRecentTransactions(limit);
+      const recentTransactions = await envStorage.getRecentTransactions(limit);
       res.json(recentTransactions);
     } catch (error) {
       console.error("Error fetching recent transactions:", error);
@@ -7255,10 +7297,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Widget preferences routes
-  app.get("/api/user/widgets", isAuthenticated, async (req: any, res) => {
+  app.get("/api/user/widgets", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const preferences = await storage.getUserWidgetPreferences(userId);
+      const envStorage = createStorageForRequest(req);
+      const userId = (req as any).user.claims.sub;
+      const preferences = await envStorage.getUserWidgetPreferences(userId);
       res.json(preferences);
     } catch (error) {
       console.error("Error fetching widget preferences:", error);
@@ -7266,12 +7309,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/user/widgets", isAuthenticated, async (req: any, res) => {
+  app.post("/api/user/widgets", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const envStorage = createStorageForRequest(req);
+      const userId = (req as any).user.claims.sub;
       const widgetData = { ...req.body, userId };
       
-      const preference = await storage.createWidgetPreference(widgetData);
+      const preference = await envStorage.createWidgetPreference(widgetData);
       res.status(201).json(preference);
     } catch (error) {
       console.error("Error creating widget preference:", error);
@@ -7279,12 +7323,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/user/widgets/:id", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/user/widgets/:id", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const id = parseInt(req.params.id);
       const updates = req.body;
 
-      const preference = await storage.updateWidgetPreference(id, updates);
+      const preference = await envStorage.updateWidgetPreference(id, updates);
       if (!preference) {
         return res.status(404).json({ message: "Widget preference not found" });
       }
@@ -7296,10 +7341,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/user/widgets/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/user/widgets/:id", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const id = parseInt(req.params.id);
-      const success = await storage.deleteWidgetPreference(id);
+      const success = await envStorage.deleteWidgetPreference(id);
       
       if (success) {
         res.json({ success: true });
@@ -7313,9 +7359,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Dashboard widget endpoints
-  app.get('/api/dashboard/widgets', isAuthenticated, async (req: any, res) => {
+  app.get('/api/dashboard/widgets', dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
-      let userId = req.userId;
+      const envStorage = createStorageForRequest(req);
+      let userId = (req as any).userId;
       console.log(`Main routes - Fetching widgets for userId: ${userId}`);
       
       if (!userId) {
@@ -7325,7 +7372,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId = fallbackUserId;
       }
       
-      const widgets = await storage.getUserWidgetPreferences(userId);
+      const widgets = await envStorage.getUserWidgetPreferences(userId);
       console.log(`Main routes - Found ${widgets.length} widgets`);
       res.json(widgets);
     } catch (error) {
@@ -7334,11 +7381,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/dashboard/widgets', isAuthenticated, async (req: any, res) => {
+  app.post('/api/dashboard/widgets', dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
-      const userId = req.userId;
+      const envStorage = createStorageForRequest(req);
+      const userId = (req as any).userId;
       console.log(`Main routes - Creating widget for userId: ${userId}, full req properties:`, Object.keys(req));
-      console.log(`Main routes - req.user:`, req.user);
+      console.log(`Main routes - req.user:`, (req as any).user);
       console.log(`Main routes - req.session:`, req.session);
       
       if (!userId) {
@@ -7357,7 +7405,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
         
         console.log(`Main routes - Widget data with fallback:`, widgetData);
-        const widget = await storage.createWidgetPreference(widgetData);
+        const widget = await envStorage.createWidgetPreference(widgetData);
         return res.json(widget);
       }
       
@@ -7371,7 +7419,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       
       console.log(`Main routes - Widget data:`, widgetData);
-      const widget = await storage.createWidgetPreference(widgetData);
+      const widget = await envStorage.createWidgetPreference(widgetData);
       res.json(widget);
     } catch (error) {
       console.error("Error creating dashboard widget:", error);
@@ -7379,10 +7427,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/dashboard/widgets/:id', isAuthenticated, async (req: any, res) => {
+  app.put('/api/dashboard/widgets/:id', dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const id = parseInt(req.params.id);
-      const widget = await storage.updateWidgetPreference(id, req.body);
+      const widget = await envStorage.updateWidgetPreference(id, req.body);
       if (!widget) {
         return res.status(404).json({ message: "Widget not found" });
       }
@@ -7393,10 +7442,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/dashboard/widgets/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/dashboard/widgets/:id', dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const id = parseInt(req.params.id);
-      const success = await storage.deleteWidgetPreference(id);
+      const success = await envStorage.deleteWidgetPreference(id);
       if (!success) {
         return res.status(404).json({ message: "Widget not found" });
       }
@@ -7407,10 +7457,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/dashboard/initialize', isAuthenticated, async (req: any, res) => {
+  app.post('/api/dashboard/initialize', dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      const envStorage = createStorageForRequest(req);
+      const userId = (req as any).user.claims.sub;
+      const user = await envStorage.getUser(userId);
       
       if (!user) {
         return res.status(404).json({ message: "User not found" });
@@ -7420,7 +7471,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const defaultWidgets = getDefaultWidgetsForRole(user.role);
       
       for (const widget of defaultWidgets) {
-        await storage.createWidgetPreference({
+        await envStorage.createWidgetPreference({
           userId,
           widgetId: widget.id,
           size: widget.size,
@@ -7438,9 +7489,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Dashboard analytics endpoints
-  app.get('/api/dashboard/metrics', isAuthenticated, async (req: any, res) => {
+  app.get('/api/dashboard/metrics', dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
-      const metrics = await storage.getDashboardMetrics();
+      const envStorage = createStorageForRequest(req);
+      const metrics = await envStorage.getDashboardMetrics();
       res.json(metrics);
     } catch (error) {
       console.error("Error fetching dashboard metrics:", error);
@@ -7448,10 +7500,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/dashboard/revenue', isAuthenticated, async (req: any, res) => {
+  app.get('/api/dashboard/revenue', dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const timeRange = req.query.timeRange as string || 'daily';
-      const revenue = await storage.getDashboardRevenue(timeRange);
+      const revenue = await envStorage.getDashboardRevenue(timeRange);
       res.json(revenue);
     } catch (error) {
       console.error("Error fetching dashboard revenue:", error);
@@ -7459,11 +7512,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/dashboard/top-locations', isAuthenticated, async (req: any, res) => {
+  app.get('/api/dashboard/top-locations', dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const limit = parseInt(req.query.limit as string) || 5;
       const sortBy = req.query.sortBy as string || 'revenue';
-      const locations = await storage.getTopLocations(limit, sortBy);
+      const locations = await envStorage.getTopLocations(limit, sortBy);
       res.json(locations);
     } catch (error) {
       console.error("Error fetching top locations:", error);
@@ -7471,9 +7525,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/dashboard/recent-activity', isAuthenticated, async (req: any, res) => {
+  app.get('/api/dashboard/recent-activity', dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
-      const activity = await storage.getRecentActivity();
+      const envStorage = createStorageForRequest(req);
+      const activity = await envStorage.getRecentActivity();
       res.json(activity);
     } catch (error) {
       console.error("Error fetching recent activity:", error);
@@ -7481,10 +7536,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/dashboard/assigned-merchants', isAuthenticated, async (req: any, res) => {
+  app.get('/api/dashboard/assigned-merchants', dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const limit = parseInt(req.query.limit as string) || 5;
-      const merchants = await storage.getAssignedMerchants(limit);
+      const merchants = await envStorage.getAssignedMerchants(limit);
       res.json(merchants);
     } catch (error) {
       console.error("Error fetching assigned merchants:", error);
@@ -7492,9 +7548,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/dashboard/system-overview', isAuthenticated, async (req: any, res) => {
+  app.get('/api/dashboard/system-overview', dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
-      const overview = await storage.getSystemOverview();
+      const envStorage = createStorageForRequest(req);
+      const overview = await envStorage.getSystemOverview();
       res.json(overview);
     } catch (error) {
       console.error("Error fetching system overview:", error);
@@ -7784,14 +7841,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // PDF Form Upload and Processing Routes (admin only)
-  app.post("/api/pdf-forms/upload", isAuthenticated, requireRole(['admin', 'super_admin']), upload.single('pdf'), async (req: any, res) => {
+  app.post("/api/pdf-forms/upload", dbEnvironmentMiddleware, isAuthenticated, requireRole(['admin', 'super_admin']), upload.single('pdf'), async (req: RequestWithDB, res) => {
     try {
-      if (!req.file) {
+      const envStorage = createStorageForRequest(req);
+      if (!(req as any).file) {
         return res.status(400).json({ message: "No PDF file uploaded" });
       }
 
-      const { originalname } = req.file;
-      const buffer = req.file.buffer;
+      const { originalname } = (req as any).file;
+      const buffer = (req as any).file.buffer;
       
       // Parse the PDF to extract form structure
       const parseResult = await pdfFormParser.parsePDF(buffer);
@@ -7801,21 +7859,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         name: originalname.replace('.pdf', ''),
         fileName: originalname,
         fileSize: buffer.length,
-        uploadedBy: req.user.id,
+        uploadedBy: (req as any).user.id,
         description: `Merchant Application Form - ${originalname}`
       };
 
-      const pdfForm = await storage.createPdfForm(formData);
+      const pdfForm = await envStorage.createPdfForm(formData);
       
       // Create form fields from parsed data
       const fieldData = pdfFormParser.convertToDbFields(parseResult.sections, pdfForm.id);
       
       for (const field of fieldData) {
-        await storage.createPdfFormField(field);
+        await envStorage.createPdfFormField(field);
       }
       
       // Return the complete form with fields
-      const formWithFields = await storage.getPdfFormWithFields(pdfForm.id);
+      const formWithFields = await envStorage.getPdfFormWithFields(pdfForm.id);
       
       res.status(201).json({
         form: formWithFields,
@@ -7829,9 +7887,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get all PDF forms (admin only)
-  app.get("/api/pdf-forms", isAuthenticated, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+  app.get("/api/pdf-forms", dbEnvironmentMiddleware, isAuthenticated, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
-      const forms = await storage.getAllPdfForms();
+      const envStorage = createStorageForRequest(req);
+      const forms = await envStorage.getAllPdfForms();
       res.json(forms);
     } catch (error) {
       console.error("Error fetching PDF forms:", error);
@@ -7840,10 +7899,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get specific PDF form with fields (admin only)
-  app.get("/api/pdf-forms/:id", isAuthenticated, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+  app.get("/api/pdf-forms/:id", dbEnvironmentMiddleware, isAuthenticated, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const formId = parseInt(req.params.id);
-      const form = await storage.getPdfFormWithFields(formId);
+      const form = await envStorage.getPdfFormWithFields(formId);
       
       if (!form) {
         return res.status(404).json({ message: "PDF form not found" });
@@ -7857,10 +7917,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get specific PDF form with fields (wizard endpoint)
-  app.get("/api/pdf-forms/:id/with-fields", isAuthenticated, async (req: any, res) => {
+  app.get("/api/pdf-forms/:id/with-fields", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const formId = parseInt(req.params.id);
-      const form = await storage.getPdfFormWithFields(formId);
+      const form = await envStorage.getPdfFormWithFields(formId);
       
       if (!form) {
         return res.status(404).json({ message: "PDF form not found" });
@@ -7874,8 +7935,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update PDF form metadata (admin only)
-  app.patch("/api/pdf-forms/:id", isAuthenticated, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+  app.patch("/api/pdf-forms/:id", dbEnvironmentMiddleware, isAuthenticated, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const formId = parseInt(req.params.id);
       const { name, description, showInNavigation, navigationTitle, allowedRoles } = req.body;
       
@@ -7890,7 +7952,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (navigationTitle !== undefined) updateData.navigationTitle = navigationTitle;
       if (allowedRoles !== undefined) updateData.allowedRoles = allowedRoles;
       
-      const updatedForm = await storage.updatePdfForm(formId, updateData);
+      const updatedForm = await envStorage.updatePdfForm(formId, updateData);
       
       if (!updatedForm) {
         return res.status(404).json({ message: "PDF form not found" });
@@ -7904,21 +7966,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Handle form submissions (auto-save and final submit)
-  app.post("/api/pdf-forms/:id/submissions", isAuthenticated, async (req: any, res) => {
+  app.post("/api/pdf-forms/:id/submissions", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const formId = parseInt(req.params.id);
       const { data, status = 'draft' } = req.body;
       
       const submissionData = {
         formId,
-        submittedBy: req.user?.id || null,
+        submittedBy: (req as any).user?.id || null,
         data: typeof data === 'string' ? data : JSON.stringify(data),
         status,
-        submissionToken: storage.generateSubmissionToken(),
+        submissionToken: envStorage.generateSubmissionToken(),
         isPublic: false
       };
       
-      const submission = await storage.createPdfFormSubmission(submissionData);
+      const submission = await envStorage.createPdfFormSubmission(submissionData);
       res.status(201).json(submission);
     } catch (error) {
       console.error("Error creating form submission:", error);
@@ -7927,21 +7990,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Submit PDF form data (auto-save functionality)
-  app.post("/api/pdf-forms/:id/submit", isAuthenticated, async (req: any, res) => {
+  app.post("/api/pdf-forms/:id/submit", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const formId = parseInt(req.params.id);
       const { formData } = req.body;
       
       const submissionData = {
         formId,
-        submittedBy: req.user?.id || null,
+        submittedBy: (req as any).user?.id || null,
         data: JSON.stringify(formData),
-        submissionToken: storage.generateSubmissionToken(),
+        submissionToken: envStorage.generateSubmissionToken(),
         status: 'submitted',
         isPublic: false
       };
       
-      const submission = await storage.createPdfFormSubmission(submissionData);
+      const submission = await envStorage.createPdfFormSubmission(submissionData);
       res.status(201).json(submission);
     } catch (error) {
       console.error("Error submitting PDF form:", error);
@@ -7950,10 +8014,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get form submissions
-  app.get("/api/pdf-forms/:id/submissions", isAuthenticated, async (req: any, res) => {
+  app.get("/api/pdf-forms/:id/submissions", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const formId = parseInt(req.params.id);
-      const submissions = await storage.getPdfFormSubmissions(formId);
+      const submissions = await envStorage.getPdfFormSubmissions(formId);
       res.json(submissions);
     } catch (error) {
       console.error("Error fetching form submissions:", error);
@@ -7962,8 +8027,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create a new public form submission and return the unique token
-  app.post("/api/pdf-forms/:id/create-submission", async (req: any, res) => {
+  app.post("/api/pdf-forms/:id/create-submission", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const formId = parseInt(req.params.id);
       const { applicantEmail } = req.body;
       
@@ -7975,10 +8041,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         data: JSON.stringify({}), // Empty initial data
         status: 'draft',
         isPublic: true,
-        submissionToken: storage.generateSubmissionToken()
+        submissionToken: envStorage.generateSubmissionToken()
       };
       
-      const submission = await storage.createPdfFormSubmission(submissionData);
+      const submission = await envStorage.createPdfFormSubmission(submissionData);
       res.status(201).json({ 
         submissionToken: submission.submissionToken,
         submissionId: submission.id 
@@ -7990,17 +8056,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get public form submission by token (no authentication required)
-  app.get("/api/submissions/:token", async (req: any, res) => {
+  app.get("/api/submissions/:token", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { token } = req.params;
-      const submission = await storage.getPdfFormSubmissionByToken(token);
+      const submission = await envStorage.getPdfFormSubmissionByToken(token);
       
       if (!submission) {
         return res.status(404).json({ message: "Form submission not found" });
       }
       
       // Also get the form details
-      const form = await storage.getPdfForm(submission.formId);
+      const form = await envStorage.getPdfForm(submission.formId);
       if (!form) {
         return res.status(404).json({ message: "Form not found" });
       }
@@ -8016,8 +8083,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update public form submission by token (no authentication required)
-  app.put("/api/submissions/:token", async (req: any, res) => {
+  app.put("/api/submissions/:token", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { token } = req.params;
       const { data, status = 'draft' } = req.body;
       
@@ -8027,7 +8095,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updatedAt: new Date()
       };
       
-      const submission = await storage.updatePdfFormSubmissionByToken(token, updateData);
+      const submission = await envStorage.updatePdfFormSubmissionByToken(token, updateData);
       
       if (!submission) {
         return res.status(404).json({ message: "Form submission not found" });
@@ -8041,8 +8109,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Send email with submission link
-  app.post("/api/pdf-forms/:id/send-submission-link", isAuthenticated, async (req: any, res) => {
+  app.post("/api/pdf-forms/:id/send-submission-link", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const formId = parseInt(req.params.id);
       const { applicantEmail } = req.body;
       
@@ -8051,7 +8120,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Get form details
-      const form = await storage.getPdfForm(formId);
+      const form = await envStorage.getPdfForm(formId);
       if (!form) {
         return res.status(404).json({ message: "Form not found" });
       }
@@ -8064,10 +8133,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         data: JSON.stringify({}),
         status: 'draft',
         isPublic: true,
-        submissionToken: storage.generateSubmissionToken()
+        submissionToken: envStorage.generateSubmissionToken()
       };
       
-      const submission = await storage.createPdfFormSubmission(submissionData);
+      const submission = await envStorage.createPdfFormSubmission(submissionData);
       
       // Generate the submission URL
       const baseUrl = process.env.NODE_ENV === 'production' 
@@ -8412,13 +8481,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Fee Item Groups endpoints
   app.get('/api/fee-item-groups', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const feeGroupId = req.query.feeGroupId;
       
       if (feeGroupId) {
-        const feeItemGroups = await storage.getFeeItemGroupsByFeeGroup(parseInt(feeGroupId));
+        const feeItemGroups = await envStorage.getFeeItemGroupsByFeeGroup(parseInt(feeGroupId as string));
         res.json(feeItemGroups);
       } else {
-        const feeItemGroups = await storage.getAllFeeItemGroups();
+        const feeItemGroups = await envStorage.getAllFeeItemGroups();
         res.json(feeItemGroups);
       }
     } catch (error) {
@@ -8429,8 +8499,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/fee-item-groups/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const id = parseInt(req.params.id);
-      const feeItemGroup = await storage.getFeeItemGroupWithItems(id);
+      const feeItemGroup = await envStorage.getFeeItemGroupWithItems(id);
       
       if (!feeItemGroup) {
         return res.status(404).json({ message: "Fee item group not found" });
@@ -8445,6 +8516,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/fee-item-groups', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { feeGroupId, name, description, displayOrder } = req.body;
       
       if (!feeGroupId || !name) {
@@ -8456,10 +8528,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         name,
         description: description || null,
         displayOrder: displayOrder || 0,
-        author: req.user?.email || 'System'
+        author: (req as any).user?.email || 'System'
       };
 
-      const feeItemGroup = await storage.createFeeItemGroup(feeItemGroupData);
+      const feeItemGroup = await envStorage.createFeeItemGroup(feeItemGroupData);
       res.status(201).json(feeItemGroup);
     } catch (error) {
       console.error("Error creating fee item group:", error);
@@ -8469,6 +8541,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put('/api/fee-item-groups/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const id = parseInt(req.params.id);
       const { name, description, displayOrder } = req.body;
       
@@ -8477,7 +8550,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (description !== undefined) updateData.description = description;
       if (displayOrder !== undefined) updateData.displayOrder = displayOrder;
       
-      const feeItemGroup = await storage.updateFeeItemGroup(id, updateData);
+      const feeItemGroup = await envStorage.updateFeeItemGroup(id, updateData);
       
       if (!feeItemGroup) {
         return res.status(404).json({ message: "Fee item group not found" });
@@ -8492,8 +8565,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete('/api/fee-item-groups/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const id = parseInt(req.params.id);
-      const success = await storage.deleteFeeItemGroup(id);
+      const success = await envStorage.deleteFeeItemGroup(id);
       
       if (success) {
         res.json({ success: true });
@@ -8929,8 +9003,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/campaigns/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const id = parseInt(req.params.id);
-      const campaign = await storage.getCampaignWithDetails(id);
+      const campaign = await envStorage.getCampaignWithDetails(id);
       
       if (!campaign) {
         return res.status(404).json({ error: 'Campaign not found' });
@@ -8938,8 +9013,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Fetch related data
       const [feeValues, equipment] = await Promise.all([
-        storage.getCampaignFeeValues(id),
-        storage.getCampaignEquipment(id)
+        envStorage.getCampaignFeeValues(id),
+        envStorage.getCampaignEquipment(id)
       ]);
       
       // Return campaign with complete data
@@ -8954,10 +9029,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/campaigns/:id/deactivate', requireRole(['admin', 'super_admin']), async (req: Request, res: Response) => {
+  app.post('/api/campaigns/:id/deactivate', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const id = parseInt(req.params.id);
-      const campaign = await storage.deactivateCampaign(id);
+      const campaign = await envStorage.deactivateCampaign(id);
       
       if (!campaign) {
         return res.status(404).json({ error: 'Campaign not found' });
@@ -9665,17 +9741,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all MCC codes (lookup table)
   app.get('/api/mcc-codes', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: RequestWithDB, res: Response) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { search, category } = req.query;
       console.log(`Fetching MCC codes - Database environment: ${req.dbEnv}, search: ${search}, category: ${category}`);
       
       let mccCodesList;
       if (search || category) {
-        mccCodesList = await storage.searchMccCodes(
+        mccCodesList = await envStorage.searchMccCodes(
           search as string || '', 
           category as string || undefined
         );
       } else {
-        mccCodesList = await storage.getAllMccCodes();
+        mccCodesList = await envStorage.getAllMccCodes();
       }
       
       res.json(mccCodesList);
@@ -9688,7 +9765,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get MCC code categories (distinct list)
   app.get('/api/mcc-codes/categories', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: RequestWithDB, res: Response) => {
     try {
-      const allCodes = await storage.getAllMccCodes();
+      const envStorage = createStorageForRequest(req);
+      const allCodes = await envStorage.getAllMccCodes();
       const categories = [...new Set(allCodes.map(code => code.category))].sort();
       res.json(categories);
     } catch (error) {
@@ -9700,8 +9778,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all MCC policies (with joined MCC code data)
   app.get('/api/mcc-policies', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: RequestWithDB, res: Response) => {
     try {
+      const envStorage = createStorageForRequest(req);
       console.log(`Fetching MCC policies - Database environment: ${req.dbEnv}`);
-      const policies = await storage.getAllMccPolicies();
+      const policies = await envStorage.getAllMccPolicies();
       res.json(policies);
     } catch (error) {
       console.error('Error fetching MCC policies:', error);
@@ -9712,8 +9791,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get single MCC policy
   app.get('/api/mcc-policies/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: RequestWithDB, res: Response) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const policyId = parseInt(req.params.id);
-      const policy = await storage.getMccPolicy(policyId);
+      const policy = await envStorage.getMccPolicy(policyId);
       
       if (!policy) {
         return res.status(404).json({ error: 'MCC policy not found' });
@@ -9729,6 +9809,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create MCC policy
   app.post('/api/mcc-policies', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { mccCodeId, acquirerId, policyType, riskLevelOverride, notes } = req.body;
       
       // Validate required fields
@@ -9737,18 +9818,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Check if MCC code exists
-      const mccCode = await storage.getMccCode(mccCodeId);
+      const mccCode = await envStorage.getMccCode(mccCodeId);
       if (!mccCode) {
         return res.status(404).json({ error: 'MCC code not found' });
       }
       
       // Check for duplicate policy (same MCC code and acquirer)
-      const existingPolicy = await storage.getMccPolicyByCodeAndAcquirer(mccCodeId, acquirerId || undefined);
+      const existingPolicy = await envStorage.getMccPolicyByCodeAndAcquirer(mccCodeId, acquirerId || undefined);
       if (existingPolicy) {
         return res.status(409).json({ error: 'A policy already exists for this MCC code and acquirer combination' });
       }
       
-      const policy = await storage.createMccPolicy({
+      const policy = await envStorage.createMccPolicy({
         mccCodeId,
         acquirerId: acquirerId || null,
         policyType,
@@ -9769,6 +9850,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update MCC policy
   app.patch('/api/mcc-policies/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const policyId = parseInt(req.params.id);
       const { policyType, riskLevelOverride, notes, isActive } = req.body;
       
@@ -9778,7 +9860,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (notes !== undefined) updates.notes = notes;
       if (isActive !== undefined) updates.isActive = isActive;
       
-      const updatedPolicy = await storage.updateMccPolicy(policyId, updates);
+      const updatedPolicy = await envStorage.updateMccPolicy(policyId, updates);
       
       if (!updatedPolicy) {
         return res.status(404).json({ error: 'MCC policy not found' });
@@ -9795,8 +9877,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete MCC policy
   app.delete('/api/mcc-policies/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const policyId = parseInt(req.params.id);
-      const success = await storage.deleteMccPolicy(policyId);
+      const success = await envStorage.deleteMccPolicy(policyId);
       
       if (!success) {
         return res.status(404).json({ error: 'MCC policy not found' });
