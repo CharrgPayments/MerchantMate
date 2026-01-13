@@ -52,6 +52,12 @@ const lookupTables: LookupTableConfig[] = [
     preserveIds: true 
   },
   { 
+    name: 'acquirers', 
+    dependencies: [], 
+    description: 'Payment acquirer/processor definitions',
+    preserveIds: true 
+  },
+  { 
     name: 'fee_item_groups', 
     dependencies: ['fee_groups'], 
     description: 'Fee item sub-categories within fee groups',
