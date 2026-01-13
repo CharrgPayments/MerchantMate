@@ -9,11 +9,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { environmentManager, EnvironmentConfig } from './environmentManager';
 import { getDynamicDatabase } from './db';
+import { createStorage } from './storage';
 
 export interface RequestWithGlobalDB extends Request {
   dbEnv: string;
   dynamicDB: any;
   db: any;
+  storage: ReturnType<typeof createStorage>;
   userId?: string;
   environmentConfig: EnvironmentConfig;
 }
@@ -35,6 +37,7 @@ export const globalEnvironmentMiddleware = (req: RequestWithGlobalDB, res: Respo
   req.environmentConfig = environmentConfig;
   req.dynamicDB = getDynamicDatabase(environmentConfig.environment);
   req.db = req.dynamicDB;
+  req.storage = createStorage(req.dynamicDB);
   
   // Set response header
   res.setHeader('X-Database-Environment', environmentConfig.environment);
