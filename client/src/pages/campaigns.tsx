@@ -1175,6 +1175,8 @@ export default function CampaignsPage() {
     
     setPricingTypeForm(prev => {
       let newSelectedFeeGroupItems = [...(prev.selectedFeeGroupItems || [])];
+      let newSelectedFeeGroupIds = [...(prev.selectedFeeGroupIds || [])];
+      let newExpandedFeeGroups = [...(prev.expandedFeeGroups || [])];
       
       if (isSelected) {
         // Add all items from this group (avoid duplicates)
@@ -1186,11 +1188,21 @@ export default function CampaignsPage() {
             newSelectedFeeGroupItems.push({ feeGroupId, feeItemId: itemId });
           }
         });
+        // Also add to selectedFeeGroupIds and auto-expand
+        if (!newSelectedFeeGroupIds.includes(feeGroupId)) {
+          newSelectedFeeGroupIds.push(feeGroupId);
+        }
+        if (!newExpandedFeeGroups.includes(feeGroupId)) {
+          newExpandedFeeGroups.push(feeGroupId);
+        }
       } else {
         // Remove only items from this specific group
         newSelectedFeeGroupItems = newSelectedFeeGroupItems.filter(combo => 
           !(combo.feeGroupId === feeGroupId && groupFeeItemIds.includes(combo.feeItemId))
         );
+        // Also remove from selectedFeeGroupIds and collapse
+        newSelectedFeeGroupIds = newSelectedFeeGroupIds.filter(id => id !== feeGroupId);
+        newExpandedFeeGroups = newExpandedFeeGroups.filter(id => id !== feeGroupId);
       }
       
       // Update legacy selectedFeeItemIds for backward compatibility
@@ -1199,7 +1211,9 @@ export default function CampaignsPage() {
       return {
         ...prev,
         selectedFeeGroupItems: newSelectedFeeGroupItems,
-        selectedFeeItemIds: uniqueFeeItemIds
+        selectedFeeItemIds: uniqueFeeItemIds,
+        selectedFeeGroupIds: newSelectedFeeGroupIds,
+        expandedFeeGroups: newExpandedFeeGroups
       };
     });
   };
