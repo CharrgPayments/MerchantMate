@@ -14858,7 +14858,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all disclosure definitions with their versions
   app.get('/api/disclosures', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
-      const disclosures = await storage.getAllDisclosureDefinitions();
+      const envStorage = createStorageForRequest(req);
+      const disclosures = await envStorage.getAllDisclosureDefinitions();
       res.json({ success: true, disclosures });
     } catch (error) {
       console.error('Get disclosures error:', error);
@@ -14869,8 +14870,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get single disclosure definition with versions
   app.get('/api/disclosures/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
-      const disclosure = await storage.getDisclosureDefinition(parseInt(id));
+      const disclosure = await envStorage.getDisclosureDefinition(parseInt(id));
       if (!disclosure) {
         return res.status(404).json({ success: false, message: 'Disclosure not found' });
       }
@@ -14884,8 +14886,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get disclosure by slug (for form rendering)
   app.get('/api/disclosures/by-slug/:slug', dbEnvironmentMiddleware, async (req: any, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { slug } = req.params;
-      const disclosure = await storage.getDisclosureDefinitionBySlug(slug);
+      const disclosure = await envStorage.getDisclosureDefinitionBySlug(slug);
       if (!disclosure) {
         return res.status(404).json({ success: false, message: 'Disclosure not found' });
       }
@@ -14899,6 +14902,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create disclosure definition
   app.post('/api/disclosures', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const userId = req.user?.claims?.sub;
       const { slug, displayName, description, category, requiresSignature, companyId } = req.body;
 
@@ -14907,12 +14911,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check if slug already exists
-      const existing = await storage.getDisclosureDefinitionBySlug(slug);
+      const existing = await envStorage.getDisclosureDefinitionBySlug(slug);
       if (existing) {
         return res.status(400).json({ success: false, message: 'A disclosure with this slug already exists' });
       }
 
-      const disclosure = await storage.createDisclosureDefinition({
+      const disclosure = await envStorage.createDisclosureDefinition({
         slug,
         displayName,
         description: description || null,
@@ -14933,10 +14937,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update disclosure definition
   app.patch('/api/disclosures/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
       const updates = req.body;
       
-      const disclosure = await storage.updateDisclosureDefinition(parseInt(id), updates);
+      const disclosure = await envStorage.updateDisclosureDefinition(parseInt(id), updates);
       if (!disclosure) {
         return res.status(404).json({ success: false, message: 'Disclosure not found' });
       }
@@ -14951,8 +14956,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete disclosure definition
   app.delete('/api/disclosures/:id', dbEnvironmentMiddleware, requireRole(['super_admin']), async (req: any, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
-      const success = await storage.deleteDisclosureDefinition(parseInt(id));
+      const success = await envStorage.deleteDisclosureDefinition(parseInt(id));
       if (!success) {
         return res.status(404).json({ success: false, message: 'Disclosure not found' });
       }
@@ -14970,8 +14976,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all versions for a disclosure
   app.get('/api/disclosures/:definitionId/versions', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { definitionId } = req.params;
-      const versions = await storage.getDisclosureVersions(parseInt(definitionId));
+      const versions = await envStorage.getDisclosureVersions(parseInt(definitionId));
       res.json({ success: true, versions });
     } catch (error) {
       console.error('Get disclosure versions error:', error);
@@ -14982,8 +14989,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get current version for a disclosure
   app.get('/api/disclosures/:definitionId/current-version', dbEnvironmentMiddleware, async (req: any, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { definitionId } = req.params;
-      const version = await storage.getCurrentDisclosureVersion(parseInt(definitionId));
+      const version = await envStorage.getCurrentDisclosureVersion(parseInt(definitionId));
       if (!version) {
         return res.status(404).json({ success: false, message: 'No current version found' });
       }
@@ -14997,6 +15005,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create new disclosure version
   app.post('/api/disclosures/:definitionId/versions', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const userId = req.user?.claims?.sub;
       const { definitionId } = req.params;
       const { version, title, content, requiresSignature } = req.body;
@@ -15009,7 +15018,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const crypto = await import('crypto');
       const contentHash = crypto.createHash('sha256').update(content).digest('hex');
 
-      const disclosureVersion = await storage.createDisclosureVersion({
+      const disclosureVersion = await envStorage.createDisclosureVersion({
         definitionId: parseInt(definitionId),
         version,
         title,
@@ -15031,11 +15040,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update disclosure version content (only if no signatures collected)
   app.patch('/api/disclosure-versions/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
       const { title, content, version } = req.body;
       
       // Check if this version has any signatures
-      const signatureCount = await storage.getDisclosureVersionSignatureCount(parseInt(id));
+      const signatureCount = await envStorage.getDisclosureVersionSignatureCount(parseInt(id));
       if (signatureCount > 0) {
         return res.status(403).json({ 
           success: false, 
@@ -15049,7 +15059,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ success: false, message: 'At least one field (title, content, or version) must be provided' });
       }
       
-      const updatedVersion = await storage.updateDisclosureVersion(parseInt(id), { title, content, version });
+      const updatedVersion = await envStorage.updateDisclosureVersion(parseInt(id), { title, content, version });
       if (!updatedVersion) {
         return res.status(404).json({ success: false, message: 'Version not found' });
       }
@@ -15064,8 +15074,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Retire a disclosure version
   app.post('/api/disclosure-versions/:id/retire', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { id } = req.params;
-      const version = await storage.retireDisclosureVersion(parseInt(id));
+      const version = await envStorage.retireDisclosureVersion(parseInt(id));
       if (!version) {
         return res.status(404).json({ success: false, message: 'Version not found' });
       }
@@ -15083,8 +15094,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get signatures for a specific version
   app.get('/api/disclosure-versions/:versionId/signatures', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { versionId } = req.params;
-      const signatures = await storage.getDisclosureSignatures(parseInt(versionId));
+      const signatures = await envStorage.getDisclosureSignatures(parseInt(versionId));
       res.json({ success: true, signatures });
     } catch (error) {
       console.error('Get disclosure signatures error:', error);
@@ -15095,10 +15107,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get signature report for a disclosure (all versions or specific version)
   app.get('/api/disclosures/:definitionId/signature-report', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: any, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { definitionId } = req.params;
       const { versionId } = req.query;
       
-      const report = await storage.getDisclosureSignatureReport(
+      const report = await envStorage.getDisclosureSignatureReport(
         parseInt(definitionId),
         versionId ? parseInt(versionId as string) : undefined
       );
