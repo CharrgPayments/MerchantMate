@@ -60,6 +60,13 @@ const lookupTables: LookupTableConfig[] = [
     preserveIds: true 
   },
   { 
+    name: 'acquirer_application_templates', 
+    dependencies: ['acquirers'], 
+    description: 'Dynamic form configurations for acquirer applications',
+    preserveIds: true,
+    pgArrayColumns: ['required_fields'] // PostgreSQL text[] column
+  },
+  { 
     name: 'fee_item_groups', 
     dependencies: ['fee_groups'], 
     description: 'Fee item sub-categories within fee groups',
