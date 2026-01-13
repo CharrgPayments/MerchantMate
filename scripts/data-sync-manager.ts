@@ -21,6 +21,8 @@ interface LookupTableConfig {
   dependencies: string[];
   description: string;
   preserveIds?: boolean; // Whether to preserve original IDs or auto-generate new ones
+  nullifyColumns?: string[]; // Columns to set to NULL during import (for user foreign keys that don't sync)
+  pgArrayColumns?: string[]; // Columns that are PostgreSQL arrays (text[], integer[]) - keep as arrays, not JSON
 }
 
 interface DataSyncResult {
@@ -99,26 +101,31 @@ const lookupTables: LookupTableConfig[] = [
     name: 'disclosure_contents', 
     dependencies: [], 
     description: 'Reusable disclosure text content (legacy system)',
-    preserveIds: true 
+    preserveIds: true,
+    nullifyColumns: ['created_by'] // User references don't sync between environments
   },
   { 
     name: 'disclosure_definitions', 
     dependencies: [], 
     description: 'Disclosure definition templates',
-    preserveIds: true 
+    preserveIds: true,
+    nullifyColumns: ['created_by', 'company_id'] // User/company references don't sync between environments
   },
   { 
     name: 'disclosure_versions', 
     dependencies: ['disclosure_definitions'], 
     description: 'Versioned disclosure content (depends on definitions)',
-    preserveIds: true 
+    preserveIds: true,
+    nullifyColumns: ['created_by'] // User references don't sync between environments
   },
   // Workflow system (definitions and stages, not tickets/instances)
   { 
     name: 'workflow_definitions', 
     dependencies: [], 
     description: 'Workflow template definitions',
-    preserveIds: true 
+    preserveIds: true,
+    nullifyColumns: ['created_by'], // User references don't sync between environments
+    pgArrayColumns: ['final_statuses'] // PostgreSQL text[] column
   },
   { 
     name: 'workflow_stages', 
@@ -288,8 +295,16 @@ class DataSyncManager {
             // Build column-value pairs for explicit INSERT
             const entries = Object.entries(row);
             const columns = entries.map(([key]) => key);
-            const values = entries.map(([, value]) => {
-              // Handle JSON/JSONB columns - convert objects/arrays to JSON strings
+            const values = entries.map(([key, value]) => {
+              // Nullify specified columns (user references that don't sync between environments)
+              if (tableConfig.nullifyColumns?.includes(key)) {
+                return null;
+              }
+              // Handle PostgreSQL array columns (text[], integer[]) - keep as native arrays
+              if (Array.isArray(value) && tableConfig.pgArrayColumns?.includes(key)) {
+                return value;
+              }
+              // Handle JSONB columns and other objects/arrays - convert to JSON strings
               if (value !== null && typeof value === 'object') {
                 return JSON.stringify(value);
               }
