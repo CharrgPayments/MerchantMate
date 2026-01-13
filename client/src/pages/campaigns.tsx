@@ -2776,7 +2776,7 @@ export default function CampaignsPage() {
                           id={`group-${group.id}`} 
                           className="rounded" 
                           checked={isGroupSelected}
-                          onChange={(e) => handleFeeGroupSelection(group.id, e.target.checked)}
+                          onChange={(e) => handleFeeGroupSelectAll(group.id, e.target.checked)}
                         />
                         <Label htmlFor={`group-${group.id}`} className="text-sm font-medium">
                           {group.name}
@@ -2787,7 +2787,7 @@ export default function CampaignsPage() {
                             variant="ghost"
                             size="sm"
                             className="h-6 w-6 p-0 ml-auto"
-                            onClick={() => toggleFeeGroupExpansion(group.id)}
+                            onClick={() => handleFeeGroupRowClick(group.id)}
                             disabled={!isGroupSelected}
                           >
                             {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
