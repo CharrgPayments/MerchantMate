@@ -531,10 +531,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Location revenue metrics endpoint (placed early to avoid auth middleware)
   app.get("/api/locations/:locationId/revenue", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { locationId } = req.params;
       console.log('Revenue endpoint - fetching revenue for location:', locationId);
-      const dynamicDB = getRequestDB(req);
-      const revenue = await storage.getLocationRevenue(parseInt(locationId));
+      const revenue = await envStorage.getLocationRevenue(parseInt(locationId));
       res.json(revenue);
     } catch (error) {
       console.error("Error fetching location revenue:", error);
@@ -545,17 +545,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Merchant MTD revenue endpoint (placed early to avoid auth middleware)
   app.get("/api/merchants/:merchantId/mtd-revenue", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { merchantId } = req.params;
       console.log('MTD Revenue endpoint - fetching MTD revenue for merchant:', merchantId);
       
-      const dynamicDB = getRequestDB(req);
       // Get all locations for this merchant
-      const locations = await storage.getLocationsByMerchant(parseInt(merchantId));
+      const locations = await envStorage.getLocationsByMerchant(parseInt(merchantId));
       
       // Calculate total MTD revenue across all locations
       let totalMTD = 0;
       for (const location of locations) {
-        const revenue = await storage.getLocationRevenue(location.id);
+        const revenue = await envStorage.getLocationRevenue(location.id);
         totalMTD += parseFloat(revenue.monthToDate || '0');
       }
       
@@ -569,8 +569,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Dashboard API endpoints (placed early to avoid auth middleware for development)
   app.get("/api/dashboard/metrics", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
-      const dynamicDB = getRequestDB(req);
-      const metrics = await storage.getDashboardMetrics();
+      const envStorage = createStorageForRequest(req);
+      const metrics = await envStorage.getDashboardMetrics();
       res.json(metrics);
     } catch (error) {
       console.error("Error fetching dashboard metrics:", error);
@@ -580,7 +580,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/dashboard/revenue", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
-      const revenue = await storage.getDashboardRevenue();
+      const envStorage = createStorageForRequest(req);
+      const revenue = await envStorage.getDashboardRevenue();
       res.json(revenue);
     } catch (error) {
       console.error("Error fetching dashboard revenue:", error);
@@ -590,9 +591,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/dashboard/top-locations", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const limit = parseInt(String(req.query.limit || "5"));
       const sortBy = String(req.query.sortBy || "revenue");
-      const locations = await storage.getTopLocations(limit, sortBy);
+      const locations = await envStorage.getTopLocations(limit, sortBy);
       res.json(locations);
     } catch (error) {
       console.error("Error fetching top locations:", error);
@@ -602,7 +604,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/dashboard/recent-activity", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
-      const activities = await storage.getRecentActivity();
+      const envStorage = createStorageForRequest(req);
+      const activities = await envStorage.getRecentActivity();
       res.json(activities);
     } catch (error) {
       console.error("Error fetching recent activity:", error);
@@ -612,8 +615,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/dashboard/assigned-merchants", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const limit = parseInt(String(req.query.limit || "10"));
-      const merchants = await storage.getAssignedMerchants(limit);
+      const merchants = await envStorage.getAssignedMerchants(limit);
       res.json(merchants);
     } catch (error) {
       console.error("Error fetching assigned merchants:", error);
@@ -623,7 +627,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/dashboard/system-overview", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
-      const systemData = await storage.getSystemOverview();
+      const envStorage = createStorageForRequest(req);
+      const systemData = await envStorage.getSystemOverview();
       res.json(systemData);
     } catch (error) {
       console.error("Error fetching system overview:", error);
@@ -634,12 +639,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get current agent for logged-in user
   app.get("/api/agent/current", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const userId = req.session.userId;
       if (!userId) {
         return res.status(401).json({ message: "Authentication required" });
       }
 
-      const agent = await storage.getAgentByUserId(userId);
+      const agent = await envStorage.getAgentByUserId(userId);
       if (!agent) {
         return res.status(404).json({ message: "Agent not found" });
       }
@@ -654,6 +660,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Agent dashboard endpoints
   app.get("/api/agent/dashboard/stats", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       console.log('Agent Dashboard Stats - Session ID:', req.sessionID);
       console.log('Agent Dashboard Stats - Session data:', req.session);
       
@@ -663,18 +670,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get user data
-      const user = await storage.getUser(userId);
+      const user = await envStorage.getUser(userId);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
 
       // Get agent by userId (company-centric architecture)
-      let agent = await storage.getAgentByUserId(userId);
+      let agent = await envStorage.getAgentByUserId(userId);
       
       // If no agent found, use fallback for development/testing
       if (!agent && userId === 'user_agent_1') {
         // For development, fallback to agent ID 2 (Mike Chen)
-        agent = await storage.getAgent(2);
+        agent = await envStorage.getAgent(2);
         console.log('Using fallback agent for development:', agent?.firstName, agent?.lastName);
       }
       
@@ -685,7 +692,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('Found agent:', agent.id, agent.firstName, agent.lastName);
 
       // Get all prospects assigned to this agent
-      const prospects = await storage.getProspectsByAgent(agent.id);
+      const prospects = await envStorage.getProspectsByAgent(agent.id);
       console.log('Found prospects:', prospects.length);
       
       // Calculate statistics
@@ -720,6 +727,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/agent/applications", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       console.log('Agent Applications - Session ID:', req.sessionID);
       console.log('Agent Applications - Session data:', req.session);
       
@@ -729,18 +737,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get user data
-      const user = await storage.getUser(userId);
+      const user = await envStorage.getUser(userId);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
 
       // Get agent by userId (company-centric architecture)
-      let agent = await storage.getAgentByUserId(userId);
+      let agent = await envStorage.getAgentByUserId(userId);
       
       // If no agent found, use fallback for development/testing
       if (!agent && userId === 'user_agent_1') {
         // For development, fallback to agent ID 2 (Mike Chen)
-        agent = await storage.getAgent(2);
+        agent = await envStorage.getAgent(2);
         console.log('Using fallback agent for development:', agent?.firstName, agent?.lastName);
       }
       
@@ -749,7 +757,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get all prospects assigned to this agent with application details
-      const prospects = await storage.getProspectsByAgent(agent.id);
+      const prospects = await envStorage.getProspectsByAgent(agent.id);
       
       // Transform prospects to application format
       const applications = await Promise.all(prospects.map(async prospect => {
@@ -762,8 +770,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Get database signatures for this prospect with owner information
-        const dbSignatures = await storage.getProspectSignaturesByProspect(prospect.id);
-        const prospectOwners = await storage.getProspectOwners(prospect.id);
+        const dbSignatures = await envStorage.getProspectSignaturesByProspect(prospect.id);
+        const prospectOwners = await envStorage.getProspectOwners(prospect.id);
 
         // Calculate completion percentage based on actual form data completeness
         let completionPercentage = 0;
@@ -892,8 +900,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Widget preference endpoints (before auth middleware for development)
   app.get("/api/user/:userId/widgets", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { userId } = req.params;
-      const widgets = await storage.getUserWidgetPreferences(userId);
+      const widgets = await envStorage.getUserWidgetPreferences(userId);
       res.json(widgets);
     } catch (error) {
       console.error("Error fetching user widgets:", error);
@@ -903,12 +912,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/user/:userId/widgets", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { userId } = req.params;
       const widgetData = {
         ...req.body,
         userId
       };
-      const widget = await storage.createWidgetPreference(widgetData);
+      const widget = await envStorage.createWidgetPreference(widgetData);
       res.json(widget);
     } catch (error) {
       console.error("Error creating widget preference:", error);
@@ -918,8 +928,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/widgets/:widgetId", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { widgetId } = req.params;
-      const widget = await storage.updateWidgetPreference(parseInt(widgetId), req.body);
+      const widget = await envStorage.updateWidgetPreference(parseInt(widgetId), req.body);
       if (!widget) {
         return res.status(404).json({ message: "Widget not found" });
       }
@@ -932,8 +943,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/widgets/:widgetId", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const envStorage = createStorageForRequest(req);
       const { widgetId } = req.params;
-      const success = await storage.deleteWidgetPreference(parseInt(widgetId));
+      const success = await envStorage.deleteWidgetPreference(parseInt(widgetId));
       if (!success) {
         return res.status(404).json({ message: "Widget not found" });
       }
