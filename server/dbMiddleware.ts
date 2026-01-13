@@ -35,8 +35,18 @@ export const dbEnvironmentMiddleware = (req: RequestWithDB, res: Response, next:
     return;
   }
   
-  // For non-production domains, use the globally selected environment (via admin dropdown)
-  // This takes precedence over session to allow runtime environment switching
+  // For non-production domains:
+  // 1. Check if request body contains database selection (e.g., from login form)
+  //    If so, update the global environment to match
+  const bodyDbEnv = req.body?.database;
+  if (bodyDbEnv && ['test', 'development', 'dev'].includes(bodyDbEnv)) {
+    const normalizedEnv = bodyDbEnv === 'dev' ? 'development' : bodyDbEnv;
+    // Update global environment to match the selection
+    environmentManager.setGlobalEnvironment(normalizedEnv as 'development' | 'test');
+    console.log(`Database selection from request: setting global environment to ${normalizedEnv}`);
+  }
+  
+  // 2. Use the globally selected environment
   const globalEnv = environmentManager.getGlobalEnvironment();
   req.dbEnv = globalEnv;
   req.dynamicDB = getDynamicDatabase(globalEnv);
