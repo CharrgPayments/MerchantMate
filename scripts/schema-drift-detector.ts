@@ -72,21 +72,54 @@ class SchemaDriftDetector {
   }
 
   async getSchemaFileDefinitions(): Promise<Map<string, string[]>> {
-    // This is a simplified version - we'll parse the actual schema.ts in next iteration
-    // For now, we'll use Drizzle's introspect capability
-    const { drizzle } = await import('drizzle-orm/node-postgres');
-    const { eq, sql } = await import('drizzle-orm');
-    
-    // Import all schema tables
-    const schema = await import('../shared/schema.js');
+    // Import schema using the correct path with TypeScript extension
+    const schema = await import('../shared/schema');
     
     const schemaMap = new Map<string, string[]>();
     
     // Extract table definitions from schema
     for (const [key, value] of Object.entries(schema)) {
-      if (value && typeof value === 'object' && 'tableName' in value) {
-        const tableName = (value as any).tableName;
-        const columns = Object.keys((value as any)[Symbol.for('drizzle:Columns')] || {});
+      if (value && typeof value === 'object') {
+        // Check for Drizzle table objects - they have a _ property with table config
+        const tableObj = value as any;
+        
+        // Try multiple ways to detect Drizzle tables
+        let tableName: string | undefined;
+        let columns: string[] = [];
+        
+        // Method 1: Check for _.name (Drizzle ORM table property)
+        if (tableObj._ && tableObj._.name) {
+          tableName = tableObj._.name;
+          // Get columns from the table's column definitions
+          if (tableObj._ && typeof tableObj._ === 'object') {
+            const tableConfig = tableObj._;
+            if (tableConfig.columns) {
+              columns = Object.keys(tableConfig.columns);
+            }
+          }
+        }
+        
+        // Method 2: Check for getSQL method (indicates it's a Drizzle table)
+        if (!tableName && typeof tableObj.getSQL === 'function' && tableObj[Symbol.for('drizzle:Name')]) {
+          tableName = tableObj[Symbol.for('drizzle:Name')];
+        }
+        
+        // Method 3: Look for columns using Symbol
+        if (tableName && columns.length === 0) {
+          const columnsSymbol = Symbol.for('drizzle:Columns');
+          if (tableObj[columnsSymbol]) {
+            columns = Object.keys(tableObj[columnsSymbol]);
+          }
+        }
+        
+        // Method 4: If still no columns, try to get them from direct properties
+        if (tableName && columns.length === 0) {
+          for (const [propKey, propValue] of Object.entries(tableObj)) {
+            if (propValue && typeof propValue === 'object' && (propValue as any).name && (propValue as any).dataType) {
+              columns.push((propValue as any).name);
+            }
+          }
+        }
         
         if (tableName && columns.length > 0) {
           schemaMap.set(tableName, columns);
