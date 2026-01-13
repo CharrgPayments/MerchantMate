@@ -48,7 +48,20 @@ export const dbEnvironmentMiddleware = (req: RequestWithDB, res: Response, next:
     console.log(`Database selection from request: setting global environment to ${normalizedEnv}`);
   }
   
-  // 2. Use the globally selected environment
+  // 2. PRIORITY: Use session-based environment if available (per-user isolation)
+  const sessionDbEnv = (req.session as any)?.dbEnv;
+  if (sessionDbEnv && ['test', 'development', 'production'].includes(sessionDbEnv)) {
+    req.dbEnv = sessionDbEnv;
+    req.dynamicDB = getDynamicDatabase(sessionDbEnv);
+    req.db = req.dynamicDB;
+    req.storage = createStorage(req.dynamicDB);
+    res.setHeader('X-Database-Environment', sessionDbEnv);
+    console.log(`🔐 Session-based DB: using ${sessionDbEnv} database (from user session)`);
+    next();
+    return;
+  }
+  
+  // 3. Fallback: Use the globally selected environment
   const globalEnv = environmentManager.getGlobalEnvironment();
   req.dbEnv = globalEnv;
   req.dynamicDB = getDynamicDatabase(globalEnv);
