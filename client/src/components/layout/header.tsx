@@ -315,9 +315,8 @@ export function Header({ title, onSearch }: HeaderProps) {
   );
 
   const getDatabaseBadge = () => {
-    // Never show database environment indicator in production builds
-    if (import.meta.env.PROD) return null;
-    
+    // Only hide badge when actually using production database
+    // Show badge for dev/test environments even in deployed builds
     if (!dbEnvironment || dbEnvironment.environment === 'production') return null;
     
     const isDevEnvironment = dbEnvironment.environment === 'development' || dbEnvironment.environment === 'dev';

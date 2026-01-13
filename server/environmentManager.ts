@@ -33,10 +33,9 @@ class EnvironmentManager {
    */
   public resolveEnvironment(host: string): EnvironmentConfig {
     const isProductionUrl = host === 'crm.charrg.com';
-    const isTestUrl = host === 'test-crm.charrg.com';
     
     if (isProductionUrl) {
-      // Production URL always uses production database
+      // Production URL always uses production database - no selection allowed
       return {
         environment: 'production',
         isProduction: true,
@@ -44,16 +43,7 @@ class EnvironmentManager {
       };
     }
     
-    if (isTestUrl) {
-      // Test URL always uses test database
-      return {
-        environment: 'test',
-        isProduction: false,
-        url: host
-      };
-    }
-    
-    // Non-production URLs use globally selected environment
+    // All non-production URLs use globally selected environment (allows switching)
     return {
       environment: this.currentEnvironment as any,
       isProduction: false,
