@@ -2037,7 +2037,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async upsertUser(userData: UpsertUser): Promise<User> {
-    const [user] = await db
+    const [user] = await this.db
       .insert(users)
       .values(userData)
       .onConflictDoUpdate({
@@ -2052,7 +2052,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUser(id: string, updates: Partial<UpsertUser>): Promise<User | undefined> {
-    const [user] = await db
+    const [user] = await this.db
       .update(users)
       .set({ ...updates, updatedAt: new Date() })
       .where(eq(users.id, id))
@@ -2061,7 +2061,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUserRole(id: string, role: string): Promise<User | undefined> {
-    const [user] = await db
+    const [user] = await this.db
       .update(users)
       .set({ role, updatedAt: new Date() })
       .where(eq(users.id, id))
@@ -2070,7 +2070,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUserStatus(id: string, status: string): Promise<User | undefined> {
-    const [user] = await db
+    const [user] = await this.db
       .update(users)
       .set({ status, updatedAt: new Date() })
       .where(eq(users.id, id))
@@ -2079,7 +2079,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUserPermissions(id: string, permissions: Record<string, boolean>): Promise<User | undefined> {
-    const [user] = await db
+    const [user] = await this.db
       .update(users)
       .set({ permissions, updatedAt: new Date() })
       .where(eq(users.id, id))
