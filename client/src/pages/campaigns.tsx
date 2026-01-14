@@ -1141,6 +1141,7 @@ export default function CampaignsPage() {
       name: pricingTypeForm.name.trim(),
       description: pricingTypeForm.description.trim() || undefined,
       feeItemIds: pricingTypeForm.selectedFeeItemIds,
+      feeGroupItems: pricingTypeForm.selectedFeeGroupItems || [],
     });
   };
 
@@ -1354,6 +1355,7 @@ export default function CampaignsPage() {
       name: pricingTypeForm.name.trim(),
       description: pricingTypeForm.description.trim() || undefined,
       feeItemIds: uniqueFeeItemIds,
+      feeGroupItems: pricingTypeForm.selectedFeeGroupItems || [],
     };
     
     editPricingTypeMutation.mutate({

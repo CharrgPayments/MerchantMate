@@ -9330,7 +9330,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const { pricingTypes, pricingTypeFeeItems, feeItems, feeGroups, feeGroupFeeItems } = await import("@shared/schema");
-      const { eq, asc } = await import("drizzle-orm");
+      const { eq, asc, isNotNull, and } = await import("drizzle-orm");
       const { withRetry } = await import("./db");
       
       // First verify the pricing type exists
@@ -9341,22 +9341,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Pricing type not found' });
       }
       
-      // Get ONLY the fee items that are associated with this specific pricing type
-      // This ensures campaign creation shows only relevant fee items, not all items in groups
-      const pricingTypeFeeItemsRaw = await withRetry(() =>
-        dbToUse
-          .select({
-            feeItem: feeItems,
-            feeGroup: feeGroups,
-            pricingTypeFeeItem: pricingTypeFeeItems
-          })
+      // Check if this pricing type has fee_group_id stored (new format)
+      const hasStoredFeeGroupIds = await withRetry(() =>
+        dbToUse.select()
           .from(pricingTypeFeeItems)
-          .innerJoin(feeItems, eq(pricingTypeFeeItems.feeItemId, feeItems.id))
-          .innerJoin(feeGroupFeeItems, eq(feeItems.id, feeGroupFeeItems.feeItemId))
-          .innerJoin(feeGroups, eq(feeGroupFeeItems.feeGroupId, feeGroups.id))
-          .where(eq(pricingTypeFeeItems.pricingTypeId, id))
-          .orderBy(asc(feeGroups.displayOrder), asc(feeItems.displayOrder))
+          .where(and(
+            eq(pricingTypeFeeItems.pricingTypeId, id),
+            isNotNull(pricingTypeFeeItems.feeGroupId)
+          ))
+          .limit(1)
       );
+      
+      let pricingTypeFeeItemsRaw;
+      
+      if (hasStoredFeeGroupIds.length > 0) {
+        // New format: Use stored fee_group_id from pricingTypeFeeItems
+        console.log('Using stored fee_group_id from pricingTypeFeeItems');
+        pricingTypeFeeItemsRaw = await withRetry(() =>
+          dbToUse
+            .select({
+              feeItem: feeItems,
+              feeGroup: feeGroups,
+              pricingTypeFeeItem: pricingTypeFeeItems
+            })
+            .from(pricingTypeFeeItems)
+            .innerJoin(feeItems, eq(pricingTypeFeeItems.feeItemId, feeItems.id))
+            .innerJoin(feeGroups, eq(pricingTypeFeeItems.feeGroupId, feeGroups.id))
+            .where(eq(pricingTypeFeeItems.pricingTypeId, id))
+            .orderBy(asc(feeGroups.displayOrder), asc(feeItems.displayOrder))
+        );
+      } else {
+        // Legacy format: Join with feeGroupFeeItems (may return items in multiple groups)
+        console.log('Using legacy format - joining with feeGroupFeeItems');
+        pricingTypeFeeItemsRaw = await withRetry(() =>
+          dbToUse
+            .select({
+              feeItem: feeItems,
+              feeGroup: feeGroups,
+              pricingTypeFeeItem: pricingTypeFeeItems
+            })
+            .from(pricingTypeFeeItems)
+            .innerJoin(feeItems, eq(pricingTypeFeeItems.feeItemId, feeItems.id))
+            .innerJoin(feeGroupFeeItems, eq(feeItems.id, feeGroupFeeItems.feeItemId))
+            .innerJoin(feeGroups, eq(feeGroupFeeItems.feeGroupId, feeGroups.id))
+            .where(eq(pricingTypeFeeItems.pricingTypeId, id))
+            .orderBy(asc(feeGroups.displayOrder), asc(feeItems.displayOrder))
+        );
+      }
       
       // Group fee items by fee group
       const feeGroupMap = new Map();
@@ -9410,10 +9441,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       console.log(`Creating pricing type - Database environment: ${req.dbEnv}`);
       
-      const { name, description, feeItemIds = [] } = req.body;
+      // Support both old format (feeItemIds) and new format (feeGroupItems with feeGroupId context)
+      const { name, description, feeItemIds = [], feeGroupItems = [] } = req.body;
       
       console.log('Request body:', JSON.stringify(req.body, null, 2));
       console.log('Extracted feeItemIds:', feeItemIds, 'Type:', typeof feeItemIds, 'Length:', feeItemIds?.length);
+      console.log('Extracted feeGroupItems:', feeGroupItems, 'Length:', feeGroupItems?.length);
       
       // Use the dynamic database connection
       const dbToUse = req.dynamicDB;
@@ -9436,22 +9469,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log('Created pricing type:', pricingType);
       
-      // Add selected fee items to the pricing type
-      if (feeItemIds && Array.isArray(feeItemIds) && feeItemIds.length > 0) {
-        console.log('Adding selected fee items to pricing type:', feeItemIds);
+      // Use new feeGroupItems format if provided (with fee group context)
+      if (feeGroupItems && Array.isArray(feeGroupItems) && feeGroupItems.length > 0) {
+        console.log('Adding fee items with fee group context:', feeGroupItems);
         
         await withRetry(() =>
           dbToUse.insert(pricingTypeFeeItems).values(
-            feeItemIds.map((feeItemId: number, index: number) => ({
+            feeGroupItems.map((item: { feeGroupId: number; feeItemId: number }, index: number) => ({
               pricingTypeId: pricingType.id,
-              feeItemId,
+              feeItemId: item.feeItemId,
+              feeGroupId: item.feeGroupId,
               isRequired: false,
               displayOrder: index + 1
             }))
           )
         );
         
-        console.log(`Added ${feeItemIds.length} fee items to pricing type`);
+        console.log(`Added ${feeGroupItems.length} fee items with fee group context to pricing type`);
+      }
+      // Fall back to old format without fee group context
+      else if (feeItemIds && Array.isArray(feeItemIds) && feeItemIds.length > 0) {
+        console.log('Adding selected fee items to pricing type (legacy format):', feeItemIds);
+        
+        await withRetry(() =>
+          dbToUse.insert(pricingTypeFeeItems).values(
+            feeItemIds.map((feeItemId: number, index: number) => ({
+              pricingTypeId: pricingType.id,
+              feeItemId,
+              feeGroupId: null, // No fee group context in legacy format
+              isRequired: false,
+              displayOrder: index + 1
+            }))
+          )
+        );
+        
+        console.log(`Added ${feeItemIds.length} fee items to pricing type (legacy)`);
       }
       
       console.log(`Pricing type created successfully in ${req.dbEnv} database`);
@@ -9531,7 +9583,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: 'Invalid pricing type ID' });
       }
       
-      const { name, description, feeItemIds } = req.body;
+      // Support both old format (feeItemIds) and new format (feeGroupItems with feeGroupId context)
+      const { name, description, feeItemIds, feeGroupItems = [] } = req.body;
       
       if (!name || !name.trim()) {
         return res.status(400).json({ error: 'Name is required' });
@@ -9542,7 +9595,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         id,
         name: name.trim(),
         description: description?.trim() || null,
-        feeItemIds: feeItemIds || []
+        feeItemIds: feeItemIds || [],
+        feeGroupItems: feeGroupItems || []
       });
       
       // Use the dynamic database connection
@@ -9588,20 +9642,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await tx.delete(pricingTypeFeeItems)
           .where(eq(pricingTypeFeeItems.pricingTypeId, id));
 
-        // Add new fee item associations if provided
-        if (feeItemIds && Array.isArray(feeItemIds) && feeItemIds.length > 0) {
-          console.log('Adding selected fee items to pricing type:', feeItemIds);
+        // Use new feeGroupItems format if provided (with fee group context)
+        if (feeGroupItems && Array.isArray(feeGroupItems) && feeGroupItems.length > 0) {
+          console.log('Adding fee items with fee group context:', feeGroupItems);
           
           await tx.insert(pricingTypeFeeItems).values(
-            feeItemIds.map((feeItemId: number, index: number) => ({
+            feeGroupItems.map((item: { feeGroupId: number; feeItemId: number }, index: number) => ({
               pricingTypeId: id,
-              feeItemId,
+              feeItemId: item.feeItemId,
+              feeGroupId: item.feeGroupId,
               isRequired: false,
               displayOrder: index + 1
             }))
           );
           
-          console.log(`Added ${feeItemIds.length} fee items to pricing type`);
+          console.log(`Added ${feeGroupItems.length} fee items with fee group context to pricing type`);
+        }
+        // Fall back to old format without fee group context
+        else if (feeItemIds && Array.isArray(feeItemIds) && feeItemIds.length > 0) {
+          console.log('Adding selected fee items to pricing type (legacy format):', feeItemIds);
+          
+          await tx.insert(pricingTypeFeeItems).values(
+            feeItemIds.map((feeItemId: number, index: number) => ({
+              pricingTypeId: id,
+              feeItemId,
+              feeGroupId: null,
+              isRequired: false,
+              displayOrder: index + 1
+            }))
+          );
+          
+          console.log(`Added ${feeItemIds.length} fee items to pricing type (legacy)`);
         }
       });
       
