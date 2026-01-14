@@ -781,8 +781,22 @@ export class AuthService {
         };
       }
 
+      // Check password history - prevent reuse within 12 months
+      const wasUsedBefore = await storage.checkPasswordHistory(user.id, data.password);
+      if (wasUsedBefore) {
+        return {
+          success: false,
+          message: "This password was used in the last 12 months. Please choose a different password for security compliance."
+        };
+      }
+
       // Hash new password
       const passwordHash = await this.hashPassword(data.password);
+
+      // Store the current password in history before updating (if it exists)
+      if (user.passwordHash) {
+        await storage.addPasswordHistory(user.id, user.passwordHash);
+      }
 
       // Update user
       await storage.updateUser(user.id, {
@@ -829,8 +843,22 @@ export class AuthService {
         };
       }
 
+      // Check password history - prevent reuse within 12 months
+      const wasUsedBefore = await tempStorage.checkPasswordHistory(user.id, data.password);
+      if (wasUsedBefore) {
+        return {
+          success: false,
+          message: "This password was used in the last 12 months. Please choose a different password for security compliance."
+        };
+      }
+
       // Hash new password
       const passwordHash = await this.hashPassword(data.password);
+
+      // Store the current password in history before updating (if it exists)
+      if (user.passwordHash) {
+        await tempStorage.addPasswordHistory(user.id, user.passwordHash);
+      }
 
       // Update user - also activate if pending_password
       const updateData: any = {
@@ -906,8 +934,22 @@ export class AuthService {
         };
       }
 
+      // Check password history - prevent reuse within 12 months
+      const wasUsedBefore = await tempStorage.checkPasswordHistory(user.id, newPassword);
+      if (wasUsedBefore) {
+        return {
+          success: false,
+          message: "This password was used in the last 12 months. Please choose a different password for security compliance."
+        };
+      }
+
       // Hash new password
       const passwordHash = await this.hashPassword(newPassword);
+
+      // Store the current password in history before updating (if it exists)
+      if (user.passwordHash) {
+        await tempStorage.addPasswordHistory(user.id, user.passwordHash);
+      }
 
       // Update user - clear mustChangePassword flag and update password
       await tempStorage.updateUser(user.id, {

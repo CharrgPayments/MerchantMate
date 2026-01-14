@@ -29,7 +29,7 @@ Preferred communication style: Simple, everyday language.
 ### Feature Specifications
 - **Company-Centric Data Architecture**: Companies as the root entity.
 - **Role-Based Access Control**: Database-backed RBAC with Permission Manager UI supporting 6 roles and granular view/manage/execute actions, including audit logging.
-- **Secure Authentication**: Session management, 2FA, password reset, strong password requirements.
+- **Secure Authentication**: Session management, 2FA, password reset, strong password requirements, forced password change for temporary passwords, and 12-month password history compliance (prevents password reuse).
 - **Merchant & Agent Management**: Comprehensive profiles, assignment, status, fee management.
 - **Location Management**: Polymorphic locations with geolocation and operating hours.
 - **Transaction Processing**: Tracking, commission calculations, revenue analytics.

@@ -393,6 +393,24 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Password history table for compliance - prevents password reuse within 12 months
+export const passwordHistory = pgTable("password_history", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  passwordHash: varchar("password_hash").notNull(), // Hashed password for comparison
+  createdAt: timestamp("created_at").defaultNow().notNull(), // When this password was set
+}, (table) => [
+  index("password_history_user_id_idx").on(table.userId),
+  index("password_history_created_at_idx").on(table.createdAt),
+]);
+
+export const insertPasswordHistorySchema = createInsertSchema(passwordHistory).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertPasswordHistory = z.infer<typeof insertPasswordHistorySchema>;
+export type PasswordHistory = typeof passwordHistory.$inferSelect;
+
 // Companies/Organizations table for business entity management
 export const companies = pgTable("companies", {
   id: serial("id").primaryKey(),

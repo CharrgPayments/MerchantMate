@@ -1,4 +1,4 @@
-import { companies, merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, prospectDocuments, prospectNotifications, prospectMessages, signatureCaptures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, equipmentItems, campaignEquipment, campaignApplicationTemplates, acquirerApplicationTemplates, apiKeys, apiRequestLogs, emailWrappers, emailTemplates, emailActivity, emailTriggers, actionTemplates, triggerCatalog, triggerActions, userAlerts, acquirers, disclosureDefinitions, disclosureVersions, disclosureSignatures, userCompanyAssociations,
+import { companies, merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, prospectDocuments, prospectNotifications, prospectMessages, signatureCaptures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, equipmentItems, campaignEquipment, campaignApplicationTemplates, acquirerApplicationTemplates, apiKeys, apiRequestLogs, emailWrappers, emailTemplates, emailActivity, emailTriggers, actionTemplates, triggerCatalog, triggerActions, userAlerts, acquirers, disclosureDefinitions, disclosureVersions, disclosureSignatures, userCompanyAssociations, passwordHistory,
   // Workflow System tables
   workflowDefinitions, workflowStages, workflowTickets, workflowTicketStages, workflowIssues, workflowTasks, workflowNotes, workflowArtifacts, workflowTransitions, workflowAssignments, mccCodes, mccPolicies, volumeThresholds, apiIntegrationConfigs, stageApiConfigs,
   type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type ProspectDocument, type InsertProspectDocument, type ProspectNotification, type InsertProspectNotification, type ProspectMessage, type InsertProspectMessage, type InsertProspectSignature, type SignatureCapture, type InsertSignatureCapture, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type CampaignApplicationTemplate, type InsertCampaignApplicationTemplate, type AcquirerApplicationTemplate, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailWrapper, type InsertEmailWrapper, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type ActionTemplate, type InsertActionTemplate, type TriggerCatalog, type InsertTriggerCatalog, type TriggerAction, type InsertTriggerAction, type UserAlert, type InsertUserAlert,
@@ -103,6 +103,11 @@ export interface IStorage {
   resetUserPassword(id: string): Promise<{ user: User; temporaryPassword: string }>;
   setPasswordResetToken(id: string, token: string, expiresAt: Date): Promise<User | undefined>;
   clearPasswordResetToken(id: string): Promise<User | undefined>;
+  
+  // Password history operations for compliance (12-month reuse prevention)
+  checkPasswordHistory(userId: string, newPasswordHash: string): Promise<boolean>;
+  addPasswordHistory(userId: string, passwordHash: string): Promise<void>;
+  cleanupOldPasswordHistory(userId: string): Promise<void>;
   deleteUser(id: string): Promise<boolean>;
   
   // Role-based data access
@@ -2134,6 +2139,56 @@ export class DatabaseStorage implements IStorage {
       passwordResetExpires: null,
       updatedAt: new Date()
     });
+  }
+
+  // Password history methods for compliance - 12-month password reuse prevention
+  async checkPasswordHistory(userId: string, newPassword: string): Promise<boolean> {
+    const bcrypt = await import('bcrypt');
+    
+    // Get password history from last 12 months
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+    
+    const history = await this.db
+      .select({ passwordHash: passwordHistory.passwordHash })
+      .from(passwordHistory)
+      .where(and(
+        eq(passwordHistory.userId, userId),
+        gte(passwordHistory.createdAt, twelveMonthsAgo)
+      ))
+      .orderBy(desc(passwordHistory.createdAt));
+    
+    // Check if the new password matches any in history
+    for (const entry of history) {
+      const matches = await bcrypt.compare(newPassword, entry.passwordHash);
+      if (matches) {
+        return true; // Password was used before
+      }
+    }
+    
+    return false; // Password is new
+  }
+
+  async addPasswordHistory(userId: string, passwordHash: string): Promise<void> {
+    await this.db.insert(passwordHistory).values({
+      userId,
+      passwordHash,
+    });
+    
+    // Cleanup old history entries (keep only last 12 months)
+    await this.cleanupOldPasswordHistory(userId);
+  }
+
+  async cleanupOldPasswordHistory(userId: string): Promise<void> {
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+    
+    await this.db
+      .delete(passwordHistory)
+      .where(and(
+        eq(passwordHistory.userId, userId),
+        sql`${passwordHistory.createdAt} < ${twelveMonthsAgo}`
+      ));
   }
 
   async getMerchantsForUser(userId: string): Promise<MerchantWithAgent[]> {
