@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Search, Plus, Settings, Trash2, RotateCcw, Users, Edit2, Key, Wand2, Copy, Check } from "lucide-react";
+import { Search, Plus, Settings, Trash2, RotateCcw, Users, Edit2, Key, Wand2, Copy, Check, Lock, Unlock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -552,6 +558,73 @@ export default function UsersPage() {
     },
   });
 
+  // Lockout status state - tracks lockout status for each user by ID
+  const [lockoutStatuses, setLockoutStatuses] = useState<Record<string, { isLockedOut: boolean; failedAttempts: number }>>({});
+  const [loadingLockoutStatus, setLoadingLockoutStatus] = useState<Record<string, boolean>>({});
+
+  // Fetch lockout status for a specific user
+  const fetchLockoutStatus = async (userId: string) => {
+    try {
+      setLoadingLockoutStatus(prev => ({ ...prev, [userId]: true }));
+      const response = await fetch(`/api/users/${userId}/lockout-status`, {
+        credentials: 'include',
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setLockoutStatuses(prev => ({
+          ...prev,
+          [userId]: { isLockedOut: data.isLockedOut, failedAttempts: data.failedAttempts }
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to fetch lockout status:', error);
+    } finally {
+      setLoadingLockoutStatus(prev => ({ ...prev, [userId]: false }));
+    }
+  };
+
+  // Fetch lockout statuses for all visible users
+  useEffect(() => {
+    if (users.length > 0) {
+      users.forEach((user: User) => {
+        fetchLockoutStatus(user.id);
+      });
+    }
+  }, [users]);
+
+  // Clear lockout mutation
+  const clearLockoutMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const response = await fetch(`/api/users/${userId}/clear-lockout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) {
+        throw new Error('Failed to clear lockout');
+      }
+      return response.json();
+    },
+    onSuccess: (data, userId) => {
+      // Update local lockout status
+      setLockoutStatuses(prev => ({
+        ...prev,
+        [userId]: { isLockedOut: false, failedAttempts: 0 }
+      }));
+      toast({
+        title: "Lockout Cleared",
+        description: `Account lockout cleared for ${data.username}. They can now log in.`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to clear account lockout",
+        variant: "destructive",
+      });
+    },
+  });
+
   const filteredUsers = users.filter((user: User) =>
     user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -751,9 +824,26 @@ export default function UsersPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={getStatusBadgeVariant(user.status)}>
-                        {user.status.toUpperCase()}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={getStatusBadgeVariant(user.status)}>
+                          {user.status.toUpperCase()}
+                        </Badge>
+                        {lockoutStatuses[user.id]?.isLockedOut && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger>
+                                <Badge variant="destructive" className="flex items-center gap-1">
+                                  <Lock className="h-3 w-3" />
+                                  LOCKED
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Account locked due to {lockoutStatuses[user.id]?.failedAttempts} failed login attempts</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="text-sm">
@@ -782,6 +872,27 @@ export default function UsersPage() {
                         >
                           <Key className="h-4 w-4" />
                         </Button>
+                        
+                        {lockoutStatuses[user.id]?.isLockedOut && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => clearLockoutMutation.mutate(user.id)}
+                                  disabled={clearLockoutMutation.isPending}
+                                  className="bg-red-50 hover:bg-red-100 text-red-700 border-red-200"
+                                >
+                                  <Unlock className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Clear lockout ({lockoutStatuses[user.id]?.failedAttempts} failed attempts)</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
                         
                         {!user.roles.includes("super_admin") && (
                           <AlertDialog>
