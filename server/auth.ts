@@ -482,6 +482,7 @@ export class AuthService {
     message: string; 
     user?: User; 
     requires2FA?: boolean;
+    requiresPasswordChange?: boolean;
     sessionId?: string;
   }> {
     const ip = this.getClientIP(req);
@@ -678,6 +679,19 @@ export class AuthService {
             };
           }
         }
+      }
+
+      // Check if user must change password before completing login
+      if (user.mustChangePassword) {
+        // Don't update login info yet - wait for password change
+        await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, true, "requires_password_change", db);
+        return {
+          success: true,
+          requiresPasswordChange: true,
+          message: "You must change your password before continuing.",
+          user,
+          sessionId: uuidv4()
+        };
       }
 
       // Update user login info with timezone if provided using dynamic database
