@@ -486,6 +486,10 @@ export class AuthService {
   }> {
     const ip = this.getClientIP(req);
     const userAgent = req.headers["user-agent"] || "";
+    
+    // Create dynamic storage instance for this database connection
+    // This ensures 2FA codes are stored in the correct environment's database
+    const dynamicStorage = new DatabaseStorage(db);
 
     try {
       // Check login attempts
@@ -601,7 +605,7 @@ export class AuthService {
           const code = this.generate2FACode();
           const type = ipChanged ? "ip_change" : "login";
           
-          await storage.create2FACode({
+          await dynamicStorage.create2FACode({
             userId: user.id,
             code,
             type,
@@ -630,7 +634,7 @@ export class AuthService {
           };
         } else {
           // Verify 2FA code with detailed status check
-          const codeStatus = await storage.check2FACodeStatus(user.id, loginData.twoFactorCode);
+          const codeStatus = await dynamicStorage.check2FACodeStatus(user.id, loginData.twoFactorCode);
           
           if (!codeStatus.valid) {
             // Check if code was expired - auto-resend new code
@@ -638,7 +642,7 @@ export class AuthService {
               const newCode = this.generate2FACode();
               const type = ipChanged ? "ip_change" : "login";
               
-              await storage.create2FACode({
+              await dynamicStorage.create2FACode({
                 userId: user.id,
                 code: newCode,
                 type,
