@@ -84,6 +84,23 @@ export function setupAuthRoutes(app: Express) {
       const dynamicDB = getRequestDB(req);
       const result = await authService.loginWithDB(validatedData, req, dynamicDB);
       
+      // If user must change password, return response without creating a full session
+      if (result.success && result.requiresPasswordChange && result.user) {
+        console.log(`Password change required for user: ${result.user.username}`);
+        // Return success with requiresPasswordChange flag - no session created yet
+        return res.json({
+          success: true,
+          requiresPasswordChange: true,
+          message: result.message,
+          user: {
+            id: result.user.id,
+            username: result.user.username,
+            email: result.user.email
+          },
+          database: req.dbEnv
+        });
+      }
+      
       if (result.success && result.user) {
         // Store user session data including database environment
         req.session.userId = result.user.id;

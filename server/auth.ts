@@ -526,7 +526,8 @@ export class AuthService {
           emailVerificationToken: users.emailVerificationToken,
           createdAt: users.createdAt,
           updatedAt: users.updatedAt,
-          roles: users.roles
+          roles: users.roles,
+          mustChangePassword: users.mustChangePassword
         }).from(users).where(eq(users.username, loginData.usernameOrEmail));
         if (userByUsername) {
           console.log(`LoginWithDB: Found user by username: ${userByUsername.username} (${userByUsername.id})`);
@@ -554,7 +555,8 @@ export class AuthService {
             emailVerificationToken: users.emailVerificationToken,
             createdAt: users.createdAt,
             updatedAt: users.updatedAt,
-            roles: users.roles
+            roles: users.roles,
+            mustChangePassword: users.mustChangePassword
           }).from(users).where(eq(users.email, loginData.usernameOrEmail));
           if (userByEmail) {
             console.log(`LoginWithDB: Found user by email: ${userByEmail.username} (${userByEmail.id})`);
