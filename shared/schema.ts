@@ -386,6 +386,7 @@ export const users = pgTable("users", {
   twoFactorSecret: varchar("two_factor_secret"),
   passwordResetToken: varchar("password_reset_token"),
   passwordResetExpires: timestamp("password_reset_expires"),
+  mustChangePassword: boolean("must_change_password").default(false), // Force password change on next login
   emailVerified: boolean("email_verified").default(false),
   emailVerificationToken: varchar("email_verification_token"),
   createdAt: timestamp("created_at").defaultNow(),
