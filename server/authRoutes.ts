@@ -6,7 +6,8 @@ import {
   loginUserSchema, 
   passwordResetRequestSchema, 
   passwordResetSchema,
-  twoFactorVerifySchema 
+  twoFactorVerifySchema,
+  forcePasswordChangeSchema
 } from "@shared/schema";
 import { dbEnvironmentMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
 
@@ -207,6 +208,41 @@ export function setupAuthRoutes(app: Express) {
         success: false, 
         message: "Invalid reset data" 
       });
+    }
+  });
+
+  // Force password change (for temporary passwords)
+  app.post('/api/auth/force-password-change', dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+    try {
+      const validatedData = forcePasswordChangeSchema.parse(req.body);
+      // Use dynamic database for password change
+      const dynamicDB = getRequestDB(req);
+      const result = await authService.forcePasswordChangeWithDB(
+        validatedData.userId,
+        validatedData.currentPassword,
+        validatedData.newPassword,
+        dynamicDB
+      );
+      
+      if (result.success) {
+        res.json(result);
+      } else {
+        res.status(400).json(result);
+      }
+    } catch (error: any) {
+      console.error("Force password change error:", error);
+      if (error?.issues) {
+        res.status(400).json({ 
+          success: false, 
+          message: "Validation failed",
+          errors: error.issues
+        });
+      } else {
+        res.status(400).json({ 
+          success: false, 
+          message: "Password change failed" 
+        });
+      }
     }
   });
 

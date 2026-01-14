@@ -562,6 +562,25 @@ export type LoginUser = z.infer<typeof loginUserSchema>;
 export type PasswordResetRequest = z.infer<typeof passwordResetRequestSchema>;
 export type PasswordReset = z.infer<typeof passwordResetSchema>;
 export type TwoFactorVerify = z.infer<typeof twoFactorVerifySchema>;
+
+// Schema for forced password change (when user has temporary password)
+export const forcePasswordChangeSchema = z.object({
+  userId: z.string().min(1, "User ID required"),
+  currentPassword: z.string().min(1, "Current password required"),
+  newPassword: z.string().min(12, "Password must be at least 12 characters"),
+  confirmPassword: z.string(),
+}).refine((data) => {
+  const validation = validatePasswordStrength(data.newPassword);
+  return validation.valid;
+}, {
+  message: "Password must include uppercase, lowercase, number, and special character",
+  path: ["newPassword"]
+}).refine((data) => data.newPassword === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"]
+});
+
+export type ForcePasswordChange = z.infer<typeof forcePasswordChangeSchema>;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
