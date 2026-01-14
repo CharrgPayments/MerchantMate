@@ -199,41 +199,70 @@ export default function CampaignView() {
         </CardHeader>
         <CardContent>
           {campaign.feeValues && campaign.feeValues.length > 0 ? (
-            <div className="space-y-4">
-              {campaign.feeValues.map((feeValue: any) => (
-                <div 
-                  key={feeValue.id} 
-                  className="flex items-center justify-between p-4 border rounded-lg"
-                  data-testid={`fee-value-${feeValue.id}`}
-                >
-                  <div className="space-y-1">
-                    <p className="font-medium" data-testid={`text-fee-item-name-${feeValue.id}`}>
-                      {feeValue.feeItem?.name || 'Unknown Fee Item'}
-                    </p>
-                    {feeValue.feeItem?.description && (
-                      <p className="text-sm text-muted-foreground" data-testid={`text-fee-item-description-${feeValue.id}`}>
-                        {feeValue.feeItem.description}
-                      </p>
-                    )}
-                    {feeValue.feeGroup?.name && (
-                      <Badge variant="outline" data-testid={`badge-fee-group-${feeValue.id}`}>
-                        {feeValue.feeGroup.name}
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <p className="font-medium" data-testid={`text-fee-value-${feeValue.id}`}>
-                      {feeValue.feeItem?.valueType === 'fixed' && '$'}
-                      {feeValue.value}
-                      {feeValue.feeItem?.valueType === 'percentage' && '%'}
-                      {feeValue.feeItem?.valueType === 'basis_points' && ' bps'}
-                    </p>
-                    <p className="text-sm text-muted-foreground capitalize" data-testid={`text-fee-type-${feeValue.id}`}>
-                      {feeValue.feeItem?.valueType || 'unknown'}
-                    </p>
-                  </div>
-                </div>
-              ))}
+            <div className="space-y-6">
+              {(() => {
+                // Group fee values by fee group
+                const grouped = campaign.feeValues.reduce((acc: Record<string, any[]>, feeValue: any) => {
+                  const groupName = feeValue.feeGroup?.name || 'Uncategorized';
+                  const groupId = feeValue.feeGroup?.id || 'uncategorized';
+                  const key = `${groupId}-${groupName}`;
+                  if (!acc[key]) {
+                    acc[key] = [];
+                  }
+                  acc[key].push(feeValue);
+                  return acc;
+                }, {});
+
+                return Object.entries(grouped).map(([groupKey, feeValuesRaw]) => {
+                  const groupFeeValues = feeValuesRaw as any[];
+                  const groupName = groupFeeValues[0]?.feeGroup?.name || 'Uncategorized';
+                  const groupDescription = groupFeeValues[0]?.feeGroup?.description;
+                  
+                  return (
+                    <div key={groupKey} className="space-y-3">
+                      <div className="border-b pb-2">
+                        <h3 className="font-semibold text-base" data-testid={`fee-group-header-${groupKey}`}>
+                          {groupName}
+                        </h3>
+                        {groupDescription && (
+                          <p className="text-sm text-muted-foreground">{groupDescription}</p>
+                        )}
+                      </div>
+                      <div className="space-y-2 pl-2">
+                        {groupFeeValues.map((feeValue: any) => (
+                          <div 
+                            key={feeValue.id} 
+                            className="flex items-center justify-between p-3 border rounded-lg bg-muted/30"
+                            data-testid={`fee-value-${feeValue.id}`}
+                          >
+                            <div className="space-y-1">
+                              <p className="font-medium" data-testid={`text-fee-item-name-${feeValue.id}`}>
+                                {feeValue.feeItem?.name || 'Unknown Fee Item'}
+                              </p>
+                              {feeValue.feeItem?.description && (
+                                <p className="text-sm text-muted-foreground" data-testid={`text-fee-item-description-${feeValue.id}`}>
+                                  {feeValue.feeItem.description}
+                                </p>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <p className="font-medium" data-testid={`text-fee-value-${feeValue.id}`}>
+                                {feeValue.feeItem?.valueType === 'fixed' && '$'}
+                                {feeValue.value}
+                                {feeValue.feeItem?.valueType === 'percentage' && '%'}
+                                {feeValue.feeItem?.valueType === 'basis_points' && ' bps'}
+                              </p>
+                              <p className="text-sm text-muted-foreground capitalize" data-testid={`text-fee-type-${feeValue.id}`}>
+                                {feeValue.feeItem?.valueType || 'unknown'}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           ) : (
             <div className="text-center py-8 text-muted-foreground" data-testid="text-no-fee-values">
