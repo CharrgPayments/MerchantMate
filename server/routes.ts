@@ -1365,6 +1365,113 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get user lockout status - check for recent failed login attempts
+  app.get("/api/users/:id/lockout-status", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const userId = req.params.id;
+      const dynamicDB = getRequestDB(req);
+      const schema = await import('@shared/schema');
+      const { eq, or, and, gte } = await import('drizzle-orm');
+      
+      // Get the user first
+      const users = await dynamicDB
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.id, userId));
+      
+      const user = users[0];
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // Check for failed login attempts in the last 15 minutes
+      const lockoutTime = 15 * 60 * 1000; // 15 minutes
+      const maxAttempts = 5;
+      const timeThreshold = new Date(Date.now() - lockoutTime);
+      
+      const recentAttempts = await dynamicDB
+        .select()
+        .from(schema.loginAttempts)
+        .where(and(
+          or(
+            eq(schema.loginAttempts.username, user.username),
+            eq(schema.loginAttempts.email, user.email)
+          ),
+          eq(schema.loginAttempts.success, false),
+          gte(schema.loginAttempts.createdAt, timeThreshold)
+        ));
+      
+      const failedAttempts = recentAttempts.length;
+      const isLockedOut = failedAttempts >= maxAttempts;
+      
+      // Get the most recent failure reason if locked out
+      let lastFailureReason = null;
+      if (isLockedOut && recentAttempts.length > 0) {
+        const sortedAttempts = recentAttempts.sort((a: any, b: any) => 
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        lastFailureReason = sortedAttempts[0]?.failureReason;
+      }
+      
+      res.json({
+        userId,
+        username: user.username,
+        isLockedOut,
+        failedAttempts,
+        maxAttempts,
+        lockoutDuration: '15 minutes',
+        lastFailureReason,
+        lockedUntil: isLockedOut ? new Date(Date.now() + lockoutTime - (Date.now() - Math.max(...recentAttempts.map((a: any) => new Date(a.createdAt).getTime())))).toISOString() : null
+      });
+    } catch (error) {
+      console.error("Error checking user lockout status:", error);
+      res.status(500).json({ message: "Failed to check lockout status" });
+    }
+  });
+
+  // Clear user lockout - delete recent failed login attempts
+  app.post("/api/users/:id/clear-lockout", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const userId = req.params.id;
+      const dynamicDB = getRequestDB(req);
+      const schema = await import('@shared/schema');
+      const { eq, or, and } = await import('drizzle-orm');
+      
+      // Get the user first
+      const users = await dynamicDB
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.id, userId));
+      
+      const user = users[0];
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // Delete failed login attempts for this user
+      const result = await dynamicDB
+        .delete(schema.loginAttempts)
+        .where(and(
+          or(
+            eq(schema.loginAttempts.username, user.username),
+            eq(schema.loginAttempts.email, user.email)
+          ),
+          eq(schema.loginAttempts.success, false)
+        ));
+      
+      console.log(`Cleared lockout for user ${user.username} (${userId})`);
+      
+      res.json({
+        message: "Lockout cleared successfully",
+        userId,
+        username: user.username
+      });
+    } catch (error) {
+      console.error("Error clearing user lockout:", error);
+      res.status(500).json({ message: "Failed to clear lockout" });
+    }
+  });
+
   // Agent password reset
   app.post("/api/agents/:id/reset-password", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
