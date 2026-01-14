@@ -2104,11 +2104,12 @@ export class DatabaseStorage implements IStorage {
     const resetToken = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
     
-    // Update user with new password and reset token
+    // Update user with new password, reset token, and force password change flag
     const user = await this.updateUser(id, {
       passwordHash,
       passwordResetToken: resetToken,
       passwordResetExpires: expiresAt,
+      mustChangePassword: true, // Force password change on next login
       updatedAt: new Date()
     });
     
@@ -2769,6 +2770,7 @@ export class DatabaseStorage implements IStorage {
       role: 'agent' as const,
       status: 'active' as const,
       emailVerified: true, // Auto-verify for system-created accounts
+      mustChangePassword: true, // Force password change on first login
     };
     
     const user = await this.createUser(userData);
@@ -2806,6 +2808,7 @@ export class DatabaseStorage implements IStorage {
       role: 'merchant' as const,
       status: 'active' as const,
       emailVerified: true, // Auto-verify for system-created accounts
+      mustChangePassword: true, // Force password change on first login
     };
     
     const user = await this.createUser(userData);

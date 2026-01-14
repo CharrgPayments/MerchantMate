@@ -1317,6 +1317,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           passwordHash,
           passwordResetToken: resetToken,
           passwordResetExpires: expiresAt,
+          mustChangePassword: true, // Force password change on next login
           updatedAt: new Date()
         })
         .where(eq(schema.users.id, userId))
@@ -1494,8 +1495,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const bcrypt = require('bcrypt');
       const passwordHash = await bcrypt.hash(temporaryPassword, 10);
 
-      // Update user password
-      await envStorage.updateUser(user.id, { passwordHash });
+      // Update user password with mustChangePassword flag
+      await envStorage.updateUser(user.id, { 
+        passwordHash,
+        mustChangePassword: true // Force password change on next login
+      });
 
       res.json({
         username: user.username,
@@ -1530,8 +1534,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const bcrypt = require('bcrypt');
       const passwordHash = await bcrypt.hash(temporaryPassword, 10);
 
-      // Update user password
-      await envStorage.updateUser(user.id, { passwordHash });
+      // Update user password with mustChangePassword flag
+      await envStorage.updateUser(user.id, { 
+        passwordHash,
+        mustChangePassword: true // Force password change on next login
+      });
 
       res.json({
         username: user.username,
