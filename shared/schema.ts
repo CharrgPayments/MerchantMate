@@ -933,11 +933,12 @@ export const pricingTypeFeeItems = pgTable("pricing_type_fee_items", {
   id: serial("id").primaryKey(),
   pricingTypeId: integer("pricing_type_id").notNull().references(() => pricingTypes.id, { onDelete: "cascade" }),
   feeItemId: integer("fee_item_id").notNull().references(() => feeItems.id, { onDelete: "cascade" }),
+  feeGroupId: integer("fee_group_id").references(() => feeGroups.id, { onDelete: "cascade" }), // Track which fee group context this fee item was selected from
   isRequired: boolean("is_required").notNull().default(true),
   displayOrder: integer("display_order").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
-  uniquePricingTypeFeeItem: unique().on(table.pricingTypeId, table.feeItemId),
+  uniquePricingTypeFeeItemGroup: unique().on(table.pricingTypeId, table.feeItemId, table.feeGroupId),
 }));
 
 // Equipment Items table - stores available equipment with images
