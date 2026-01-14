@@ -869,6 +869,77 @@ export class AuthService {
     }
   }
 
+  // Force password change (for users with temporary passwords)
+  async forcePasswordChangeWithDB(
+    userId: string, 
+    currentPassword: string, 
+    newPassword: string, 
+    dynamicDB: any
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      // Create a temporary storage instance with the dynamic database
+      const tempStorage = new DatabaseStorage(dynamicDB);
+      
+      const user = await tempStorage.getUser(userId);
+      if (!user) {
+        return {
+          success: false,
+          message: "User not found"
+        };
+      }
+
+      // Verify current password
+      if (!user.passwordHash || !(await this.verifyPassword(currentPassword, user.passwordHash))) {
+        return {
+          success: false,
+          message: "Current password is incorrect"
+        };
+      }
+
+      // Check if user actually needs to change password
+      if (!user.mustChangePassword) {
+        return {
+          success: false,
+          message: "Password change not required"
+        };
+      }
+
+      // Hash new password
+      const passwordHash = await this.hashPassword(newPassword);
+
+      // Update user - clear mustChangePassword flag and update password
+      await tempStorage.updateUser(user.id, {
+        passwordHash,
+        mustChangePassword: false,
+        passwordResetToken: null,
+        passwordResetExpires: null,
+        lastLoginAt: new Date(),
+      });
+
+      // Send confirmation email
+      await this.sendEmail(
+        user.email,
+        "CoreCRM Password Changed",
+        `
+        <h2>Password Successfully Changed</h2>
+        <p>Your CoreCRM account password has been successfully changed.</p>
+        <p>If you didn't make this change, please contact support immediately.</p>
+        `
+      );
+
+      return {
+        success: true,
+        message: "Password changed successfully. You can now log in with your new password."
+      };
+    } catch (error) {
+      console.error("Force password change error:", error);
+      return {
+        success: false,
+        message: "Password change failed. Please try again."
+      };
+    }
+  }
+
   // Admin password reset - generates temporary password
   async adminResetPassword(userId: string): Promise<{ success: boolean; message: string; temporaryPassword?: string }> {
     try {
