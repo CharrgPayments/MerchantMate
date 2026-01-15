@@ -119,13 +119,14 @@ export default function DashboardPage() {
     removeWidget.mutate(widgetId);
   };
 
-  // Get widget size class for CSS Grid
+  // Get widget size class for CSS Grid with responsive breakpoints
+  // On mobile, all widgets take full width; larger sizes apply on md+ screens
   const getWidgetSizeClass = (size: WidgetSize) => {
     switch (size) {
-      case 'small': return 'col-span-1 row-span-1';
-      case 'medium': return 'col-span-2 row-span-1'; 
-      case 'large': return 'col-span-3 row-span-2';
-      default: return 'col-span-2 row-span-1';
+      case 'small': return 'col-span-1';
+      case 'medium': return 'col-span-1 md:col-span-2'; 
+      case 'large': return 'col-span-1 md:col-span-2 lg:col-span-3';
+      default: return 'col-span-1 md:col-span-2';
     }
   };
 
@@ -140,12 +141,12 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-gray-600">Welcome back, {user.firstName || user.username}</p>
+          <h1 className="text-2xl sm:text-3xl font-bold">Dashboard</h1>
+          <p className="text-gray-600 text-sm sm:text-base">Welcome back, {user.firstName || user.username}</p>
         </div>
         <div className="flex items-center space-x-2">
           <Button
@@ -153,15 +154,16 @@ export default function DashboardPage() {
             onClick={() => refetch()}
             size="sm"
           >
-            <Layout className="h-4 w-4 mr-2" />
-            Refresh
+            <Layout className="h-4 w-4 sm:mr-2" />
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
           <Button
             variant="outline"
             onClick={() => setShowCustomize(true)}
+            size="sm"
           >
-            <Settings className="h-4 w-4 mr-2" />
-            Customize
+            <Settings className="h-4 w-4 sm:mr-2" />
+            <span className="hidden sm:inline">Customize</span>
           </Button>
         </div>
       </div>
@@ -211,7 +213,7 @@ export default function DashboardPage() {
               </Button>
             </div>
           ) : (
-            <div className="grid gap-6 auto-rows-min" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
+            <div className="grid gap-4 md:gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 auto-rows-min">
               {widgets
                 .filter(widget => widget.is_visible)
                 .sort((a, b) => a.position - b.position)
