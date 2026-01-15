@@ -1,4 +1,5 @@
-import { Search, Bell, Clock, MapPin, Database, AlertTriangle, Check, Trash2, Mail, ExternalLink, User, LogOut, Settings } from "lucide-react";
+import { Search, Bell, Clock, MapPin, Database, AlertTriangle, Check, Trash2, Mail, ExternalLink, User, LogOut, Settings, Menu } from "lucide-react";
+import { useMobileSidebar } from "@/contexts/MobileSidebarContext";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -251,6 +252,7 @@ export function Header({ title, onSearch }: HeaderProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const { user, logout } = useAuth();
   const queryClient = useQueryClient();
+  const { open: openMobileSidebar } = useMobileSidebar();
   
   // Global environment system - listen for environment changes
   useEffect(() => {
@@ -349,8 +351,20 @@ export function Header({ title, onSearch }: HeaderProps) {
   return (
     <header className="bg-white border-b border-gray-200">
       <div className="flex items-center justify-between">
-        <div className="flex-1 p-6 max-w-lg">
-          <h2 className="text-xl font-bold text-gray-900">{title}</h2>
+        <div className="flex items-center">
+          {/* Mobile hamburger menu */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden ml-4"
+            onClick={openMobileSidebar}
+            data-testid="button-mobile-menu"
+          >
+            <Menu className="w-5 h-5" />
+          </Button>
+          <div className="flex-1 p-6 max-w-lg">
+            <h2 className="text-xl font-bold text-gray-900">{title}</h2>
+          </div>
         </div>
         <div className="flex items-center space-x-4 px-6 py-4">
           {/* Database Environment Indicator */}
