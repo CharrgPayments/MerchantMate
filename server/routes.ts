@@ -9957,12 +9957,133 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/mcc-codes/categories', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: RequestWithDB, res: Response) => {
     try {
       const envStorage = createStorageForRequest(req);
-      const allCodes = await envStorage.getAllMccCodes();
-      const categories = [...new Set(allCodes.map(code => code.category))].sort();
+      const categories = await envStorage.getMccCategories();
       res.json(categories);
     } catch (error) {
       console.error('Error fetching MCC categories:', error);
       res.status(500).json({ error: 'Failed to fetch MCC categories' });
+    }
+  });
+
+  // Get single MCC code
+  app.get('/api/mcc-codes/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const envStorage = createStorageForRequest(req);
+      const codeId = parseInt(req.params.id);
+      const mccCode = await envStorage.getMccCode(codeId);
+      
+      if (!mccCode) {
+        return res.status(404).json({ error: 'MCC code not found' });
+      }
+      
+      res.json(mccCode);
+    } catch (error) {
+      console.error('Error fetching MCC code:', error);
+      res.status(500).json({ error: 'Failed to fetch MCC code' });
+    }
+  });
+
+  // Create MCC code
+  app.post('/api/mcc-codes', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const envStorage = createStorageForRequest(req);
+      const { code, description, category, riskLevel, isActive } = req.body;
+      
+      if (!code || !description || !category) {
+        return res.status(400).json({ error: 'code, description, and category are required' });
+      }
+      
+      if (code.length !== 4 || !/^\d{4}$/.test(code)) {
+        return res.status(400).json({ error: 'MCC code must be exactly 4 digits' });
+      }
+      
+      const existingCode = await envStorage.getMccCodeByCode(code);
+      if (existingCode) {
+        return res.status(409).json({ error: `MCC code ${code} already exists` });
+      }
+      
+      const newCode = await envStorage.createMccCode({
+        code,
+        description,
+        category,
+        riskLevel: riskLevel || 'low',
+        isActive: isActive !== false
+      });
+      
+      console.log(`Created MCC code: ${newCode.code} - ${newCode.description}`);
+      res.status(201).json(newCode);
+    } catch (error) {
+      console.error('Error creating MCC code:', error);
+      res.status(500).json({ error: 'Failed to create MCC code' });
+    }
+  });
+
+  // Update MCC code
+  app.patch('/api/mcc-codes/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const envStorage = createStorageForRequest(req);
+      const codeId = parseInt(req.params.id);
+      const { code, description, category, riskLevel, isActive } = req.body;
+      
+      const existingCode = await envStorage.getMccCode(codeId);
+      if (!existingCode) {
+        return res.status(404).json({ error: 'MCC code not found' });
+      }
+      
+      if (code && code !== existingCode.code) {
+        if (code.length !== 4 || !/^\d{4}$/.test(code)) {
+          return res.status(400).json({ error: 'MCC code must be exactly 4 digits' });
+        }
+        const duplicateCode = await envStorage.getMccCodeByCode(code);
+        if (duplicateCode) {
+          return res.status(409).json({ error: `MCC code ${code} already exists` });
+        }
+      }
+      
+      const updates: Record<string, any> = {};
+      if (code !== undefined) updates.code = code;
+      if (description !== undefined) updates.description = description;
+      if (category !== undefined) updates.category = category;
+      if (riskLevel !== undefined) updates.riskLevel = riskLevel;
+      if (isActive !== undefined) updates.isActive = isActive;
+      
+      const updatedCode = await envStorage.updateMccCode(codeId, updates);
+      
+      console.log(`Updated MCC code: ${updatedCode?.code}`);
+      res.json(updatedCode);
+    } catch (error) {
+      console.error('Error updating MCC code:', error);
+      res.status(500).json({ error: 'Failed to update MCC code' });
+    }
+  });
+
+  // Delete MCC code
+  app.delete('/api/mcc-codes/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const envStorage = createStorageForRequest(req);
+      const codeId = parseInt(req.params.id);
+      
+      const existingCode = await envStorage.getMccCode(codeId);
+      if (!existingCode) {
+        return res.status(404).json({ error: 'MCC code not found' });
+      }
+      
+      const deleted = await envStorage.deleteMccCode(codeId);
+      
+      if (deleted) {
+        console.log(`Deleted MCC code: ${existingCode.code}`);
+        res.json({ success: true, message: `MCC code ${existingCode.code} deleted` });
+      } else {
+        res.status(500).json({ error: 'Failed to delete MCC code' });
+      }
+    } catch (error: any) {
+      console.error('Error deleting MCC code:', error);
+      if (error.code === '23503') {
+        return res.status(409).json({ 
+          error: 'Cannot delete MCC code that has associated policies. Delete the policies first.' 
+        });
+      }
+      res.status(500).json({ error: 'Failed to delete MCC code' });
     }
   });
 
