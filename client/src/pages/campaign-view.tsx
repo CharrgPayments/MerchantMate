@@ -201,10 +201,10 @@ export default function CampaignView() {
           {campaign.feeValues && campaign.feeValues.length > 0 ? (
             <div className="space-y-6">
               {(() => {
-                // Group fee values by fee group
+                // Group fee values by fee group (nested under feeItem)
                 const grouped = campaign.feeValues.reduce((acc: Record<string, any[]>, feeValue: any) => {
-                  const groupName = feeValue.feeGroup?.name || 'Uncategorized';
-                  const groupId = feeValue.feeGroup?.id || 'uncategorized';
+                  const groupName = feeValue.feeItem?.feeGroup?.name || 'Uncategorized';
+                  const groupId = feeValue.feeItem?.feeGroup?.id || 'uncategorized';
                   const key = `${groupId}-${groupName}`;
                   if (!acc[key]) {
                     acc[key] = [];
@@ -215,8 +215,8 @@ export default function CampaignView() {
 
                 return Object.entries(grouped).map(([groupKey, feeValuesRaw]) => {
                   const groupFeeValues = feeValuesRaw as any[];
-                  const groupName = groupFeeValues[0]?.feeGroup?.name || 'Uncategorized';
-                  const groupDescription = groupFeeValues[0]?.feeGroup?.description;
+                  const groupName = groupFeeValues[0]?.feeItem?.feeGroup?.name || 'Uncategorized';
+                  const groupDescription = groupFeeValues[0]?.feeItem?.feeGroup?.description;
                   
                   return (
                     <div key={groupKey} className="space-y-3">
@@ -278,9 +278,9 @@ export default function CampaignView() {
           <CardTitle className="text-lg">Associated Equipment</CardTitle>
         </CardHeader>
         <CardContent>
-          {campaign.equipmentAssociations && campaign.equipmentAssociations.length > 0 ? (
+          {campaign.equipment && campaign.equipment.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {campaign.equipmentAssociations.map((association: any) => (
+              {campaign.equipment.map((association: any) => (
                 <div 
                   key={association.id} 
                   className="border rounded-lg p-4"
