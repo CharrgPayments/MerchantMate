@@ -326,6 +326,29 @@ export class PDFFormParser {
         return { sections, totalFields, addressGroups: [], signatureGroups: [] };
       }
       
+      // Filter out fields that don't follow our naming convention (section.fieldName format)
+      // This filters legacy/hidden PDF fields that shouldn't be processed
+      const structuredFields = fields.filter(field => {
+        const name = field.getName();
+        // Must contain a period (dot notation) to be a valid structured field
+        // AND first part before period should be a valid section name (lowercase letters only)
+        const periodIndex = name.indexOf('.');
+        if (periodIndex === -1) {
+          console.log(`⚠️ Skipping non-structured field: ${name}`);
+          return false;
+        }
+        const sectionPart = name.substring(0, periodIndex);
+        // Valid section names are camelCase starting with lowercase letter
+        const validSection = /^[a-z][a-zA-Z]*$/.test(sectionPart);
+        if (!validSection) {
+          console.log(`⚠️ Skipping field with invalid section name: ${name} (section: ${sectionPart})`);
+          return false;
+        }
+        return true;
+      });
+      
+      console.log(`Filtered to ${structuredFields.length} structured fields (from ${fields.length} total)`);
+      
       // Group fields by their base name (section_fieldname_optiontype)
       const fieldGroups = new Map<string, Array<{
         pdfFieldId: string;
@@ -334,7 +357,7 @@ export class PDFFormParser {
         position: number;
       }>>();
       
-      fields.forEach((field, index) => {
+      structuredFields.forEach((field, index) => {
         const pdfFieldId = field.getName();
         const fieldType = field.constructor.name;
         
