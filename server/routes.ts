@@ -8869,10 +8869,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Campaign not found" });
       }
       
-      // Get fee values with proper schema structure
+      // Get fee values with proper schema structure including fee groups
       let feeValues: any[] = [];
       try {
-        feeValues = await dbToUse
+        const feeValuesRaw = await dbToUse
           .select({
             id: campaignFeeValues.id,
             campaignId: campaignFeeValues.campaignId,
@@ -8888,12 +8888,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
               description: feeItems.description,
               defaultValue: feeItems.defaultValue,
               valueType: feeItems.valueType,
+              feeGroupId: feeItems.feeGroupId,
+            },
+            feeGroup: {
+              id: feeGroups.id,
+              name: feeGroups.name,
+              description: feeGroups.description,
             }
           })
           .from(campaignFeeValues)
           .leftJoin(feeItems, eq(campaignFeeValues.feeItemId, feeItems.id))
+          .leftJoin(feeGroups, eq(feeItems.feeGroupId, feeGroups.id))
           .where(eq(campaignFeeValues.campaignId, campaignId))
           .orderBy(feeItems.name);
+        
+        // Nest feeGroup under feeItem for consistency with storage layer
+        feeValues = feeValuesRaw.map(row => ({
+          id: row.id,
+          campaignId: row.campaignId,
+          feeItemId: row.feeItemId,
+          feeGroupFeeItemId: row.feeGroupFeeItemId,
+          value: row.value,
+          valueType: row.valueType,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+          feeItem: row.feeItem ? {
+            ...row.feeItem,
+            feeGroup: row.feeGroup || undefined,
+          } : undefined,
+        }));
       } catch (error) {
         console.log(`Error fetching fee values for campaign ${campaignId}:`, error);
         feeValues = [];
@@ -8958,7 +8981,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           feeGroups: pricingTypeFeeGroups
         } : null,
         feeValues,
-        equipmentAssociations
+        equipment: equipmentAssociations
       };
       
       console.log(`Found campaign ${campaignId} with ${feeValues.length} fee values and ${equipmentAssociations.length} equipment items in ${req.dbEnv} database`);
