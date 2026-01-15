@@ -8870,10 +8870,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Get fee values with proper schema structure including fee groups
-      // Note: Fee groups are linked through feeGroupFeeItems junction table, not directly on feeItems
+      // Note: Fee groups are linked through feeGroupFeeItems junction table
+      // When feeGroupFeeItemId is null, we fall back to looking up fee groups by fee_item_id
       const { feeGroupFeeItems } = await import("@shared/schema");
       let feeValues: any[] = [];
       try {
+        // First, get the basic fee values with fee items
         const feeValuesRaw = await dbToUse
           .select({
             id: campaignFeeValues.id,
@@ -8889,6 +8891,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             feeItemDescription: feeItems.description,
             feeItemDefaultValue: feeItems.defaultValue,
             feeItemValueType: feeItems.valueType,
+            // Try to get fee group via feeGroupFeeItemId first
             feeGroupId: feeGroups.id,
             feeGroupName: feeGroups.name,
             feeGroupDescription: feeGroups.description,
@@ -8900,29 +8903,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .where(eq(campaignFeeValues.campaignId, campaignId))
           .orderBy(feeItems.name);
         
+        // For fee values without fee group (feeGroupFeeItemId is null), look up fee group by fee_item_id
+        // Build a map of fee_item_id -> fee_group for fallback lookup
+        const feeItemIdsWithoutGroup = feeValuesRaw
+          .filter(row => !row.feeGroupId && row.feeItemId)
+          .map(row => row.feeItemId);
+        
+        let feeItemToGroupMap: Map<number, { id: number; name: string; description: string | null }> = new Map();
+        
+        if (feeItemIdsWithoutGroup.length > 0) {
+          const { inArray } = await import("drizzle-orm");
+          const fallbackGroups = await dbToUse
+            .select({
+              feeItemId: feeGroupFeeItems.feeItemId,
+              feeGroupId: feeGroups.id,
+              feeGroupName: feeGroups.name,
+              feeGroupDescription: feeGroups.description,
+            })
+            .from(feeGroupFeeItems)
+            .innerJoin(feeGroups, eq(feeGroupFeeItems.feeGroupId, feeGroups.id))
+            .where(inArray(feeGroupFeeItems.feeItemId, feeItemIdsWithoutGroup));
+          
+          // Build map (first match wins if a fee item is in multiple groups)
+          for (const row of fallbackGroups) {
+            if (!feeItemToGroupMap.has(row.feeItemId)) {
+              feeItemToGroupMap.set(row.feeItemId, {
+                id: row.feeGroupId,
+                name: row.feeGroupName,
+                description: row.feeGroupDescription,
+              });
+            }
+          }
+        }
+        
         // Nest feeGroup under feeItem for consistency with frontend expectations
-        feeValues = feeValuesRaw.map(row => ({
-          id: row.id,
-          campaignId: row.campaignId,
-          feeItemId: row.feeItemId,
-          feeGroupFeeItemId: row.feeGroupFeeItemId,
-          value: row.value,
-          valueType: row.valueType,
-          createdAt: row.createdAt,
-          updatedAt: row.updatedAt,
-          feeItem: row.feeItemId2 ? {
-            id: row.feeItemId2,
-            name: row.feeItemName,
-            description: row.feeItemDescription,
-            defaultValue: row.feeItemDefaultValue,
-            valueType: row.feeItemValueType,
-            feeGroup: row.feeGroupId ? {
-              id: row.feeGroupId,
-              name: row.feeGroupName,
-              description: row.feeGroupDescription,
+        feeValues = feeValuesRaw.map(row => {
+          // Use the fee group from the join, or fall back to the lookup map
+          let feeGroup = row.feeGroupId ? {
+            id: row.feeGroupId,
+            name: row.feeGroupName,
+            description: row.feeGroupDescription,
+          } : (row.feeItemId ? feeItemToGroupMap.get(row.feeItemId) : undefined);
+          
+          return {
+            id: row.id,
+            campaignId: row.campaignId,
+            feeItemId: row.feeItemId,
+            feeGroupFeeItemId: row.feeGroupFeeItemId,
+            value: row.value,
+            valueType: row.valueType,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
+            feeItem: row.feeItemId2 ? {
+              id: row.feeItemId2,
+              name: row.feeItemName,
+              description: row.feeItemDescription,
+              defaultValue: row.feeItemDefaultValue,
+              valueType: row.feeItemValueType,
+              feeGroup: feeGroup,
             } : undefined,
-          } : undefined,
-        }));
+          };
+        });
       } catch (error) {
         console.log(`Error fetching fee values for campaign ${campaignId}:`, error);
         feeValues = [];
