@@ -1119,6 +1119,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCampaignFeeValues(campaignId: number): Promise<CampaignFeeValue[]> {
+    // Fee groups are linked through feeGroupFeeItems junction table
     const result = await this.db
       .select({
         feeValue: campaignFeeValues,
@@ -1127,7 +1128,8 @@ export class DatabaseStorage implements IStorage {
       })
       .from(campaignFeeValues)
       .leftJoin(feeItems, eq(campaignFeeValues.feeItemId, feeItems.id))
-      .leftJoin(feeGroups, eq(feeItems.feeGroupId, feeGroups.id))
+      .leftJoin(feeGroupFeeItems, eq(campaignFeeValues.feeGroupFeeItemId, feeGroupFeeItems.id))
+      .leftJoin(feeGroups, eq(feeGroupFeeItems.feeGroupId, feeGroups.id))
       .where(eq(campaignFeeValues.campaignId, campaignId));
 
     return result.map(row => ({

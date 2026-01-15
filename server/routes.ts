@@ -8870,6 +8870,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Get fee values with proper schema structure including fee groups
+      // Note: Fee groups are linked through feeGroupFeeItems junction table, not directly on feeItems
+      const { feeGroupFeeItems } = await import("@shared/schema");
       let feeValues: any[] = [];
       try {
         const feeValuesRaw = await dbToUse
@@ -8882,27 +8884,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
             valueType: campaignFeeValues.valueType,
             createdAt: campaignFeeValues.createdAt,
             updatedAt: campaignFeeValues.updatedAt,
-            feeItem: {
-              id: feeItems.id,
-              name: feeItems.name,
-              description: feeItems.description,
-              defaultValue: feeItems.defaultValue,
-              valueType: feeItems.valueType,
-              feeGroupId: feeItems.feeGroupId,
-            },
-            feeGroup: {
-              id: feeGroups.id,
-              name: feeGroups.name,
-              description: feeGroups.description,
-            }
+            feeItemId2: feeItems.id,
+            feeItemName: feeItems.name,
+            feeItemDescription: feeItems.description,
+            feeItemDefaultValue: feeItems.defaultValue,
+            feeItemValueType: feeItems.valueType,
+            feeGroupId: feeGroups.id,
+            feeGroupName: feeGroups.name,
+            feeGroupDescription: feeGroups.description,
           })
           .from(campaignFeeValues)
           .leftJoin(feeItems, eq(campaignFeeValues.feeItemId, feeItems.id))
-          .leftJoin(feeGroups, eq(feeItems.feeGroupId, feeGroups.id))
+          .leftJoin(feeGroupFeeItems, eq(campaignFeeValues.feeGroupFeeItemId, feeGroupFeeItems.id))
+          .leftJoin(feeGroups, eq(feeGroupFeeItems.feeGroupId, feeGroups.id))
           .where(eq(campaignFeeValues.campaignId, campaignId))
           .orderBy(feeItems.name);
         
-        // Nest feeGroup under feeItem for consistency with storage layer
+        // Nest feeGroup under feeItem for consistency with frontend expectations
         feeValues = feeValuesRaw.map(row => ({
           id: row.id,
           campaignId: row.campaignId,
@@ -8912,9 +8910,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           valueType: row.valueType,
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
-          feeItem: row.feeItem ? {
-            ...row.feeItem,
-            feeGroup: row.feeGroup || undefined,
+          feeItem: row.feeItemId2 ? {
+            id: row.feeItemId2,
+            name: row.feeItemName,
+            description: row.feeItemDescription,
+            defaultValue: row.feeItemDefaultValue,
+            valueType: row.feeItemValueType,
+            feeGroup: row.feeGroupId ? {
+              id: row.feeGroupId,
+              name: row.feeGroupName,
+              description: row.feeGroupDescription,
+            } : undefined,
           } : undefined,
         }));
       } catch (error) {
