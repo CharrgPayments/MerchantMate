@@ -11,7 +11,10 @@ Preferred communication style: Simple, everyday language.
 ### UI/UX Decisions
 - **Theming**: CSS variables for consistent look and feel.
 - **Form Design**: React Hook Form with Zod validation.
-- **Responsive Design**: Radix UI and shadcn/ui with Tailwind CSS.
+- **Responsive Design**: Radix UI and shadcn/ui with Tailwind CSS. Mobile-first patterns include:
+  - **Mobile Sidebar**: Slide-out drawer pattern with overlay, auto-closes on navigation. Uses MobileSidebarContext for state management. Desktop sidebar hidden on mobile (md breakpoint).
+  - **Hamburger Menu**: Header displays hamburger menu button on mobile (md:hidden) for sidebar access.
+  - **ResponsiveTable**: Horizontal scroll wrapper for tables on mobile devices.
 - **Icon Color Coding**: Visual differentiation by user type (Agents: Blue, Merchants: Green, Prospects: Yellow).
 - **Empty States**: Reusable EmptyState component for contextual guidance and CTAs when pages have no data.
 - **Contextual Help**: Comprehensive contextual help system using nested dialog components.

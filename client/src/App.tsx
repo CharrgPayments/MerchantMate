@@ -68,6 +68,7 @@ import MccCodesPage from "@/pages/mcc-codes";
 import DisclosureLibraryPage from "@/pages/disclosure-library";
 import { useState, useEffect, createContext, useContext } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { MobileSidebarProvider } from "@/contexts/MobileSidebarContext";
 
 // Create auth context for immediate state updates
 const AuthContext = createContext<{
@@ -1034,15 +1035,17 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <AppContent />
-        <DatabaseConnectionDialog
-          open={showDbDialog}
-          onClose={() => setShowDbDialog(false)}
-          onEnvironmentChange={(env) => {
-            console.log('Environment changed to:', env);
-          }}
-        />
-        <Toaster />
+        <MobileSidebarProvider>
+          <AppContent />
+          <DatabaseConnectionDialog
+            open={showDbDialog}
+            onClose={() => setShowDbDialog(false)}
+            onEnvironmentChange={(env) => {
+              console.log('Environment changed to:', env);
+            }}
+          />
+          <Toaster />
+        </MobileSidebarProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );

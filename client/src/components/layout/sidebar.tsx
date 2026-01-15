@@ -1,11 +1,12 @@
 import { Link, useLocation } from "wouter";
-import { CreditCard, BarChart3, Store, Users, Receipt, FileText, LogOut, User, MapPin, Shield, UserPlus, DollarSign, ChevronLeft, ChevronRight, Monitor, ChevronDown, ChevronUp, Book, TestTube, Mail, Crown, Building2, Zap, GitBranch, Lock, Settings, ScrollText } from "lucide-react";
+import { CreditCard, BarChart3, Store, Users, Receipt, FileText, LogOut, User, MapPin, Shield, UserPlus, DollarSign, ChevronLeft, ChevronRight, Monitor, ChevronDown, ChevronUp, Book, TestTube, Mail, Crown, Building2, Zap, GitBranch, Lock, Settings, ScrollText, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { canAccessAnalytics, canAccessMerchants, canAccessAgents, canAccessTransactions } from "@/lib/authUtils";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useMobileSidebar } from "@/contexts/MobileSidebarContext";
 
 const baseNavigation = [
   { name: "Dashboard", href: "/", icon: BarChart3, requiresRole: ['merchant', 'agent', 'admin', 'corporate', 'super_admin', 'underwriter'] },
@@ -67,6 +68,12 @@ export function Sidebar() {
   const { user, logout } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
+  const { isOpen: isMobileOpen, close: closeMobile } = useMobileSidebar();
+
+  // Close mobile sidebar on route change
+  useEffect(() => {
+    closeMobile();
+  }, [location, closeMobile]);
 
   // Fetch PDF forms that should appear in navigation
   const { data: pdfForms = [] } = useQuery({
@@ -126,8 +133,8 @@ export function Sidebar() {
     return [...filteredBase, ...dynamicNavItems];
   };
 
-  return (
-    <div className={cn("corecrm-sidebar h-screen flex flex-col transition-all duration-300", isCollapsed ? "w-16" : "w-64")}>
+  const sidebarContent = (
+    <>
       {/* Logo */}
       <div className={cn("border-b border-gray-200 relative flex-shrink-0", isCollapsed ? "p-4" : "p-6")}>
         <div className="flex items-center space-x-3">
@@ -142,16 +149,24 @@ export function Sidebar() {
           )}
         </div>
         
-        {/* Collapse Toggle Button */}
+        {/* Collapse Toggle Button - hidden on mobile */}
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-white border border-gray-200 rounded-full flex items-center justify-center hover:bg-gray-50 transition-colors shadow-sm"
+          className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-white border border-gray-200 rounded-full hidden md:flex items-center justify-center hover:bg-gray-50 transition-colors shadow-sm"
         >
           {isCollapsed ? (
             <ChevronRight className="w-3 h-3 text-gray-600" />
           ) : (
             <ChevronLeft className="w-3 h-3 text-gray-600" />
           )}
+        </button>
+        
+        {/* Mobile close button */}
+        <button
+          onClick={closeMobile}
+          className="absolute right-4 top-1/2 -translate-y-1/2 w-8 h-8 flex md:hidden items-center justify-center hover:bg-gray-100 rounded-lg transition-colors"
+        >
+          <X className="w-5 h-5 text-gray-600" />
         </button>
       </div>
 
@@ -285,6 +300,36 @@ export function Sidebar() {
           </div>
         </div>
       )}
-    </div>
+    </>
+  );
+
+  return (
+    <>
+      {/* Desktop Sidebar */}
+      <div className={cn(
+        "corecrm-sidebar h-screen flex-col transition-all duration-300 hidden md:flex",
+        isCollapsed ? "w-16" : "w-64"
+      )}>
+        {sidebarContent}
+      </div>
+
+      {/* Mobile Overlay */}
+      {isMobileOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={closeMobile}
+        />
+      )}
+
+      {/* Mobile Sidebar Drawer */}
+      <div className={cn(
+        "fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-xl transform transition-transform duration-300 ease-in-out md:hidden",
+        isMobileOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
+        <div className="corecrm-sidebar h-full flex flex-col">
+          {sidebarContent}
+        </div>
+      </div>
+    </>
   );
 }
