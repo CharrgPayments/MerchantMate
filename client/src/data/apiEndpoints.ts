@@ -445,9 +445,113 @@ export const apiEndpoints: Record<string, ApiEndpoint[]> = {
     { method: 'DELETE', path: '/api/acquirer-application-templates/:id', description: 'Delete application template' },
   ],
   
-  'MCC Codes': [
-    { method: 'GET', path: '/api/mcc/:code', description: 'Get MCC code details' },
-    { method: 'GET', path: '/api/mcc/search', description: 'Search MCC codes' },
+  'MCC Codes & Policies': [
+    { 
+      method: 'GET', 
+      path: '/api/mcc-codes', 
+      description: 'List all MCC codes with filtering',
+      responseExample: [
+        {
+          id: 1,
+          code: "5411",
+          description: "Grocery Stores, Supermarkets",
+          category: "Retail",
+          riskLevel: "low",
+          isActive: true
+        }
+      ],
+      responseDescription: 'Returns array of MCC codes. Supports query params: search, category, riskLevel, isActive'
+    },
+    { method: 'GET', path: '/api/mcc-codes/categories', description: 'Get distinct MCC code categories' },
+    { 
+      method: 'GET', 
+      path: '/api/mcc-codes/:id', 
+      description: 'Get MCC code by ID',
+      responseExample: {
+        id: 1,
+        code: "5411",
+        description: "Grocery Stores, Supermarkets",
+        category: "Retail",
+        riskLevel: "low",
+        isActive: true
+      }
+    },
+    { 
+      method: 'POST', 
+      path: '/api/mcc-codes', 
+      description: 'Create new MCC code (admin/super_admin only)',
+      requestExample: {
+        code: "5812",
+        description: "Eating Places, Restaurants",
+        category: "Food Service",
+        riskLevel: "medium",
+        isActive: true
+      },
+      requestDescription: 'MCC code data. Code must be unique 4-digit string.'
+    },
+    { 
+      method: 'PATCH', 
+      path: '/api/mcc-codes/:id', 
+      description: 'Update MCC code (admin/super_admin only)',
+      requestExample: {
+        description: "Updated description",
+        riskLevel: "high",
+        isActive: false
+      },
+      requestDescription: 'Partial update - only include fields to change'
+    },
+    { method: 'DELETE', path: '/api/mcc-codes/:id', description: 'Delete MCC code (admin/super_admin only)' },
+    { 
+      method: 'GET', 
+      path: '/api/mcc-policies', 
+      description: 'List MCC underwriting policies',
+      responseExample: [
+        {
+          id: 1,
+          mccCodeId: 1,
+          acquirerId: 1,
+          policyType: "allowed",
+          riskLevelOverride: null,
+          notes: "Standard processing",
+          isActive: true,
+          mccCode: { code: "5411", description: "Grocery Stores" },
+          acquirer: { name: "First Data" }
+        }
+      ],
+      responseDescription: 'Returns policies with joined MCC code and acquirer details'
+    },
+    { method: 'GET', path: '/api/mcc-policies/:id', description: 'Get MCC policy by ID' },
+    { 
+      method: 'POST', 
+      path: '/api/mcc-policies', 
+      description: 'Create MCC policy (admin/super_admin only)',
+      requestExample: {
+        mccCodeId: 1,
+        acquirerId: 1,
+        policyType: "requires_review",
+        riskLevelOverride: "high",
+        notes: "Requires additional documentation",
+        isActive: true
+      },
+      requestDescription: 'Policy types: allowed, requires_review, high_risk, prohibited'
+    },
+    { 
+      method: 'PATCH', 
+      path: '/api/mcc-policies/:id', 
+      description: 'Update MCC policy (admin/super_admin only)',
+      requestExample: {
+        policyType: "prohibited",
+        notes: "No longer accepting this MCC"
+      }
+    },
+    { method: 'DELETE', path: '/api/mcc-policies/:id', description: 'Delete MCC policy (admin/super_admin only)' },
+    { method: 'GET', path: '/api/mcc/:code', description: 'Get MCC code by 4-digit code (legacy)' },
+    { 
+      method: 'GET', 
+      path: '/api/mcc/search', 
+      description: 'Search MCC codes by term',
+      responseDescription: 'Query param: q (search term). Returns matching MCC codes.'
+    },
   ],
   
   'Widgets': [
