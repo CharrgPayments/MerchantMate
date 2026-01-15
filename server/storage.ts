@@ -1119,7 +1119,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCampaignFeeValues(campaignId: number): Promise<CampaignFeeValue[]> {
-    const result = await db
+    const result = await this.db
       .select({
         feeValue: campaignFeeValues,
         feeItem: feeItems,
@@ -1196,7 +1196,7 @@ export class DatabaseStorage implements IStorage {
 
   // Campaign Equipment implementation
   async getCampaignEquipment(campaignId: number): Promise<(CampaignEquipment & { equipmentItem: EquipmentItem })[]> {
-    const result = await db
+    const result = await this.db
       .select({
         campaignEquipment: campaignEquipment,
         equipmentItem: equipmentItems,
