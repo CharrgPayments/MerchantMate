@@ -64,6 +64,7 @@ import WorkflowTicket from "@/pages/workflow-ticket";
 import WorkflowSettings from "@/pages/workflow-settings";
 import PermissionManager from "@/pages/permission-manager";
 import MccPoliciesPage from "@/pages/mcc-policies";
+import MccCodesPage from "@/pages/mcc-codes";
 import DisclosureLibraryPage from "@/pages/disclosure-library";
 import { useState, useEffect, createContext, useContext } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -181,6 +182,11 @@ function AuthenticatedApp() {
         return {
           title: "MCC Policy Management",
           subtitle: "Manage merchant category code policies for underwriting decisions"
+        };
+      case "/mcc-codes":
+        return {
+          title: "MCC Codes Management",
+          subtitle: "Manage merchant category codes used in underwriting"
         };
       case "/disclosure-library":
         return {
@@ -514,6 +520,24 @@ function AuthenticatedApp() {
                   />
                   <main className="flex-1 overflow-auto bg-gray-50">
                     <MccPoliciesPage />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/mcc-codes">
+            {() => {
+              const userRoles = (user as any)?.roles || [];
+              if (!user || (!userRoles.includes('admin') && !userRoles.includes('super_admin') && !userRoles.includes('underwriter'))) return <NotFound />;
+              const pageInfo = getPageInfo("/mcc-codes");
+              return (
+                <>
+                  <Header 
+                    title={pageInfo.title} 
+                    onSearch={setGlobalSearch}
+                  />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <MccCodesPage />
                   </main>
                 </>
               );

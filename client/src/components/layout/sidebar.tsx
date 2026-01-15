@@ -32,6 +32,7 @@ const baseNavigation = [
     subItems: [
       { name: "Application Templates", href: "/application-templates", icon: FileText, requiresRole: ['admin', 'super_admin'] },
       { name: "Disclosure Library", href: "/disclosure-library", icon: ScrollText, requiresRole: ['admin', 'super_admin', 'underwriter'] },
+      { name: "MCC Codes", href: "/mcc-codes", icon: CreditCard, requiresRole: ['admin', 'super_admin', 'underwriter'] },
       { name: "MCC Policies", href: "/mcc-policies", icon: Shield, requiresRole: ['admin', 'super_admin', 'underwriter'] }
     ]
   },
