@@ -9083,7 +9083,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       console.log(`Creating campaign - Database environment: ${req.dbEnv}`);
       
-      const { feeValues, equipmentIds, ...campaignData } = req.body;
+      const { feeValues, equipmentIds, templateIds, ...campaignData } = req.body;
       
       // Use the dynamic database connection
       const dbToUse = req.dynamicDB;
@@ -9097,12 +9097,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
+      
+      // Validate that at least one template is selected (required)
+      if (!templateIds || templateIds.length === 0) {
+        return res.status(400).json({ error: "At least one application template must be selected" });
+      }
 
       console.log(`Validating and inserting campaign with fee values:`, { 
         campaignName: campaignData.name, 
         userId, 
         feeValuesCount: feeValues?.length || 0,
-        equipmentCount: equipmentIds?.length || 0
+        equipmentCount: equipmentIds?.length || 0,
+        templateCount: templateIds?.length || 0
       });
 
       // Use database transaction to ensure atomicity for ALL operations
@@ -9204,6 +9210,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await tx.insert(campaignEquipment).values(equipmentInserts);
           console.log(`Successfully inserted ${equipmentInserts.length} equipment associations for campaign ${campaign.id}`);
         }
+        
+        // 6. Insert application template associations (required)
+        const { campaignApplicationTemplates, acquirerApplicationTemplates } = await import("@shared/schema");
+        
+        console.log(`Processing ${templateIds.length} application template associations for campaign ${campaign.id}`);
+        
+        // Validate all templates exist
+        const existingTemplates = await tx.select({ id: acquirerApplicationTemplates.id })
+          .from(acquirerApplicationTemplates)
+          .where(inArray(acquirerApplicationTemplates.id, templateIds));
+        
+        if (existingTemplates.length !== templateIds.length) {
+          throw new Error("Some application templates do not exist");
+        }
+        
+        const templateInserts = templateIds.map((templateId: number, index: number) => ({
+          campaignId: campaign.id,
+          templateId: templateId,
+          isPrimary: index === 0, // First template is primary
+          displayOrder: index
+        }));
+        
+        await tx.insert(campaignApplicationTemplates).values(templateInserts);
+        console.log(`Successfully inserted ${templateInserts.length} application template associations for campaign ${campaign.id}`);
         
         return campaign;
       });
