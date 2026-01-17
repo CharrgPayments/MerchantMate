@@ -9204,17 +9204,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Campaign not found' });
       }
       
-      // Fetch related data
-      const [feeValues, equipment] = await Promise.all([
+      // Fetch related data including application count
+      const dbToUse = req.dynamicDB;
+      const { campaignAssignments } = await import("@shared/schema");
+      const { eq, count } = await import("drizzle-orm");
+      
+      const [feeValues, equipment, applicationCountResult] = await Promise.all([
         envStorage.getCampaignFeeValues(id),
-        envStorage.getCampaignEquipment(id)
+        envStorage.getCampaignEquipment(id),
+        dbToUse ? dbToUse
+          .select({ count: count() })
+          .from(campaignAssignments)
+          .where(eq(campaignAssignments.campaignId, id)) : Promise.resolve([{ count: 0 }])
       ]);
+      
+      const applicationCount = applicationCountResult[0]?.count || 0;
       
       // Return campaign with complete data
       res.json({
         ...campaign,
         feeValues,
-        equipment
+        equipment,
+        applicationCount
       });
     } catch (error) {
       console.error('Error fetching campaign:', error);
