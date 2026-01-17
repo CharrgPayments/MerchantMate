@@ -140,6 +140,26 @@ export default function CampaignView() {
               <label className="text-sm font-medium text-muted-foreground">Applications</label>
               <p data-testid="text-campaign-applications">{campaign.applicationCount || 0} application{(campaign.applicationCount || 0) !== 1 ? 's' : ''}</p>
             </div>
+            <div>
+              <label className="text-sm font-medium text-muted-foreground">Application Template</label>
+              {campaign.applicationTemplates && campaign.applicationTemplates.length > 0 ? (
+                <div className="space-y-1" data-testid="text-campaign-templates">
+                  {campaign.applicationTemplates.map((template: any) => (
+                    <p key={template.id} className="flex items-center gap-2">
+                      {template.templateName || 'Unknown Template'}
+                      {template.templateVersion && (
+                        <span className="text-xs text-muted-foreground">(v{template.templateVersion})</span>
+                      )}
+                      {template.isPrimary && (
+                        <Badge variant="outline" className="text-xs">Primary</Badge>
+                      )}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-muted-foreground" data-testid="text-no-templates">No template assigned</p>
+              )}
+            </div>
           </CardContent>
         </Card>
 

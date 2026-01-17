@@ -9204,18 +9204,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Campaign not found' });
       }
       
-      // Fetch related data including application count
+      // Fetch related data including application count and templates
       const dbToUse = req.dynamicDB;
-      const { campaignAssignments } = await import("@shared/schema");
+      const { campaignAssignments, campaignApplicationTemplates, acquirerApplicationTemplates } = await import("@shared/schema");
       const { eq, count } = await import("drizzle-orm");
       
-      const [feeValues, equipment, applicationCountResult] = await Promise.all([
+      const [feeValues, equipment, applicationCountResult, templatesResult] = await Promise.all([
         envStorage.getCampaignFeeValues(id),
         envStorage.getCampaignEquipment(id),
         dbToUse ? dbToUse
           .select({ count: count() })
           .from(campaignAssignments)
-          .where(eq(campaignAssignments.campaignId, id)) : Promise.resolve([{ count: 0 }])
+          .where(eq(campaignAssignments.campaignId, id)) : Promise.resolve([{ count: 0 }]),
+        dbToUse ? dbToUse
+          .select({
+            id: campaignApplicationTemplates.id,
+            templateId: campaignApplicationTemplates.templateId,
+            isPrimary: campaignApplicationTemplates.isPrimary,
+            displayOrder: campaignApplicationTemplates.displayOrder,
+            templateName: acquirerApplicationTemplates.templateName,
+            templateVersion: acquirerApplicationTemplates.version,
+          })
+          .from(campaignApplicationTemplates)
+          .leftJoin(acquirerApplicationTemplates, eq(campaignApplicationTemplates.templateId, acquirerApplicationTemplates.id))
+          .where(eq(campaignApplicationTemplates.campaignId, id)) : Promise.resolve([])
       ]);
       
       const applicationCount = applicationCountResult[0]?.count || 0;
@@ -9225,7 +9237,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...campaign,
         feeValues,
         equipment,
-        applicationCount
+        applicationCount,
+        applicationTemplates: templatesResult
       });
     } catch (error) {
       console.error('Error fetching campaign:', error);
