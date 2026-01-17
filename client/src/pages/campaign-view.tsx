@@ -136,6 +136,10 @@ export default function CampaignView() {
                 )}
               </div>
             </div>
+            <div>
+              <label className="text-sm font-medium text-muted-foreground">Applications</label>
+              <p data-testid="text-campaign-applications">{campaign.applicationCount || 0} application{(campaign.applicationCount || 0) !== 1 ? 's' : ''}</p>
+            </div>
           </CardContent>
         </Card>
 
