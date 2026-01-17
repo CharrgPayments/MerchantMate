@@ -9315,15 +9315,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/campaigns/:id/deactivate', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
-      const envStorage = createStorageForRequest(req);
       const id = parseInt(req.params.id);
-      const campaign = await envStorage.deactivateCampaign(id);
+      const dbToUse = req.dynamicDB;
       
-      if (!campaign) {
+      if (!dbToUse) {
+        return res.status(500).json({ error: "Database connection not available" });
+      }
+      
+      const { campaigns, campaignAssignments, campaignFeeValues, campaignEquipment, campaignApplicationTemplates } = await import("@shared/schema");
+      const { eq, count } = await import("drizzle-orm");
+      
+      // Check if campaign exists
+      const [existingCampaign] = await dbToUse
+        .select()
+        .from(campaigns)
+        .where(eq(campaigns.id, id))
+        .limit(1);
+      
+      if (!existingCampaign) {
         return res.status(404).json({ error: 'Campaign not found' });
       }
       
-      res.json(campaign);
+      // Check application count
+      const [countResult] = await dbToUse
+        .select({ count: count() })
+        .from(campaignAssignments)
+        .where(eq(campaignAssignments.campaignId, id));
+      
+      const applicationCount = countResult?.count || 0;
+      
+      if (applicationCount === 0) {
+        // No applications - delete the campaign and all related data
+        console.log(`Deleting campaign ${id} - no applications associated`);
+        
+        await dbToUse.transaction(async (tx) => {
+          // Delete related records first (cascade should handle this, but being explicit)
+          await tx.delete(campaignFeeValues).where(eq(campaignFeeValues.campaignId, id));
+          await tx.delete(campaignEquipment).where(eq(campaignEquipment.campaignId, id));
+          await tx.delete(campaignApplicationTemplates).where(eq(campaignApplicationTemplates.campaignId, id));
+          // Delete the campaign
+          await tx.delete(campaigns).where(eq(campaigns.id, id));
+        });
+        
+        console.log(`Campaign ${id} deleted successfully`);
+        res.json({ deleted: true, message: 'Campaign deleted (no applications associated)' });
+      } else {
+        // Has applications - just deactivate
+        console.log(`Deactivating campaign ${id} - has ${applicationCount} applications`);
+        
+        const [deactivatedCampaign] = await dbToUse
+          .update(campaigns)
+          .set({ isActive: false, updatedAt: new Date() })
+          .where(eq(campaigns.id, id))
+          .returning();
+        
+        res.json({ ...deactivatedCampaign, deleted: false });
+      }
     } catch (error) {
       console.error('Error deactivating campaign:', error);
       res.status(500).json({ error: 'Failed to deactivate campaign' });
