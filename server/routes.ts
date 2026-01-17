@@ -9023,6 +9023,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
+      // Get application count from campaign assignments
+      const { campaignAssignments, campaignApplicationTemplates, acquirerApplicationTemplates } = await import("@shared/schema");
+      const { count } = await import("drizzle-orm");
+      
+      let applicationCount = 0;
+      try {
+        const [countResult] = await dbToUse
+          .select({ count: count() })
+          .from(campaignAssignments)
+          .where(eq(campaignAssignments.campaignId, campaignId));
+        applicationCount = countResult?.count || 0;
+      } catch (error) {
+        console.log(`Error fetching application count for campaign ${campaignId}:`, error);
+      }
+      
+      // Get application templates associated with this campaign
+      let applicationTemplates: any[] = [];
+      try {
+        applicationTemplates = await dbToUse
+          .select({
+            id: campaignApplicationTemplates.id,
+            templateId: campaignApplicationTemplates.templateId,
+            isPrimary: campaignApplicationTemplates.isPrimary,
+            displayOrder: campaignApplicationTemplates.displayOrder,
+            templateName: acquirerApplicationTemplates.templateName,
+            templateVersion: acquirerApplicationTemplates.version,
+          })
+          .from(campaignApplicationTemplates)
+          .leftJoin(acquirerApplicationTemplates, eq(campaignApplicationTemplates.templateId, acquirerApplicationTemplates.id))
+          .where(eq(campaignApplicationTemplates.campaignId, campaignId))
+          .orderBy(campaignApplicationTemplates.displayOrder);
+      } catch (error) {
+        console.log(`Error fetching application templates for campaign ${campaignId}:`, error);
+      }
+      
       // Combine all data
       const campaignWithDetails = {
         ...campaign,
@@ -9031,7 +9066,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           feeGroups: pricingTypeFeeGroups
         } : null,
         feeValues,
-        equipment: equipmentAssociations
+        equipment: equipmentAssociations,
+        applicationCount,
+        applicationTemplates
       };
       
       console.log(`Found campaign ${campaignId} with ${feeValues.length} fee values and ${equipmentAssociations.length} equipment items in ${req.dbEnv} database`);
