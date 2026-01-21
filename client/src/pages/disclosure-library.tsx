@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 
   FileText, Search, Plus, Edit2, Trash2, History,
-  Eye, CheckCircle2, Clock, ChevronRight, ScrollText
+  Eye, CheckCircle2, Clock, ChevronRight, ScrollText, Copy
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -133,12 +133,18 @@ export default function DisclosureLibraryPage() {
   const [showVersionsPanel, setShowVersionsPanel] = useState(false);
   const [showSignaturesDialog, setShowSignaturesDialog] = useState(false);
   const [showEditVersionDialog, setShowEditVersionDialog] = useState(false);
+  const [showCopyVersionDialog, setShowCopyVersionDialog] = useState(false);
   const [selectedDisclosure, setSelectedDisclosure] = useState<DisclosureDefinition | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<DisclosureVersion | null>(null);
   const [editVersionFormData, setEditVersionFormData] = useState({
     version: '',
     title: '',
     content: '',
+  });
+  const [copyFormData, setCopyFormData] = useState({
+    newSlug: '',
+    newDisplayName: '',
+    newDescription: '',
   });
   
   const [formData, setFormData] = useState({
@@ -305,6 +311,29 @@ export default function DisclosureLibraryPage() {
     },
   });
 
+  const copyVersionMutation = useMutation({
+    mutationFn: async ({ versionId, data }: { versionId: number; data: typeof copyFormData }) => {
+      return apiRequest('POST', `/api/disclosure-versions/${versionId}/copy`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/disclosures'] });
+      setShowCopyVersionDialog(false);
+      setSelectedVersion(null);
+      resetCopyForm();
+      toast({
+        title: "Disclosure Copied",
+        description: "A new disclosure has been created with the copied content.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to copy disclosure",
+        variant: "destructive",
+      });
+    },
+  });
+
   const resetForm = () => {
     setFormData({
       slug: '',
@@ -322,6 +351,14 @@ export default function DisclosureLibraryPage() {
       title: '',
       content: '',
       requiresSignature: true,
+    });
+  };
+
+  const resetCopyForm = () => {
+    setCopyFormData({
+      newSlug: '',
+      newDisplayName: '',
+      newDescription: '',
     });
   };
 
@@ -379,6 +416,22 @@ export default function DisclosureLibraryPage() {
       content: version.content,
     });
     setShowEditVersionDialog(true);
+  };
+
+  const openCopyVersionDialog = (version: DisclosureVersion) => {
+    setSelectedVersion(version);
+    // Generate a suggested slug based on the version title
+    const suggestedSlug = version.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '')
+      + '-copy';
+    setCopyFormData({
+      newSlug: suggestedSlug,
+      newDisplayName: version.title + ' (Copy)',
+      newDescription: '',
+    });
+    setShowCopyVersionDialog(true);
   };
 
   const openSignaturesDialog = (disclosure: DisclosureDefinition) => {
@@ -867,6 +920,16 @@ export default function DisclosureLibraryPage() {
                                 Locked
                               </Badge>
                             )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => openCopyVersionDialog(version)}
+                              data-testid={`button-copy-version-${version.id}`}
+                              title="Copy this version to a new disclosure"
+                            >
+                              <Copy className="h-4 w-4 mr-1" />
+                              Copy
+                            </Button>
                             <div className="text-sm text-muted-foreground flex items-center gap-1">
                               <Clock className="h-4 w-4" />
                               {formatDate(version.effectiveDate)}
@@ -1083,6 +1146,67 @@ export default function DisclosureLibraryPage() {
               data-testid="button-save-version"
             >
               {updateVersionMutation.isPending ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCopyVersionDialog} onOpenChange={setShowCopyVersionDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Copy to New Disclosure</DialogTitle>
+            <DialogDescription>
+              Create a new disclosure with the content from "{selectedVersion?.title}" (v{selectedVersion?.version}).
+              The new disclosure will start at version 1.0.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="copy-displayName">Display Name *</Label>
+              <Input
+                id="copy-displayName"
+                value={copyFormData.newDisplayName}
+                onChange={(e) => setCopyFormData(prev => ({ ...prev, newDisplayName: e.target.value }))}
+                placeholder="Enter display name"
+                data-testid="input-copy-displayName"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="copy-slug">Slug *</Label>
+              <Input
+                id="copy-slug"
+                value={copyFormData.newSlug}
+                onChange={(e) => setCopyFormData(prev => ({ ...prev, newSlug: e.target.value }))}
+                placeholder="unique-slug-identifier"
+                data-testid="input-copy-slug"
+              />
+              <p className="text-xs text-muted-foreground">
+                A unique identifier for this disclosure. Use lowercase letters, numbers, and hyphens.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="copy-description">Description (optional)</Label>
+              <Textarea
+                id="copy-description"
+                value={copyFormData.newDescription}
+                onChange={(e) => setCopyFormData(prev => ({ ...prev, newDescription: e.target.value }))}
+                placeholder="Brief description of this disclosure"
+                rows={2}
+                data-testid="input-copy-description"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCopyVersionDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={() => selectedVersion && copyVersionMutation.mutate({ 
+                versionId: selectedVersion.id, 
+                data: copyFormData 
+              })}
+              disabled={!copyFormData.newSlug || !copyFormData.newDisplayName || copyVersionMutation.isPending}
+              data-testid="button-confirm-copy"
+            >
+              {copyVersionMutation.isPending ? 'Copying...' : 'Copy Disclosure'}
             </Button>
           </DialogFooter>
         </DialogContent>

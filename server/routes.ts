@@ -15731,6 +15731,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Copy a disclosure version to a new disclosure
+  app.post('/api/disclosure-versions/:id/copy', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const envStorage = createStorageForRequest(req);
+      const { id } = req.params;
+      const { newSlug, newDisplayName, newDescription } = req.body;
+      
+      if (!newSlug || !newDisplayName) {
+        return res.status(400).json({ success: false, message: 'New slug and display name are required' });
+      }
+      
+      // Get the version to copy
+      const sourceVersion = await envStorage.getDisclosureVersion(parseInt(id));
+      if (!sourceVersion) {
+        return res.status(404).json({ success: false, message: 'Version not found' });
+      }
+      
+      // Get the source disclosure definition for category and other settings
+      const sourceDisclosure = await envStorage.getDisclosureDefinition(sourceVersion.definitionId);
+      if (!sourceDisclosure) {
+        return res.status(404).json({ success: false, message: 'Source disclosure not found' });
+      }
+      
+      // Check if slug already exists
+      const existingDisclosure = await envStorage.getDisclosureDefinitionBySlug(newSlug);
+      if (existingDisclosure) {
+        return res.status(400).json({ success: false, message: 'A disclosure with this slug already exists' });
+      }
+      
+      // Create new disclosure definition
+      const newDisclosure = await envStorage.createDisclosureDefinition({
+        slug: newSlug,
+        displayName: newDisplayName,
+        description: newDescription || null,
+        category: sourceDisclosure.category,
+        requiresSignature: sourceVersion.requiresSignature,
+        isActive: true,
+        companyId: sourceDisclosure.companyId,
+        createdBy: (req.session as any)?.user?.username || null,
+      });
+      
+      // Create initial version with copied content
+      const newVersion = await envStorage.createDisclosureVersion({
+        definitionId: newDisclosure.id,
+        version: '1.0',
+        title: sourceVersion.title,
+        content: sourceVersion.content,
+        requiresSignature: sourceVersion.requiresSignature,
+        effectiveDate: new Date(),
+        createdBy: (req.session as any)?.user?.username || null,
+      });
+      
+      res.json({ 
+        success: true, 
+        disclosure: { ...newDisclosure, currentVersion: newVersion },
+        message: 'Disclosure copied successfully' 
+      });
+    } catch (error) {
+      console.error('Copy disclosure version error:', error);
+      res.status(500).json({ success: false, message: 'Failed to copy disclosure version' });
+    }
+  });
+
   // =====================================================
   // DISCLOSURE SIGNATURE ROUTES
   // =====================================================
