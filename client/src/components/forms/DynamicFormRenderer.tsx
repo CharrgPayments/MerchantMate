@@ -19,7 +19,7 @@ import { FieldValidationConfig, UserAccountFieldConfig } from '@shared/schema';
 // Types for field configuration
 interface FieldConfig {
   id: string;
-  type: 'text' | 'email' | 'tel' | 'url' | 'date' | 'number' | 'select' | 'checkbox' | 'textarea' | 'mcc-select' | 'zipcode' | 'user_account' | 'ein' | 'ssn' | 'tin';
+  type: 'text' | 'email' | 'tel' | 'url' | 'date' | 'number' | 'select' | 'checkbox' | 'textarea' | 'mcc-select' | 'zipcode' | 'user_account' | 'ein' | 'ssn' | 'tin' | 'currency' | 'phone' | 'radio' | 'address' | 'checkbox-list';
   label: string;
   required?: boolean;
   pattern?: string;
@@ -95,6 +95,7 @@ function createDynamicSchema(configuration: FormConfiguration, requiredFields: s
           );
           break;
         case 'number':
+        case 'currency':
           let numberSchema = z.coerce.number();
           if (field.min !== undefined) {
             numberSchema = numberSchema.min(field.min, `Minimum value is ${field.min}`);
@@ -103,6 +104,21 @@ function createDynamicSchema(configuration: FormConfiguration, requiredFields: s
             numberSchema = numberSchema.max(field.max, `Maximum value is ${field.max}`);
           }
           fieldSchema = numberSchema;
+          break;
+        case 'phone':
+          fieldSchema = z.string().regex(
+            /^[\d\s\-\(\)\+]*$/,
+            'Please enter a valid phone number'
+          );
+          break;
+        case 'radio':
+          fieldSchema = z.string();
+          break;
+        case 'address':
+          fieldSchema = z.string();
+          break;
+        case 'checkbox-list':
+          fieldSchema = z.array(z.string()).default([]);
           break;
         case 'checkbox':
           // If field has options, it's a checkbox group (array of selected values)
@@ -465,7 +481,52 @@ export default function DynamicFormRenderer({
                   placeholder={field.placeholder}
                   dataTestId={testId}
                 />
-              ) : field.type === 'checkbox' ? (
+              ) : field.type === 'currency' ? (
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                  <Input
+                    {...formField}
+                    type="number"
+                    step="0.01"
+                    min={field.min || 0}
+                    max={field.max}
+                    placeholder={field.placeholder || '0.00'}
+                    className="pl-7"
+                    data-testid={testId}
+                  />
+                </div>
+              ) : field.type === 'phone' ? (
+                <Input
+                  {...formField}
+                  type="tel"
+                  placeholder={field.placeholder || '(555) 555-5555'}
+                  data-testid={testId}
+                />
+              ) : field.type === 'radio' ? (
+                <div className="space-y-2">
+                  {field.options?.map((option) => {
+                    const optionValue = typeof option === 'string' ? option : option;
+                    const optionLabel = typeof option === 'string' 
+                      ? option.charAt(0).toUpperCase() + option.slice(1) 
+                      : option;
+                    return (
+                      <div key={optionValue} className="flex items-center space-x-2">
+                        <input
+                          type="radio"
+                          id={`${field.id}-${optionValue}`}
+                          name={field.id}
+                          value={optionValue}
+                          checked={formField.value === optionValue}
+                          onChange={() => formField.onChange(optionValue)}
+                          className="h-4 w-4 border-gray-300 text-primary focus:ring-primary"
+                          data-testid={`${testId}-${optionValue}`}
+                        />
+                        <label htmlFor={`${field.id}-${optionValue}`} className="text-sm">{optionLabel}</label>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : field.type === 'checkbox' || field.type === 'checkbox-list' ? (
                 field.options && field.options.length > 0 ? (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                     {field.options.map((option, idx) => {
@@ -506,7 +567,7 @@ export default function DynamicFormRenderer({
               ) : (
                 <Input
                   {...formField}
-                  type={field.sensitive && !showSensitiveFields[field.id] ? 'password' : field.type}
+                  type={field.sensitive && !showSensitiveFields[field.id] ? 'password' : (field.type === 'address' ? 'text' : field.type)}
                   placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
                   min={field.min}
                   max={field.max}
