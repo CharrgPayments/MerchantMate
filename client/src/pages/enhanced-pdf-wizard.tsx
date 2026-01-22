@@ -3322,6 +3322,34 @@ export default function EnhancedPdfWizard() {
           </div>
         );
 
+      case 'currency':
+        return (
+          <div className="space-y-2">
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">
+                $
+              </span>
+              <Input
+                id={field.fieldName}
+                type="number"
+                min="0"
+                step="0.01"
+                value={value}
+                onChange={(e) => handleFieldChange(field.fieldName, e.target.value)}
+                onBlur={(e) => handleMoneyBlur(field.fieldName, e.target.value)}
+                className={`pl-7 ${hasError ? 'border-red-500' : ''}`}
+                placeholder={field.placeholder || "0.00"}
+                data-testid={`input-${field.fieldName}`}
+              />
+            </div>
+            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
+          </div>
+        );
+
       case 'ssn':
         return (
           <div className="space-y-2">
