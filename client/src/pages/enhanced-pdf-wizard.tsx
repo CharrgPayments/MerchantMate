@@ -2831,6 +2831,19 @@ export default function EnhancedPdfWizard() {
       }
     }
 
+    // Validate percentage fields - max 100%
+    if (field.fieldType === 'percentage' && value) {
+      const numericValue = parseFloat(String(value).replace(/[^0-9.-]/g, ''));
+      if (!isNaN(numericValue)) {
+        if (numericValue > 100) {
+          return `${field.fieldLabel} cannot exceed 100%`;
+        }
+        if (numericValue < 0) {
+          return `${field.fieldLabel} cannot be negative`;
+        }
+      }
+    }
+
     return null;
   };
 
