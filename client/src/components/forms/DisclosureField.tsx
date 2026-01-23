@@ -121,6 +121,38 @@ export function DisclosureField({
     }
   }, [value]);
 
+  // Check if content doesn't need scrolling (short disclosure) - auto-complete scroll
+  useEffect(() => {
+    const scrollElement = scrollRef.current;
+    if (!scrollElement || disabled || isAcknowledged || hasCompletedScroll) return;
+
+    // Small delay to ensure the element is fully rendered
+    const checkScrollNeeded = () => {
+      const el = scrollRef.current;
+      if (!el) return;
+      
+      // If content fits without scrolling (scrollHeight <= clientHeight), mark as complete
+      const needsScrolling = el.scrollHeight > el.clientHeight + 5; // 5px tolerance
+      
+      if (!needsScrolling) {
+        setScrollPercentage(100);
+        setHasCompletedScroll(true);
+        onChange({
+          ...value,
+          scrollStartedAt: value?.scrollStartedAt || new Date().toISOString(),
+          scrollCompletedAt: new Date().toISOString(),
+          scrollDurationMs: 0,
+          scrollPercentage: 100,
+          acknowledged: false,
+        });
+      }
+    };
+
+    // Check after a short delay to allow rendering
+    const timer = setTimeout(checkScrollNeeded, 100);
+    return () => clearTimeout(timer);
+  }, [content, disabled, isAcknowledged, hasCompletedScroll]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
