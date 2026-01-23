@@ -2081,6 +2081,20 @@ function FieldConfigurationDialog({
                   />
                 </div>
 
+                {/* Custom Validation Text */}
+                <div>
+                  <label className="text-sm font-medium">Custom Validation Message</label>
+                  <Input
+                    value={editingField.validationText || ''}
+                    onChange={(e) => setEditingField({ ...editingField, validationText: e.target.value })}
+                    placeholder="e.g., Please enter a valid business name"
+                    data-testid="input-edit-field-validation-text"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Custom error message shown when this field fails validation. Leave empty to use the default message.
+                  </p>
+                </div>
+
                 {/* Conditional Visibility Section */}
                 <div className="border-t pt-4">
                   <label className="text-sm font-medium mb-2 block">Conditional Visibility</label>

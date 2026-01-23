@@ -1693,6 +1693,7 @@ export default function EnhancedPdfWizard() {
             options: normalizedOptions,
             defaultValue: null,
             validation: field.pattern || null,
+            validationText: field.validationText || null,
             position: sectionIndex * 100 + fieldIndex,
             section: section.title,
             description: field.description || null,
@@ -2708,7 +2709,8 @@ export default function EnhancedPdfWizard() {
     }
 
     if (isFieldRequired(field) && (!value || value.toString().trim() === '')) {
-      return `${field.fieldLabel} is required`;
+      // Use custom validation text if provided, otherwise use default message
+      return (field as any).validationText || `${field.fieldLabel} is required`;
     }
 
     if (value && field.validation) {
