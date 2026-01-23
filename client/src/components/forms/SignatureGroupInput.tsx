@@ -188,12 +188,43 @@ export function SignatureGroupInput({
     setDrawnSignature('');
   };
 
+  // Generate a canvas image from typed signature text
+  const generateTypedSignatureImage = (): string => {
+    // Create an off-screen canvas
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = 400;
+    tempCanvas.height = 150;
+    
+    const ctx = tempCanvas.getContext('2d');
+    if (!ctx) return typedSignature;
+    
+    // Clear canvas with white background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+    
+    // Set signature font style
+    ctx.font = 'italic 48px "Brush Script MT", cursive';
+    ctx.fillStyle = '#000000';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    // Draw the typed signature
+    ctx.fillText(typedSignature, tempCanvas.width / 2, tempCanvas.height / 2);
+    
+    return tempCanvas.toDataURL('image/png');
+  };
+
   const handleSaveSignature = () => {
+    // For typed signatures, generate a canvas image so it displays consistently
+    const signatureImage = signatureType === 'draw' 
+      ? drawnSignature 
+      : generateTypedSignatureImage();
+    
     const signatureData: SignatureData = {
       signerName,
       signerEmail,
-      signature: signatureType === 'draw' ? drawnSignature : typedSignature,
-      signatureType: signatureType === 'draw' ? 'drawn' : 'typed',
+      signature: signatureImage,
+      signatureType: signatureType === 'draw' ? 'drawn' : 'canvas', // Use 'canvas' for both so image displays
       initials,
       dateSigned: new Date().toISOString().split('T')[0],
       ownershipPercentage,

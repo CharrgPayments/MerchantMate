@@ -2507,15 +2507,12 @@ export default function EnhancedPdfWizard() {
       let signatureData: string | null = null;
       let signatureType: string | null = null;
 
-      if (signatureMode === 'draw') {
-        const canvas = canvasRef.current;
-        if (canvas) {
-          signatureData = canvas.toDataURL();
-          signatureType = 'canvas';
-        }
-      } else {
-        signatureData = typedSignature;
-        signatureType = 'typed';
+      const canvas = canvasRef.current;
+      if (canvas) {
+        // For both draw and type modes, save the canvas as an image
+        // This ensures consistent display as an image, not text
+        signatureData = canvas.toDataURL();
+        signatureType = 'canvas';
       }
 
       onSignatureChange(ownerIndex, signatureData, signatureType);
