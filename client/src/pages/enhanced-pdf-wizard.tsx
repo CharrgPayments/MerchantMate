@@ -1735,6 +1735,8 @@ export default function EnhancedPdfWizard() {
             validationText: field.validationText || null,
             allowFutureDates: field.allowFutureDates,
             futureDateErrorMessage: field.futureDateErrorMessage || null,
+            allowNegativeValues: field.allowNegativeValues,
+            negativeValueErrorMessage: field.negativeValueErrorMessage || null,
             position: sectionIndex * 100 + fieldIndex,
             section: section.title,
             description: field.description || null,
@@ -2814,6 +2816,17 @@ export default function EnhancedPdfWizard() {
       if (isExpirationDate) {
         if (enteredDate < today) {
           return 'Expiration date must be in the future';
+        }
+      }
+    }
+
+    // Validate currency fields for negative values
+    if (field.fieldType === 'currency' && value) {
+      // Check if negative values are NOT allowed
+      if ((field as any).allowNegativeValues === false) {
+        const numericValue = parseFloat(String(value).replace(/[^0-9.-]/g, ''));
+        if (!isNaN(numericValue) && numericValue < 0) {
+          return (field as any).negativeValueErrorMessage || `${field.fieldLabel} cannot be a negative amount`;
         }
       }
     }

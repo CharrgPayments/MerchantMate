@@ -2450,6 +2450,53 @@ function FieldConfigurationDialog({
                   </div>
                 )}
 
+                {/* Currency Field Configuration */}
+                {editingField.type === 'currency' && (
+                  <div className="space-y-4 border rounded-lg p-4 bg-green-50/50">
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-5 w-5 text-green-600" />
+                      <label className="text-sm font-medium">Currency Field Configuration</label>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={editingField.allowNegativeValues !== false}
+                          onCheckedChange={(checked) => setEditingField({ 
+                            ...editingField, 
+                            allowNegativeValues: checked 
+                          })}
+                          data-testid="switch-allow-negative-values"
+                        />
+                        <div>
+                          <span className="text-sm font-medium">Allow Negative Values</span>
+                          <p className="text-xs text-muted-foreground">
+                            When disabled, negative amounts will show a validation error
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {editingField.allowNegativeValues === false && (
+                        <div>
+                          <label className="text-sm font-medium mb-1 block">Negative Value Error Message</label>
+                          <Input
+                            value={editingField.negativeValueErrorMessage || ''}
+                            onChange={(e) => setEditingField({ 
+                              ...editingField, 
+                              negativeValueErrorMessage: e.target.value 
+                            })}
+                            placeholder="e.g., Amount cannot be negative"
+                            data-testid="input-negative-value-error-message"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Custom error message when a negative value is entered. Leave empty for default.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* User Account Field Configuration */}
                 {editingField.type === 'user_account' && (
                   <div>
