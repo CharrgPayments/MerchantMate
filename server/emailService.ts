@@ -59,11 +59,56 @@ interface ProspectPasswordSetupData {
   dbEnv?: string;
 }
 
+/**
+ * Get the base URL for email links.
+ * IMPORTANT: All environments (dev, test, prod) use the SAME base URL because
+ * the frontend app runs on a single domain. Environment routing is handled via
+ * the `?db=<env>` query parameter, NOT different domains.
+ * 
+ * Priority: APP_URL > REPLIT_DOMAINS (production domain) > BASE_URL > localhost
+ */
+export function getEmailBaseUrl(): string {
+  // APP_URL is the preferred explicit configuration
+  if (process.env.APP_URL) {
+    return process.env.APP_URL;
+  }
+  
+  // Use Replit's production domain if available
+  if (process.env.REPLIT_DOMAINS) {
+    // REPLIT_DOMAINS can contain comma-separated domains, use the first one
+    const primaryDomain = process.env.REPLIT_DOMAINS.split(',')[0].trim();
+    return `https://${primaryDomain}`;
+  }
+  
+  // Fall back to BASE_URL for backward compatibility
+  if (process.env.BASE_URL) {
+    return process.env.BASE_URL;
+  }
+  
+  // Last resort: localhost for local development
+  return 'http://localhost:5000';
+}
+
+/**
+ * Build a complete URL with optional environment query parameter.
+ * For non-production environments, appends ?db=<env> to route to correct database.
+ */
+export function buildEnvironmentAwareUrl(path: string, dbEnv?: string): string {
+  const baseUrl = getEmailBaseUrl();
+  let url = `${baseUrl}${path.startsWith('/') ? path : '/' + path}`;
+  
+  // Add environment query parameter for non-production environments
+  if (dbEnv && dbEnv !== 'production') {
+    const separator = url.includes('?') ? '&' : '?';
+    url += `${separator}db=${dbEnv}`;
+  }
+  
+  return url;
+}
+
 export class EmailService {
   private getBaseUrl(): string {
-    // Use the deployed domain or localhost for development
-    // Prefer APP_URL but fall back to BASE_URL for backward compatibility
-    return process.env.APP_URL || process.env.BASE_URL || 'http://localhost:5000';
+    return getEmailBaseUrl();
   }
 
   private async logEmailActivity(

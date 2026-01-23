@@ -4,7 +4,7 @@ import crypto from "crypto";
 import { v4 as uuidv4 } from "uuid";
 import sgMail from "@sendgrid/mail";
 import { storage, DatabaseStorage } from "./storage";
-import { emailService } from "./emailService";
+import { emailService, getEmailBaseUrl, buildEnvironmentAwareUrl } from "./emailService";
 import { users, loginAttempts } from "@shared/schema";
 import { eq, and, or, gte, sql } from "drizzle-orm";
 import type { Request } from "express";
@@ -222,6 +222,9 @@ export class AuthService {
 
       const [user] = await db.insert(schema.users).values(newUser).returning();
 
+      // Get database environment from request for environment-aware URLs
+      const dbEnv = (req as any).dbEnv;
+      
       // Send verification email
       await this.sendEmail(
         user.email,
@@ -229,7 +232,7 @@ export class AuthService {
         `
         <h2>Welcome to CoreCRM!</h2>
         <p>Please verify your email address by clicking the link below:</p>
-        <a href="${process.env.APP_URL || "http://localhost:5000"}/api/auth/verify-email?token=${emailVerificationToken}">
+        <a href="${buildEnvironmentAwareUrl(`/api/auth/verify-email?token=${emailVerificationToken}`, dbEnv)}">
           Verify Email Address
         </a>
         <p>This link will expire in 24 hours.</p>
@@ -281,6 +284,9 @@ export class AuthService {
         emailVerified: false,
       });
 
+      // Get database environment from request for environment-aware URLs
+      const dbEnv = (req as any).dbEnv;
+      
       // Send verification email
       await this.sendEmail(
         user.email,
@@ -288,7 +294,7 @@ export class AuthService {
         `
         <h2>Welcome to CoreCRM!</h2>
         <p>Please verify your email address by clicking the link below:</p>
-        <a href="${process.env.APP_URL || "http://localhost:5000"}/api/auth/verify-email?token=${emailVerificationToken}">
+        <a href="${buildEnvironmentAwareUrl(`/api/auth/verify-email?token=${emailVerificationToken}`, dbEnv)}">
           Verify Email Address
         </a>
         <p>This link will expire in 24 hours.</p>
@@ -999,6 +1005,8 @@ export class AuthService {
       const { user: updatedUser, temporaryPassword } = await storage.resetUserPassword(userId);
 
       // Send temporary password email
+      // Note: This method doesn't have access to request context, so using base URL
+      // The user will log in via the main domain and their session will determine the environment
       await this.sendEmail(
         updatedUser.email,
         "CoreCRM Account Password Reset",
@@ -1015,7 +1023,7 @@ export class AuthService {
         
         <p><strong>Important:</strong> You will be required to change this password immediately upon your next login for security purposes.</p>
         
-        <p><a href="${process.env.APP_URL || "http://localhost:5000"}/login" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Login to Change Password</a></p>
+        <p><a href="${getEmailBaseUrl()}/login" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Login to Change Password</a></p>
         
         <p>If you have any questions, please contact your administrator.</p>
         

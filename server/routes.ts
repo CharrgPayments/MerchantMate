@@ -11,7 +11,7 @@ import session from "express-session";
 import connectPg from "connect-pg-simple";
 import multer from "multer";
 import { pdfFormParser } from "./pdfParser";
-import { emailService } from "./emailService";
+import { emailService, getEmailBaseUrl, buildEnvironmentAwareUrl } from "./emailService";
 import { ObjectStorageService, AccessDeniedError } from "./objectStorage";
 import { checkObjectAccess } from "./objectAcl";
 import { v4 as uuidv4 } from "uuid";
@@ -1345,7 +1345,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         <p><strong>Important:</strong> You will be required to change this password immediately upon your next login for security purposes.</p>
         
-        <p><a href="${process.env.APP_URL || "http://localhost:5000"}/login" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Login to Change Password</a></p>
+        <p><a href="${buildEnvironmentAwareUrl('/login', req.dbEnv)}" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Login to Change Password</a></p>
         
         <p>If you have any questions, please contact your administrator.</p>
         
@@ -8258,11 +8258,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const submission = await envStorage.createPdfFormSubmission(submissionData);
       
-      // Generate the submission URL
-      const baseUrl = process.env.NODE_ENV === 'production' 
-        ? `https://${process.env.REPLIT_DOMAIN || 'localhost:5000'}` 
-        : 'http://localhost:5000';
-      const submissionUrl = `${baseUrl}/form/${submission.submissionToken}`;
+      // Generate the submission URL with environment awareness
+      const submissionUrl = buildEnvironmentAwareUrl(`/form/${submission.submissionToken}`, req.dbEnv);
       
       // Send email (using placeholder for now - will implement with SendGrid)
       console.log(`Email would be sent to: ${applicantEmail}`);
@@ -14041,7 +14038,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ownerEmail: signerEmail,
           companyName,
           ownershipPercentage: ownershipPercentage ? `${ownershipPercentage}%` : 'N/A',
-          signatureUrl: `${process.env.REPLIT_DEV_DOMAIN || 'http://localhost:5000'}/sign/${requestToken}`,
+          signatureUrl: buildEnvironmentAwareUrl(`/sign/${requestToken}`, req.dbEnv),
           signatureToken: requestToken,
           requesterName: currentUser?.username || 'System',
           agentName
