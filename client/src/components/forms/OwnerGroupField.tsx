@@ -127,14 +127,18 @@ export default function OwnerGroupField({
   const maxOwners = config.maxOwners || 5;
   const signatureThreshold = config.requireSignatureThreshold || 25;
   
-  const [owners, setOwners] = useState<Owner[]>(value.length > 0 ? value : [createEmptyOwner()]);
-  const [expandedOwners, setExpandedOwners] = useState<Set<string>>(new Set(owners.map(o => o.id)));
+  // Limit initial value to maxOwners
+  const limitedInitialValue = value.length > 0 ? value.slice(0, maxOwners) : [createEmptyOwner()];
+  const [owners, setOwners] = useState<Owner[]>(limitedInitialValue);
+  const [expandedOwners, setExpandedOwners] = useState<Set<string>>(new Set(limitedInitialValue.map(o => o.id)));
 
   useEffect(() => {
     if (value.length > 0 && JSON.stringify(value) !== JSON.stringify(owners)) {
-      setOwners(value);
+      // Limit loaded value to maxOwners
+      const limitedValue = value.slice(0, maxOwners);
+      setOwners(limitedValue);
     }
-  }, [value]);
+  }, [value, maxOwners]);
 
   useEffect(() => {
     onChange(owners);
