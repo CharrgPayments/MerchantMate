@@ -92,6 +92,9 @@ export function DisclosureField({
   const [signerName, setSignerName] = useState<string>(value?.signature?.signerName || '');
   const [signerEmail, setSignerEmail] = useState<string>(value?.signature?.email || '');
   
+  const [initials, setInitials] = useState<string>(value?.initials?.value || '');
+  const [initialsSignerName, setInitialsSignerName] = useState<string>(value?.initials?.signerName || '');
+  
   const [isDrawing, setIsDrawing] = useState(false);
   const [lastPos, setLastPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -110,6 +113,10 @@ export function DisclosureField({
         } else {
           setTypedSignature(value.signature.signatureData || '');
         }
+      }
+      if (value.initials) {
+        setInitials(value.initials.value || '');
+        setInitialsSignerName(value.initials.signerName || '');
       }
     }
   }, [value]);
@@ -306,6 +313,10 @@ export function DisclosureField({
       return;
     }
 
+    if (config.requiresInitials && (!initials || !initialsSignerName)) {
+      return;
+    }
+
     const acknowledgedData: DisclosureData = {
       ...value,
       scrollStartedAt: value?.scrollStartedAt || new Date().toISOString(),
@@ -320,15 +331,23 @@ export function DisclosureField({
         email: signerEmail,
         dateSigned: new Date().toISOString(),
       } : undefined,
+      initials: config.requiresInitials ? {
+        value: initials,
+        signerName: initialsSignerName,
+        dateInitialed: new Date().toISOString(),
+      } : undefined,
     };
 
     setIsAcknowledged(true);
     onChange(acknowledgedData);
   };
 
-  const canAcknowledge = hasCompletedScroll && 
-    (!config.requiresSignature || 
-      ((signatureType === 'draw' ? drawnSignature : typedSignature) && signerName));
+  const signatureValid = !config.requiresSignature || 
+    ((signatureType === 'draw' ? drawnSignature : typedSignature) && signerName);
+  
+  const initialsValid = !config.requiresInitials || (initials && initialsSignerName);
+
+  const canAcknowledge = hasCompletedScroll && signatureValid && initialsValid;
 
   return (
     <Card 
@@ -539,19 +558,7 @@ export function DisclosureField({
               )}
             </div>
 
-            {hasCompletedScroll && !isAcknowledged && (
-              <Button
-                onClick={handleAcknowledge}
-                disabled={disabled || !canAcknowledge}
-                className="w-full"
-                data-testid={`disclosure-${config.key}-acknowledge-btn`}
-              >
-                <Check className="h-4 w-4 mr-2" />
-                I Have Read and Agree to {config.displayLabel}
-              </Button>
-            )}
-
-            {hasCompletedScroll && !isAcknowledged && !canAcknowledge && (
+            {hasCompletedScroll && !isAcknowledged && !signatureValid && (
               <div className="flex items-center gap-2 text-sm text-amber-600">
                 <AlertCircle className="h-4 w-4" />
                 Please enter your name and signature to acknowledge
@@ -560,7 +567,92 @@ export function DisclosureField({
           </>
         )}
 
-        {!config.requiresSignature && hasCompletedScroll && !isAcknowledged && (
+        {config.requiresInitials && (
+          <>
+            <Separator />
+            
+            <div className={cn(
+              "space-y-4 transition-opacity duration-300",
+              !hasCompletedScroll && "opacity-50 pointer-events-none"
+            )}>
+              {!hasCompletedScroll && !config.requiresSignature && (
+                <div className="flex items-center gap-2 p-3 bg-amber-50 rounded-md border border-amber-200">
+                  <Lock className="h-4 w-4 text-amber-600" />
+                  <span className="text-sm text-amber-700">
+                    Complete reading the disclosure to provide your initials
+                  </span>
+                </div>
+              )}
+
+              {hasCompletedScroll && !isAcknowledged && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Type className="h-4 w-4 text-primary" />
+                    <span className="font-medium">Initials Required</span>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor={`${config.key}-initials-name`}>Full Name</Label>
+                      <Input
+                        id={`${config.key}-initials-name`}
+                        value={initialsSignerName}
+                        onChange={(e) => setInitialsSignerName(e.target.value)}
+                        placeholder="Enter your full name"
+                        disabled={disabled}
+                        data-testid={`disclosure-${config.key}-initials-name`}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor={`${config.key}-initials`}>Your Initials</Label>
+                      <Input
+                        id={`${config.key}-initials`}
+                        value={initials}
+                        onChange={(e) => setInitials(e.target.value.toUpperCase())}
+                        placeholder="e.g., JD"
+                        maxLength={5}
+                        className="font-bold text-lg uppercase tracking-wider"
+                        disabled={disabled}
+                        data-testid={`disclosure-${config.key}-initials`}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Enter your initials (first and last name initials)
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {isAcknowledged && value?.initials && (
+                <div className="p-4 bg-green-50 rounded-md border border-green-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Check className="h-5 w-5 text-green-600" />
+                    <span className="font-medium text-green-800">Initials Recorded</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Initialed by:</span>
+                      <p className="font-medium">{value.initials.signerName}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Initials:</span>
+                      <p className="font-bold text-lg">{value.initials.value}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {hasCompletedScroll && !isAcknowledged && !initialsValid && (
+                <div className="flex items-center gap-2 text-sm text-amber-600">
+                  <AlertCircle className="h-4 w-4" />
+                  Please enter your name and initials to acknowledge
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {!config.requiresSignature && !config.requiresInitials && hasCompletedScroll && !isAcknowledged && (
           <Button
             onClick={handleAcknowledge}
             disabled={disabled}
@@ -569,6 +661,18 @@ export function DisclosureField({
           >
             <Check className="h-4 w-4 mr-2" />
             I Have Read and Acknowledge {config.displayLabel}
+          </Button>
+        )}
+
+        {(config.requiresSignature || config.requiresInitials) && hasCompletedScroll && !isAcknowledged && (
+          <Button
+            onClick={handleAcknowledge}
+            disabled={disabled || !canAcknowledge}
+            className="w-full"
+            data-testid={`disclosure-${config.key}-acknowledge-btn`}
+          >
+            <Check className="h-4 w-4 mr-2" />
+            I Have Read and Agree to {config.displayLabel}
           </Button>
         )}
       </CardContent>
