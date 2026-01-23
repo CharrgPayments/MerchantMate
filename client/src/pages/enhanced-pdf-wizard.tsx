@@ -3389,10 +3389,22 @@ export default function EnhancedPdfWizard() {
         const routingDigits = (value || '').replace(/\D/g, '');
         return (
           <div className="space-y-2">
-            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-              {field.fieldLabel}
-              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-            </Label>
+            <div className="flex items-center gap-1">
+              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+                {field.fieldLabel}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
+              </Label>
+              {field.description && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="text-sm">{field.description}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
             <div className="relative">
               <Input
                 id={field.fieldName}
@@ -3434,10 +3446,22 @@ export default function EnhancedPdfWizard() {
         const accountDigits = (value || '').replace(/\D/g, '');
         return (
           <div className="space-y-2">
-            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-              {field.fieldLabel}
-              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-            </Label>
+            <div className="flex items-center gap-1">
+              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+                {field.fieldLabel}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
+              </Label>
+              {field.description && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="text-sm">{field.description}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
             <div className="relative">
               <Input
                 id={field.fieldName}
