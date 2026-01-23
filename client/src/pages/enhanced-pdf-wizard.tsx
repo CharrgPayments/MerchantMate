@@ -1770,26 +1770,30 @@ export default function EnhancedPdfWizard() {
         let conditionMet = false;
 
         // Evaluate the condition based on operator (handle both single values and arrays)
+        // Use case-insensitive comparison for string values
+        const normalizeValue = (val: any): string => String(val || '').toLowerCase().trim();
+        const conditionValue = normalizeValue(when.value);
+        
         switch (when.operator) {
           case 'equals':
             if (Array.isArray(dependentFieldValue)) {
-              conditionMet = dependentFieldValue.includes(when.value);
+              conditionMet = dependentFieldValue.some(v => normalizeValue(v) === conditionValue);
             } else {
-              conditionMet = dependentFieldValue === when.value;
+              conditionMet = normalizeValue(dependentFieldValue) === conditionValue;
             }
             break;
           case 'not_equals':
             if (Array.isArray(dependentFieldValue)) {
-              conditionMet = !dependentFieldValue.includes(when.value);
+              conditionMet = !dependentFieldValue.some(v => normalizeValue(v) === conditionValue);
             } else {
-              conditionMet = dependentFieldValue !== when.value;
+              conditionMet = normalizeValue(dependentFieldValue) !== conditionValue;
             }
             break;
           case 'contains':
             if (Array.isArray(dependentFieldValue)) {
-              conditionMet = dependentFieldValue.some(val => String(val).includes(when.value));
+              conditionMet = dependentFieldValue.some(val => normalizeValue(val).includes(conditionValue));
             } else {
-              conditionMet = dependentFieldValue && String(dependentFieldValue).includes(when.value);
+              conditionMet = dependentFieldValue && normalizeValue(dependentFieldValue).includes(conditionValue);
             }
             break;
           case 'is_checked':
