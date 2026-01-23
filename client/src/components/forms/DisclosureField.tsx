@@ -28,6 +28,7 @@ interface DisclosureConfig {
   orderPriority: number;
   isRequired: boolean;
   requiresSignature: boolean;
+  requiresInitials: boolean;
   linkedSignatureGroupKey?: string;
 }
 
@@ -52,6 +53,11 @@ interface DisclosureData {
     signatureType: 'drawn' | 'typed';
     email: string;
     dateSigned: string;
+  };
+  initials?: {
+    value: string;
+    signerName: string;
+    dateInitialed: string;
   };
 }
 
