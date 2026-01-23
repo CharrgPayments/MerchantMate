@@ -2886,6 +2886,24 @@ function FieldConfigurationDialog({
                     <p className="text-xs text-muted-foreground -mt-2 ml-6">
                       When enabled, users must sign (draw or type) after scrolling through the disclosure.
                     </p>
+
+                    {/* Requires Initials Toggle */}
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="requiresInitials"
+                        checked={editingField.requiresInitials === true}
+                        onCheckedChange={(checked) => setEditingField({ 
+                          ...editingField, 
+                          requiresInitials: checked as boolean 
+                        })}
+                      />
+                      <label htmlFor="requiresInitials" className="text-sm cursor-pointer">
+                        Requires initials after reading
+                      </label>
+                    </div>
+                    <p className="text-xs text-muted-foreground -mt-2 ml-6">
+                      When enabled, users must provide their initials after scrolling through the disclosure. Can be used alone or with signature.
+                    </p>
                   </div>
                 )}
 
