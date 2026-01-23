@@ -773,6 +773,45 @@ export default function EnhancedPdfWizard() {
     setCurrentStep(prevStep);
   };
 
+  // Validate fields when navigating to a visited section
+  useEffect(() => {
+    // Only run validation if the section has been visited before
+    if (!visitedSections.has(currentStep)) return;
+    
+    const section = filteredSections[currentStep];
+    if (!section?.fields) return;
+    
+    // Validate all required fields in the current section
+    const newErrors: Record<string, string> = {};
+    
+    for (const field of section.fields) {
+      // Only validate if field should be shown
+      if (!shouldShowField(field.fieldName)) continue;
+      
+      const value = getFieldValueForValidation(field);
+      const error = validateField(field, value);
+      
+      if (error) {
+        newErrors[field.fieldName] = error;
+      }
+    }
+    
+    // Merge with existing errors (preserve errors from other sections)
+    setValidationErrors(prev => {
+      // Get errors from other sections
+      const otherSectionErrors: Record<string, string> = {};
+      const currentSectionFieldNames = new Set(section.fields.map((f: FormField) => f.fieldName));
+      
+      for (const [key, value] of Object.entries(prev)) {
+        if (!currentSectionFieldNames.has(key)) {
+          otherSectionErrors[key] = value;
+        }
+      }
+      
+      return { ...otherSectionErrors, ...newErrors };
+    });
+  }, [currentStep, visitedSections]);
+
   // Helper to get field value checking both template and canonical names
   const getFieldValueForValidation = (field: FormField): any => {
     // For address groups, check both template mappings and canonical names
