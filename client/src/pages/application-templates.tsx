@@ -2403,6 +2403,53 @@ function FieldConfigurationDialog({
                   </div>
                 )}
 
+                {/* Date Field Configuration */}
+                {editingField.type === 'date' && (
+                  <div className="space-y-4 border rounded-lg p-4 bg-blue-50/50">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-5 w-5 text-blue-600" />
+                      <label className="text-sm font-medium">Date Field Configuration</label>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={editingField.allowFutureDates !== false}
+                          onCheckedChange={(checked) => setEditingField({ 
+                            ...editingField, 
+                            allowFutureDates: checked 
+                          })}
+                          data-testid="switch-allow-future-dates"
+                        />
+                        <div>
+                          <span className="text-sm font-medium">Allow Future Dates</span>
+                          <p className="text-xs text-muted-foreground">
+                            When disabled, dates after today will show a validation error
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {editingField.allowFutureDates === false && (
+                        <div>
+                          <label className="text-sm font-medium mb-1 block">Future Date Error Message</label>
+                          <Input
+                            value={editingField.futureDateErrorMessage || ''}
+                            onChange={(e) => setEditingField({ 
+                              ...editingField, 
+                              futureDateErrorMessage: e.target.value 
+                            })}
+                            placeholder="e.g., Date cannot be in the future"
+                            data-testid="input-future-date-error-message"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Custom error message when a future date is entered. Leave empty for default.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* User Account Field Configuration */}
                 {editingField.type === 'user_account' && (
                   <div>

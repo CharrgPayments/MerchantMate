@@ -1733,6 +1733,8 @@ export default function EnhancedPdfWizard() {
             defaultValue: null,
             validation: field.pattern || null,
             validationText: field.validationText || null,
+            allowFutureDates: field.allowFutureDates,
+            futureDateErrorMessage: field.futureDateErrorMessage || null,
             position: sectionIndex * 100 + fieldIndex,
             section: section.title,
             description: field.description || null,
@@ -2790,17 +2792,26 @@ export default function EnhancedPdfWizard() {
       }
     }
 
-    // Validate expiration dates are in the future
+    // Validate date fields
     if (field.fieldType === 'date' && value) {
+      const enteredDate = new Date(value);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Reset time to start of day for fair comparison
+      
+      // Check if future dates are NOT allowed (allowFutureDates explicitly set to false)
+      if ((field as any).allowFutureDates === false) {
+        if (enteredDate > today) {
+          // Use custom error message or default
+          return (field as any).futureDateErrorMessage || `${field.fieldLabel} cannot be a future date`;
+        }
+      }
+      
+      // Validate expiration dates are in the future (existing logic)
       const fieldNameLower = field.fieldName.toLowerCase();
       const isExpirationDate = fieldNameLower.includes('exp') || 
                               fieldNameLower.includes('expiration');
       
       if (isExpirationDate) {
-        const enteredDate = new Date(value);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0); // Reset time to start of day for fair comparison
-        
         if (enteredDate < today) {
           return 'Expiration date must be in the future';
         }
