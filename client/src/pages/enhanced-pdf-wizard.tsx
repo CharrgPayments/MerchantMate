@@ -4323,10 +4323,22 @@ export default function EnhancedPdfWizard() {
       case 'address':
         return (
           <div className="space-y-2">
-            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-              {field.fieldLabel}
-              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-            </Label>
+            <div className="flex items-center gap-1">
+              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+                {field.fieldLabel}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
+              </Label>
+              {field.description && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="text-sm">{field.description}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
             <AddressAutocompleteInput
               value={value}
               onChange={(value) => handleFieldChange(field.fieldName, value)}
@@ -4445,10 +4457,22 @@ export default function EnhancedPdfWizard() {
         
         return (
           <div className="space-y-2" key={field.fieldName}>
-            <Label className="text-sm font-medium text-gray-700">
-              {field.fieldLabel}
-              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-            </Label>
+            <div className="flex items-center gap-1">
+              <Label className="text-sm font-medium text-gray-700">
+                {field.fieldLabel}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
+              </Label>
+              {field.description && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="text-sm">{field.description}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
             <AddressAutocompleteInput
               key={`addressgroup-${groupType}`}
               value={streetValue}
@@ -4567,6 +4591,19 @@ export default function EnhancedPdfWizard() {
         
         return (
           <div className="space-y-2" key={field.fieldName}>
+            {field.description && (
+              <div className="flex items-center gap-1 mb-2">
+                <span className="text-sm font-medium text-gray-700">{field.fieldLabel}</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="text-sm">{field.description}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+            )}
             {/* Note: Business Ownership header is now rendered in the grouped owner section above */}
             <div className="relative">
               <SignatureGroupInput
@@ -4865,17 +4902,32 @@ export default function EnhancedPdfWizard() {
         };
         
         return (
-          <OwnerGroupField
-            fieldId={field.fieldName}
-            value={ownerGroupValue}
-            onChange={(owners) => handleFieldChange(field.fieldName, JSON.stringify(owners))}
-            onValidationChange={handleOwnerGroupValidation}
-            config={{
-              maxOwners: ownerGroupConfig.maxOwners || 5,
-              requireSignatureThreshold: ownerGroupConfig.signatureThreshold || 25,
-            }}
-            disabled={isReadOnly}
-          />
+          <div className="space-y-2">
+            {field.description && (
+              <div className="flex items-center gap-1">
+                <span className="text-sm font-medium text-gray-700">{field.fieldLabel}</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="text-sm">{field.description}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+            )}
+            <OwnerGroupField
+              fieldId={field.fieldName}
+              value={ownerGroupValue}
+              onChange={(owners) => handleFieldChange(field.fieldName, JSON.stringify(owners))}
+              onValidationChange={handleOwnerGroupValidation}
+              config={{
+                maxOwners: ownerGroupConfig.maxOwners || 5,
+                requireSignatureThreshold: ownerGroupConfig.signatureThreshold || 25,
+              }}
+              disabled={isReadOnly}
+            />
+          </div>
         );
 
       default:
