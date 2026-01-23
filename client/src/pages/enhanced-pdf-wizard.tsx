@@ -3351,10 +3351,22 @@ export default function EnhancedPdfWizard() {
       case 'number':
         return (
           <div className="space-y-2">
-            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-              {field.fieldLabel}
-              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-            </Label>
+            <div className="flex items-center gap-1">
+              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+                {field.fieldLabel}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
+              </Label>
+              {field.description && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs">
+                    <p className="text-sm">{field.description}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
             <Input
               id={field.fieldName}
               type="text"
@@ -3374,10 +3386,22 @@ export default function EnhancedPdfWizard() {
       case 'percentage':
         return (
           <div className="space-y-2">
-            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-              {field.fieldLabel}
-              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-            </Label>
+            <div className="flex items-center gap-1">
+              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+                {field.fieldLabel}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
+              </Label>
+              {field.description && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs">
+                    <p className="text-sm">{field.description}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
             <div className="relative">
               <Input
                 id={field.fieldName}
@@ -3408,10 +3432,22 @@ export default function EnhancedPdfWizard() {
       case 'currency':
         return (
           <div className="space-y-2">
-            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-              {field.fieldLabel}
-              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-            </Label>
+            <div className="flex items-center gap-1">
+              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+                {field.fieldLabel}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
+              </Label>
+              {field.description && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs">
+                    <p className="text-sm">{field.description}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">
                 $
@@ -3436,10 +3472,22 @@ export default function EnhancedPdfWizard() {
       case 'ssn':
         return (
           <div className="space-y-2">
-            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-              {field.fieldLabel}
-              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-            </Label>
+            <div className="flex items-center gap-1">
+              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+                {field.fieldLabel}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
+              </Label>
+              {field.description && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs">
+                    <p className="text-sm">{field.description}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
             <Input
               id={field.fieldName}
               type="text"
@@ -3584,10 +3632,22 @@ export default function EnhancedPdfWizard() {
       case 'date':
         return (
           <div className="space-y-2">
-            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-              {field.fieldLabel}
-              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-            </Label>
+            <div className="flex items-center gap-1">
+              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+                {field.fieldLabel}
+                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
+              </Label>
+              {field.description && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs">
+                    <p className="text-sm">{field.description}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
             <Input
               id={field.fieldName}
               type="date"
