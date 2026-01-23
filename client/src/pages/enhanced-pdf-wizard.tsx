@@ -1699,6 +1699,7 @@ export default function EnhancedPdfWizard() {
             placeholder: field.placeholder || null,
             addressGroupConfig: field.addressGroupConfig || null,
             signatureGroupConfig: field.signatureGroupConfig || null,
+            ownerGroupConfig: field.ownerGroupConfig || null,
             layout: field.layout || null,
             // Disclosure field properties
             disclosureContent: field.disclosureContent || null,
