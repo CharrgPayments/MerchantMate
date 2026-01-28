@@ -1976,6 +1976,31 @@ export default function EnhancedPdfWizard() {
     }
   }
 
+  // Initialize visitedSections based on which sections are already complete (have all required fields filled)
+  // This runs after form data is loaded to properly show completion status for previously filled sections
+  useEffect(() => {
+    if (!initialDataLoaded || filteredSections.length === 0 || Object.keys(formData).length === 0) {
+      return;
+    }
+    
+    // Check each section and mark as visited if it has no validation issues
+    const completeSections = new Set<number>();
+    for (let i = 0; i < filteredSections.length; i++) {
+      const hasErrors = getSectionValidationStatus(i);
+      if (!hasErrors) {
+        completeSections.add(i);
+      }
+    }
+    
+    // Also always include the current step as visited
+    completeSections.add(currentStep);
+    
+    if (completeSections.size > 0) {
+      console.log('Auto-marking complete sections as visited:', Array.from(completeSections));
+      setVisitedSections(prev => new Set([...Array.from(prev), ...Array.from(completeSections)]));
+    }
+  }, [initialDataLoaded, filteredSections.length]);
+
   // Fetch address suggestions using Google Places Autocomplete API
   const fetchAddressSuggestions = async (input: string) => {
     console.log('🌐 fetchAddressSuggestions CALLED with input:', input, 'length:', input.length);
