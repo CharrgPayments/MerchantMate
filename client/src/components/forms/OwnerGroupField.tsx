@@ -24,6 +24,7 @@ import {
 import { cn } from '@/lib/utils';
 import { EnhancedSignatureField } from './EnhancedSignatureField';
 import { AddressAutocompleteInput } from './AddressAutocompleteInput';
+import { MaskedTaxIdInput } from './MaskedTaxIdInput';
 import { SignatureEnvelope } from '@shared/schema';
 
 export interface Owner {
@@ -518,12 +519,12 @@ export default function OwnerGroupField({
                     </div>
                     <div>
                       <Label>SSN *</Label>
-                      <Input
+                      <MaskedTaxIdInput
+                        type="ssn"
                         value={owner.ssn}
-                        onChange={(e) => updateOwner(owner.id, { ssn: formatSSN(e.target.value) })}
+                        onChange={(value) => updateOwner(owner.id, { ssn: value })}
                         disabled={disabled}
                         placeholder="XXX-XX-XXXX"
-                        maxLength={11}
                       />
                     </div>
                   </div>
