@@ -154,7 +154,17 @@ export default function OwnerGroupField({
     if (!owner.title) ownerErrors.push('Title is required');
     if (!owner.email.trim()) ownerErrors.push('Email is required');
     if (!owner.phone.trim()) ownerErrors.push('Phone is required');
-    if (!owner.dateOfBirth) ownerErrors.push('Date of birth is required');
+    if (!owner.dateOfBirth) {
+      ownerErrors.push('Date of birth is required');
+    } else {
+      // Validate that date of birth is not in the future
+      const dobDate = new Date(owner.dateOfBirth);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (dobDate > today) {
+        ownerErrors.push('Date of birth cannot be in the future');
+      }
+    }
     if (!owner.ssn.trim() || owner.ssn.replace(/\D/g, '').length !== 9) ownerErrors.push('Valid SSN is required');
     if (!owner.address.street1.trim()) ownerErrors.push('Street address is required');
     if (!owner.address.city.trim()) ownerErrors.push('City is required');
@@ -486,7 +496,11 @@ export default function OwnerGroupField({
                         value={owner.dateOfBirth}
                         onChange={(e) => updateOwner(owner.id, { dateOfBirth: e.target.value })}
                         disabled={disabled}
+                        max={new Date().toISOString().split('T')[0]}
                       />
+                      {owner.dateOfBirth && new Date(owner.dateOfBirth) > new Date() && (
+                        <p className="text-sm text-red-500 mt-1">Date of birth cannot be in the future</p>
+                      )}
                     </div>
                     <div>
                       <Label>SSN *</Label>
