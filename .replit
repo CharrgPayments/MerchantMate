@@ -38,3 +38,10 @@ waitForPort = 5000
 
 [agent]
 integrations = ["javascript_object_storage:1.0.0"]
+
+[userenv]
+
+[userenv.shared]
+TEST_APP_URL = "https://test-crm.charrg.com"
+APP_URL = "https://crm.charrg.com"
+DEV_APP_URL = "https://655282e7-0121-411f-bd19-79261a5720b6-00-3h4xrcus0vjgp.kirk.replit.dev"
