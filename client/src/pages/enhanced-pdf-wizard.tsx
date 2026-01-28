@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { Building, FileText, CheckCircle, ArrowLeft, ArrowRight, Users, Upload, Signature, PenTool, Type, RotateCcw, Check, X, AlertTriangle, Monitor, Info, Lock, User, Eye, EyeOff } from 'lucide-react';
+import { Building, FileText, CheckCircle, ArrowLeft, ArrowRight, Users, Upload, Signature, PenTool, Type, RotateCcw, Check, X, AlertTriangle, Monitor, Info, Lock, User, Eye, EyeOff, Plus } from 'lucide-react';
 import { MCCSelect } from '@/components/ui/mcc-select';
 import { PhoneNumberInput } from '@/components/forms/PhoneNumberInput';
 import { MaskedTaxIdInput } from '@/components/forms/MaskedTaxIdInput';
@@ -81,6 +81,9 @@ export default function EnhancedPdfWizard() {
   const [activeOwnerSlots, setActiveOwnerSlots] = useState<Set<number>>(new Set([1])); // Start with owner1 active
   const [totalOwnership, setTotalOwnership] = useState<number>(0); // Store calculated total ownership
   const [ownershipPercentages, setOwnershipPercentages] = useState<Record<number, number>>({}); // Track each owner's %
+  // Track active signer slots for multi-signer signature groups (non-owner roles like guarantor, witness, etc.)
+  // Key is the base role (e.g., "guarantor"), value is a Set of active slot numbers
+  const [activeSignerSlots, setActiveSignerSlots] = useState<Record<string, Set<number>>>({});
   const [visibleSensitiveFields, setVisibleSensitiveFields] = useState<Set<string>>(new Set()); // Track which sensitive fields are visible
   const [signatureDrawingState, setSignatureDrawingState] = useState<Record<string, { isDrawing: boolean; lastPos: { x: number; y: number } | null }>>({});
   const signatureCanvasRefs = useRef<Record<string, HTMLCanvasElement | null>>({});
@@ -1526,6 +1529,9 @@ export default function EnhancedPdfWizard() {
     const autoDetectedSignatureGroups: Record<string, any> = {};
     const signatureFieldIdsToFilter = new Set<string>();
     const signatureGroupPositions: Record<string, { sectionTitle: string, position: number }> = {};
+    // Track multi-signer roles (non-owner slots like guarantor1, guarantor2)
+    // Key is base role (e.g., "guarantor"), value is array of slot numbers found
+    const multiSignerRoles: Record<string, { slots: number[], baseRoleKey: string, sectionName: string }> = {};
     
     // First pass: detect signature group prefixes and track their positions
     template.fieldConfiguration.sections.forEach((section: any) => {
@@ -1539,15 +1545,46 @@ export default function EnhancedPdfWizard() {
             // Generate a proper label for the signature group
             // For owner groups, extract owner number and create "Owner X Signature" label
             const ownerNumMatch = prefix.match(/owner(\d+)/i);
-            const generatedLabel = ownerNumMatch 
-              ? `Owner ${ownerNumMatch[1]} Signature`
-              : `${role.charAt(0).toUpperCase() + role.slice(1)} Signature`;
+            // Check for numbered non-owner roles (e.g., guarantor1, guarantor2, witness1, witness2)
+            const numberedRoleMatch = role.match(/^([a-zA-Z]+)(\d+)$/);
+            
+            let generatedLabel: string;
+            let slotNumber: number | undefined;
+            let baseRoleKey: string | undefined;
+            
+            if (ownerNumMatch) {
+              generatedLabel = `Owner ${ownerNumMatch[1]} Signature`;
+            } else if (numberedRoleMatch) {
+              // This is a numbered non-owner role (e.g., guarantor1, guarantor2)
+              baseRoleKey = numberedRoleMatch[1].toLowerCase();
+              slotNumber = parseInt(numberedRoleMatch[2]);
+              const baseRoleLabel = baseRoleKey.charAt(0).toUpperCase() + baseRoleKey.slice(1);
+              generatedLabel = `${baseRoleLabel} ${slotNumber} Signature`;
+              
+              // Track this slot for multi-signer management
+              if (!multiSignerRoles[baseRoleKey]) {
+                multiSignerRoles[baseRoleKey] = {
+                  slots: [],
+                  baseRoleKey,
+                  sectionName: section.title
+                };
+              }
+              if (!multiSignerRoles[baseRoleKey].slots.includes(slotNumber)) {
+                multiSignerRoles[baseRoleKey].slots.push(slotNumber);
+              }
+            } else {
+              generatedLabel = `${role.charAt(0).toUpperCase() + role.slice(1)} Signature`;
+            }
             
             autoDetectedSignatureGroups[groupKey] = {
               roleKey: role,
               label: generatedLabel,
               sectionName: section.title,
-              fieldMappings: {}
+              fieldMappings: {},
+              // Add multi-signer info if this is a numbered role
+              slotNumber,
+              baseRoleKey,
+              isMultiSigner: !!numberedRoleMatch && !ownerNumMatch,
             };
             // Track the position of the first field in this signature group
             signatureGroupPositions[groupKey] = {
@@ -1562,6 +1599,21 @@ export default function EnhancedPdfWizard() {
         }
       });
     });
+    
+    // Sort slots and attach max available count to each multi-signer group
+    Object.keys(multiSignerRoles).forEach(baseRole => {
+      const roleInfo = multiSignerRoles[baseRole];
+      roleInfo.slots.sort((a, b) => a - b);
+      // Add maxSlots and availableSlots info to each signature group in this role
+      Object.values(autoDetectedSignatureGroups).forEach((group: any) => {
+        if (group.baseRoleKey === baseRole) {
+          group.maxSlots = roleInfo.slots.length;
+          group.availableSlots = roleInfo.slots;
+        }
+      });
+    });
+    
+    console.log('✍️ Multi-signer roles detected:', multiSignerRoles);
     
     const signatureGroups = Object.values(autoDetectedSignatureGroups);
     console.log('✍️ Auto-detected signature groups:', signatureGroups);
@@ -1662,6 +1714,18 @@ export default function EnhancedPdfWizard() {
             if (!activeOwnerSlots.has(ownerNumber)) {
               console.log(`✍️ Skipping inactive owner slot: ${groupKey}`);
               return; // Skip this owner slot
+            }
+          }
+          
+          // Check if this is a multi-signer group (non-owner numbered roles like guarantor1, guarantor2)
+          if (group.isMultiSigner && group.baseRoleKey && group.slotNumber) {
+            const activeSlots = activeSignerSlots[group.baseRoleKey];
+            // Initialize first slot as active if not yet initialized
+            if (!activeSlots) {
+              // Don't skip - this will be initialized on first render
+            } else if (!activeSlots.has(group.slotNumber)) {
+              console.log(`✍️ Skipping inactive ${group.baseRoleKey} slot ${group.slotNumber}: ${groupKey}`);
+              return; // Skip this inactive signer slot
             }
           }
           
@@ -1781,6 +1845,50 @@ export default function EnhancedPdfWizard() {
       }
     ];
   }
+
+  // Detect multi-signer roles from sections and initialize activeSignerSlots
+  // This extracts the detected roles so we can initialize state properly
+  const detectedMultiSignerRoles = useMemo(() => {
+    const roles: Record<string, number[]> = {};
+    sections.forEach(section => {
+      section.fields.forEach((field: any) => {
+        if (field.signatureGroupConfig?.isMultiSigner && field.signatureGroupConfig?.baseRoleKey) {
+          const baseRole = field.signatureGroupConfig.baseRoleKey;
+          const slotNumber = field.signatureGroupConfig.slotNumber;
+          if (!roles[baseRole]) {
+            roles[baseRole] = [];
+          }
+          if (!roles[baseRole].includes(slotNumber)) {
+            roles[baseRole].push(slotNumber);
+          }
+        }
+      });
+    });
+    // Sort slots for each role
+    Object.keys(roles).forEach(role => {
+      roles[role].sort((a, b) => a - b);
+    });
+    return roles;
+  }, [sections]);
+
+  // Initialize activeSignerSlots when multi-signer roles are detected
+  useEffect(() => {
+    const rolesWithMultipleSlots = Object.entries(detectedMultiSignerRoles).filter(([_, slots]) => slots.length > 1);
+    if (rolesWithMultipleSlots.length > 0) {
+      setActiveSignerSlots(prev => {
+        const updated = { ...prev };
+        let hasChanges = false;
+        rolesWithMultipleSlots.forEach(([role, slots]) => {
+          if (!updated[role]) {
+            // Initialize with just the first slot active
+            updated[role] = new Set([slots[0]]);
+            hasChanges = true;
+          }
+        });
+        return hasChanges ? updated : prev;
+      });
+    }
+  }, [detectedMultiSignerRoles]);
 
   // Function to evaluate if a field should be visible based on conditional rules
   const shouldShowField = (fieldId: string): boolean => {
@@ -4933,6 +5041,71 @@ export default function EnhancedPdfWizard() {
                 Remove This Owner
               </Button>
             )}
+            
+            {/* Remove signer button for multi-signer slots (slot 2+) */}
+            {sigGroupConfig.isMultiSigner && sigGroupConfig.slotNumber && sigGroupConfig.slotNumber > 1 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  const baseRole = sigGroupConfig.baseRoleKey;
+                  const slotNum = sigGroupConfig.slotNumber;
+                  setActiveSignerSlots(prev => {
+                    const currentSlots = prev[baseRole] || new Set([1]);
+                    const newSlots = new Set(currentSlots);
+                    newSlots.delete(slotNum);
+                    return { ...prev, [baseRole]: newSlots };
+                  });
+                  // Clear the form data for this slot
+                  const fieldKey = `signatureGroup_${sigGroupConfig.groupKey}`;
+                  handleFieldChange(fieldKey, '');
+                }}
+                className="mt-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                data-testid={`remove-${sigGroupConfig.baseRoleKey}${sigGroupConfig.slotNumber}-btn`}
+              >
+                <X className="h-4 w-4 mr-2" />
+                Remove This Signer
+              </Button>
+            )}
+            
+            {/* Add Signer button - show on the last active slot if more slots are available */}
+            {sigGroupConfig.isMultiSigner && sigGroupConfig.slotNumber && sigGroupConfig.availableSlots && (() => {
+              const baseRole = sigGroupConfig.baseRoleKey;
+              const currentSlots = activeSignerSlots[baseRole] || new Set([1]);
+              const activeSlotNumbers = Array.from(currentSlots).sort((a, b) => a - b);
+              const isLastActiveSlot = sigGroupConfig.slotNumber === activeSlotNumbers[activeSlotNumbers.length - 1];
+              const maxSlot = Math.max(...sigGroupConfig.availableSlots);
+              const hasMoreSlots = activeSlotNumbers.length < sigGroupConfig.availableSlots.length;
+              
+              if (isLastActiveSlot && hasMoreSlots) {
+                // Find the next available slot number
+                const nextSlot = sigGroupConfig.availableSlots.find((s: number) => !currentSlots.has(s));
+                if (nextSlot) {
+                  return (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setActiveSignerSlots(prev => {
+                          const currentSlots = prev[baseRole] || new Set([1]);
+                          const newSlots = new Set(currentSlots);
+                          newSlots.add(nextSlot);
+                          return { ...prev, [baseRole]: newSlots };
+                        });
+                      }}
+                      className="mt-3 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
+                      data-testid={`add-${baseRole}-btn`}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Another {sigGroupConfig.baseRoleKey.charAt(0).toUpperCase() + sigGroupConfig.baseRoleKey.slice(1)}
+                    </Button>
+                  );
+                }
+              }
+              return null;
+            })()}
             </div>
           </div>
         );
