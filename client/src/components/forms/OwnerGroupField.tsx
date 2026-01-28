@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { EnhancedSignatureField } from './EnhancedSignatureField';
+import { AddressAutocompleteInput } from './AddressAutocompleteInput';
 import { SignatureEnvelope } from '@shared/schema';
 
 export interface Owner {
@@ -541,66 +542,34 @@ export default function OwnerGroupField({
 
                   <div className="space-y-4">
                     <Label className="text-sm font-medium">Residential Address</Label>
-                    <div className="grid grid-cols-1 gap-4">
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Street Address *</Label>
-                        <Input
-                          value={owner.address.street1}
-                          onChange={(e) => updateOwnerAddress(owner.id, { street1: e.target.value })}
-                          disabled={disabled}
-                          placeholder="123 Main St"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Suite/Apt (optional)</Label>
-                        <Input
-                          value={owner.address.street2}
-                          onChange={(e) => updateOwnerAddress(owner.id, { street2: e.target.value })}
-                          disabled={disabled}
-                          placeholder="Apt 4B"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div>
-                        <Label className="text-xs text-muted-foreground">City *</Label>
-                        <Input
-                          value={owner.address.city}
-                          onChange={(e) => updateOwnerAddress(owner.id, { city: e.target.value })}
-                          disabled={disabled}
-                          placeholder="City"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs text-muted-foreground">State *</Label>
-                        <Select
-                          value={owner.address.state}
-                          onValueChange={(v) => updateOwnerAddress(owner.id, { state: v })}
-                          disabled={disabled}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="State" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {US_STATES.map((state) => (
-                              <SelectItem key={state.value} value={state.value}>{state.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label className="text-xs text-muted-foreground">ZIP Code *</Label>
-                        <Input
-                          value={owner.address.zipCode}
-                          onChange={(e) => updateOwnerAddress(owner.id, { 
-                            zipCode: e.target.value.replace(/\D/g, '').substring(0, 5)
-                          })}
-                          disabled={disabled}
-                          placeholder="12345"
-                          maxLength={5}
-                        />
-                      </div>
-                    </div>
+                    <AddressAutocompleteInput
+                      value={owner.address.street1}
+                      onChange={(value) => updateOwnerAddress(owner.id, { street1: value })}
+                      onAddressSelect={(address) => {
+                        updateOwnerAddress(owner.id, {
+                          street1: address.street,
+                          street2: address.street2 || '',
+                          city: address.city,
+                          state: address.state,
+                          zipCode: address.zipCode
+                        });
+                      }}
+                      disabled={disabled}
+                      placeholder="Start typing an address..."
+                      showExpandedFields={true}
+                      initialValues={{
+                        city: owner.address.city,
+                        state: owner.address.state,
+                        zipCode: owner.address.zipCode,
+                        street2: owner.address.street2
+                      }}
+                      street2Value={owner.address.street2}
+                      onStreet2Change={(value) => updateOwnerAddress(owner.id, { street2: value })}
+                      onCityChange={(value) => updateOwnerAddress(owner.id, { city: value })}
+                      onStateChange={(value) => updateOwnerAddress(owner.id, { state: value })}
+                      onZipCodeChange={(value) => updateOwnerAddress(owner.id, { zipCode: value })}
+                      dataTestId={`owner-${owner.id}-address`}
+                    />
                   </div>
 
                   <Separator />
