@@ -39,14 +39,17 @@ export function MCCSelect({
   const [open, setOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Fetch MCC codes from database
-  const { data: mccCodes = [], isLoading } = useQuery<MCCCode[]>({
-    queryKey: ['/api/mcc-codes'],
+  // Fetch MCC codes from database (using public endpoint for prospects)
+  const { data: mccCodesData, isLoading } = useQuery<MCCCode[]>({
+    queryKey: ['/api/public/mcc-codes'],
   });
+  
+  // Ensure mccCodes is always an array (handles null/undefined from failed queries)
+  const mccCodes = mccCodesData ?? [];
 
   // Find selected MCC from fetched data
   const selectedMCC = useMemo(() => {
-    if (!value || !mccCodes.length) return null;
+    if (!value || !mccCodes || mccCodes.length === 0) return null;
     return mccCodes.find(mcc => mcc.code === value) || null;
   }, [value, mccCodes]);
 

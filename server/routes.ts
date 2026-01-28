@@ -10137,7 +10137,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // MCC CODES AND POLICIES (Underwriting)
   // =====================================================
   
-  // Get all MCC codes (lookup table)
+  // Public endpoint for MCC codes (used by prospects in application wizard)
+  // Returns only active MCC codes without requiring authentication
+  app.get('/api/public/mcc-codes', dbEnvironmentMiddleware, async (req: RequestWithDB, res: Response) => {
+    try {
+      const envStorage = createStorageForRequest(req);
+      console.log(`Fetching public MCC codes - Database environment: ${req.dbEnv}`);
+      
+      // Get all active MCC codes for public access
+      const mccCodesList = await envStorage.getAllMccCodes();
+      
+      // Filter to only return active codes for public use
+      const activeMccCodes = (mccCodesList || []).filter((code: any) => code.isActive !== false);
+      
+      res.json(activeMccCodes);
+    } catch (error) {
+      console.error('Error fetching public MCC codes:', error);
+      res.status(500).json({ error: 'Failed to fetch MCC codes' });
+    }
+  });
+  
+  // Get all MCC codes (lookup table) - Admin/Underwriter access
   app.get('/api/mcc-codes', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'underwriter']), async (req: RequestWithDB, res: Response) => {
     try {
       const envStorage = createStorageForRequest(req);
