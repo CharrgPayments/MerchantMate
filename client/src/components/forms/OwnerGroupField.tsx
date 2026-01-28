@@ -652,7 +652,7 @@ export default function OwnerGroupField({
         })}
       </div>
 
-      {owners.length < maxOwners && (
+      {owners.length < maxOwners && !isComplete && (
         <Button
           variant="outline"
           onClick={addOwner}
