@@ -39,9 +39,16 @@ export function MCCSelect({
   const [open, setOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Get db parameter from URL for environment-aware requests
+  const dbParam = useMemo(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const db = urlParams.get('db');
+    return db ? `?db=${db}` : '';
+  }, []);
+
   // Fetch MCC codes from database (using public endpoint for prospects)
   const { data: mccCodesData, isLoading } = useQuery<MCCCode[]>({
-    queryKey: ['/api/public/mcc-codes'],
+    queryKey: [`/api/public/mcc-codes${dbParam}`],
   });
   
   // Ensure mccCodes is always an array (handles null/undefined from failed queries)
