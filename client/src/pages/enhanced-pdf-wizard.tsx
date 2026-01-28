@@ -15,7 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Building, FileText, CheckCircle, ArrowLeft, ArrowRight, Users, Upload, Signature, PenTool, Type, RotateCcw, Check, X, AlertTriangle, Monitor, Info, Lock, User, Eye, EyeOff } from 'lucide-react';
 import { MCCSelect } from '@/components/ui/mcc-select';
 import { PhoneNumberInput } from '@/components/forms/PhoneNumberInput';
-import { EINInput } from '@/components/forms/EINInput';
+import { MaskedTaxIdInput } from '@/components/forms/MaskedTaxIdInput';
 import { AddressAutocompleteInput } from '@/components/forms/AddressAutocompleteInput';
 import { SignatureGroupInput } from '@/components/forms/SignatureGroupInput';
 import { EnhancedSignatureField } from '@/components/forms/EnhancedSignatureField';
@@ -4473,7 +4473,8 @@ export default function EnhancedPdfWizard() {
               {field.fieldLabel}
               {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
             </Label>
-            <EINInput
+            <MaskedTaxIdInput
+              type="ein"
               value={value}
               onChange={(value) => handleFieldChange(field.fieldName, value)}
               placeholder="12-3456789"
