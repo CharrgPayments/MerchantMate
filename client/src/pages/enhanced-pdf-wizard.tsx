@@ -1720,9 +1720,12 @@ export default function EnhancedPdfWizard() {
           // Check if this is a multi-signer group (non-owner numbered roles like guarantor1, guarantor2)
           if (group.isMultiSigner && group.baseRoleKey && group.slotNumber) {
             const activeSlots = activeSignerSlots[group.baseRoleKey];
-            // Initialize first slot as active if not yet initialized
+            // If activeSlots isn't initialized yet, only show the first slot (slot 1)
             if (!activeSlots) {
-              // Don't skip - this will be initialized on first render
+              if (group.slotNumber !== 1) {
+                console.log(`✍️ Skipping non-first slot ${group.slotNumber} before initialization: ${groupKey}`);
+                return; // Skip non-first slots until activeSignerSlots is initialized
+              }
             } else if (!activeSlots.has(group.slotNumber)) {
               console.log(`✍️ Skipping inactive ${group.baseRoleKey} slot ${group.slotNumber}: ${groupKey}`);
               return; // Skip this inactive signer slot
@@ -1923,9 +1926,13 @@ export default function EnhancedPdfWizard() {
       const baseRole = multiSignerMatch[1].toLowerCase();
       const slotNumber = parseInt(multiSignerMatch[2]);
       const activeSlots = activeSignerSlots[baseRole];
-      // Show if no active slots entry exists (safe fallback to show first slot)
-      // or if the slot is in the active set
-      if (activeSlots && !activeSlots.has(slotNumber)) {
+      // If activeSlots isn't initialized yet, only show the first slot (slot 1)
+      // Once initialized, show only slots in the active set
+      if (!activeSlots) {
+        if (slotNumber !== 1) {
+          return false; // Hide non-first slots before initialization
+        }
+      } else if (!activeSlots.has(slotNumber)) {
         return false;
       }
     }
