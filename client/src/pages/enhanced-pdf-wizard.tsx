@@ -1855,11 +1855,14 @@ export default function EnhancedPdfWizard() {
         if (field.signatureGroupConfig?.isMultiSigner && field.signatureGroupConfig?.baseRoleKey) {
           const baseRole = field.signatureGroupConfig.baseRoleKey;
           const slotNumber = field.signatureGroupConfig.slotNumber;
-          if (!roles[baseRole]) {
-            roles[baseRole] = [];
-          }
-          if (!roles[baseRole].includes(slotNumber)) {
-            roles[baseRole].push(slotNumber);
+          // Guard: only process if slotNumber is a valid positive integer
+          if (typeof slotNumber === 'number' && slotNumber > 0 && Number.isInteger(slotNumber)) {
+            if (!roles[baseRole]) {
+              roles[baseRole] = [];
+            }
+            if (!roles[baseRole].includes(slotNumber)) {
+              roles[baseRole].push(slotNumber);
+            }
           }
         }
       });
@@ -1873,15 +1876,18 @@ export default function EnhancedPdfWizard() {
 
   // Initialize activeSignerSlots when multi-signer roles are detected
   useEffect(() => {
-    const rolesWithMultipleSlots = Object.entries(detectedMultiSignerRoles).filter(([_, slots]) => slots.length > 1);
-    if (rolesWithMultipleSlots.length > 0) {
+    // Initialize all detected multi-signer roles (even single-slot ones for consistency)
+    const allRoles = Object.entries(detectedMultiSignerRoles);
+    if (allRoles.length > 0) {
       setActiveSignerSlots(prev => {
         const updated = { ...prev };
         let hasChanges = false;
-        rolesWithMultipleSlots.forEach(([role, slots]) => {
-          if (!updated[role]) {
-            // Initialize with just the first slot active
-            updated[role] = new Set([slots[0]]);
+        allRoles.forEach(([role, slots]) => {
+          // Initialize if not exists, or if exists but is empty
+          if (!updated[role] || updated[role].size === 0) {
+            // Initialize with just the first slot active (sorted slots array)
+            const firstSlot = slots.length > 0 ? slots[0] : 1;
+            updated[role] = new Set([firstSlot]);
             hasChanges = true;
           }
         });
@@ -1906,6 +1912,20 @@ export default function EnhancedPdfWizard() {
       const ownerNumber = parseInt(ownerFieldMatch[1]);
       // Only show if this owner number is in the active slots
       if (!activeOwnerSlots.has(ownerNumber)) {
+        return false;
+      }
+    }
+
+    // Filter multi-signer signature fields based on active signer slots
+    // Pattern: {prefix}_signature_{role}{number}.{fieldType} (e.g., agreements_signature_guarantor2.signerName)
+    const multiSignerMatch = fieldId.match(/_signature_([a-zA-Z]+)(\d+)\./);
+    if (multiSignerMatch) {
+      const baseRole = multiSignerMatch[1].toLowerCase();
+      const slotNumber = parseInt(multiSignerMatch[2]);
+      const activeSlots = activeSignerSlots[baseRole];
+      // Show if no active slots entry exists (safe fallback to show first slot)
+      // or if the slot is in the active set
+      if (activeSlots && !activeSlots.has(slotNumber)) {
         return false;
       }
     }
