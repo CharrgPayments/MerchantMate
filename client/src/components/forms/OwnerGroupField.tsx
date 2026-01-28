@@ -575,23 +575,39 @@ export default function OwnerGroupField({
                   <Separator />
 
                   <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id={`control-${owner.id}`}
-                      checked={owner.isControlPerson}
-                      onCheckedChange={(checked) => updateOwner(owner.id, { isControlPerson: !!checked })}
-                      disabled={disabled}
-                    />
-                    <div className="grid gap-1.5 leading-none">
-                      <label
-                        htmlFor={`control-${owner.id}`}
-                        className="text-sm font-medium cursor-pointer"
-                      >
-                        Control Person
-                      </label>
-                      <p className="text-xs text-muted-foreground">
-                        Individual with significant responsibility for managing the business (e.g., CEO, CFO, Managing Member)
-                      </p>
-                    </div>
+                    {(() => {
+                      // Check if another owner is already the control person
+                      const anotherOwnerIsControlPerson = owners.some(o => o.id !== owner.id && o.isControlPerson);
+                      const isDisabled = disabled || (anotherOwnerIsControlPerson && !owner.isControlPerson);
+                      
+                      return (
+                        <>
+                          <Checkbox
+                            id={`control-${owner.id}`}
+                            checked={owner.isControlPerson}
+                            onCheckedChange={(checked) => updateOwner(owner.id, { isControlPerson: !!checked })}
+                            disabled={isDisabled}
+                          />
+                          <div className="grid gap-1.5 leading-none">
+                            <label
+                              htmlFor={`control-${owner.id}`}
+                              className={cn(
+                                "text-sm font-medium",
+                                isDisabled ? "text-muted-foreground cursor-not-allowed" : "cursor-pointer"
+                              )}
+                            >
+                              Control Person
+                              {anotherOwnerIsControlPerson && !owner.isControlPerson && (
+                                <span className="ml-2 text-xs text-muted-foreground">(already assigned)</span>
+                              )}
+                            </label>
+                            <p className="text-xs text-muted-foreground">
+                              Individual with significant responsibility for managing the business (e.g., CEO, CFO, Managing Member)
+                            </p>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
 
                   {requiresSignature && (
