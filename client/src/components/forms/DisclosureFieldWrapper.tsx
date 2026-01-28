@@ -12,6 +12,8 @@ interface DisclosureConfig {
   orderPriority: number;
   isRequired: boolean;
   requiresSignature: boolean;
+  requiresInitials?: boolean;
+  maxSigners?: number;
   linkedSignatureGroupKey?: string;
 }
 

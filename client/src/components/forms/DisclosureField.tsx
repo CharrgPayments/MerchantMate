@@ -28,7 +28,8 @@ interface DisclosureConfig {
   orderPriority: number;
   isRequired: boolean;
   requiresSignature: boolean;
-  requiresInitials: boolean;
+  requiresInitials?: boolean;
+  maxSigners?: number;
   linkedSignatureGroupKey?: string;
 }
 
@@ -41,19 +42,23 @@ interface DisclosureContent {
   version: string;
 }
 
+interface SignatureSlotData {
+  signerName: string;
+  signatureData: string;
+  signatureType: 'drawn' | 'typed';
+  email: string;
+  dateSigned: string;
+}
+
 interface DisclosureData {
   scrollStartedAt?: string;
   scrollCompletedAt?: string;
   scrollDurationMs?: number;
   scrollPercentage: number;
   acknowledged: boolean;
-  signature?: {
-    signerName: string;
-    signatureData: string;
-    signatureType: 'drawn' | 'typed';
-    email: string;
-    dateSigned: string;
-  };
+  signature?: SignatureSlotData;
+  signatures?: { [slotNumber: number]: SignatureSlotData };
+  activeSignerCount?: number;
   initials?: {
     value: string;
     signerName: string;

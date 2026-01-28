@@ -1615,6 +1615,70 @@ export default function EnhancedPdfWizard() {
     
     console.log('✍️ Multi-signer roles detected:', multiSignerRoles);
     
+    // Create dynamic signature slots from fields with maxSigners > 1 and linkedSignatureGroupKey
+    // This handles disclosures and other fields that need multiple signers
+    template.fieldConfiguration.sections.forEach((section: any, sectionIdx: number) => {
+      section.fields.forEach((field: any, fieldIdx: number) => {
+        const maxSigners = field.maxSigners || 1;
+        const linkedKey = field.linkedSignatureGroupKey;
+        
+        if (maxSigners > 1 && linkedKey) {
+          console.log(`✍️ Creating dynamic signature slots for field ${field.id}: ${maxSigners} max signers, key=${linkedKey}`);
+          
+          // Create signature slots for each potential signer
+          for (let slot = 1; slot <= maxSigners; slot++) {
+            const roleKey = `${linkedKey}${slot}`;
+            const groupKey = `${field.id}_signature_${roleKey}`;
+            
+            // Add to signature groups
+            if (!autoDetectedSignatureGroups[groupKey]) {
+              const label = `${linkedKey.charAt(0).toUpperCase() + linkedKey.slice(1)} ${slot}`;
+              autoDetectedSignatureGroups[groupKey] = {
+                roleKey,
+                label: `${label} Signature`,
+                sectionName: section.title,
+                fieldMappings: {
+                  signerName: `${groupKey}.signerName`,
+                  signature: `${groupKey}.signature`,
+                  email: `${groupKey}.email`,
+                  dateSigned: `${groupKey}.dateSigned`,
+                },
+                isMultiSigner: true,
+                baseRoleKey: linkedKey,
+                slotNumber: slot,
+                maxSlots: maxSigners,
+                availableSlots: Array.from({ length: maxSigners }, (_, i) => i + 1),
+                linkedFieldId: field.id, // Track which field this signature is linked to
+              };
+              
+              // Track position for proper placement
+              signatureGroupPositions[groupKey] = {
+                sectionTitle: section.title,
+                position: sectionIdx * 100 + fieldIdx + slot * 0.1 // Slightly after the parent field
+              };
+            }
+            
+            // Track in multiSignerRoles
+            if (!multiSignerRoles[linkedKey]) {
+              multiSignerRoles[linkedKey] = {
+                slots: [],
+                baseRoleKey: linkedKey,
+                sectionName: section.title,
+              };
+            }
+            if (!multiSignerRoles[linkedKey].slots.includes(slot)) {
+              multiSignerRoles[linkedKey].slots.push(slot);
+            }
+          }
+          
+          // Sort slots
+          multiSignerRoles[linkedKey].slots.sort((a, b) => a - b);
+        }
+      });
+    });
+    
+    console.log('✍️ Multi-signer roles after dynamic creation:', multiSignerRoles);
+    
     const signatureGroups = Object.values(autoDetectedSignatureGroups);
     console.log('✍️ Auto-detected signature groups:', signatureGroups);
     console.log('✍️ Signature field IDs to filter out:', Array.from(signatureFieldIdsToFilter));
@@ -1744,24 +1808,48 @@ export default function EnhancedPdfWizard() {
         
         // Only proceed if there are signature groups in this section
         if (sigGroupsForSection.length > 0) {
-          // Sort by original position to maintain relative order
-          sigGroupsForSection.sort((a, b) => a.originalPosition - b.originalPosition);
+          // Separate linked vs unlinked signature groups
+          const linkedSigGroups = sigGroupsForSection.filter(({ group }) => group.linkedFieldId);
+          const unlinkedSigGroups = sigGroupsForSection.filter(({ group }) => !group.linkedFieldId);
           
-          // Add all signature groups at the END of the section
-          sigGroupsForSection.forEach(({ group, originalPosition, groupKey }) => {
+          // Insert linked signature groups right after their linked field
+          linkedSigGroups.forEach(({ group, originalPosition, groupKey }) => {
+            // Find the index of the linked field
+            const linkedFieldIndex = fieldsWithGroups.findIndex((f: any) => f.id === group.linkedFieldId);
+            if (linkedFieldIndex !== -1) {
+              console.log(`✍️ Inserting signatureGroup "${groupKey}" after linked field "${group.linkedFieldId}"`);
+              
+              const enrichedConfig = {
+                ...group,
+                groupKey,
+                prefix: groupKey.split('_signature_')[0],
+                sectionName: section.title,
+              };
+              
+              // Insert right after the linked field
+              fieldsWithGroups.splice(linkedFieldIndex + 1, 0, {
+                id: `signatureGroup_${groupKey}`,
+                label: group.label || `${group.roleKey} Signature`,
+                type: 'signatureGroup',
+                signatureGroupConfig: enrichedConfig,
+              });
+            }
+          });
+          
+          // Add unlinked signature groups at the end (original behavior)
+          unlinkedSigGroups.sort((a, b) => a.originalPosition - b.originalPosition);
+          unlinkedSigGroups.forEach(({ group, originalPosition, groupKey }) => {
             console.log(`✍️ Adding signatureGroup "${groupKey}" at END of section "${section.title}" (original position was: ${originalPosition})`);
             
-            // Enrich the signature group config with metadata for downstream rendering
             const enrichedConfig = {
               ...group,
-              groupKey, // Unique identifier for this signature group
-              prefix: groupKey.split('_signature_')[0], // Extract prefix (e.g., merchantInformation)
+              groupKey,
+              prefix: groupKey.split('_signature_')[0],
               sectionName: section.title,
             };
             
-            // Push to end instead of splicing at calculated position
             fieldsWithGroups.push({
-              id: `signatureGroup_${groupKey}`, // Unique ID using full groupKey
+              id: `signatureGroup_${groupKey}`,
               label: group.label || `${group.roleKey} Signature`,
               type: 'signatureGroup',
               signatureGroupConfig: enrichedConfig,
@@ -1818,6 +1906,10 @@ export default function EnhancedPdfWizard() {
             disclosureVersion: field.disclosureVersion || null,
             disclosureDefinitionId: field.disclosureDefinitionId || null,
             requiresSignature: field.requiresSignature,
+            requiresInitials: field.requiresInitials,
+            // Multi-signer configuration
+            maxSigners: field.maxSigners || 1,
+            linkedSignatureGroupKey: field.linkedSignatureGroupKey || '',
           };
         })
       };
@@ -5149,6 +5241,9 @@ export default function EnhancedPdfWizard() {
           orderPriority: field.position,
           isRequired: fieldIsRequired,
           requiresSignature: disclosureField.requiresSignature !== false,
+          requiresInitials: disclosureField.requiresInitials === true,
+          maxSigners: disclosureField.maxSigners || 1,
+          linkedSignatureGroupKey: disclosureField.linkedSignatureGroupKey || '',
         };
         
         // Use configured disclosure content, or fall back to description/placeholder

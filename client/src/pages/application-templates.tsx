@@ -2995,6 +2995,47 @@ function FieldConfigurationDialog({
                       When enabled, users must sign (draw or type) after scrolling through the disclosure.
                     </p>
 
+                    {/* Multi-Signer Configuration - only show when signature is required */}
+                    {editingField.requiresSignature && (
+                      <div className="ml-6 mt-3 space-y-3 border-l-2 border-indigo-200 pl-4">
+                        <div>
+                          <label className="text-sm font-medium mb-1 block">Maximum Signers</label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={10}
+                            value={editingField.maxSigners || 1}
+                            onChange={(e) => setEditingField({
+                              ...editingField,
+                              maxSigners: Math.min(10, Math.max(1, parseInt(e.target.value) || 1))
+                            })}
+                            className="w-24 h-8"
+                            data-testid="input-max-signers"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            How many people can sign this field? (e.g., 2 for personal guarantors)
+                          </p>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium mb-1 block">Signature Group Key</label>
+                          <Input
+                            type="text"
+                            placeholder="e.g., guarantor, owner, witness"
+                            value={editingField.linkedSignatureGroupKey || ''}
+                            onChange={(e) => setEditingField({
+                              ...editingField,
+                              linkedSignatureGroupKey: e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '')
+                            })}
+                            className="h-8"
+                            data-testid="input-signature-group-key"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Unique identifier for the signature group (e.g., "guarantor" creates guarantor1, guarantor2, etc.)
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Requires Initials Toggle */}
                     <div className="flex items-center space-x-2">
                       <Checkbox
