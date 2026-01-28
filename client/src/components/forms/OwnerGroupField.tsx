@@ -132,16 +132,29 @@ export default function OwnerGroupField({
   const limitedInitialValue = value.length > 0 ? value.slice(0, maxOwners) : [createEmptyOwner()];
   const [owners, setOwners] = useState<Owner[]>(limitedInitialValue);
   const [expandedOwners, setExpandedOwners] = useState<Set<string>>(new Set(limitedInitialValue.map(o => o.id)));
+  
+  // Track whether we're syncing from props to prevent infinite loops
+  const isSyncingFromProps = useRef(false);
+  const prevValueRef = useRef<string>('');
 
   useEffect(() => {
-    if (value.length > 0 && JSON.stringify(value) !== JSON.stringify(owners)) {
+    const valueJson = JSON.stringify(value);
+    // Only sync from props if value actually changed from external source
+    if (value.length > 0 && valueJson !== prevValueRef.current && valueJson !== JSON.stringify(owners)) {
       // Limit loaded value to maxOwners
       const limitedValue = value.slice(0, maxOwners);
+      isSyncingFromProps.current = true;
       setOwners(limitedValue);
+      prevValueRef.current = valueJson;
     }
   }, [value, maxOwners]);
 
   useEffect(() => {
+    // Skip calling onChange if we're syncing from props (prevents infinite loop)
+    if (isSyncingFromProps.current) {
+      isSyncingFromProps.current = false;
+      return;
+    }
     onChange(owners);
   }, [owners]);
 
