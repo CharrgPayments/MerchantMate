@@ -5218,9 +5218,10 @@ export default function EnhancedPdfWizard() {
                   {filteredSections.map((section, index) => {
                     const IconComponent = section.icon;
                     const isActive = currentStep === index;
-                    const isCompleted = index < currentStep;
-                    const isVisited = Array.from(visitedSections).includes(index);
+                    const isVisited = visitedSections.has(index);
                     const hasValidationIssues = getSectionValidationStatus(index);
+                    // A section is complete if it's been visited and has no validation issues
+                    const isCompleted = isVisited && !hasValidationIssues;
                     const showWarning = isVisited && hasValidationIssues && !isActive;
                     
                     // Debug logging for Merchant Information section
@@ -5251,7 +5252,7 @@ export default function EnhancedPdfWizard() {
                             ? 'bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200 text-blue-800 shadow-md transform scale-[1.02]'
                             : showWarning
                             ? 'bg-gradient-to-r from-yellow-50 to-yellow-100 border-yellow-200 text-yellow-800 hover:shadow-sm'
-                            : isCompleted && !hasValidationIssues
+                            : isCompleted
                             ? 'bg-gradient-to-r from-green-50 to-green-100 border-green-200 text-green-800 hover:shadow-sm'
                             : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100 hover:shadow-sm'
                         } border`}
@@ -5262,7 +5263,7 @@ export default function EnhancedPdfWizard() {
                               ? 'bg-blue-200 shadow-sm' 
                               : showWarning
                               ? 'bg-yellow-200'
-                              : isCompleted && !hasValidationIssues 
+                              : isCompleted 
                               ? 'bg-green-200' 
                               : 'bg-gray-200'
                           }`}>
@@ -5272,7 +5273,7 @@ export default function EnhancedPdfWizard() {
                               <IconComponent className={`w-5 h-5 ${
                                 isActive 
                                   ? 'text-blue-700' 
-                                  : isCompleted && !hasValidationIssues 
+                                  : isCompleted 
                                   ? 'text-green-700' 
                                   : 'text-gray-600'
                               }`} />
@@ -5289,7 +5290,7 @@ export default function EnhancedPdfWizard() {
                           </div>
                           {showWarning ? (
                             <AlertTriangle className="w-5 h-5 text-yellow-600" />
-                          ) : isCompleted && !hasValidationIssues ? (
+                          ) : isCompleted ? (
                             <CheckCircle className="w-5 h-5 text-green-600" />
                           ) : null}
                         </div>
