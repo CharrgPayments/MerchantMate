@@ -60,15 +60,28 @@ interface ProspectPasswordSetupData {
 }
 
 /**
- * Get the base URL for email links.
- * IMPORTANT: All environments (dev, test, prod) use the SAME base URL because
- * the frontend app runs on a single domain. Environment routing is handled via
- * the `?db=<env>` query parameter, NOT different domains.
+ * Get the base URL for email links for a specific environment.
  * 
- * Priority: APP_URL > REPLIT_DOMAINS (production domain) > BASE_URL > localhost
+ * Strategy:
+ * 1. If environment-specific URL is configured (DEV_APP_URL, TEST_APP_URL, APP_URL), use it
+ * 2. Otherwise, fall back to default URL with ?db= query parameter
+ * 
+ * Environment variables:
+ * - DEV_APP_URL: URL for development environment (e.g., https://dev.example.com)
+ * - TEST_APP_URL: URL for test environment (e.g., https://test-crm.charrg.com)
+ * - APP_URL: URL for production environment (e.g., https://crm.charrg.com)
  */
-export function getEmailBaseUrl(): string {
-  // APP_URL is the preferred explicit configuration
+export function getEmailBaseUrl(dbEnv?: string): string {
+  // Check for environment-specific URLs first
+  if (dbEnv === 'development' && process.env.DEV_APP_URL) {
+    return process.env.DEV_APP_URL;
+  }
+  
+  if (dbEnv === 'test' && process.env.TEST_APP_URL) {
+    return process.env.TEST_APP_URL;
+  }
+  
+  // Production or fallback
   if (process.env.APP_URL) {
     return process.env.APP_URL;
   }
@@ -90,15 +103,29 @@ export function getEmailBaseUrl(): string {
 }
 
 /**
+ * Check if an environment has a dedicated URL configured.
+ */
+function hasEnvironmentSpecificUrl(dbEnv?: string): boolean {
+  if (dbEnv === 'development' && process.env.DEV_APP_URL) return true;
+  if (dbEnv === 'test' && process.env.TEST_APP_URL) return true;
+  if (dbEnv === 'production' && process.env.APP_URL) return true;
+  return false;
+}
+
+/**
  * Build a complete URL with optional environment query parameter.
- * For non-production environments, appends ?db=<env> to route to correct database.
+ * 
+ * Strategy:
+ * 1. If environment has dedicated URL, use it WITHOUT ?db= parameter
+ * 2. If no dedicated URL, use default URL WITH ?db= parameter for routing
  */
 export function buildEnvironmentAwareUrl(path: string, dbEnv?: string): string {
-  const baseUrl = getEmailBaseUrl();
+  const baseUrl = getEmailBaseUrl(dbEnv);
   let url = `${baseUrl}${path.startsWith('/') ? path : '/' + path}`;
   
-  // Add environment query parameter for non-production environments
-  if (dbEnv && dbEnv !== 'production') {
+  // Only add ?db= parameter if no dedicated URL is configured for this environment
+  // (and it's not production, which never needs the parameter)
+  if (dbEnv && dbEnv !== 'production' && !hasEnvironmentSpecificUrl(dbEnv)) {
     const separator = url.includes('?') ? '&' : '?';
     url += `${separator}db=${dbEnv}`;
   }
@@ -140,10 +167,8 @@ export class EmailService {
 
   async sendProspectValidationEmail(data: ProspectEmailData): Promise<boolean> {
     try {
-      let validationUrl = `${this.getBaseUrl()}/prospect-validation?token=${data.validationToken}`;
-      if (data.dbEnv && data.dbEnv !== 'production') {
-        validationUrl += `&db=${data.dbEnv}`;
-      }
+      // Use environment-aware URL building (uses dedicated URL if configured, otherwise adds ?db= parameter)
+      const validationUrl = buildEnvironmentAwareUrl(`/prospect-validation?token=${data.validationToken}`, data.dbEnv);
       
       const htmlContent = `
         <!DOCTYPE html>
@@ -246,10 +271,8 @@ This is an automated message. Please do not reply to this email.
 
   async sendSignatureRequestEmail(data: SignatureRequestData): Promise<boolean> {
     try {
-      let signatureUrl = `${this.getBaseUrl()}/signature-request?token=${data.signatureToken}`;
-      if (data.dbEnv && data.dbEnv !== 'production') {
-        signatureUrl += `&db=${data.dbEnv}`;
-      }
+      // Use environment-aware URL building
+      const signatureUrl = buildEnvironmentAwareUrl(`/signature-request?token=${data.signatureToken}`, data.dbEnv);
       
       const htmlContent = `
         <!DOCTYPE html>
@@ -396,11 +419,9 @@ This email was sent to ${data.ownerEmail}
 
   async sendApplicationSubmissionNotification(data: ApplicationSubmissionData, pdfAttachment?: Buffer): Promise<boolean> {
     try {
-      const baseUrl = this.getBaseUrl();
-      let statusUrl = `${baseUrl}/application-status/${data.applicationToken}`;
-      if (data.dbEnv && data.dbEnv !== 'production') {
-        statusUrl += `?db=${data.dbEnv}`;
-      }
+      // Use environment-aware URL building
+      const statusUrl = buildEnvironmentAwareUrl(`/application-status/${data.applicationToken}`, data.dbEnv);
+      const baseUrl = getEmailBaseUrl(data.dbEnv);
       
       // Email to merchant with PDF attachment
       const merchantMsg = {
@@ -531,10 +552,8 @@ This email was sent to ${data.ownerEmail}
 
   async sendPasswordResetEmail(data: PasswordResetEmailData): Promise<boolean> {
     try {
-      let resetUrl = `${this.getBaseUrl()}/auth/reset-password?token=${data.resetToken}`;
-      if (data.dbEnv && data.dbEnv !== 'production') {
-        resetUrl += `&db=${data.dbEnv}`;
-      }
+      // Use environment-aware URL building
+      const resetUrl = buildEnvironmentAwareUrl(`/auth/reset-password?token=${data.resetToken}`, data.dbEnv);
 
       const htmlContent = `
         <!DOCTYPE html>
