@@ -3033,6 +3033,23 @@ function FieldConfigurationDialog({
                             Unique identifier for the signature group (e.g., "guarantor" creates guarantor1, guarantor2, etc.)
                           </p>
                         </div>
+                        <div>
+                          <label className="text-sm font-medium mb-1 block">Signer Label</label>
+                          <Input
+                            type="text"
+                            placeholder="e.g., Merchant Processing Application Signer"
+                            value={editingField.signerLabel || ''}
+                            onChange={(e) => setEditingField({
+                              ...editingField,
+                              signerLabel: e.target.value
+                            })}
+                            className="h-8"
+                            data-testid="input-signer-label"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Display label for signers (e.g., "Merchant Processing Application Signer 1", "...Signer 2", etc.)
+                          </p>
+                        </div>
                       </div>
                     )}
 

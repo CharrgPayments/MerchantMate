@@ -1632,7 +1632,9 @@ export default function EnhancedPdfWizard() {
             
             // Add to signature groups
             if (!autoDetectedSignatureGroups[groupKey]) {
-              const label = `${linkedKey.charAt(0).toUpperCase() + linkedKey.slice(1)} ${slot}`;
+              // Use signerLabel if provided, otherwise fall back to linkedKey-based label
+              const baseLabel = field.signerLabel || `${linkedKey.charAt(0).toUpperCase() + linkedKey.slice(1)}`;
+              const label = `${baseLabel} ${slot}`;
               autoDetectedSignatureGroups[groupKey] = {
                 roleKey,
                 label: `${label} Signature`,
@@ -1649,6 +1651,7 @@ export default function EnhancedPdfWizard() {
                 maxSlots: maxSigners,
                 availableSlots: Array.from({ length: maxSigners }, (_, i) => i + 1),
                 linkedFieldId: field.id, // Track which field this signature is linked to
+                signerLabel: field.signerLabel, // Custom label from template config
               };
               
               // Track position for proper placement
@@ -1664,6 +1667,7 @@ export default function EnhancedPdfWizard() {
                 slots: [],
                 baseRoleKey: linkedKey,
                 sectionName: section.title,
+                signerLabel: field.signerLabel, // Custom label from template config
               };
             }
             if (!multiSignerRoles[linkedKey].slots.includes(slot)) {
@@ -5218,7 +5222,7 @@ export default function EnhancedPdfWizard() {
                       data-testid={`add-${baseRole}-btn`}
                     >
                       <Plus className="h-4 w-4 mr-2" />
-                      Add Another {sigGroupConfig.baseRoleKey.charAt(0).toUpperCase() + sigGroupConfig.baseRoleKey.slice(1)}
+                      Add Another {sigGroupConfig.signerLabel || (sigGroupConfig.baseRoleKey.charAt(0).toUpperCase() + sigGroupConfig.baseRoleKey.slice(1))}
                     </Button>
                   );
                 }
