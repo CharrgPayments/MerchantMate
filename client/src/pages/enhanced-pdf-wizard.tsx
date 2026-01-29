@@ -5237,6 +5237,7 @@ export default function EnhancedPdfWizard() {
         // Disclosure field with scrollable content and signature requirement
         // Access extended field properties from the template
         const disclosureField = field as any;
+        const hasMultiSigner = (disclosureField.maxSigners || 1) > 1 && disclosureField.linkedSignatureGroupKey;
         const disclosureConfig = {
           key: field.fieldName,
           disclosureSlug: field.fieldName.replace('disclosures.', ''),
@@ -5244,7 +5245,8 @@ export default function EnhancedPdfWizard() {
           sectionName: field.section || 'Disclosures',
           orderPriority: field.position,
           isRequired: fieldIsRequired,
-          requiresSignature: disclosureField.requiresSignature !== false,
+          // When multi-signer is configured, disable inline signature - signature slots handle it
+          requiresSignature: hasMultiSigner ? false : (disclosureField.requiresSignature !== false),
           requiresInitials: disclosureField.requiresInitials === true,
           maxSigners: disclosureField.maxSigners || 1,
           linkedSignatureGroupKey: disclosureField.linkedSignatureGroupKey || '',
