@@ -5752,12 +5752,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Find the prospect owner by signature token
+      // First try the new signature_captures system
+      const signatureCapture = await envStorage.getSignatureCaptureByToken(signatureToken);
+      if (signatureCapture) {
+        // Check if already signed
+        if (signatureCapture.status === 'signed') {
+          return res.status(400).json({
+            success: false,
+            message: "This signature request has already been signed"
+          });
+        }
+        
+        // Check if expired
+        if (signatureCapture.timestampExpires && signatureCapture.timestampExpires < new Date()) {
+          return res.status(410).json({
+            success: false,
+            message: "This signature request has expired"
+          });
+        }
+        
+        // Update the signature capture record with the signature data
+        await envStorage.updateSignatureCapture(signatureCapture.id, {
+          signature,
+          signatureType: signatureType || 'drawn',
+          status: 'signed',
+          dateSigned: new Date(),
+          timestampSigned: new Date(),
+        });
+        
+        console.log(`Signature capture submitted for token: ${signatureToken}`);
+        console.log(`Signature type: ${signatureType}`);
+        console.log(`Signer: ${signatureCapture.signerName} (${signatureCapture.signerEmail})`);
+
+        // Also save the signature into the prospect's form data if applicable
+        if (signatureCapture.prospectId) {
+          try {
+            const prospect = await envStorage.getMerchantProspect(signatureCapture.prospectId);
+            if (prospect?.formData) {
+              const formData = JSON.parse(prospect.formData);
+              // Store signature under the role key for the application form to pick up
+              const sigGroupKey = `signatureGroup_${signatureCapture.roleKey}`;
+              let existingGroup: any = {};
+              if (formData[sigGroupKey]) {
+                try { existingGroup = JSON.parse(formData[sigGroupKey]); } catch(e) {}
+              }
+              existingGroup.signature = signature;
+              existingGroup.signatureType = signatureType || 'drawn';
+              existingGroup.signerName = signatureCapture.signerName;
+              existingGroup.signerEmail = signatureCapture.signerEmail;
+              existingGroup.dateSigned = new Date().toISOString();
+              formData[sigGroupKey] = JSON.stringify(existingGroup);
+              
+              await envStorage.updateMerchantProspect(signatureCapture.prospectId, {
+                formData: JSON.stringify(formData)
+              });
+              console.log(`Updated prospect ${signatureCapture.prospectId} form data with signature for ${sigGroupKey}`);
+            }
+          } catch (e) {
+            console.error('Error saving signature to prospect form data:', e);
+          }
+        }
+
+        return res.json({ 
+          success: true, 
+          message: "Signature submitted successfully" 
+        });
+      }
+
+      // Fallback: Find the prospect owner by signature token (legacy system)
       const owner = await envStorage.getProspectOwnerBySignatureToken(signatureToken);
       if (!owner) {
         return res.status(404).json({ 
           success: false, 
-          message: "Invalid signature token" 
+          message: "Invalid signature request token" 
         });
       }
 
@@ -5889,28 +5956,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (prospect.formData) {
               try {
                 const formData = JSON.parse(prospect.formData);
-                companyName = formData.companyName || formData.merchant_company_name || companyName;
                 
-                // Build a readable application summary from key form fields
+                // Helper to find a value by checking multiple possible key patterns
+                // Form data uses hierarchical dot-notation keys (e.g., merchant.companyName, merchant.location.address)
+                // Excludes signature group keys, internal keys, and non-string values
+                const formKeys = Object.keys(formData).filter(k => 
+                  !k.startsWith('signatureGroup_') && !k.startsWith('_') && !k.startsWith('owners')
+                );
+                const findValue = (...patterns: string[]): string => {
+                  for (const pattern of patterns) {
+                    if (formData[pattern] && typeof formData[pattern] === 'string') return formData[pattern];
+                    const matchKey = formKeys.find(k => k.endsWith(`.${pattern}`));
+                    if (matchKey && typeof formData[matchKey] === 'string') return formData[matchKey];
+                  }
+                  return '';
+                };
+                
+                const foundCompanyName = findValue('companyName', 'company_name', 'legalName', 'businessName');
+                if (foundCompanyName) companyName = foundCompanyName;
+                
+                const addressParts = [
+                  findValue('street1', 'location.address', 'address'),
+                  findValue('city'),
+                  findValue('state', 'companyStateFiled'),
+                  findValue('zipCode', 'zip', 'postalCode'),
+                ].filter(Boolean);
+                
+                const taxId = findValue('federalTaxId', 'taxId', 'ein');
+                
                 const summaryFields: Record<string, string> = {
-                  'Company Name': formData.companyName || formData.merchant_company_name || '',
-                  'DBA Name': formData.dbaName || formData.merchant_dba_name || '',
-                  'Business Type': formData.businessType || formData.merchant_business_type || '',
-                  'Business Phone': formData.businessPhone || formData.merchant_phone || '',
-                  'Business Address': [
-                    formData['businessAddress.street'] || formData.merchant_address_street || '',
-                    formData['businessAddress.city'] || formData.merchant_address_city || '',
-                    formData['businessAddress.state'] || formData.merchant_address_state || '',
-                    formData['businessAddress.zip'] || formData.merchant_address_zip || '',
-                  ].filter(Boolean).join(', '),
-                  'Federal Tax ID': formData.federalTaxId ? '****' + formData.federalTaxId.slice(-4) : '',
-                  'Annual Revenue': formData.annualRevenue || formData.estimatedAnnualRevenue || '',
-                  'Average Transaction': formData.averageTicket || formData.averageTransactionAmount || '',
+                  'Company Name': foundCompanyName,
+                  'DBA Name': findValue('dbaName', 'dba_name', 'dba'),
+                  'Business Type': findValue('businessType', 'business_type', 'entityType'),
+                  'Business Phone': findValue('businessPhone', 'phoneNumber'),
+                  'Business Address': addressParts.join(', '),
+                  'Federal Tax ID': taxId ? '****' + taxId.slice(-4) : '',
+                  'Annual Revenue': findValue('annualRevenue', 'estimatedAnnualRevenue', 'annualSales'),
+                  'Average Transaction': findValue('averageTicket', 'averageTransactionAmount', 'avgTicket'),
+                  'Years in Business': findValue('yearsInBusiness', 'years_in_business'),
+                  'Website': findValue('website', 'websiteUrl'),
                 };
                 
                 applicationSummary = Object.entries(summaryFields)
                   .filter(([_, value]) => value && value.trim())
                   .map(([label, value]) => ({ label, value }));
+                  
+                if (applicationSummary.length === 0) {
+                  console.log('⚠️ No summary fields extracted from form data. Available keys:', formKeys.slice(0, 20));
+                }
               } catch (e) {
                 console.error('Error parsing form data:', e);
               }
@@ -5998,24 +6091,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Parse form data to get company name and application summary
       let formData: any = {};
       let applicationSummary: any[] = [];
+      let foundCompanyName = '';
       if (prospect.formData) {
         try {
           formData = JSON.parse(prospect.formData);
           
+          // Helper to find a value by checking multiple possible key patterns
+          const legacyKeys = Object.keys(formData).filter(k => 
+            !k.startsWith('signatureGroup_') && !k.startsWith('_') && !k.startsWith('owners')
+          );
+          const findVal = (...patterns: string[]): string => {
+            for (const pattern of patterns) {
+              if (formData[pattern] && typeof formData[pattern] === 'string') return formData[pattern];
+              const matchKey = legacyKeys.find(k => k.endsWith(`.${pattern}`));
+              if (matchKey && typeof formData[matchKey] === 'string') return formData[matchKey];
+            }
+            return '';
+          };
+          
+          foundCompanyName = findVal('companyName', 'company_name', 'legalName', 'businessName');
+          const addressParts = [
+            findVal('street1', 'location.address', 'address'),
+            findVal('city'),
+            findVal('state', 'companyStateFiled'),
+            findVal('zipCode', 'zip', 'postalCode'),
+          ].filter(Boolean);
+          const taxId = findVal('federalTaxId', 'taxId', 'ein');
+          
           const summaryFields: Record<string, string> = {
-            'Company Name': formData.companyName || formData.merchant_company_name || '',
-            'DBA Name': formData.dbaName || formData.merchant_dba_name || '',
-            'Business Type': formData.businessType || formData.merchant_business_type || '',
-            'Business Phone': formData.businessPhone || formData.merchant_phone || '',
-            'Business Address': [
-              formData['businessAddress.street'] || formData.merchant_address_street || '',
-              formData['businessAddress.city'] || formData.merchant_address_city || '',
-              formData['businessAddress.state'] || formData.merchant_address_state || '',
-              formData['businessAddress.zip'] || formData.merchant_address_zip || '',
-            ].filter(Boolean).join(', '),
-            'Federal Tax ID': formData.federalTaxId ? '****' + formData.federalTaxId.slice(-4) : '',
-            'Annual Revenue': formData.annualRevenue || formData.estimatedAnnualRevenue || '',
-            'Average Transaction': formData.averageTicket || formData.averageTransactionAmount || '',
+            'Company Name': foundCompanyName,
+            'DBA Name': findVal('dbaName', 'dba_name', 'dba'),
+            'Business Type': findVal('businessType', 'business_type', 'entityType'),
+            'Business Phone': findVal('businessPhone', 'phoneNumber'),
+            'Business Address': addressParts.join(', '),
+            'Federal Tax ID': taxId ? '****' + taxId.slice(-4) : '',
+            'Annual Revenue': findVal('annualRevenue', 'estimatedAnnualRevenue', 'annualSales'),
+            'Average Transaction': findVal('averageTicket', 'averageTransactionAmount', 'avgTicket'),
+            'Years in Business': findVal('yearsInBusiness', 'years_in_business'),
+            'Website': findVal('website', 'websiteUrl'),
           };
           
           applicationSummary = Object.entries(summaryFields)
@@ -6033,7 +6146,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ 
         success: true, 
         applicationContext: {
-          companyName: formData.companyName || `${prospect.firstName} ${prospect.lastName}`,
+          companyName: foundCompanyName || `${prospect.firstName} ${prospect.lastName}`,
           applicantName: `${prospect.firstName} ${prospect.lastName}`,
           applicantEmail: prospect.email,
           agentName: agent ? `${agent.firstName} ${agent.lastName}` : 'Unknown Agent',
