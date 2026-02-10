@@ -2208,29 +2208,18 @@ export default function EnhancedPdfWizard() {
     }
   }
 
-  // Initialize visitedSections based on which sections are already complete (have all required fields filled)
-  // This runs after form data is loaded to properly show completion status for previously filled sections
+  // Mark only the current step as visited on initial load
+  // Sections should only show completion status after the user has actually navigated to them
   useEffect(() => {
-    if (!initialDataLoaded || filteredSections.length === 0 || Object.keys(formData).length === 0) {
+    if (!initialDataLoaded || filteredSections.length === 0) {
       return;
     }
-    
-    // Check each section and mark as visited if it has no validation issues
-    const completeSections = new Set<number>();
-    for (let i = 0; i < filteredSections.length; i++) {
-      const hasErrors = getSectionValidationStatus(i);
-      if (!hasErrors) {
-        completeSections.add(i);
-      }
-    }
-    
-    // Also always include the current step as visited
-    completeSections.add(currentStep);
-    
-    if (completeSections.size > 0) {
-      console.log('Auto-marking complete sections as visited:', Array.from(completeSections));
-      setVisitedSections(prev => new Set([...Array.from(prev), ...Array.from(completeSections)]));
-    }
+    setVisitedSections(prev => {
+      if (prev.has(currentStep)) return prev;
+      const newVisited = new Set(prev);
+      newVisited.add(currentStep);
+      return newVisited;
+    });
   }, [initialDataLoaded, filteredSections.length]);
 
   // Fetch address suggestions using Google Places Autocomplete API
@@ -5550,17 +5539,6 @@ export default function EnhancedPdfWizard() {
                     // A section is complete if it's been visited and has no validation issues
                     const isCompleted = isVisited && !hasValidationIssues;
                     const showWarning = isVisited && hasValidationIssues && !isActive;
-                    
-                    // Debug logging for Merchant Information section
-                    if (section.name === 'Merchant Information') {
-                      console.log(`Section ${index} (${section.name}) status:`, {
-                        isVisited,
-                        hasValidationIssues,
-                        showWarning,
-                        isActive,
-                        visitedSections: Array.from(visitedSections)
-                      });
-                    }
                     
                     return (
                       <button
