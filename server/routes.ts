@@ -6059,6 +6059,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             }
             
+            // If no disclosure content in notes, try to look it up from the prospect's template
+            if (!disclosureContent && prospect?.applicationTemplateId) {
+              try {
+                const template = await envStorage.getApplicationTemplate(prospect.applicationTemplateId);
+                if (template?.fieldConfiguration) {
+                  const config = typeof template.fieldConfiguration === 'string' 
+                    ? JSON.parse(template.fieldConfiguration) 
+                    : template.fieldConfiguration;
+                  // Search all sections for disclosure fields associated with this signature
+                  for (const section of (config.sections || [])) {
+                    for (const templateField of (section.fields || [])) {
+                      if (templateField.fieldType === 'disclosure') {
+                        // Check if this disclosure is linked to this signature group
+                        const roleKey = signatureCapture.roleKey;
+                        const linkedKey = templateField.linkedSignatureGroupKey || '';
+                        const isLinked = linkedKey && (
+                          roleKey.includes(linkedKey) || 
+                          roleKey.startsWith(`${templateField.id}_signature_`)
+                        );
+                        // Also match if in same section
+                        const isInSameSection = sectionName && section.title === sectionName;
+                        
+                        if (isLinked || (isInSameSection && !disclosureContent)) {
+                          disclosureContent = templateField.disclosureContent || templateField.description || '';
+                          disclosureTitle = templateField.disclosureTitle || templateField.label || templateField.fieldLabel || '';
+                        }
+                      }
+                    }
+                  }
+                }
+              } catch (e) {
+                console.error('Error looking up disclosure from template:', e);
+              }
+            }
+            
             signerContext = {
               roleKey: signatureCapture.roleKey,
               signerType: signatureCapture.signerType,
