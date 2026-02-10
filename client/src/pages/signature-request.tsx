@@ -351,9 +351,18 @@ export default function SignatureRequest() {
                 <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
                   <Shield className="w-5 h-5 text-amber-600" />
                 </div>
-                <div>
+                <div className="flex-1">
                   <p className="font-semibold text-sm">What You're Signing</p>
-                  <p className="text-sm text-gray-600 mt-1">
+                  {applicationContext.signerContext.fieldLabel && (
+                    <div className="mt-2 bg-white border border-amber-200 rounded-lg px-3 py-2">
+                      <p className="text-xs text-gray-500 uppercase tracking-wide">Signature Field</p>
+                      <p className="font-semibold text-sm text-amber-900">{applicationContext.signerContext.fieldLabel}</p>
+                      {applicationContext.signerContext.sectionName && (
+                        <p className="text-xs text-gray-500 mt-0.5">Section: {applicationContext.signerContext.sectionName}</p>
+                      )}
+                    </div>
+                  )}
+                  <p className="text-sm text-gray-600 mt-2">
                     You are signing as <strong>{applicationContext.signerContext.signerName}</strong>
                     {applicationContext.signerContext.signerType === 'owner' && (
                       <> in your capacity as a business owner/principal of <strong>{applicationContext.companyName}</strong></>
