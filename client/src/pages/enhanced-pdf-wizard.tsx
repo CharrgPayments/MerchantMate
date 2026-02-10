@@ -5085,8 +5085,36 @@ export default function EnhancedPdfWizard() {
                 const currentSectionName = filteredSections[currentStep]?.name || '';
                 
                 // Check if this signature group is linked to a disclosure field
-                const sigDisclosureContent = sigGroupConfig.isDisclosure ? sigGroupConfig.disclosureContent : undefined;
-                const sigDisclosureTitle = sigGroupConfig.isDisclosure ? sigGroupConfig.disclosureTitle : undefined;
+                // First check the group config itself (for multi-signer disclosure-linked groups)
+                let sigDisclosureContent = sigGroupConfig.isDisclosure ? sigGroupConfig.disclosureContent : undefined;
+                let sigDisclosureTitle = sigGroupConfig.isDisclosure ? sigGroupConfig.disclosureTitle : undefined;
+                
+                // If not found, search the current section for a disclosure field
+                // that references this signature group via linkedSignatureGroupKey
+                if (!sigDisclosureContent) {
+                  const currentSectionFields = filteredSections[currentStep]?.fields || [];
+                  const linkedDisclosure = currentSectionFields.find((f: any) => 
+                    f.fieldType === 'disclosure' && (
+                      f.linkedSignatureGroupKey === sigGroupConfig.baseRoleKey ||
+                      f.linkedSignatureGroupKey === sigGroupConfig.roleKey ||
+                      f.linkedSignatureGroupKey === sigGroupConfig.groupKey
+                    )
+                  );
+                  if (linkedDisclosure) {
+                    sigDisclosureContent = linkedDisclosure.disclosureContent || linkedDisclosure.description || undefined;
+                    sigDisclosureTitle = linkedDisclosure.disclosureTitle || linkedDisclosure.fieldLabel || undefined;
+                  }
+                }
+                
+                // Last resort: if the section has exactly one disclosure field, use it
+                if (!sigDisclosureContent) {
+                  const currentSectionFields = filteredSections[currentStep]?.fields || [];
+                  const disclosureFields = currentSectionFields.filter((f: any) => f.fieldType === 'disclosure');
+                  if (disclosureFields.length === 1) {
+                    sigDisclosureContent = disclosureFields[0].disclosureContent || disclosureFields[0].description || undefined;
+                    sigDisclosureTitle = disclosureFields[0].disclosureTitle || disclosureFields[0].fieldLabel || undefined;
+                  }
+                }
                 
                 // Call the mutation
                 const result = await signatureRequestMutation.mutateAsync({
