@@ -23,7 +23,7 @@ import { setupEnvironmentRoutes } from "./environmentRoutes";
 import { getDynamicDatabase, db } from "./db";
 import { users, agents, merchants, agentMerchants, companies, addresses, companyAddresses, acquirerApplicationTemplates, merchantProspects, campaignApplicationTemplates } from "@shared/schema";
 import crypto from "crypto";
-import { eq, or, ilike, sql, inArray } from "drizzle-orm";
+import { eq, or, ilike, sql, inArray, and } from "drizzle-orm";
 
 // Helper functions for user account creation
 async function generateUsername(firstName: string, lastName: string, email: string, dynamicDB: any): Promise<string> {
@@ -6094,9 +6094,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     : templateConfig;
                   // Search all sections for disclosure fields associated with this signature
                   const roleKey = signatureCapture.roleKey;
+                  let matchedDisclosureDefinitionId: number | null = null;
                   for (const section of (config.sections || [])) {
                     for (const templateField of (section.fields || [])) {
-                      if (templateField.fieldType === 'disclosure') {
+                      // Templates store disclosure type as field.type (not fieldType)
+                      const isDisclosure = templateField.type === 'disclosure' || templateField.fieldType === 'disclosure';
+                      if (isDisclosure) {
                         // Check if this disclosure is linked to this signature group
                         const linkedKey = templateField.linkedSignatureGroupKey || '';
                         const isLinked = linkedKey && (
@@ -6107,10 +6110,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
                         const isInSameSection = sectionName && section.title === sectionName;
                         
                         if (isLinked || (isInSameSection && !disclosureContent)) {
-                          disclosureContent = templateField.disclosureContent || templateField.description || '';
                           disclosureTitle = templateField.disclosureTitle || templateField.label || templateField.fieldLabel || '';
+                          // For versioned disclosures, content comes from disclosure_versions table
+                          if (templateField.disclosureDefinitionId) {
+                            matchedDisclosureDefinitionId = templateField.disclosureDefinitionId;
+                          } else {
+                            disclosureContent = templateField.disclosureContent || templateField.description || '';
+                          }
                         }
                       }
+                    }
+                  }
+                  
+                  // Look up versioned disclosure content from disclosure_versions table
+                  if (matchedDisclosureDefinitionId && !disclosureContent) {
+                    try {
+                      const { disclosureVersions } = await import("@shared/schema");
+                      const versionResults = await dynamicDB
+                        .select({ 
+                          content: disclosureVersions.content,
+                          title: disclosureVersions.title
+                        })
+                        .from(disclosureVersions)
+                        .where(and(
+                          eq(disclosureVersions.definitionId, matchedDisclosureDefinitionId),
+                          eq(disclosureVersions.isCurrentVersion, true)
+                        ))
+                        .limit(1);
+                      if (versionResults?.length && versionResults[0].content) {
+                        disclosureContent = versionResults[0].content;
+                        if (!disclosureTitle && versionResults[0].title) {
+                          disclosureTitle = versionResults[0].title;
+                        }
+                      }
+                    } catch (verErr) {
+                      console.error('Error looking up disclosure version content:', verErr);
                     }
                   }
                 }
