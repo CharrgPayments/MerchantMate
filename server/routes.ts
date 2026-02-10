@@ -6060,19 +6060,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
             
             // If no disclosure content in notes, try to look it up from the prospect's template
-            if (!disclosureContent && prospect?.applicationTemplateId) {
+            if (!disclosureContent && prospect) {
               try {
-                const template = await envStorage.getApplicationTemplate(prospect.applicationTemplateId);
-                if (template?.fieldConfiguration) {
-                  const config = typeof template.fieldConfiguration === 'string' 
-                    ? JSON.parse(template.fieldConfiguration) 
-                    : template.fieldConfiguration;
+                // Look up template through prospect_applications table first, then campaign assignment
+                const dynamicDB = getRequestDB(req);
+                const { prospectApplications: paTable, acquirerApplicationTemplates: aatTable, campaignAssignments, campaignApplicationTemplates } = await import("@shared/schema");
+                
+                let appResults = await dynamicDB
+                  .select({ fieldConfiguration: aatTable.fieldConfiguration })
+                  .from(paTable)
+                  .innerJoin(aatTable, eq(paTable.templateId, aatTable.id))
+                  .where(eq(paTable.prospectId, prospect.id))
+                  .limit(1);
+                
+                // Fallback: try campaign assignment -> campaign_application_templates -> template
+                if (!appResults?.length) {
+                  const campaignResults = await dynamicDB
+                    .select({ fieldConfiguration: aatTable.fieldConfiguration })
+                    .from(campaignAssignments)
+                    .innerJoin(campaignApplicationTemplates, eq(campaignAssignments.campaignId, campaignApplicationTemplates.campaignId))
+                    .innerJoin(aatTable, eq(campaignApplicationTemplates.templateId, aatTable.id))
+                    .where(eq(campaignAssignments.prospectId, prospect.id))
+                    .limit(1);
+                  if (campaignResults?.length) {
+                    appResults = campaignResults;
+                  }
+                }
+                
+                const templateConfig = appResults?.[0]?.fieldConfiguration;
+                if (templateConfig) {
+                  const config = typeof templateConfig === 'string' 
+                    ? JSON.parse(templateConfig) 
+                    : templateConfig;
                   // Search all sections for disclosure fields associated with this signature
+                  const roleKey = signatureCapture.roleKey;
                   for (const section of (config.sections || [])) {
                     for (const templateField of (section.fields || [])) {
                       if (templateField.fieldType === 'disclosure') {
                         // Check if this disclosure is linked to this signature group
-                        const roleKey = signatureCapture.roleKey;
                         const linkedKey = templateField.linkedSignatureGroupKey || '';
                         const isLinked = linkedKey && (
                           roleKey.includes(linkedKey) || 
