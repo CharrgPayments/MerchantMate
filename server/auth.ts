@@ -735,9 +735,12 @@ export class AuthService {
   }
 
   // Request password reset
-  async requestPasswordReset(data: PasswordResetRequest, dbEnv?: string): Promise<{ success: boolean; message: string }> {
+  async requestPasswordReset(data: PasswordResetRequest, dbEnv?: string, dynamicDB?: any): Promise<{ success: boolean; message: string }> {
     try {
-      const user = await storage.getUserByUsernameOrEmail(data.usernameOrEmail, data.usernameOrEmail);
+      // Use dynamic database if provided to ensure correct environment isolation
+      const activeStorage = dynamicDB ? new DatabaseStorage(dynamicDB) : storage;
+      
+      const user = await activeStorage.getUserByUsernameOrEmail(data.usernameOrEmail, data.usernameOrEmail);
       if (!user) {
         // Don't reveal if user exists or not
         return {
@@ -750,8 +753,8 @@ export class AuthService {
       const resetToken = this.generateToken();
       const resetExpires = new Date(Date.now() + PASSWORD_RESET_EXPIRES);
 
-      // Save reset token
-      await storage.updateUser(user.id, {
+      // Save reset token to the correct environment database
+      await activeStorage.updateUser(user.id, {
         passwordResetToken: resetToken,
         passwordResetExpires: resetExpires,
       });
