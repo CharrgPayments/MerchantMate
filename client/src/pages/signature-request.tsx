@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Separator } from "@/components/ui/separator";
-import { PenTool, Type, FileSignature, CheckCircle, Building2, User, Mail, Percent, ClipboardList, Shield } from "lucide-react";
+import { PenTool, Type, FileSignature, CheckCircle, Building2, User, Mail, Percent, ClipboardList, Shield, ScrollText } from "lucide-react";
 
 export default function SignatureRequest() {
   const [, setLocation] = useLocation();
@@ -381,8 +381,22 @@ export default function SignatureRequest() {
                     )}
                     .
                   </p>
+                  {applicationContext.signerContext.disclosureContent && (
+                    <div className="mt-3 border border-amber-200 rounded-lg overflow-hidden">
+                      <div className="flex items-center gap-2 bg-amber-50 px-3 py-2 border-b border-amber-200">
+                        <ScrollText className="w-4 h-4 text-amber-600" />
+                        <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide">
+                          {applicationContext.signerContext.disclosureTitle || 'Disclosure'}
+                        </p>
+                      </div>
+                      <div 
+                        className="max-h-64 overflow-y-auto p-4 bg-white text-sm text-gray-700 prose prose-sm prose-gray max-w-none"
+                        dangerouslySetInnerHTML={{ __html: applicationContext.signerContext.disclosureContent }}
+                      />
+                    </div>
+                  )}
                   <p className="text-xs text-gray-500 mt-2">
-                    By providing your signature below, you confirm that you have reviewed the application details above and agree to the terms.
+                    By providing your signature below, you confirm that you have reviewed the {applicationContext.signerContext.disclosureContent ? 'disclosure above and ' : ''}application details and agree to the terms.
                   </p>
                 </div>
               </div>

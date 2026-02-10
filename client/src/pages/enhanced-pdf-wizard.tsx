@@ -407,6 +407,8 @@ export default function EnhancedPdfWizard() {
       ownershipPercentage: number | null;
       fieldLabel?: string;
       sectionName?: string;
+      disclosureContent?: string;
+      disclosureTitle?: string;
     }) => {
       const response = await apiRequest('POST', '/api/signature-requests', requestData);
       return response.json();
@@ -1655,6 +1657,9 @@ export default function EnhancedPdfWizard() {
                 linkedFieldId: field.id,
                 signerLabel: field.signerLabel,
                 requiresInitials: field.requiresInitials === true,
+                isDisclosure: field.fieldType === 'disclosure',
+                disclosureTitle: field.disclosureTitle || field.fieldLabel || '',
+                disclosureContent: field.disclosureContent || field.description || '',
               };
               
               // Track position for proper placement
@@ -5079,6 +5084,10 @@ export default function EnhancedPdfWizard() {
                 const sigFieldLabel = field.fieldLabel || sigGroupConfig.signerLabel || sigGroupConfig.displayLabel || '';
                 const currentSectionName = filteredSections[currentStep]?.name || '';
                 
+                // Check if this signature group is linked to a disclosure field
+                const sigDisclosureContent = sigGroupConfig.isDisclosure ? sigGroupConfig.disclosureContent : undefined;
+                const sigDisclosureTitle = sigGroupConfig.isDisclosure ? sigGroupConfig.disclosureTitle : undefined;
+                
                 // Call the mutation
                 const result = await signatureRequestMutation.mutateAsync({
                   applicationId: null,
@@ -5090,6 +5099,8 @@ export default function EnhancedPdfWizard() {
                   ownershipPercentage: null,
                   fieldLabel: sigFieldLabel,
                   sectionName: currentSectionName,
+                  disclosureContent: sigDisclosureContent,
+                  disclosureTitle: sigDisclosureTitle,
                 });
                 
                 // Update local state if successful
