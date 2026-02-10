@@ -13,6 +13,7 @@ interface SignatureGroupConfig {
   sectionName: string;
   groupKey: string;
   prefix: string;
+  requiresInitials?: boolean;
   fieldMappings: {
     signername?: string;
     signature?: string;
@@ -433,24 +434,26 @@ export function SignatureGroupInput({
                   />
                 </div>
               )}
-              <div>
-                <Label htmlFor={`${config.groupKey}-initials`}>
-                  Initials
-                </Label>
-                <Input
-                  id={`${config.groupKey}-initials`}
-                  type="text"
-                  value={initials}
-                  onChange={(e) => setInitials(e.target.value)}
-                  placeholder="e.g. JD"
-                  maxLength={4}
-                  disabled={disabled || isRequested}
-                  data-testid={`${dataTestId}-initials`}
-                />
-              </div>
+              {config.requiresInitials && (
+                <div>
+                  <Label htmlFor={`${config.groupKey}-initials`}>
+                    Initials
+                  </Label>
+                  <Input
+                    id={`${config.groupKey}-initials`}
+                    type="text"
+                    value={initials}
+                    onChange={(e) => setInitials(e.target.value)}
+                    placeholder="e.g. JD"
+                    maxLength={4}
+                    disabled={disabled || isRequested}
+                    data-testid={`${dataTestId}-initials`}
+                  />
+                </div>
+              )}
             </div>
 
-            {!isRequested && (
+            {!config.requiresInitials && !isRequested && (
               <>
                 <Tabs value={signatureType} onValueChange={(v) => setSignatureType(v as 'draw' | 'type')}>
                   <TabsList className="grid w-full grid-cols-2">

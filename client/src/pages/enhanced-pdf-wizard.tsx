@@ -1637,7 +1637,7 @@ export default function EnhancedPdfWizard() {
               const label = `${baseLabel} ${slot}`;
               autoDetectedSignatureGroups[groupKey] = {
                 roleKey,
-                label: `${label} Signature`,
+                label: field.requiresInitials ? `${label} Initials` : `${label} Signature`,
                 sectionName: section.title,
                 fieldMappings: {
                   signerName: `${groupKey}.signerName`,
@@ -1650,8 +1650,9 @@ export default function EnhancedPdfWizard() {
                 slotNumber: slot,
                 maxSlots: maxSigners,
                 availableSlots: Array.from({ length: maxSigners }, (_, i) => i + 1),
-                linkedFieldId: field.id, // Track which field this signature is linked to
-                signerLabel: field.signerLabel, // Custom label from template config
+                linkedFieldId: field.id,
+                signerLabel: field.signerLabel,
+                requiresInitials: field.requiresInitials === true,
               };
               
               // Track position for proper placement
