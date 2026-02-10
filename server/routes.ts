@@ -6017,10 +6017,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
             
             // Build signer context from the signature capture record
+            // Parse notes for field label context
+            let fieldLabel = '';
+            let sectionName = '';
+            if (signatureCapture.notes) {
+              try {
+                const notesData = JSON.parse(signatureCapture.notes);
+                fieldLabel = notesData.fieldLabel || '';
+                sectionName = notesData.sectionName || '';
+              } catch (e) {
+                // notes might be plain text for older records
+                fieldLabel = signatureCapture.notes;
+              }
+            }
+            
+            // Derive a readable label from roleKey if no explicit label was stored
+            if (!fieldLabel) {
+              const roleKey = signatureCapture.roleKey;
+              // Convert roleKey patterns to readable names
+              // e.g., "field_123_signature_certbeneficalowner1" -> "Beneficial Owner(s) Agreement"
+              // e.g., "owner1" -> "Owner #1 Signature"
+              if (roleKey.includes('certbenefical') || roleKey.includes('beneficial')) {
+                fieldLabel = 'Beneficial Owner(s) Agreement';
+              } else if (roleKey.match(/^owner\d+$/)) {
+                const num = roleKey.replace('owner', '');
+                fieldLabel = `Owner #${num} Signature`;
+              } else if (roleKey.includes('agent')) {
+                fieldLabel = 'Agent Signature';
+              } else if (roleKey.includes('guarantor')) {
+                fieldLabel = 'Personal Guarantor Signature';
+              } else {
+                // Clean up the roleKey to make it readable
+                fieldLabel = roleKey
+                  .replace(/^field_\d+_signature_/, '')
+                  .replace(/[_-]/g, ' ')
+                  .replace(/\b\w/g, (l: string) => l.toUpperCase());
+              }
+            }
+            
             signerContext = {
               roleKey: signatureCapture.roleKey,
               signerType: signatureCapture.signerType,
               signerName: signatureCapture.signerName || 'Signer',
+              fieldLabel,
+              sectionName,
             };
           }
         }
@@ -14128,7 +14168,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/signature-requests - Request signature from a signer
   app.post('/api/signature-requests', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
     try {
-      const { applicationId, prospectId, roleKey, signerType, signerName, signerEmail, ownershipPercentage } = req.body;
+      const { applicationId, prospectId, roleKey, signerType, signerName, signerEmail, ownershipPercentage, fieldLabel, sectionName } = req.body;
       
       // Validation
       if (!signerEmail || !roleKey || !signerType) {
@@ -14144,6 +14184,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Calculate expiration (7 days from now)
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);
+
+      // Store field context in notes as JSON for display on signature request page
+      const notesData = fieldLabel || sectionName 
+        ? JSON.stringify({ fieldLabel: fieldLabel || null, sectionName: sectionName || null })
+        : null;
 
       // Create signature capture record
       const signature = await req.storage!.createSignatureCapture({
@@ -14162,7 +14207,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         timestampExpires: expiresAt,
         requestToken,
         status: 'requested',
-        notes: null,
+        notes: notesData,
         ownershipPercentage: ownershipPercentage || null,
       });
 

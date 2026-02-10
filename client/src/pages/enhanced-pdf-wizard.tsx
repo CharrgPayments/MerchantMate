@@ -405,6 +405,8 @@ export default function EnhancedPdfWizard() {
       signerName: string;
       signerEmail: string;
       ownershipPercentage: number | null;
+      fieldLabel?: string;
+      sectionName?: string;
     }) => {
       const response = await apiRequest('POST', '/api/signature-requests', requestData);
       return response.json();
@@ -5073,15 +5075,21 @@ export default function EnhancedPdfWizard() {
                   }
                 }
                 
+                // Get the field label and current section name for context
+                const sigFieldLabel = field.fieldLabel || sigGroupConfig.signerLabel || sigGroupConfig.displayLabel || '';
+                const currentSectionName = filteredSections[currentStep]?.name || '';
+                
                 // Call the mutation
                 const result = await signatureRequestMutation.mutateAsync({
-                  applicationId: null, // TODO: Add application ID when available
+                  applicationId: null,
                   prospectId: isProspectMode ? prospectData?.prospect?.id : null,
                   roleKey,
                   signerType: sigGroupConfig.prefix || 'owner',
                   signerName: signatureInfo.signerName || '',
                   signerEmail: email,
                   ownershipPercentage: null,
+                  fieldLabel: sigFieldLabel,
+                  sectionName: currentSectionName,
                 });
                 
                 // Update local state if successful
