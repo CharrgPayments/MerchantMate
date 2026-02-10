@@ -1824,7 +1824,16 @@ export default function EnhancedPdfWizard() {
           const linkedSigGroups = sigGroupsForSection.filter(({ group }) => group.linkedFieldId);
           const unlinkedSigGroups = sigGroupsForSection.filter(({ group }) => !group.linkedFieldId);
           
+          // Sort linked signature groups by slot number to ensure ascending order
+          linkedSigGroups.sort((a, b) => {
+            const slotA = a.group.slotNumber || 1;
+            const slotB = b.group.slotNumber || 1;
+            return slotA - slotB;
+          });
+          
           // Insert linked signature groups right after their linked field
+          // Track insertion offsets per linked field to maintain ascending signer order
+          const linkedFieldInsertCounts: Record<string, number> = {};
           linkedSigGroups.forEach(({ group, originalPosition, groupKey }) => {
             // Find the index of the linked field
             const linkedFieldIndex = fieldsWithGroups.findIndex((f: any) => f.id === group.linkedFieldId);
@@ -1838,8 +1847,13 @@ export default function EnhancedPdfWizard() {
                 sectionName: section.title,
               };
               
-              // Insert right after the linked field
-              fieldsWithGroups.splice(linkedFieldIndex + 1, 0, {
+              // Track how many items we've already inserted after this linked field
+              const fieldId = group.linkedFieldId;
+              const offset = linkedFieldInsertCounts[fieldId] || 0;
+              linkedFieldInsertCounts[fieldId] = offset + 1;
+              
+              // Insert after the linked field plus any previously inserted signers
+              fieldsWithGroups.splice(linkedFieldIndex + 1 + offset, 0, {
                 id: `signatureGroup_${groupKey}`,
                 label: group.label || `${group.roleKey} Signature`,
                 type: 'signatureGroup',
