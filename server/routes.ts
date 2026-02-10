@@ -5876,6 +5876,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let agentName = 'Agent';
         let agentEmail = '';
         let prospect: any = null;
+        let applicationSummary: any[] = [];
+        let signerContext: any = null;
         
         if (signatureCapture.prospectId) {
           prospect = await envStorage.getMerchantProspect(signatureCapture.prospectId);
@@ -5883,11 +5885,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
             applicantName = `${prospect.firstName} ${prospect.lastName}`;
             applicantEmail = prospect.email;
             
-            // Parse form data to get company name
+            // Parse form data to extract summary fields
             if (prospect.formData) {
               try {
                 const formData = JSON.parse(prospect.formData);
                 companyName = formData.companyName || formData.merchant_company_name || companyName;
+                
+                // Build a readable application summary from key form fields
+                const summaryFields: Record<string, string> = {
+                  'Company Name': formData.companyName || formData.merchant_company_name || '',
+                  'DBA Name': formData.dbaName || formData.merchant_dba_name || '',
+                  'Business Type': formData.businessType || formData.merchant_business_type || '',
+                  'Business Phone': formData.businessPhone || formData.merchant_phone || '',
+                  'Business Address': [
+                    formData['businessAddress.street'] || formData.merchant_address_street || '',
+                    formData['businessAddress.city'] || formData.merchant_address_city || '',
+                    formData['businessAddress.state'] || formData.merchant_address_state || '',
+                    formData['businessAddress.zip'] || formData.merchant_address_zip || '',
+                  ].filter(Boolean).join(', '),
+                  'Federal Tax ID': formData.federalTaxId ? '****' + formData.federalTaxId.slice(-4) : '',
+                  'Annual Revenue': formData.annualRevenue || formData.estimatedAnnualRevenue || '',
+                  'Average Transaction': formData.averageTicket || formData.averageTransactionAmount || '',
+                };
+                
+                applicationSummary = Object.entries(summaryFields)
+                  .filter(([_, value]) => value && value.trim())
+                  .map(([label, value]) => ({ label, value }));
               } catch (e) {
                 console.error('Error parsing form data:', e);
               }
@@ -5899,8 +5922,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
               agentName = `${agent.firstName} ${agent.lastName}`;
               agentEmail = agent.email;
             }
+            
+            // Build signer context from the signature capture record
+            signerContext = {
+              roleKey: signatureCapture.roleKey,
+              signerType: signatureCapture.signerType,
+              signerName: signatureCapture.signerName || 'Signer',
+            };
           }
         }
+        
+        const baseContext = {
+          companyName,
+          applicantName,
+          applicantEmail,
+          agentName,
+          agentEmail,
+          ownerName: signatureCapture.signerName || 'Owner',
+          ownerEmail: signatureCapture.signerEmail,
+          ownershipPercentage: signatureCapture.ownershipPercentage ? `${signatureCapture.ownershipPercentage}%` : 'N/A',
+          applicationId: signatureCapture.prospectId || signatureCapture.applicationId,
+          status: prospect?.status || 'pending',
+          applicationSummary,
+          signerContext,
+        };
         
         // Check if already signed
         if (signatureCapture.status === 'signed') {
@@ -5908,16 +5953,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             success: true,
             alreadySigned: true,
             applicationContext: {
-              companyName,
-              applicantName,
-              applicantEmail,
-              agentName,
-              agentEmail,
-              ownerName: signatureCapture.signerName || 'Owner',
-              ownerEmail: signatureCapture.signerEmail,
-              ownershipPercentage: signatureCapture.ownershipPercentage ? `${signatureCapture.ownershipPercentage}%` : 'N/A',
-              applicationId: signatureCapture.prospectId || signatureCapture.applicationId,
-              status: prospect?.status || 'pending',
+              ...baseContext,
               signedAt: signatureCapture.dateSigned
             }
           });
@@ -5935,16 +5971,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ 
           success: true, 
           applicationContext: {
-            companyName,
-            applicantName,
-            applicantEmail,
-            agentName,
-            agentEmail,
-            ownerName: signatureCapture.signerName || 'Owner',
-            ownerEmail: signatureCapture.signerEmail,
-            ownershipPercentage: signatureCapture.ownershipPercentage ? `${signatureCapture.ownershipPercentage}%` : 'N/A',
-            applicationId: signatureCapture.prospectId || signatureCapture.applicationId,
-            status: prospect?.status || 'pending',
+            ...baseContext,
             signatureCaptureId: signatureCapture.id
           }
         });
@@ -5968,11 +5995,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Parse form data to get company name
+      // Parse form data to get company name and application summary
       let formData: any = {};
+      let applicationSummary: any[] = [];
       if (prospect.formData) {
         try {
           formData = JSON.parse(prospect.formData);
+          
+          const summaryFields: Record<string, string> = {
+            'Company Name': formData.companyName || formData.merchant_company_name || '',
+            'DBA Name': formData.dbaName || formData.merchant_dba_name || '',
+            'Business Type': formData.businessType || formData.merchant_business_type || '',
+            'Business Phone': formData.businessPhone || formData.merchant_phone || '',
+            'Business Address': [
+              formData['businessAddress.street'] || formData.merchant_address_street || '',
+              formData['businessAddress.city'] || formData.merchant_address_city || '',
+              formData['businessAddress.state'] || formData.merchant_address_state || '',
+              formData['businessAddress.zip'] || formData.merchant_address_zip || '',
+            ].filter(Boolean).join(', '),
+            'Federal Tax ID': formData.federalTaxId ? '****' + formData.federalTaxId.slice(-4) : '',
+            'Annual Revenue': formData.annualRevenue || formData.estimatedAnnualRevenue || '',
+            'Average Transaction': formData.averageTicket || formData.averageTransactionAmount || '',
+          };
+          
+          applicationSummary = Object.entries(summaryFields)
+            .filter(([_, value]) => value && value.trim())
+            .map(([label, value]) => ({ label, value }));
         } catch (e) {
           console.error('Error parsing form data:', e);
           formData = {};
@@ -5994,7 +6042,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ownerEmail: owner.email,
           ownershipPercentage: owner.ownershipPercentage,
           applicationId: prospect.id,
-          status: prospect.status
+          status: prospect.status,
+          applicationSummary,
+          signerContext: {
+            roleKey: 'owner',
+            signerType: 'owner',
+            signerName: owner.name,
+          },
         }
       });
     } catch (error) {

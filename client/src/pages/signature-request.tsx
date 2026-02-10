@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { PenTool, Type, FileSignature, CheckCircle, Building2, User, Mail, Percent } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { PenTool, Type, FileSignature, CheckCircle, Building2, User, Mail, Percent, ClipboardList, Shield } from "lucide-react";
 
 export default function SignatureRequest() {
   const [, setLocation] = useLocation();
@@ -288,7 +289,13 @@ export default function SignatureRequest() {
             </div>
             <div className="bg-blue-50 p-4 rounded-lg">
               <p className="text-sm text-blue-800">
-                <strong>Hello {applicationContext.ownerName},</strong> Your signature is required to complete the merchant processing application for <strong>{applicationContext.companyName}</strong>. As a business owner with {applicationContext.ownershipPercentage} ownership, your signature is legally required to proceed with the application.
+                <strong>Hello {applicationContext.ownerName},</strong> Your signature is required to complete the merchant processing application for <strong>{applicationContext.companyName}</strong>.
+                {applicationContext.ownershipPercentage && applicationContext.ownershipPercentage !== 'N/A' && (
+                  <> As a business owner with {applicationContext.ownershipPercentage} ownership, your signature is legally required to proceed with the application.</>
+                )}
+                {(!applicationContext.ownershipPercentage || applicationContext.ownershipPercentage === 'N/A') && (
+                  <> Your signature is legally required to proceed with the application.</>
+                )}
               </p>
             </div>
             
@@ -308,6 +315,71 @@ export default function SignatureRequest() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Application Summary Card */}
+        {applicationContext.applicationSummary && applicationContext.applicationSummary.length > 0 && (
+          <Card className="shadow-lg">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                  <ClipboardList className="w-5 h-5 text-green-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg">Application Summary</CardTitle>
+                  <CardDescription>Key details from the merchant application you are signing for</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {applicationContext.applicationSummary.map((item: { label: string; value: string }, index: number) => (
+                  <div key={index} className="bg-gray-50 p-3 rounded-lg">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">{item.label}</p>
+                    <p className="font-medium text-sm mt-0.5">{item.value}</p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Signer Role Context */}
+        {applicationContext.signerContext && (
+          <Card className="shadow-lg border-l-4 border-l-amber-400">
+            <CardContent className="pt-6">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <Shield className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">What You're Signing</p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    You are signing as <strong>{applicationContext.signerContext.signerName}</strong>
+                    {applicationContext.signerContext.signerType === 'owner' && (
+                      <> in your capacity as a business owner/principal of <strong>{applicationContext.companyName}</strong></>
+                    )}
+                    {applicationContext.signerContext.signerType === 'guarantor' && (
+                      <> as a personal guarantor for the merchant processing application for <strong>{applicationContext.companyName}</strong></>
+                    )}
+                    {applicationContext.signerContext.signerType === 'witness' && (
+                      <> as a witness to the merchant processing application for <strong>{applicationContext.companyName}</strong></>
+                    )}
+                    {applicationContext.signerContext.signerType === 'agent' && (
+                      <> as the assigned agent for the merchant processing application for <strong>{applicationContext.companyName}</strong></>
+                    )}
+                    {applicationContext.signerContext.signerType === 'acknowledgement' && (
+                      <> to acknowledge the terms of the merchant processing application for <strong>{applicationContext.companyName}</strong></>
+                    )}
+                    .
+                  </p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    By providing your signature below, you confirm that you have reviewed the application details above and agree to the terms.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Signature Card */}
         <Card className="shadow-lg">
