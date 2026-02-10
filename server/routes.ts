@@ -6020,11 +6020,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // Parse notes for field label context
             let fieldLabel = '';
             let sectionName = '';
+            let disclosureContent = '';
+            let disclosureTitle = '';
             if (signatureCapture.notes) {
               try {
                 const notesData = JSON.parse(signatureCapture.notes);
                 fieldLabel = notesData.fieldLabel || '';
                 sectionName = notesData.sectionName || '';
+                disclosureContent = notesData.disclosureContent || '';
+                disclosureTitle = notesData.disclosureTitle || '';
               } catch (e) {
                 // notes might be plain text for older records
                 fieldLabel = signatureCapture.notes;
@@ -6061,6 +6065,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               signerName: signatureCapture.signerName || 'Signer',
               fieldLabel,
               sectionName,
+              disclosureContent: disclosureContent || null,
+              disclosureTitle: disclosureTitle || null,
             };
           }
         }
@@ -14168,7 +14174,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/signature-requests - Request signature from a signer
   app.post('/api/signature-requests', dbEnvironmentMiddleware, isAuthenticated, async (req: any, res) => {
     try {
-      const { applicationId, prospectId, roleKey, signerType, signerName, signerEmail, ownershipPercentage, fieldLabel, sectionName } = req.body;
+      const { applicationId, prospectId, roleKey, signerType, signerName, signerEmail, ownershipPercentage, fieldLabel, sectionName, disclosureContent, disclosureTitle } = req.body;
       
       // Validation
       if (!signerEmail || !roleKey || !signerType) {
@@ -14186,9 +14192,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       expiresAt.setDate(expiresAt.getDate() + 7);
 
       // Store field context in notes as JSON for display on signature request page
-      const notesData = fieldLabel || sectionName 
-        ? JSON.stringify({ fieldLabel: fieldLabel || null, sectionName: sectionName || null })
-        : null;
+      const notesObj: Record<string, any> = {};
+      if (fieldLabel) notesObj.fieldLabel = fieldLabel;
+      if (sectionName) notesObj.sectionName = sectionName;
+      if (disclosureContent) notesObj.disclosureContent = disclosureContent;
+      if (disclosureTitle) notesObj.disclosureTitle = disclosureTitle;
+      const notesData = Object.keys(notesObj).length > 0 ? JSON.stringify(notesObj) : null;
 
       // Create signature capture record
       const signature = await req.storage!.createSignatureCapture({
