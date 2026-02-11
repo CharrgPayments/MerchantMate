@@ -5344,8 +5344,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (currentDbEnv && currentDbEnv !== 'production') {
             passwordSetupUrl += `&db=${currentDbEnv}`;
           }
-          // Check multiple possible field names for company name
-          const resolvedCompanyName = formData.companyName || formData.merchant_company_name || formData.businessName || prospect.companyName || 'Unknown Company';
+          // Check multiple possible field names for company name (supports both flat and dot-notation)
+          const resolvedCompanyName = formData['merchant.companyName'] || formData['merchant.dba'] || formData.companyName || formData.merchant_company_name || formData.businessName || formData.merchant_dba || prospect.companyName || 'Unknown Company';
           await emailService.sendProspectPasswordSetup({
             prospectName: `${prospect.firstName} ${prospect.lastName}`,
             prospectEmail: prospect.email,
@@ -5535,8 +5535,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           day: 'numeric'
         });
 
-        // Check multiple possible field names for company name
-        const emailCompanyName = formData.companyName || formData.merchant_company_name || formData.businessName || prospect.companyName || 'Unknown Company';
+        // Check multiple possible field names for company name (supports both flat and dot-notation)
+        const emailCompanyName = formData['merchant.companyName'] || formData['merchant.dba'] || formData.companyName || formData.merchant_company_name || formData.businessName || formData.merchant_dba || prospect.companyName || 'Unknown Company';
         await emailService.sendApplicationSubmissionNotification({
           companyName: emailCompanyName,
           applicantName: `${prospect.firstName} ${prospect.lastName}`,
@@ -5558,7 +5558,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { TRIGGER_KEYS } = await import('@shared/triggerKeys');
         const triggerService = new TriggerService();
         
-        const emailCompanyName = formData.companyName || formData.merchant_company_name || formData.businessName || prospect.companyName || 'Unknown Company';
+        const emailCompanyName = formData['merchant.companyName'] || formData['merchant.dba'] || formData.companyName || formData.merchant_company_name || formData.businessName || formData.merchant_dba || prospect.companyName || 'Unknown Company';
         
         await triggerService.fireTrigger(TRIGGER_KEYS.APPLICATION.SUBMITTED, {
           triggerEvent: TRIGGER_KEYS.APPLICATION.SUBMITTED,
