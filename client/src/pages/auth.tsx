@@ -307,13 +307,16 @@ export default function Auth() {
       if (data.success) {
         toast({
           title: "Password Changed Successfully",
-          description: "You can now log in with your new password.",
+          description: "Your new password is set. Please log in now.",
         });
         // Reset all states and show login form
         setRequiresPasswordChange(false);
         setPasswordChangeUserId("");
         setTempPassword("");
         loginForm.reset();
+        // Re-apply the current database/environment selection after reset
+        // so the user doesn't have to re-select their environment
+        loginForm.setValue("database", selectedDatabase);
         forcePasswordChangeForm.reset();
         setActiveTab("login");
       } else {

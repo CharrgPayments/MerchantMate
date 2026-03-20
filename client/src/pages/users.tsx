@@ -467,14 +467,20 @@ export default function UsersPage() {
   console.log("Error:", error);
 
   const resetPasswordMutation = useMutation({
-    mutationFn: (userId: string) =>
-      apiRequest("POST", `/api/users/${userId}/reset-password`),
-    onSuccess: async (response) => {
+    mutationFn: async (userId: string) => {
+      const response = await apiRequest("POST", `/api/users/${userId}/reset-password`);
       const data = await response.json();
-      toast({
-        title: "Password Reset Successful",
-        description: `Temporary password: ${data.temporaryPassword}. An email has been sent to the user.`,
+      return { data, userId };
+    },
+    onSuccess: ({ data, userId }) => {
+      const user = users?.find((u: User) => u.id === userId);
+      setTempPasswordDialog({
+        open: true,
+        username: user?.username || "",
+        email: user?.email || "",
+        password: data.temporaryPassword || "",
       });
+      setCopiedTempPassword(false);
     },
     onError: () => {
       toast({
@@ -561,6 +567,8 @@ export default function UsersPage() {
   // Lockout status state - tracks lockout status for each user by ID
   const [lockoutStatuses, setLockoutStatuses] = useState<Record<string, { isLockedOut: boolean; failedAttempts: number }>>({});
   const [loadingLockoutStatus, setLoadingLockoutStatus] = useState<Record<string, boolean>>({});
+  const [tempPasswordDialog, setTempPasswordDialog] = useState<{ open: boolean; username: string; email: string; password: string }>({ open: false, username: "", email: "", password: "" });
+  const [copiedTempPassword, setCopiedTempPassword] = useState(false);
 
   // Fetch lockout status for a specific user
   const fetchLockoutStatus = async (userId: string) => {
@@ -1131,6 +1139,53 @@ export default function UsersPage() {
         title="Confirm Role/Status Change"
         description="This action requires password verification for security purposes. Changing user roles or status is a sensitive operation. Please enter your password to continue."
       />
+
+      {/* Temporary Password Dialog - shown after admin resets a user's password */}
+      <Dialog open={tempPasswordDialog.open} onOpenChange={(open) => setTempPasswordDialog(prev => ({ ...prev, open }))}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Key className="h-5 w-5 text-amber-500" />
+              Password Reset Successful
+            </DialogTitle>
+            <DialogDescription>
+              The temporary password for <strong>{tempPasswordDialog.username}</strong> has been set. A notification email was sent to <strong>{tempPasswordDialog.email}</strong>, but please also share this password directly with the user.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+              <p className="text-xs font-medium text-amber-700 mb-2 uppercase tracking-wide">Temporary Password</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 bg-white border border-amber-300 rounded px-3 py-2 font-mono text-lg tracking-wider text-gray-900 select-all">
+                  {tempPasswordDialog.password}
+                </code>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(tempPasswordDialog.password);
+                    setCopiedTempPassword(true);
+                    setTimeout(() => setCopiedTempPassword(false), 2000);
+                  }}
+                  className="shrink-0"
+                >
+                  {copiedTempPassword ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+            <div className="text-sm text-gray-600 space-y-1">
+              <p>• The user will be required to change this password on their next login.</p>
+              <p>• This password is only shown once — save or copy it now.</p>
+              <p>• If the email doesn't arrive, check spam or share the password above directly.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setTempPasswordDialog(prev => ({ ...prev, open: false }))}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );
