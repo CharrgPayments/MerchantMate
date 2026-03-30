@@ -2611,7 +2611,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Prospect Authentication Endpoints
   
   // Set password for prospect portal (public, uses reset token)
-  app.post("/api/prospects/auth/set-password", async (req: RequestWithDB, res) => {
+  app.post("/api/prospects/auth/set-password", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       const { token, password } = req.body;
       
@@ -2692,8 +2692,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Resend prospect portal activation email (public - used when token expires)
+  app.post("/api/prospects/auth/resend-activation", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+    try {
+      const { email, database: bodyDb } = req.body;
+      const queryDb = (req.query as any)?.db;
+      const dbEnvParam = bodyDb || queryDb || req.dbEnv;
+
+      if (!email) {
+        return res.status(400).json({ success: false, message: "Email is required" });
+      }
+
+      const dynamicDB = getRequestDB(req);
+      const { users, merchantProspects } = await import('@shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const crypto = await import('crypto');
+
+      // Look up the user by email
+      const [user] = await dynamicDB.select().from(users).where(eq(users.email, email)).limit(1);
+      if (!user) {
+        // Don't reveal if the email exists
+        return res.json({ success: true, message: "If this email is registered, a new activation link has been sent." });
+      }
+
+      // Only allow resend for prospect role accounts
+      if (!user.roles || !user.roles.includes('prospect')) {
+        return res.json({ success: true, message: "If this email is registered, a new activation link has been sent." });
+      }
+
+      // Generate a new token
+      const resetToken = crypto.randomUUID();
+      const resetExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+      await dynamicDB.update(users).set({
+        passwordResetToken: resetToken,
+        passwordResetExpires: resetExpires,
+        updatedAt: new Date()
+      }).where(eq(users.id, user.id));
+
+      // Build the setup URL with environment param
+      const host = req.get('host') || '';
+      let setupUrl = `${req.protocol}://${host}/prospect-portal/set-password?token=${resetToken}`;
+      if (dbEnvParam && dbEnvParam !== 'production') {
+        setupUrl += `&db=${dbEnvParam}`;
+      }
+
+      // Send email
+      const { emailService } = await import('./emailService');
+      await emailService.sendProspectPasswordSetup({
+        prospectName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username,
+        prospectEmail: user.email,
+        companyName: 'Merchant Portal',
+        passwordSetupUrl: setupUrl,
+        expiresAt: resetExpires,
+        dbEnv: dbEnvParam
+      });
+
+      console.log(`Resent activation email to ${user.email} for environment: ${dbEnvParam}`);
+      res.json({ success: true, message: "A new activation link has been sent to your email address." });
+    } catch (error) {
+      console.error("Resend activation error:", error);
+      res.status(500).json({ success: false, message: "Failed to resend activation email. Please contact support." });
+    }
+  });
+
   // Prospect portal login (public)
-  app.post("/api/prospects/auth/login", async (req: RequestWithDB, res) => {
+  app.post("/api/prospects/auth/login", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       const { email, password } = req.body;
       
@@ -4947,7 +5011,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update prospect status to "in progress" when they start filling out the form
-  app.post("/api/prospects/:id/start-application", async (req: RequestWithDB, res) => {
+  app.post("/api/prospects/:id/start-application", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       const { id } = req.params;
       const prospectId = parseInt(id);
@@ -4977,7 +5041,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Clear address data from cached form data
-  app.post("/api/prospects/:id/clear-address-data", async (req: RequestWithDB, res) => {
+  app.post("/api/prospects/:id/clear-address-data", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       const prospectId = parseInt(req.params.id);
       
@@ -5014,7 +5078,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Save form data for prospects
-  app.post("/api/prospects/:id/save-form-data", async (req: RequestWithDB, res) => {
+  app.post("/api/prospects/:id/save-form-data", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       const { id } = req.params;
       const { formData, currentStep } = req.body;

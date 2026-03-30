@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, Eye, EyeOff, CheckCircle, KeyRound } from "lucide-react";
+import { Loader2, Eye, EyeOff, CheckCircle, KeyRound, RefreshCw, Mail } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { z } from "zod";
@@ -59,6 +59,9 @@ export default function ProspectSetPassword() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [isTokenInvalid, setIsTokenInvalid] = useState(false);
+  const [resendEmail, setResendEmail] = useState("");
+  const [resendSent, setResendSent] = useState(false);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const { token, db } = getUrlParams();
@@ -79,7 +82,9 @@ export default function ProspectSetPassword() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           token,
-          password: data.password 
+          password: data.password,
+          // Also send db in the body as a fallback for middleware detection
+          ...(db ? { database: db } : {})
         }),
         credentials: "include"
       });
@@ -100,8 +105,37 @@ export default function ProspectSetPassword() {
       });
     },
     onError: (error: any) => {
+      const msg: string = error.message || "";
+      if (msg.toLowerCase().includes("invalid or expired") || msg.toLowerCase().includes("invalid") || msg.toLowerCase().includes("expired")) {
+        setIsTokenInvalid(true);
+      } else {
+        toast({
+          title: "Failed to Set Password",
+          description: msg,
+          variant: "destructive",
+        });
+      }
+    },
+  });
+
+  const resendMutation = useMutation({
+    mutationFn: async (email: string) => {
+      const dbParam = db ? `?db=${db}` : "";
+      const response = await fetch(`/api/prospects/auth/resend-activation${dbParam}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, ...(db ? { database: db } : {}) }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || "Failed to resend");
+      return result;
+    },
+    onSuccess: () => {
+      setResendSent(true);
+    },
+    onError: (error: any) => {
       toast({
-        title: "Failed to Set Password",
+        title: "Resend Failed",
         description: error.message,
         variant: "destructive",
       });
@@ -117,24 +151,74 @@ export default function ProspectSetPassword() {
     window.location.href = `/prospect-login${dbParam}`;
   };
 
-  if (!token) {
+  // Token invalid/expired UI — shown either when no token in URL, or after a 400 error
+  const showInvalidToken = !token || isTokenInvalid;
+  if (showInvalidToken) {
+    if (resendSent) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-yellow-50 to-orange-50 p-4">
+          <Card className="w-full max-w-md shadow-lg">
+            <CardHeader className="text-center">
+              <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+                <Mail className="w-10 h-10 text-green-600" />
+              </div>
+              <CardTitle className="text-2xl text-green-600">Activation Email Sent</CardTitle>
+              <CardDescription className="text-base">
+                A new activation link has been sent to <strong>{resendEmail}</strong>. Please check your inbox (and spam folder) and click the link to set your password.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={() => window.location.href = "/prospect-login"} variant="outline" className="w-full">
+                Go to Login
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-yellow-50 to-orange-50 p-4">
         <Card className="w-full max-w-md shadow-lg">
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl text-red-600">Invalid Link</CardTitle>
-            <CardDescription>
-              This password setup link is invalid or has expired. Please contact your agent for a new link.
+            <CardTitle className="text-2xl text-red-600">Link Expired or Invalid</CardTitle>
+            <CardDescription className="text-base">
+              This activation link has expired or has already been used. Enter your email below to receive a fresh activation link.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Button 
-              onClick={() => window.location.href = "/prospect-login"}
-              className="w-full"
-              data-testid="button-go-to-login"
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="resend-email">Email Address</Label>
+              <Input
+                id="resend-email"
+                type="email"
+                placeholder="your@email.com"
+                value={resendEmail}
+                onChange={(e) => setResendEmail(e.target.value)}
+                disabled={resendMutation.isPending}
+              />
+            </div>
+            <Button
+              onClick={() => resendEmail && resendMutation.mutate(resendEmail)}
+              disabled={!resendEmail || resendMutation.isPending}
+              className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600"
             >
-              Go to Login
+              {resendMutation.isPending ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Sending...</>
+              ) : (
+                <><RefreshCw className="mr-2 h-4 w-4" />Send New Activation Link</>
+              )}
             </Button>
+            <p className="text-center text-sm text-gray-500">
+              Already have a password?{" "}
+              <button onClick={() => window.location.href = "/prospect-login"} className="text-orange-600 hover:underline font-medium">
+                Sign in
+              </button>
+            </p>
+            <p className="text-center text-xs text-gray-400">
+              If you continue to have trouble, please contact your agent or{" "}
+              <a href="mailto:support@charrg.com" className="underline">support</a>.
+            </p>
           </CardContent>
         </Card>
       </div>

@@ -51,14 +51,28 @@ export const dbEnvironmentMiddleware = (req: RequestWithDB, res: Response, next:
   }
   
   // For non-production domains:
-  // 1. Check if request body contains database selection (e.g., from login form)
-  //    If so, update the global environment to match
+  // 1. Check if request body OR query string contains database selection
+  //    Body uses 'database' key (login form), query string uses 'db' key (email links)
   const bodyDbEnv = req.body?.database;
-  if (bodyDbEnv && ['test', 'development', 'dev'].includes(bodyDbEnv)) {
-    const normalizedEnv = bodyDbEnv === 'dev' ? 'development' : bodyDbEnv;
+  const queryDbEnv = (req.query as any)?.db;
+  const requestDbEnv = bodyDbEnv || queryDbEnv;
+  if (requestDbEnv && ['test', 'development', 'dev'].includes(requestDbEnv)) {
+    const normalizedEnv = requestDbEnv === 'dev' ? 'development' : requestDbEnv;
     // Update global environment to match the selection
     environmentManager.setGlobalEnvironment(normalizedEnv as 'development' | 'test');
-    console.log(`Database selection from request: setting global environment to ${normalizedEnv}`);
+    console.log(`Database selection from request (${bodyDbEnv ? 'body' : 'query'}): setting global environment to ${normalizedEnv}`);
+    // For query-string-based requests (e.g. email links), set the DB immediately without
+    // waiting for session, since these are unauthenticated flows
+    if (queryDbEnv && !bodyDbEnv) {
+      req.dbEnv = normalizedEnv;
+      req.dynamicDB = getDynamicDatabase(normalizedEnv);
+      req.db = req.dynamicDB;
+      req.storage = createStorage(req.dynamicDB);
+      res.setHeader('X-Database-Environment', normalizedEnv);
+      console.log(`🔗 Query-param DB: using ${normalizedEnv} database (from ?db= param)`);
+      next();
+      return;
+    }
   }
   
   // 2. PRIORITY: Use session-based environment if available (per-user isolation)
