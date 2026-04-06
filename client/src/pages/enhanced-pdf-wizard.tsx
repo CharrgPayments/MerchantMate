@@ -1,29 +1,16 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { Building, FileText, CheckCircle, ArrowLeft, ArrowRight, Users, Upload, Signature, PenTool, Type, RotateCcw, Check, X, AlertTriangle, Monitor, Info, Lock, User, Eye, EyeOff, Plus } from 'lucide-react';
+import { Building, FileText, CheckCircle, ArrowLeft, ArrowRight, Users, Upload, Signature, PenTool, Type, RotateCcw, Check, X, AlertTriangle, Monitor } from 'lucide-react';
 import { MCCSelect } from '@/components/ui/mcc-select';
-import { PhoneNumberInput } from '@/components/forms/PhoneNumberInput';
-import { MaskedTaxIdInput } from '@/components/forms/MaskedTaxIdInput';
-import { AddressAutocompleteInput } from '@/components/forms/AddressAutocompleteInput';
-import { SignatureGroupInput } from '@/components/forms/SignatureGroupInput';
-import { EnhancedSignatureField } from '@/components/forms/EnhancedSignatureField';
-import OwnerGroupField, { OwnerGroupValidation } from '@/components/forms/OwnerGroupField';
-import { DisclosureField } from '@/components/forms/DisclosureField';
-import { DisclosureFieldWrapper } from '@/components/forms/DisclosureFieldWrapper';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { getOwnerNumberFromField, isSignatureGroupField } from '@shared/fieldNaming';
 
 interface FormField {
   id: number;
@@ -36,8 +23,6 @@ interface FormField {
   validation: string | null;
   position: number;
   section: string | null;
-  description?: string;
-  placeholder?: string;
 }
 
 interface PdfForm {
@@ -56,9 +41,7 @@ interface FormSection {
 }
 
 export default function EnhancedPdfWizard() {
-  const { id: rawId } = useParams();
-  // Clean up the ID in case token got merged (e.g., "45?token=xxx" or "45%3Ftoken=xxx")
-  const id = rawId?.split('?')[0]?.split('%3F')[0] || rawId;
+  const { id } = useParams();
   const [, setLocation] = useLocation();
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState<Record<string, any>>({});
@@ -69,53 +52,18 @@ export default function EnhancedPdfWizard() {
   const [visitedSections, setVisitedSections] = useState(new Set<number>());
   const [initialDataLoaded, setInitialDataLoaded] = useState(false);
   const [addressFieldsLocked, setAddressFieldsLocked] = useState(false);
-  const [isAutoSaving, setIsAutoSaving] = useState(false);
-  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const formDataRef = useRef<Record<string, any>>({}); // Ref to always have latest formData
-  const [isInitialRender, setIsInitialRender] = useState(true);
   const [addressValidationStatus, setAddressValidationStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [addressSuggestions, setAddressSuggestions] = useState<any[]>([]);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
-  const [activeOwnerSlots, setActiveOwnerSlots] = useState<Set<number>>(new Set([1])); // Start with owner1 active
-  const [totalOwnership, setTotalOwnership] = useState<number>(0); // Store calculated total ownership
-  const [ownershipPercentages, setOwnershipPercentages] = useState<Record<number, number>>({}); // Track each owner's %
-  // Track active signer slots for multi-signer signature groups (non-owner roles like guarantor, witness, etc.)
-  // Key is the base role (e.g., "guarantor"), value is a Set of active slot numbers
-  const [activeSignerSlots, setActiveSignerSlots] = useState<Record<string, Set<number>>>({});
-  const [visibleSensitiveFields, setVisibleSensitiveFields] = useState<Set<string>>(new Set()); // Track which sensitive fields are visible
-  const [signatureDrawingState, setSignatureDrawingState] = useState<Record<string, { isDrawing: boolean; lastPos: { x: number; y: number } | null }>>({});
-  const signatureCanvasRefs = useRef<Record<string, HTMLCanvasElement | null>>({});
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  
-  // Ref to track when user is actively editing owner fields - prevents signature sync from overwriting
-  const isEditingOwnersRef = useRef(false);
-  const signatureSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Check for submitted signatures when form data changes
-  // GUARDED: Only runs when initial data is loaded AND user is not actively editing
   useEffect(() => {
-    // Don't run during user editing or before initial data load
-    if (isEditingOwnersRef.current || !initialDataLoaded) {
-      console.log('Skipping signature sync: editing=', isEditingOwnersRef.current, 'initialDataLoaded=', initialDataLoaded);
-      return;
-    }
-    
-    // Clear any pending timeout
-    if (signatureSyncTimeoutRef.current) {
-      clearTimeout(signatureSyncTimeoutRef.current);
-    }
-    
-    // Add a longer delay to ensure user has stopped editing
-    signatureSyncTimeoutRef.current = setTimeout(async () => {
-      // Double-check user isn't editing
-      if (isEditingOwnersRef.current) {
-        console.log('Signature sync aborted: user started editing');
-        return;
-      }
-      
+    // Add a small delay to ensure form data is fully loaded
+    const timer = setTimeout(async () => {
       if (!formData.owners || !Array.isArray(formData.owners)) {
         console.log('No owners array found');
         return;
@@ -129,16 +77,25 @@ export default function EnhancedPdfWizard() {
       for (let i = 0; i < updatedOwners.length; i++) {
         const owner = updatedOwners[i];
         
+        console.log(`Checking owner ${owner.name}:`, {
+          hasSignature: !!owner.signature,
+          signatureToken: owner.signatureToken
+        });
+        
         // Skip if owner already has a signature or no signature token
         if (owner.signature || !owner.signatureToken) {
+          console.log(`Skipping ${owner.name}: ${owner.signature ? 'already has signature' : 'no signature token'}`);
           continue;
         }
         
         try {
+          console.log(`Fetching signature for token: ${owner.signatureToken}`);
           const response = await fetch(`/api/signature/${owner.signatureToken}`);
+          console.log(`Response status: ${response.status}`);
           
           if (response.ok) {
             const result = await response.json();
+            console.log('Signature API response:', result);
             
             if (result.success && result.signature) {
               updatedOwners[i] = {
@@ -149,28 +106,27 @@ export default function EnhancedPdfWizard() {
               hasUpdates = true;
               console.log(`Found submitted signature for ${owner.name}`);
             }
+          } else {
+            console.log(`No signature found for ${owner.name} (${response.status})`);
           }
         } catch (error) {
           console.log(`Error checking signature for ${owner.name}:`, error);
         }
       }
       
-      // Final check before updating - user might have started editing during fetch
-      if (hasUpdates && !isEditingOwnersRef.current) {
-        console.log('Updating form data with signatures (merge only owners)');
+      if (hasUpdates) {
+        console.log('Updating form data with signatures');
         setFormData(prev => ({
           ...prev,
           owners: updatedOwners
         }));
+      } else {
+        console.log('No signature updates found');
       }
-    }, 500); // Longer delay to avoid conflicts with user input
+    }, 100); // Small delay to ensure form data is fully loaded
     
-    return () => {
-      if (signatureSyncTimeoutRef.current) {
-        clearTimeout(signatureSyncTimeoutRef.current);
-      }
-    };
-  }, [formData.owners, initialDataLoaded]); // Trigger when owners array changes
+    return () => clearTimeout(timer);
+  }, [formData.owners]); // Trigger when owners array changes
 
   // Check for any cached data on component mount
   useEffect(() => {
@@ -192,85 +148,10 @@ export default function EnhancedPdfWizard() {
     });
   }, []);
 
-  // OLD APPROACH - DISABLED: Recalculate total ownership from JSON parsing
-  // This was causing issues with corrupt data and async timing
-  // Now we calculate directly in the onChange handler (see line 3925+)
-  /*
-  useEffect(() => {
-    console.log(`🔄 Ownership calculation useEffect triggered. Active slots:`, Array.from(activeOwnerSlots));
-    console.log(`🔍 formData keys containing 'owner':`, Object.keys(formData).filter(k => k.toLowerCase().includes('owner')));
-    
-    let total = 0;
-    
-    activeOwnerSlots.forEach((slotNumber) => {
-      let found = false;
-      
-      // Check multiple key patterns where ownership data might be stored
-      // SignatureGroupInput stores data at: _signatureGroup_${groupKey}
-      // GroupKey format: owners_owner1_signature_owner, owners_owner2_signature_owner, etc.
-      const signatureGroupKeyPatterns = [
-        `_signatureGroup_owners_owner${slotNumber}_signature_owner`,  // PRIMARY key with owners_ prefix!
-        `owners_owner${slotNumber}_signature_owner`,                   // Direct groupKey (also stored)
-        `_signatureGroup_owner${slotNumber}_signature_owner`,         // Legacy without owners_ prefix
-        `owner${slotNumber}_signature_owner`,                          // Direct key
-      ];
-      
-      for (const signatureGroupKey of signatureGroupKeyPatterns) {
-        const ownerDataStr = formData[signatureGroupKey];
-        console.log(`  🔍 Checking key '${signatureGroupKey}': ${ownerDataStr ? 'EXISTS' : 'NOT FOUND'}`);
-        
-        if (ownerDataStr) {
-          console.log(`    📄 Raw value type: ${typeof ownerDataStr}`);
-          console.log(`    📄 Raw value preview: "${String(ownerDataStr).substring(0, 100)}"`);
-        }
-        
-        if (ownerDataStr && typeof ownerDataStr === 'string') {
-          try {
-            const ownerData = JSON.parse(ownerDataStr);
-            const percentageValue = ownerData.ownershipPercentage;
-            console.log(`    📦 Parsed data for owner${slotNumber}:`, { ownershipPercentage: percentageValue });
-            
-            if (percentageValue !== undefined && percentageValue !== null && percentageValue !== '') {
-              const percentage = typeof percentageValue === 'string' 
-                ? parseFloat(percentageValue) 
-                : percentageValue;
-              if (!isNaN(percentage) && percentage >= 0) {
-                total += percentage;
-                found = true;
-                console.log(`✅ Owner${slotNumber}: ${percentage}%`);
-                break; // Found it, stop checking other patterns
-              }
-            }
-          } catch (e) {
-            console.error(`⚠️ Failed to parse for ${signatureGroupKey}:`, e);
-            console.error(`    💥 The stored value is NOT valid JSON!`);
-            console.error(`    💥 Actual value: "${ownerDataStr}"`);
-          }
-        }
-      }
-      
-      if (!found) {
-        console.log(`❌ No ownership data found for owner${slotNumber}`);
-      }
-    });
-    
-    console.log(`📊 Total: ${total.toFixed(1)}%`);
-    setTotalOwnership(total);
-  }, [formData, activeOwnerSlots]);
-  */
-
   // Check for prospect validation token in URL parameters
   const urlParams = new URLSearchParams(window.location.search);
   const prospectToken = urlParams.get('token');
   const isProspectMode = !!prospectToken;
-  
-  // Check for preview mode with templateId
-  const isPreviewMode = urlParams.get('preview') === 'true';
-  const previewTemplateId = urlParams.get('templateId');
-  
-  // Application locking status - computed from prospect data
-  const [isApplicationLocked, setIsApplicationLocked] = useState(false);
-  const lockedStatuses = ['submitted', 'applied', 'approved', 'rejected', 'under_review', 'pending_review'];
 
   // Fetch prospect data if token is present
   const { data: prospectData } = useQuery({
@@ -279,46 +160,10 @@ export default function EnhancedPdfWizard() {
       if (!prospectToken) return null;
       const response = await fetch(`/api/prospects/token/${prospectToken}`);
       if (!response.ok) throw new Error('Invalid prospect token');
-      const data = await response.json();
-      console.log('📍 Prospect data loaded:', data);
-      console.log('📍 Has applicationTemplate?', !!data?.applicationTemplate);
-      if (data?.applicationTemplate) {
-        console.log('📍 Template details:', {
-          id: data.applicationTemplate.id,
-          name: data.applicationTemplate.templateName,
-          hasAddressGroups: !!data.applicationTemplate.addressGroups,
-          addressGroupsCount: data.applicationTemplate.addressGroups?.length || 0,
-          addressGroups: data.applicationTemplate.addressGroups
-        });
-      }
-      return data;
+      return response.json();
     },
     enabled: !!prospectToken,
   });
-
-  // Fetch template data for preview mode
-  const { data: previewTemplate } = useQuery({
-    queryKey: ['/api/acquirer-application-templates', previewTemplateId],
-    queryFn: async () => {
-      if (!previewTemplateId) return null;
-      const response = await fetch(`/api/acquirer-application-templates/${previewTemplateId}`, {
-        credentials: 'include'
-      });
-      if (!response.ok) throw new Error('Failed to fetch template');
-      return response.json();
-    },
-    enabled: isPreviewMode && !!previewTemplateId,
-  });
-  
-  // Update lock status when prospect data changes
-  useEffect(() => {
-    if (prospectData?.prospect?.status) {
-      const status = prospectData.prospect.status;
-      const shouldLock = lockedStatuses.includes(status);
-      console.log(`🔒 Application lock check: status="${status}", locked=${shouldLock}`);
-      setIsApplicationLocked(shouldLock);
-    }
-  }, [prospectData?.prospect?.status]);
 
   // Mutation to update prospect status to "in progress"
   const updateProspectStatusMutation = useMutation({
@@ -379,132 +224,7 @@ export default function EnhancedPdfWizard() {
       
       return response.json();
     },
-    onMutate: () => {
-      setIsAutoSaving(true);
-    },
-    onSettled: () => {
-      setIsAutoSaving(false);
-    },
-    onError: (error: any) => {
-      console.error('Failed to save form data:', error);
-      toast({
-        title: "Auto-save failed",
-        description: "Your changes couldn't be saved automatically. Please try clicking Next to save manually.",
-        variant: "destructive",
-      });
-    },
   });
-
-  // Signature request mutation
-  const signatureRequestMutation = useMutation({
-    mutationFn: async (requestData: {
-      applicationId: number | null;
-      prospectId: number | null;
-      roleKey: string;
-      signerType: string;
-      signerName: string;
-      signerEmail: string;
-      ownershipPercentage: number | null;
-      fieldLabel?: string;
-      sectionName?: string;
-      disclosureContent?: string;
-      disclosureTitle?: string;
-    }) => {
-      const response = await apiRequest('POST', '/api/signature-requests', requestData);
-      return response.json();
-    },
-    onSuccess: (result, variables) => {
-      if (result.success) {
-        toast({
-          title: 'Signature request sent',
-          description: `Email sent to ${variables.signerEmail}`,
-        });
-        // Invalidate related queries
-        queryClient.invalidateQueries({ queryKey: ['/api/signatures'] });
-        if (variables.prospectId) {
-          queryClient.invalidateQueries({ queryKey: [`/api/prospects/${variables.prospectId}`] });
-        }
-        if (variables.applicationId) {
-          queryClient.invalidateQueries({ queryKey: [`/api/applications/${variables.applicationId}`] });
-        }
-      } else {
-        toast({
-          title: 'Failed to send request',
-          description: result.message || 'Please try again',
-          variant: 'destructive',
-        });
-      }
-    },
-    onError: (error: any) => {
-      console.error('Error requesting signature:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to send signature request',
-        variant: 'destructive',
-      });
-    },
-  });
-
-  // Resend signature request mutation
-  const resendSignatureRequestMutation = useMutation({
-    mutationFn: async ({ token }: { token: string }) => {
-      const response = await apiRequest('POST', `/api/signatures/${token}/resend`);
-      return response.json();
-    },
-    onSuccess: (result) => {
-      if (result.success) {
-        toast({
-          title: 'Signature request resent',
-          description: 'A new email has been sent with an updated link',
-        });
-        // Invalidate related queries
-        queryClient.invalidateQueries({ queryKey: ['/api/signatures'] });
-      } else {
-        toast({
-          title: 'Failed to resend request',
-          description: result.message || 'Please try again',
-          variant: 'destructive',
-        });
-      }
-    },
-    onError: (error: any) => {
-      console.error('Error resending signature request:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to resend signature request',
-        variant: 'destructive',
-      });
-    },
-  });
-
-  // Helper function to add a new owner slot
-  const addOwnerSlot = () => {
-    const nextSlot = Math.max(...Array.from(activeOwnerSlots), 0) + 1;
-    if (nextSlot <= 5) { // Max 5 owners
-      setActiveOwnerSlots(new Set([...activeOwnerSlots, nextSlot]));
-    }
-  };
-
-  // Helper function to remove an owner slot
-  const removeOwnerSlot = (slotNumber: number) => {
-    if (slotNumber === 1) return; // Can't remove owner1
-    const newSlots = new Set(activeOwnerSlots);
-    newSlots.delete(slotNumber);
-    setActiveOwnerSlots(newSlots);
-    
-    // Clear the form data and ownership percentage for this owner
-    const ownerKey = `owners_owner${slotNumber}_signature_owner`;
-    handleFieldChange(`signatureGroup_${ownerKey}`, '');
-    
-    // Also clear the ownership percentage from state
-    setOwnershipPercentages(prev => {
-      const updated = { ...prev };
-      delete updated[slotNumber];
-      const newTotal = Object.values(updated).reduce((sum, val) => sum + val, 0);
-      setTotalOwnership(newTotal);
-      return updated;
-    });
-  };
 
   // Submit application mutation
   const submitApplicationMutation = useMutation({
@@ -732,7 +452,7 @@ export default function EnhancedPdfWizard() {
 
   // Navigation handlers that save form data before moving between sections
   const handleNext = () => {
-    const nextStep = Math.min(filteredSections.length - 1, currentStep + 1);
+    const nextStep = Math.min(sections.length - 1, currentStep + 1);
     
     console.log(`Navigating from step ${currentStep} to step ${nextStep}`);
     
@@ -746,6 +466,7 @@ export default function EnhancedPdfWizard() {
     
     // Save current form data before navigating for prospect mode
     if (isProspectMode && prospectData?.prospect?.id) {
+      console.log('Saving form data with currentStep:', nextStep);
       saveFormDataMutation.mutate({
         formData: formData,
         currentStep: nextStep
@@ -780,135 +501,17 @@ export default function EnhancedPdfWizard() {
     setCurrentStep(prevStep);
   };
 
-  // Validate fields when navigating to a visited section
-  useEffect(() => {
-    // Only run validation if the section has been visited before
-    if (!visitedSections.has(currentStep)) return;
-    
-    const section = filteredSections[currentStep];
-    if (!section?.fields) return;
-    
-    // Validate all required fields in the current section
-    const newErrors: Record<string, string> = {};
-    
-    for (const field of section.fields) {
-      // Only validate if field should be shown
-      if (!shouldShowField(field.fieldName)) continue;
-      
-      const value = getFieldValueForValidation(field);
-      const error = validateField(field, value);
-      
-      if (error) {
-        newErrors[field.fieldName] = error;
-      }
-    }
-    
-    // Merge with existing errors (preserve errors from other sections)
-    setValidationErrors(prev => {
-      // Get errors from other sections
-      const otherSectionErrors: Record<string, string> = {};
-      const currentSectionFieldNames = new Set(section.fields.map((f: FormField) => f.fieldName));
-      
-      for (const [key, value] of Object.entries(prev)) {
-        if (!currentSectionFieldNames.has(key)) {
-          otherSectionErrors[key] = value;
-        }
-      }
-      
-      return { ...otherSectionErrors, ...newErrors };
-    });
-  }, [currentStep, visitedSections]);
-
-  // Helper to get field value checking both template and canonical names
-  const getFieldValueForValidation = (field: FormField): any => {
-    // For address groups, check both template mappings and canonical names
-    if (field.fieldType === 'addressGroup' && (field as any).addressGroupConfig) {
-      const groupConfig = (field as any).addressGroupConfig;
-      const groupType = groupConfig.type;
-      const fieldMappings = groupConfig.fieldMappings || {};
-      
-      // Build canonical field names
-      const canonicalPrefix = `${groupType}Address`;
-      const canonicalStreet1 = `${canonicalPrefix}.street1`;
-      
-      // Check template field first, then canonical
-      const street1FieldId = fieldMappings.street1 || '';
-      const streetValue = formData[street1FieldId] || formData[canonicalStreet1] || '';
-      
-      // For address groups, return street value since that's the primary required field
-      return streetValue;
-    }
-    
-    // For signatureGroup fields, check for signature data with the signatureGroup_ prefix
-    if (field.fieldType === 'signatureGroup') {
-      const signatureKey = `signatureGroup_${field.fieldName}`;
-      const signatureData = formData[signatureKey];
-      if (signatureData) {
-        try {
-          const parsed = typeof signatureData === 'string' ? JSON.parse(signatureData) : signatureData;
-          // Return the signature if it exists
-          return parsed.signature || '';
-        } catch {
-          return '';
-        }
-      }
-      return '';
-    }
-    
-    // For ownership fields, check formData.owners array
-    if (field.fieldType === 'ownership') {
-      return formData.owners || [];
-    }
-    
-    // For regular fields, just use the field name directly
-    return formData[field.fieldName];
-  };
-  
-  // Helper to check if a field has a completed/filled value
-  const isFieldCompleted = (field: FormField): boolean => {
-    const value = getFieldValueForValidation(field);
-    
-    // For ownership, check if there's at least one owner with required data
-    if (field.fieldType === 'ownership') {
-      const owners = value || [];
-      if (owners.length === 0) return false;
-      // Check that all owners have basic info
-      return owners.every((owner: any) => 
-        owner.name && owner.email && owner.percentage
-      );
-    }
-    
-    // For signatureGroup, check if signature exists
-    if (field.fieldType === 'signatureGroup') {
-      return !!value && value !== '';
-    }
-    
-    // For regular fields
-    return value !== null && value !== undefined && value !== '';
-  };
-
   // Check if a section has validation issues
   const getSectionValidationStatus = (sectionIndex: number) => {
-    // IMPORTANT: Use filteredSections, not sections!
-    // The index comes from iterating over filteredSections, so we must use the same array
-    const section = filteredSections[sectionIndex];
-    
-    // Defensive check: ensure section exists and has fields
-    if (!section || !section.fields) {
-      return false; // No validation errors if section doesn't exist
-    }
-    
+    const section = sections[sectionIndex];
     let hasErrors = false;
-    let failingFields: string[] = [];
 
     // Check required fields in this section
     for (const field of section.fields) {
-      const fieldValue = getFieldValueForValidation(field);
-      const error = validateField(field, fieldValue);
+      const error = validateField(field, formData[field.fieldName]);
       if (error) {
         hasErrors = true;
-        failingFields.push(`${field.fieldLabel}: ${error}`);
-        // Don't break - collect all failing fields for debugging
+        break;
       }
     }
 
@@ -944,12 +547,12 @@ export default function EnhancedPdfWizard() {
       }
     }
 
-    // For debugging, log validation status with failing fields for ALL sections
-    console.log(`Section ${sectionIndex} (${section.name}) validation:`, {
-      hasErrors,
-      failingFields: failingFields.length > 0 ? failingFields : 'none',
-      totalFields: section.fields.length
-    });
+    // For debugging, log validation status
+    if (section.name === 'Merchant Information') {
+      console.log(`Section ${sectionIndex} (${section.name}) validation:`, {
+        hasErrors
+      });
+    }
 
     return hasErrors;
   };
@@ -976,23 +579,22 @@ export default function EnhancedPdfWizard() {
       const response = await fetch(`/api/prospects/${prospectId}/owners-with-signatures`);
       if (response.ok) {
         const result = await response.json();
-        
-        // Merge signature data with existing owners if available
         if (result.success && result.owners.length > 0) {
           console.log("Found owners with signatures from database:", result.owners);
           
+          // Merge signature data with existing owners instead of replacing the entire array
           setFormData(prev => {
             const existingOwners = prev.owners || [];
             const signatureOwners = result.owners;
             
             // Create a map of signatures by email for easy lookup
             const signatureMap = new Map();
-            signatureOwners.forEach((sigOwner: any) => {
+            signatureOwners.forEach(sigOwner => {
               signatureMap.set(sigOwner.email, sigOwner);
             });
             
             // Update existing owners with signature data if available
-            const updatedOwners = existingOwners.map((owner: any) => {
+            const updatedOwners = existingOwners.map(owner => {
               const signatureData = signatureMap.get(owner.email);
               if (signatureData) {
                 return {
@@ -1014,24 +616,8 @@ export default function EnhancedPdfWizard() {
               owners: updatedOwners
             };
           });
-        }
-        
-        // Also merge signature captures (for Template 25 style signatureGroup format)
-        if (result.success && result.signatureCaptures && Object.keys(result.signatureCaptures).length > 0) {
-          console.log("Found signature captures from database:", result.signatureCaptures);
-          
-          setFormData(prev => {
-            // Merge signatureCaptures into formData
-            const updatedFormData = { ...prev };
-            for (const [key, captureData] of Object.entries(result.signatureCaptures)) {
-              // Store as JSON string to match expected format
-              updatedFormData[key] = JSON.stringify(captureData);
-              console.log(`Loaded signature capture: ${key}`);
-            }
-            return updatedFormData;
-          });
         } else {
-          console.log("No signature captures found in database");
+          console.log("No owners found in database");
         }
       } else {
         console.log("Failed to fetch owners:", response.status);
@@ -1067,50 +653,10 @@ export default function EnhancedPdfWizard() {
   // Initialize form data with agent and prospect information for prospects
   useEffect(() => {
     if (isProspectMode && prospectData?.prospect && prospectData?.agent && !initialDataLoaded) {
-      // Pre-populate contact info from prospect record
-      // Include multiple field name variations to support different templates
-      const prospectFirstName = prospectData.prospect.firstName || '';
-      const prospectLastName = prospectData.prospect.lastName || '';
-      const prospectEmail = prospectData.prospect.email || '';
-      const prospectFullName = `${prospectFirstName} ${prospectLastName}`.trim();
-      
-      const newData: Record<string, string> = {
-        // Agent info
+      const newData = {
         assignedAgent: `${prospectData.agent.firstName} ${prospectData.agent.lastName} (${prospectData.agent.email})`,
-        
-        // Standard contact fields (default form)
-        contactFirstName: prospectFirstName,
-        contactLastName: prospectLastName,
-        companyEmail: prospectEmail,
-        
-        // Common template field name variations for first name
-        firstName: prospectFirstName,
-        first_name: prospectFirstName,
-        contactFirst: prospectFirstName,
-        contact_first_name: prospectFirstName,
-        ownerFirstName: prospectFirstName,
-        
-        // Common template field name variations for last name
-        lastName: prospectLastName,
-        last_name: prospectLastName,
-        contactLast: prospectLastName,
-        contact_last_name: prospectLastName,
-        ownerLastName: prospectLastName,
-        
-        // Common template field name variations for full name
-        contactName: prospectFullName,
-        contact_name: prospectFullName,
-        ownerName: prospectFullName,
-        principalName: prospectFullName,
-        
-        // Common template field name variations for email
-        email: prospectEmail,
-        contactEmail: prospectEmail,
-        contact_email: prospectEmail,
-        ownerEmail: prospectEmail,
-        primaryEmail: prospectEmail,
+        companyEmail: prospectData.prospect.email
       };
-      
       console.log('Setting initial prospect data:', newData);
       setFormData(newData);
       setInitialDataLoaded(true);
@@ -1122,102 +668,19 @@ export default function EnhancedPdfWizard() {
           console.log('Loading existing form data:', existingData);
           
           // Prevent address override by setting addressOverrideActive
-          // Check for any canonical address fields (pattern: *Address.city, *Address.state, etc.)
-          // Templates may use different prefixes like businessAddress, merchantlocationaddressAddress, etc.
-          const addressFieldKeys = Object.keys(existingData);
-          const hasCanonicalAddress = addressFieldKeys.some(k => k.endsWith('Address.street1') || k.endsWith('.street1')) &&
-                                       addressFieldKeys.some(k => k.endsWith('Address.city') || k.endsWith('.city')) &&
-                                       addressFieldKeys.some(k => k.endsWith('Address.state') || k.endsWith('.state')) &&
-                                       addressFieldKeys.some(k => k.endsWith('Address.zipCode') || k.endsWith('.zipCode'));
-          const hasLegacyAddress = existingData.address && existingData.city && existingData.state && existingData.zipCode;
-          
-          if (hasCanonicalAddress || hasLegacyAddress) {
-            console.log('Address data found:', hasCanonicalAddress ? 'canonical format' : 'legacy format', {
-              matchedKeys: addressFieldKeys.filter(k => k.includes('.street1') || k.includes('.city') || k.includes('.state') || k.includes('.zipCode'))
-            });
+          if (existingData.address && existingData.city && existingData.state && existingData.zipCode) {
             setAddressOverrideActive(true);
             setAddressFieldsLocked(true);
             setAddressValidationStatus('valid');
           }
           
-          // Clean signature group fields - remove any non-JSON values that would break parsing
-          const cleanedData = { ...existingData };
-          Object.keys(cleanedData).forEach(key => {
-            // Check if this is a signature group field
-            if (key.startsWith('signatureGroup_')) {
-              const value = cleanedData[key];
-              // If the value is not valid JSON, remove it
-              if (typeof value === 'string' && value.length > 0) {
-                try {
-                  JSON.parse(value);
-                  // Valid JSON, keep it
-                } catch (e) {
-                  // Not valid JSON, remove it to prevent overwriting
-                  console.warn(`🧹 Removing invalid signature group data for key "${key}": not valid JSON`);
-                  delete cleanedData[key];
-                }
-              }
-            }
-          });
-          
-          setFormData(prev => ({ ...prev, ...cleanedData }));
-          
-          // Calculate ownership percentages from signature group data
-          const ownershipData: Record<number, number> = {};
-          let calculatedTotal = 0;
-          
-          Object.keys(cleanedData).forEach(key => {
-            // Match signatureGroup_owners_ownerX_signature_owner pattern
-            const ownerMatch = key.match(/^signatureGroup_owners_owner(\d+)_signature_owner$/);
-            if (ownerMatch) {
-              const ownerNumber = parseInt(ownerMatch[1]);
-              try {
-                const sigData = JSON.parse(cleanedData[key]);
-                if (sigData.ownershipPercentage !== undefined && sigData.ownershipPercentage !== null && sigData.ownershipPercentage !== '') {
-                  const percentage = typeof sigData.ownershipPercentage === 'string' 
-                    ? parseFloat(sigData.ownershipPercentage) 
-                    : sigData.ownershipPercentage;
-                  if (!isNaN(percentage) && percentage >= 0) {
-                    ownershipData[ownerNumber] = percentage;
-                    calculatedTotal += percentage;
-                    console.log(`📊 Loaded ownership for owner${ownerNumber}: ${percentage}%`);
-                  }
-                }
-              } catch (e) {
-                console.warn(`Failed to parse signature group data for ${key}:`, e);
-              }
-            }
-          });
-          
-          if (calculatedTotal > 0) {
-            console.log(`📊 Total ownership loaded from form data: ${calculatedTotal.toFixed(1)}%`);
-            setOwnershipPercentages(ownershipData);
-            setTotalOwnership(calculatedTotal);
-          }
-          
-          // Restore active owner slots based on saved signature groups
-          const restoredSlots = new Set<number>([1]); // Always include owner1
-          Object.keys(cleanedData).forEach(key => {
-            const ownerMatch = key.match(/^signatureGroup_owners_owner(\d+)_signature_owner$/);
-            if (ownerMatch) {
-              const ownerNumber = parseInt(ownerMatch[1]);
-              restoredSlots.add(ownerNumber);
-            }
-          });
-          
-          if (restoredSlots.size > 1) {
-            console.log(`📋 Restored active owner slots:`, Array.from(restoredSlots));
-            setActiveOwnerSlots(restoredSlots);
-          }
+          setFormData(prev => ({ ...prev, ...existingData }));
           
           // Mark sections as visited based on existing form data
           const newVisited = new Set<number>();
           
           // Check Section 0 (Merchant Information) - if we have company info
-          // Check both canonical (*Address.city) and legacy (city) field names
-          const hasAnyAddressData = addressFieldKeys.some(k => k.endsWith('.city') || k.endsWith('.street1')) || 
-                                     existingData.city || existingData.address;
-          if (existingData.companyName || hasAnyAddressData) {
+          if (existingData.companyName || existingData.address || existingData.city) {
             newVisited.add(0);
           }
           
@@ -1258,20 +721,13 @@ export default function EnhancedPdfWizard() {
           const existingData = JSON.parse(prospectData.prospect.formData);
           
           // Check if Merchant Information section is complete
-          // Check both canonical (*Address.*) and legacy field names - templates may use various prefixes
-          const merchantAddressKeys = Object.keys(existingData);
-          const hasCompleteCanonicalAddress = merchantAddressKeys.some(k => k.endsWith('.street1')) && 
-                                               merchantAddressKeys.some(k => k.endsWith('.city')) && 
-                                               merchantAddressKeys.some(k => k.endsWith('.state')) && 
-                                               merchantAddressKeys.some(k => k.endsWith('.zipCode'));
-          const hasCompleteLegacyAddress = existingData.address && 
-                                            existingData.city && 
-                                            existingData.state && 
-                                            existingData.zipCode;
           const merchantInfoComplete = existingData.companyName && 
                                      existingData.companyEmail && 
                                      existingData.companyPhone && 
-                                     (hasCompleteCanonicalAddress || hasCompleteLegacyAddress);
+                                     existingData.address && 
+                                     existingData.city && 
+                                     existingData.state && 
+                                     existingData.zipCode;
           
           // Check if Business Type section is complete
           const businessTypeComplete = existingData.federalTaxId && 
@@ -1298,64 +754,8 @@ export default function EnhancedPdfWizard() {
       
       console.log('Setting starting step:', startingStep);
       setCurrentStep(startingStep);
-      
-      // Mark as no longer initial render after a short delay to allow focus
-      setTimeout(() => {
-        setIsInitialRender(false);
-      }, 500);
     }
   }, [prospectData, isProspectMode, initialDataLoaded]);
-
-  // Keep formDataRef updated with latest formData
-  useEffect(() => {
-    formDataRef.current = formData;
-  }, [formData]);
-
-  // Auto-save form data for prospects with debounce
-  useEffect(() => {
-    // Only auto-save in prospect mode with valid prospect ID and after initial load
-    if (!isProspectMode || !prospectData?.prospect?.id || !initialDataLoaded) {
-      return;
-    }
-
-    // Skip if formData is empty or if save is already pending
-    if (Object.keys(formData).length === 0 || saveFormDataMutation.isPending) {
-      return;
-    }
-
-    // Clear any existing timeout
-    if (autoSaveTimeoutRef.current) {
-      clearTimeout(autoSaveTimeoutRef.current);
-    }
-
-    // Set new timeout to auto-save after 2.5 seconds of inactivity
-    // Use formDataRef.current to always get the latest formData value
-    autoSaveTimeoutRef.current = setTimeout(() => {
-      const currentFormData = formDataRef.current;
-      const signatureGroupKeys = Object.keys(currentFormData).filter(k => k.startsWith('signatureGroup_'));
-      console.log('Auto-saving form data...', { 
-        totalKeys: Object.keys(currentFormData).length,
-        signatureGroupKeys,
-        hasSignatureData: signatureGroupKeys.length > 0
-      });
-      if (signatureGroupKeys.length > 0) {
-        signatureGroupKeys.forEach(k => {
-          console.log(`  📤 ${k}: ${currentFormData[k]?.substring(0, 100)}...`);
-        });
-      }
-      saveFormDataMutation.mutate({
-        formData: currentFormData,
-        currentStep
-      });
-    }, 2500);
-
-    // Cleanup on unmount or when dependencies change
-    return () => {
-      if (autoSaveTimeoutRef.current) {
-        clearTimeout(autoSaveTimeoutRef.current);
-      }
-    };
-  }, [formData, isProspectMode, prospectData?.prospect?.id, initialDataLoaded, currentStep]);
 
   // Create hardcoded form sections for prospect mode
   const createProspectFormSections = (): FormSection[] => {
@@ -1390,12 +790,9 @@ export default function EnhancedPdfWizard() {
         icon: Building,
         fields: [
           { id: 1, fieldName: 'assignedAgent', fieldType: 'readonly', fieldLabel: 'Assigned Agent', isRequired: false, options: null, defaultValue: null, validation: null, position: 1, section: 'Merchant Information' },
-          { id: 1.1, fieldName: 'contactFirstName', fieldType: 'text', fieldLabel: 'Contact First Name', isRequired: true, options: null, defaultValue: null, validation: null, position: 1.1, section: 'Merchant Information' },
-          { id: 1.2, fieldName: 'contactLastName', fieldType: 'text', fieldLabel: 'Contact Last Name', isRequired: true, options: null, defaultValue: null, validation: null, position: 1.2, section: 'Merchant Information' },
           { id: 2, fieldName: 'companyName', fieldType: 'text', fieldLabel: 'Company Name', isRequired: true, options: null, defaultValue: null, validation: null, position: 2, section: 'Merchant Information' },
           { id: 3, fieldName: 'companyEmail', fieldType: 'email', fieldLabel: 'Company Email', isRequired: true, options: null, defaultValue: null, validation: null, position: 3, section: 'Merchant Information' },
           { id: 4, fieldName: 'companyPhone', fieldType: 'phone', fieldLabel: 'Company Phone', isRequired: true, options: null, defaultValue: null, validation: null, position: 4, section: 'Merchant Information' },
-          { id: 4.5, fieldName: 'companyWebsite', fieldType: 'url', fieldLabel: 'Company Website (URL)', isRequired: false, options: null, defaultValue: null, validation: JSON.stringify({ pattern: '^https?://.*' }), position: 4.5, section: 'Merchant Information', placeholder: 'https://www.example.com' },
           { id: 5, fieldName: 'address', fieldType: 'text', fieldLabel: 'Business Address', isRequired: true, options: null, defaultValue: null, validation: null, position: 5, section: 'Merchant Information' },
           { id: 6, fieldName: 'addressLine2', fieldType: 'text', fieldLabel: 'Address Line 2', isRequired: false, options: null, defaultValue: null, validation: null, position: 6, section: 'Merchant Information' },
           { id: 7, fieldName: 'city', fieldType: 'text', fieldLabel: 'City', isRequired: true, options: null, defaultValue: null, validation: null, position: 7, section: 'Merchant Information' },
@@ -1446,8 +843,7 @@ export default function EnhancedPdfWizard() {
         fields: [
           { id: 16, fieldName: 'businessDescription', fieldType: 'textarea', fieldLabel: 'Business Description', isRequired: true, options: null, defaultValue: null, validation: null, position: 16, section: 'Products, Services & Processing' },
           { id: 17, fieldName: 'productsServices', fieldType: 'textarea', fieldLabel: 'Products/Services Sold', isRequired: true, options: null, defaultValue: null, validation: null, position: 17, section: 'Products, Services & Processing' },
-          { id: 18, fieldName: 'mccCode', fieldType: 'mcc-select', fieldLabel: 'Merchant Category Code (MCC)', isRequired: true, options: null, defaultValue: null, validation: null, position: 18, section: 'Products, Services & Processing' },
-          { id: 19, fieldName: 'processingMethod', fieldType: 'select', fieldLabel: 'Primary Processing Method', isRequired: true, options: ['In-Person (Card Present)', 'Online (Card Not Present)', 'Both'], defaultValue: null, validation: null, position: 19, section: 'Products, Services & Processing' },
+          { id: 18, fieldName: 'processingMethod', fieldType: 'select', fieldLabel: 'Primary Processing Method', isRequired: true, options: ['In-Person (Card Present)', 'Online (Card Not Present)', 'Both'], defaultValue: null, validation: null, position: 18, section: 'Products, Services & Processing' },
         ]
       },
       {
@@ -1455,9 +851,9 @@ export default function EnhancedPdfWizard() {
         description: 'Financial data, volume estimates, and transaction processing details',
         icon: ArrowRight,
         fields: [
-          { id: 20, fieldName: 'monthlyVolume', fieldType: 'number', fieldLabel: 'Expected Monthly Processing Volume ($)', isRequired: true, options: null, defaultValue: null, validation: null, position: 20, section: 'Transaction Information' },
-          { id: 21, fieldName: 'averageTicket', fieldType: 'number', fieldLabel: 'Average Transaction Amount ($)', isRequired: true, options: null, defaultValue: null, validation: null, position: 21, section: 'Transaction Information' },
-          { id: 22, fieldName: 'highestTicket', fieldType: 'number', fieldLabel: 'Highest Single Transaction ($)', isRequired: true, options: null, defaultValue: null, validation: null, position: 22, section: 'Transaction Information' },
+          { id: 19, fieldName: 'monthlyVolume', fieldType: 'number', fieldLabel: 'Expected Monthly Processing Volume ($)', isRequired: true, options: null, defaultValue: null, validation: null, position: 19, section: 'Transaction Information' },
+          { id: 20, fieldName: 'averageTicket', fieldType: 'number', fieldLabel: 'Average Transaction Amount ($)', isRequired: true, options: null, defaultValue: null, validation: null, position: 20, section: 'Transaction Information' },
+          { id: 21, fieldName: 'highestTicket', fieldType: 'number', fieldLabel: 'Highest Single Transaction ($)', isRequired: true, options: null, defaultValue: null, validation: null, position: 21, section: 'Transaction Information' },
         ]
       }
     );
@@ -1465,497 +861,11 @@ export default function EnhancedPdfWizard() {
     return baseSections;
   };
 
-  // Convert template field configuration to FormSection format
-  const createSectionsFromTemplate = (template: any): FormSection[] => {
-    if (!template?.fieldConfiguration?.sections) {
-      return createProspectFormSections();
-    }
-    
-    const iconMap: Record<string, any> = {
-      'Campaign Details': FileText,
-      'Equipment Selection': Monitor,
-      'Merchant Information': Building,
-      'Business Type & Tax Information': FileText,
-      'Business Ownership': Users,
-      'Products, Services & Processing': CheckCircle,
-      'Transaction Information': ArrowRight,
-    };
-    
-    // Get the list of required field names from the template
-    const requiredFieldNames = template.requiredFields || [];
-    
-    // Auto-detect address groups from field naming patterns
-    // Pattern: {prefix}.{canonicalField} where canonicalField is address1/street1/city/state/zipcode/postalCode/country
-    const autoDetectedGroups: Record<string, any> = {};
-    const addressFieldIdsToFilter = new Set<string>();
-    const addressGroupPositions: Record<string, { sectionTitle: string, position: number }> = {};
-    
-    // First pass: detect address group prefixes and track their positions
-    template.fieldConfiguration.sections.forEach((section: any) => {
-      section.fields.forEach((field: any, fieldIndex: number) => {
-        const match = field.id?.match(/^(.+)\.(address1|street1|city|state|zipcode|postalCode|country)$/i);
-        if (match) {
-          const [, prefix, canonicalField] = match;
-          if (!autoDetectedGroups[prefix]) {
-            // Use the full prefix without underscores as the type to match backend addressGroups
-            // e.g., 'merchant_location_address' -> 'merchantlocationaddress'
-            const groupType = prefix.replace(/_/g, '').toLowerCase();
-            autoDetectedGroups[prefix] = {
-              type: groupType,
-              label: field.label?.split('.')[0] || prefix,
-              sectionName: section.title,
-              fieldMappings: {}
-            };
-            // Track the position of the first field in this address group
-            addressGroupPositions[prefix] = {
-              sectionTitle: section.title,
-              position: fieldIndex
-            };
-          }
-          
-          // Map canonical names to field IDs (normalize postalcode/zipcode variations to postalCode)
-          const canonicalLower = canonicalField.toLowerCase();
-          const canonical = canonicalLower === 'address1' ? 'street1' : 
-                           canonicalLower === 'zipcode' || canonicalLower === 'postalcode' ? 'postalCode' : 
-                           canonicalLower;
-          autoDetectedGroups[prefix].fieldMappings[canonical] = field.id;
-          addressFieldIdsToFilter.add(field.id);
-        }
-      });
-    });
-    
-    const addressGroups = Object.values(autoDetectedGroups);
-    console.log('📍 Auto-detected address groups:', addressGroups);
-    console.log('📍 Address field IDs to filter out:', Array.from(addressFieldIdsToFilter));
-    
-    // Auto-detect signature groups from field naming patterns
-    // Pattern: {prefix}_signature_{role}.{fieldType} where fieldType is signerName/signature/initials/email/dateSigned
-    const autoDetectedSignatureGroups: Record<string, any> = {};
-    const signatureFieldIdsToFilter = new Set<string>();
-    const signatureGroupPositions: Record<string, { sectionTitle: string, position: number }> = {};
-    // Track multi-signer roles (non-owner slots like guarantor1, guarantor2)
-    // Key is base role (e.g., "guarantor"), value is array of slot numbers found
-    const multiSignerRoles: Record<string, { slots: number[], baseRoleKey: string, sectionName: string }> = {};
-    
-    // First pass: detect signature group prefixes and track their positions
-    template.fieldConfiguration.sections.forEach((section: any) => {
-      section.fields.forEach((field: any, fieldIndex: number) => {
-        const match = field.id?.match(/^(.+)_signature_([^.]+)\.(signerName|signature|initials|email|dateSigned)$/i);
-        if (match) {
-          const [, prefix, role, fieldType] = match;
-          const groupKey = `${prefix}_signature_${role}`;
-          
-          if (!autoDetectedSignatureGroups[groupKey]) {
-            // Generate a proper label for the signature group
-            // For owner groups, extract owner number and create "Owner X Signature" label
-            const ownerNumMatch = prefix.match(/owner(\d+)/i);
-            // Check for numbered non-owner roles (e.g., guarantor1, guarantor2, witness1, witness2)
-            const numberedRoleMatch = role.match(/^([a-zA-Z]+)(\d+)$/);
-            
-            let generatedLabel: string;
-            let slotNumber: number | undefined;
-            let baseRoleKey: string | undefined;
-            
-            if (ownerNumMatch) {
-              generatedLabel = `Owner ${ownerNumMatch[1]} Signature`;
-            } else if (numberedRoleMatch) {
-              // This is a numbered non-owner role (e.g., guarantor1, guarantor2)
-              baseRoleKey = numberedRoleMatch[1].toLowerCase();
-              slotNumber = parseInt(numberedRoleMatch[2]);
-              const baseRoleLabel = baseRoleKey.charAt(0).toUpperCase() + baseRoleKey.slice(1);
-              generatedLabel = `${baseRoleLabel} ${slotNumber} Signature`;
-              
-              // Track this slot for multi-signer management
-              if (!multiSignerRoles[baseRoleKey]) {
-                multiSignerRoles[baseRoleKey] = {
-                  slots: [],
-                  baseRoleKey,
-                  sectionName: section.title
-                };
-              }
-              if (!multiSignerRoles[baseRoleKey].slots.includes(slotNumber)) {
-                multiSignerRoles[baseRoleKey].slots.push(slotNumber);
-              }
-            } else {
-              generatedLabel = `${role.charAt(0).toUpperCase() + role.slice(1)} Signature`;
-            }
-            
-            autoDetectedSignatureGroups[groupKey] = {
-              roleKey: role,
-              label: generatedLabel,
-              sectionName: section.title,
-              fieldMappings: {},
-              // Add multi-signer info if this is a numbered role
-              slotNumber,
-              baseRoleKey,
-              isMultiSigner: !!numberedRoleMatch && !ownerNumMatch,
-            };
-            // Track the position of the first field in this signature group
-            signatureGroupPositions[groupKey] = {
-              sectionTitle: section.title,
-              position: fieldIndex
-            };
-          }
-          
-          // Map field types to field IDs
-          autoDetectedSignatureGroups[groupKey].fieldMappings[fieldType.toLowerCase()] = field.id;
-          signatureFieldIdsToFilter.add(field.id);
-        }
-      });
-    });
-    
-    // Sort slots and attach max available count to each multi-signer group
-    Object.keys(multiSignerRoles).forEach(baseRole => {
-      const roleInfo = multiSignerRoles[baseRole];
-      roleInfo.slots.sort((a, b) => a - b);
-      // Add maxSlots and availableSlots info to each signature group in this role
-      Object.values(autoDetectedSignatureGroups).forEach((group: any) => {
-        if (group.baseRoleKey === baseRole) {
-          group.maxSlots = roleInfo.slots.length;
-          group.availableSlots = roleInfo.slots;
-        }
-      });
-    });
-    
-    console.log('✍️ Multi-signer roles detected:', multiSignerRoles);
-    
-    // Create dynamic signature slots from fields with maxSigners > 1 and linkedSignatureGroupKey
-    // This handles disclosures and other fields that need multiple signers
-    template.fieldConfiguration.sections.forEach((section: any, sectionIdx: number) => {
-      section.fields.forEach((field: any, fieldIdx: number) => {
-        const maxSigners = field.maxSigners || 1;
-        const linkedKey = field.linkedSignatureGroupKey;
-        
-        if (maxSigners > 1 && linkedKey) {
-          console.log(`✍️ Creating dynamic signature slots for field ${field.id}: ${maxSigners} max signers, key=${linkedKey}`);
-          
-          // Create signature slots for each potential signer
-          for (let slot = 1; slot <= maxSigners; slot++) {
-            const roleKey = `${linkedKey}${slot}`;
-            const groupKey = `${field.id}_signature_${roleKey}`;
-            
-            // Add to signature groups
-            if (!autoDetectedSignatureGroups[groupKey]) {
-              // Use signerLabel if provided, otherwise fall back to linkedKey-based label
-              const baseLabel = field.signerLabel || `${linkedKey.charAt(0).toUpperCase() + linkedKey.slice(1)}`;
-              const label = `${baseLabel} ${slot}`;
-              autoDetectedSignatureGroups[groupKey] = {
-                roleKey,
-                label: field.requiresInitials ? `${label} Initials` : `${label} Signature`,
-                sectionName: section.title,
-                fieldMappings: {
-                  signerName: `${groupKey}.signerName`,
-                  signature: `${groupKey}.signature`,
-                  email: `${groupKey}.email`,
-                  dateSigned: `${groupKey}.dateSigned`,
-                },
-                isMultiSigner: true,
-                baseRoleKey: linkedKey,
-                slotNumber: slot,
-                maxSlots: maxSigners,
-                availableSlots: Array.from({ length: maxSigners }, (_, i) => i + 1),
-                linkedFieldId: field.id,
-                signerLabel: field.signerLabel,
-                requiresInitials: field.requiresInitials === true,
-                isDisclosure: field.fieldType === 'disclosure',
-                disclosureTitle: field.disclosureTitle || field.fieldLabel || '',
-                disclosureContent: field.disclosureContent || field.description || '',
-              };
-              
-              // Track position for proper placement
-              signatureGroupPositions[groupKey] = {
-                sectionTitle: section.title,
-                position: sectionIdx * 100 + fieldIdx + slot * 0.1 // Slightly after the parent field
-              };
-            }
-            
-            // Track in multiSignerRoles
-            if (!multiSignerRoles[linkedKey]) {
-              multiSignerRoles[linkedKey] = {
-                slots: [],
-                baseRoleKey: linkedKey,
-                sectionName: section.title,
-                signerLabel: field.signerLabel, // Custom label from template config
-              };
-            }
-            if (!multiSignerRoles[linkedKey].slots.includes(slot)) {
-              multiSignerRoles[linkedKey].slots.push(slot);
-            }
-          }
-          
-          // Sort slots
-          multiSignerRoles[linkedKey].slots.sort((a, b) => a - b);
-        }
-      });
-    });
-    
-    console.log('✍️ Multi-signer roles after dynamic creation:', multiSignerRoles);
-    
-    const signatureGroups = Object.values(autoDetectedSignatureGroups);
-    console.log('✍️ Auto-detected signature groups:', signatureGroups);
-    console.log('✍️ Signature field IDs to filter out:', Array.from(signatureFieldIdsToFilter));
-    
-    return template.fieldConfiguration.sections.map((section: any, sectionIndex: number) => {
-      console.log(`📍 Processing section: ${section.title}, fields before filter:`, section.fields.length);
-      
-      // Filter out individual address and signature fields that are part of groups
-      const filteredFields = section.fields.filter((field: any) => {
-        // Check if this field's ID is in the address or signature group mappings
-        const isAddressField = addressFieldIdsToFilter.has(field.id);
-        const isSignatureField = signatureFieldIdsToFilter.has(field.id);
-        const shouldFilter = isAddressField || isSignatureField;
-        if (shouldFilter) {
-          console.log(`📍 Filtering out field: ${field.id} (${field.label}) - ${isAddressField ? 'address' : 'signature'} group`);
-        }
-        return !shouldFilter;
-      });
-      
-      console.log(`📍 Section ${section.title}: ${filteredFields.length} fields after filtering`);
-      
-      // Add address group pseudo-fields at their original positions
-      const fieldsWithGroups = [...filteredFields];
-      if (addressGroups.length > 0) {
-        // Build a list of address groups for this section with their original positions
-        const groupsForSection: Array<{ group: any, originalPosition: number }> = [];
-        
-        Object.entries(autoDetectedGroups).forEach(([prefix, group]) => {
-          const posInfo = addressGroupPositions[prefix];
-          
-          // Check if this is an owner address group (owner1, owner2, etc.)
-          // Prefix format can be like "owner1_mailing_address" or "owners_owner2_address"
-          const ownerMatch = prefix.match(/(?:owners_)?owner(\d+)/);
-          if (ownerMatch) {
-            const ownerNumber = parseInt(ownerMatch[1]);
-            // Only include this owner if it's in the active slots
-            if (!activeOwnerSlots.has(ownerNumber)) {
-              console.log(`📍 Skipping inactive owner address group: ${prefix}`);
-              return; // Skip this owner slot
-            }
-          }
-          
-          if (posInfo && posInfo.sectionTitle === section.title) {
-            groupsForSection.push({
-              group,
-              originalPosition: posInfo.position
-            });
-          }
-        });
-        
-        // Sort by original position (ascending) - groups with lower positions come first
-        groupsForSection.sort((a, b) => a.originalPosition - b.originalPosition);
-        
-        // Insert each group in order, adjusting position for previously inserted groups
-        let insertionOffset = 0;
-        groupsForSection.forEach(({ group, originalPosition }) => {
-          // Calculate insertion position: count non-address fields before this group's original position
-          let insertPosition = 0;
-          for (let i = 0; i < originalPosition; i++) {
-            const fieldId = section.fields[i]?.id;
-            if (fieldId && !addressFieldIdsToFilter.has(fieldId)) {
-              insertPosition++;
-            }
-          }
-          
-          // Add the offset from previously inserted groups
-          const finalPosition = insertPosition + insertionOffset;
-          
-          console.log(`📍 Inserting addressGroup "${group.label}" at position ${finalPosition} (original: ${originalPosition}, offset: ${insertionOffset}) in section "${section.title}"`);
-          
-          fieldsWithGroups.splice(finalPosition, 0, {
-            id: `addressGroup_${group.type}`,
-            label: group.label || `${group.type.charAt(0).toUpperCase() + group.type.slice(1)} Address`,
-            type: 'addressGroup',
-            addressGroupConfig: group,
-          });
-          
-          // Increment offset since we just added a group
-          insertionOffset++;
-        });
-      }
-      
-      // Add signature group pseudo-fields at the END of the section
-      if (signatureGroups.length > 0) {
-        // Build a list of signature groups for this section
-        const sigGroupsForSection: Array<{ group: any, originalPosition: number, groupKey: string }> = [];
-        
-        Object.entries(autoDetectedSignatureGroups).forEach(([groupKey, group]) => {
-          const posInfo = signatureGroupPositions[groupKey];
-          
-          // Check if this is an owner signature group (owner1, owner2, etc.)
-          // GroupKey format is like "owners_owner1_signature_owner", so we match the number after "owner"
-          const ownerMatch = groupKey.match(/owner(\d+)_signature_owner$/);
-          if (ownerMatch) {
-            const ownerNumber = parseInt(ownerMatch[1]);
-            // Only include this owner if it's in the active slots
-            if (!activeOwnerSlots.has(ownerNumber)) {
-              console.log(`✍️ Skipping inactive owner slot: ${groupKey}`);
-              return; // Skip this owner slot
-            }
-          }
-          
-          // Check if this is a multi-signer group (non-owner numbered roles like guarantor1, guarantor2)
-          if (group.isMultiSigner && group.baseRoleKey && group.slotNumber) {
-            const activeSlots = activeSignerSlots[group.baseRoleKey];
-            // If activeSlots isn't initialized yet, only show the first slot (slot 1)
-            if (!activeSlots) {
-              if (group.slotNumber !== 1) {
-                console.log(`✍️ Skipping non-first slot ${group.slotNumber} before initialization: ${groupKey}`);
-                return; // Skip non-first slots until activeSignerSlots is initialized
-              }
-            } else if (!activeSlots.has(group.slotNumber)) {
-              console.log(`✍️ Skipping inactive ${group.baseRoleKey} slot ${group.slotNumber}: ${groupKey}`);
-              return; // Skip this inactive signer slot
-            }
-          }
-          
-          // Only include groups that belong to this section
-          if (posInfo && posInfo.sectionTitle === section.title) {
-            sigGroupsForSection.push({
-              group,
-              originalPosition: posInfo.position,
-              groupKey
-            });
-          }
-        });
-        
-        // Only proceed if there are signature groups in this section
-        if (sigGroupsForSection.length > 0) {
-          // Separate linked vs unlinked signature groups
-          const linkedSigGroups = sigGroupsForSection.filter(({ group }) => group.linkedFieldId);
-          const unlinkedSigGroups = sigGroupsForSection.filter(({ group }) => !group.linkedFieldId);
-          
-          // Sort linked signature groups by slot number to ensure ascending order
-          linkedSigGroups.sort((a, b) => {
-            const slotA = a.group.slotNumber || 1;
-            const slotB = b.group.slotNumber || 1;
-            return slotA - slotB;
-          });
-          
-          // Insert linked signature groups right after their linked field
-          // Track insertion offsets per linked field to maintain ascending signer order
-          const linkedFieldInsertCounts: Record<string, number> = {};
-          linkedSigGroups.forEach(({ group, originalPosition, groupKey }) => {
-            // Find the index of the linked field
-            const linkedFieldIndex = fieldsWithGroups.findIndex((f: any) => f.id === group.linkedFieldId);
-            if (linkedFieldIndex !== -1) {
-              console.log(`✍️ Inserting signatureGroup "${groupKey}" after linked field "${group.linkedFieldId}"`);
-              
-              const enrichedConfig = {
-                ...group,
-                groupKey,
-                prefix: groupKey.split('_signature_')[0],
-                sectionName: section.title,
-              };
-              
-              // Track how many items we've already inserted after this linked field
-              const fieldId = group.linkedFieldId;
-              const offset = linkedFieldInsertCounts[fieldId] || 0;
-              linkedFieldInsertCounts[fieldId] = offset + 1;
-              
-              // Insert after the linked field plus any previously inserted signers
-              fieldsWithGroups.splice(linkedFieldIndex + 1 + offset, 0, {
-                id: `signatureGroup_${groupKey}`,
-                label: group.label || `${group.roleKey} Signature`,
-                type: 'signatureGroup',
-                signatureGroupConfig: enrichedConfig,
-              });
-            }
-          });
-          
-          // Add unlinked signature groups at the end (original behavior)
-          unlinkedSigGroups.sort((a, b) => a.originalPosition - b.originalPosition);
-          unlinkedSigGroups.forEach(({ group, originalPosition, groupKey }) => {
-            console.log(`✍️ Adding signatureGroup "${groupKey}" at END of section "${section.title}" (original position was: ${originalPosition})`);
-            
-            const enrichedConfig = {
-              ...group,
-              groupKey,
-              prefix: groupKey.split('_signature_')[0],
-              sectionName: section.title,
-            };
-            
-            fieldsWithGroups.push({
-              id: `signatureGroup_${groupKey}`,
-              label: group.label || `${group.roleKey} Signature`,
-              type: 'signatureGroup',
-              signatureGroupConfig: enrichedConfig,
-            });
-          });
-        }
-      }
-      
-      console.log(`📍 Section ${section.title}: ${fieldsWithGroups.length} fields total (with address & signature groups)`);
-      
-      return {
-        name: section.title,
-        description: section.description || '',
-        icon: iconMap[section.title] || FileText,
-        fields: fieldsWithGroups.map((field: any, fieldIndex: number) => {
-          // Transform options: preserve {label, value} structure for display
-          let normalizedOptions = field.options || null;
-          if (Array.isArray(normalizedOptions) && normalizedOptions.length > 0) {
-            // Check if options are structured objects vs simple strings
-            if (typeof normalizedOptions[0] === 'object' && normalizedOptions[0] !== null) {
-              // Preserve label and value for proper display
-              normalizedOptions = normalizedOptions.map((opt: any) => ({
-                label: opt.label || opt.value || String(opt),
-                value: opt.value || opt.label || String(opt)
-              }));
-            }
-          }
-          
-          return {
-            id: sectionIndex * 100 + fieldIndex,
-            fieldName: field.id,
-            fieldType: field.type,
-            fieldLabel: field.label,
-            isRequired: requiredFieldNames.includes(field.id),
-            options: normalizedOptions,
-            defaultValue: null,
-            validation: field.pattern || null,
-            validationText: field.validationText || null,
-            allowFutureDates: field.allowFutureDates,
-            futureDateErrorMessage: field.futureDateErrorMessage || null,
-            allowNegativeValues: field.allowNegativeValues,
-            negativeValueErrorMessage: field.negativeValueErrorMessage || null,
-            position: sectionIndex * 100 + fieldIndex,
-            section: section.title,
-            description: field.description || null,
-            placeholder: field.placeholder || null,
-            addressGroupConfig: field.addressGroupConfig || null,
-            signatureGroupConfig: field.signatureGroupConfig || null,
-            ownerGroupConfig: field.ownerGroupConfig || null,
-            layout: field.layout || null,
-            // Disclosure field properties
-            disclosureContent: field.disclosureContent || null,
-            disclosureTitle: field.disclosureTitle || null,
-            disclosureVersion: field.disclosureVersion || null,
-            disclosureDefinitionId: field.disclosureDefinitionId || null,
-            requiresSignature: field.requiresSignature,
-            requiresInitials: field.requiresInitials,
-            // Multi-signer configuration
-            maxSigners: field.maxSigners || 1,
-            linkedSignatureGroupKey: field.linkedSignatureGroupKey || '',
-          };
-        })
-      };
-    });
-  };
-
   // Create enhanced sections with descriptions and icons
   let sections: FormSection[] = [];
   
-  if (isPreviewMode && previewTemplate) {
-    // Preview mode: use template configuration
-    sections = createSectionsFromTemplate(previewTemplate);
-  } else if (isProspectMode) {
-    // Use template fields if available and has valid sections, otherwise use hardcoded sections
-    if (prospectData?.applicationTemplate?.fieldConfiguration?.sections?.length > 0) {
-      sections = createSectionsFromTemplate(prospectData.applicationTemplate);
-    } else {
-      // Fallback to hardcoded sections if template has no sections or no field configuration
-      sections = createProspectFormSections();
-    }
+  if (isProspectMode) {
+    sections = createProspectFormSections();
   } else if (pdfForm?.fields) {
     sections = [
       {
@@ -1967,295 +877,15 @@ export default function EnhancedPdfWizard() {
     ];
   }
 
-  // Detect multi-signer roles from sections and initialize activeSignerSlots
-  // This extracts the detected roles so we can initialize state properly
-  const detectedMultiSignerRoles = useMemo(() => {
-    const roles: Record<string, number[]> = {};
-    sections.forEach(section => {
-      section.fields.forEach((field: any) => {
-        if (field.signatureGroupConfig?.isMultiSigner && field.signatureGroupConfig?.baseRoleKey) {
-          const baseRole = field.signatureGroupConfig.baseRoleKey;
-          const slotNumber = field.signatureGroupConfig.slotNumber;
-          // Guard: only process if slotNumber is a valid positive integer
-          if (typeof slotNumber === 'number' && slotNumber > 0 && Number.isInteger(slotNumber)) {
-            if (!roles[baseRole]) {
-              roles[baseRole] = [];
-            }
-            if (!roles[baseRole].includes(slotNumber)) {
-              roles[baseRole].push(slotNumber);
-            }
-          }
-        }
-      });
-    });
-    // Sort slots for each role
-    Object.keys(roles).forEach(role => {
-      roles[role].sort((a, b) => a - b);
-    });
-    return roles;
-  }, [sections]);
-
-  // Initialize activeSignerSlots when multi-signer roles are detected
-  useEffect(() => {
-    // Initialize all detected multi-signer roles (even single-slot ones for consistency)
-    const allRoles = Object.entries(detectedMultiSignerRoles);
-    if (allRoles.length > 0) {
-      setActiveSignerSlots(prev => {
-        const updated = { ...prev };
-        let hasChanges = false;
-        allRoles.forEach(([role, slots]) => {
-          // Initialize if not exists, or if exists but is empty
-          if (!updated[role] || updated[role].size === 0) {
-            // Initialize with just the first slot active (sorted slots array)
-            const firstSlot = slots.length > 0 ? slots[0] : 1;
-            updated[role] = new Set([firstSlot]);
-            hasChanges = true;
-          }
-        });
-        return hasChanges ? updated : prev;
-      });
-    }
-  }, [detectedMultiSignerRoles]);
-
-  // Function to evaluate if a field should be visible based on conditional rules
-  const shouldShowField = (fieldId: string): boolean => {
-    // Get the active template (preview or prospect mode)
-    const activeTemplate = isPreviewMode ? previewTemplate : prospectData?.applicationTemplate;
-    
-    if (!activeTemplate) {
-      return true; // Show all fields if no template
-    }
-
-    // Filter owner fields based on active owner slots
-    // Check if this field belongs to an owner (owner1_, owner2_, owners_owner1_, owners_owner2_, etc.)
-    const ownerFieldMatch = fieldId.match(/^(?:owners_)?owner(\d+)_/);
-    if (ownerFieldMatch) {
-      const ownerNumber = parseInt(ownerFieldMatch[1]);
-      // Only show if this owner number is in the active slots
-      if (!activeOwnerSlots.has(ownerNumber)) {
-        return false;
-      }
-    }
-
-    // Filter multi-signer signature fields based on active signer slots
-    // Pattern: {prefix}_signature_{role}{number}.{fieldType} (e.g., agreements_signature_guarantor2.signerName)
-    const multiSignerMatch = fieldId.match(/_signature_([a-zA-Z]+)(\d+)\./);
-    if (multiSignerMatch) {
-      const baseRole = multiSignerMatch[1].toLowerCase();
-      const slotNumber = parseInt(multiSignerMatch[2]);
-      const activeSlots = activeSignerSlots[baseRole];
-      // If activeSlots isn't initialized yet, only show the first slot (slot 1)
-      // Once initialized, show only slots in the active set
-      if (!activeSlots) {
-        if (slotNumber !== 1) {
-          return false; // Hide non-first slots before initialization
-        }
-      } else if (!activeSlots.has(slotNumber)) {
-        return false;
-      }
-    }
-
-    let finalVisibility = true;
-
-    // Check field-level conditional rules
-    const conditionalFields = activeTemplate.conditionalFields;
-    if (conditionalFields && conditionalFields[fieldId]) {
-      const fieldCondition = conditionalFields[fieldId];
-      const { action, when } = fieldCondition;
-      
-      if (when && when.field) {
-        const dependentFieldValue = formData[when.field];
-        let conditionMet = false;
-
-        // Evaluate the condition based on operator (handle both single values and arrays)
-        // Use case-insensitive comparison for string values
-        const normalizeValue = (val: any): string => String(val || '').toLowerCase().trim();
-        const conditionValue = normalizeValue(when.value);
-        
-        switch (when.operator) {
-          case 'equals':
-            if (Array.isArray(dependentFieldValue)) {
-              conditionMet = dependentFieldValue.some(v => normalizeValue(v) === conditionValue);
-            } else {
-              conditionMet = normalizeValue(dependentFieldValue) === conditionValue;
-            }
-            break;
-          case 'not_equals':
-            if (Array.isArray(dependentFieldValue)) {
-              conditionMet = !dependentFieldValue.some(v => normalizeValue(v) === conditionValue);
-            } else {
-              conditionMet = normalizeValue(dependentFieldValue) !== conditionValue;
-            }
-            break;
-          case 'contains':
-            if (Array.isArray(dependentFieldValue)) {
-              conditionMet = dependentFieldValue.some(val => normalizeValue(val).includes(conditionValue));
-            } else {
-              conditionMet = dependentFieldValue && normalizeValue(dependentFieldValue).includes(conditionValue);
-            }
-            break;
-          case 'is_checked':
-            // For boolean/checkbox fields
-            if (Array.isArray(dependentFieldValue)) {
-              conditionMet = dependentFieldValue.length > 0;
-            } else {
-              conditionMet = dependentFieldValue === true || dependentFieldValue === 'true' || dependentFieldValue === 'yes' || dependentFieldValue === 'Yes';
-            }
-            break;
-          case 'is_not_checked':
-            if (Array.isArray(dependentFieldValue)) {
-              conditionMet = dependentFieldValue.length === 0;
-            } else {
-              conditionMet = !dependentFieldValue || dependentFieldValue === false || dependentFieldValue === 'false' || dependentFieldValue === 'no' || dependentFieldValue === 'No';
-            }
-            break;
-          case 'is_not_empty':
-            // Check if field has any value (not null, undefined, or empty string)
-            if (Array.isArray(dependentFieldValue)) {
-              conditionMet = dependentFieldValue.length > 0;
-            } else {
-              conditionMet = dependentFieldValue !== null && 
-                           dependentFieldValue !== undefined && 
-                           dependentFieldValue !== '' &&
-                           String(dependentFieldValue).trim() !== '';
-            }
-            break;
-          default:
-            conditionMet = false;
-        }
-
-        // Update visibility based on action and whether condition is met
-        if (action === 'show') {
-          finalVisibility = conditionMet; // Show only when condition is met
-        } else {
-          finalVisibility = !conditionMet; // Hide when condition is met
-        }
-      }
-    }
-
-    // Check option-level conditional rules from all fields
-    const fieldConfiguration = activeTemplate.fieldConfiguration;
-    if (fieldConfiguration?.sections) {
-      for (const section of fieldConfiguration.sections) {
-        for (const field of section.fields) {
-          // Check if this field has options with conditionals
-          if (field.options && Array.isArray(field.options)) {
-            for (const option of field.options) {
-              // Check if option has a conditional targeting our fieldId
-              if (option.conditional && option.conditional.targetField === fieldId) {
-                const selectedValue = formData[field.id];
-                // Handle both single values (radio, select) and arrays (checkbox)
-                const isOptionSelected = Array.isArray(selectedValue) 
-                  ? selectedValue.includes(option.value)
-                  : selectedValue === option.value;
-                
-                if (isOptionSelected) {
-                  // This option is selected and has a conditional for our field
-                  if (option.conditional.action === 'show') {
-                    finalVisibility = true;
-                  } else if (option.conditional.action === 'hide') {
-                    finalVisibility = false;
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-
-    return finalVisibility;
-  };
-
-  // Function to determine if a field is required (static or conditional)
-  const isFieldRequired = (field: FormField): boolean => {
-    // Check static requirement first
-    if (field.isRequired) {
-      return true;
-    }
-
-    // Check if field has conditional visibility with "required when visible"
-    const activeTemplate = isPreviewMode ? previewTemplate : prospectData?.applicationTemplate;
-    if (!activeTemplate) {
-      return false;
-    }
-
-    const conditionalFields = activeTemplate.conditionalFields;
-    if (conditionalFields && conditionalFields[field.fieldName]) {
-      const fieldCondition = conditionalFields[field.fieldName];
-      
-      // If field is conditionally shown AND marked as required when visible
-      if (fieldCondition.action === 'show' && fieldCondition.requiredWhenVisible) {
-        // Check if the field is currently visible
-        return shouldShowField(field.fieldName);
-      }
-    }
-
-    return false;
-  };
-
-  // Filter fields based on conditional visibility
-  const filteredSections = sections.map(section => ({
-    ...section,
-    fields: section.fields.filter(field => shouldShowField(field.fieldName))
-  }));
-
-  // Add agent signature section if all owner signatures are collected
-  if (isProspectMode) {
-    const owners = formData.owners || [];
-    const ownersNeedingSignatures = owners.filter((owner: any) => parseFloat(owner.percentage || 0) >= 25);
-    const allOwnersSigned = ownersNeedingSignatures.length > 0 && ownersNeedingSignatures.every((owner: any) => owner.signature);
-    
-    if (allOwnersSigned) {
-      filteredSections.push({
-        name: 'Agent Signature',
-        description: 'Final approval signature from assigned agent',
-        icon: Signature,
-        fields: [
-          { 
-            id: 9999, 
-            fieldName: 'agentSignature', 
-            fieldType: 'agent-signature', 
-            fieldLabel: 'Agent Signature', 
-            isRequired: true, 
-            options: null, 
-            defaultValue: null, 
-            validation: null, 
-            position: 9999, 
-            section: 'Agent Signature' 
-          },
-        ]
-      });
-    }
-  }
-
-  // Mark only the current step as visited on initial load
-  // Sections should only show completion status after the user has actually navigated to them
-  useEffect(() => {
-    if (!initialDataLoaded || filteredSections.length === 0) {
-      return;
-    }
-    setVisitedSections(prev => {
-      if (prev.has(currentStep)) return prev;
-      const newVisited = new Set(prev);
-      newVisited.add(currentStep);
-      return newVisited;
-    });
-  }, [initialDataLoaded, filteredSections.length]);
-
   // Fetch address suggestions using Google Places Autocomplete API
   const fetchAddressSuggestions = async (input: string) => {
-    console.log('🌐 fetchAddressSuggestions CALLED with input:', input, 'length:', input.length);
-    
     if (input.length < 4) {
-      console.log('❌ Input too short, aborting');
       setAddressSuggestions([]);
       setShowSuggestions(false);
       setSelectedSuggestionIndex(-1);
       return;
     }
 
-    console.log('✨ Fetching suggestions from API...');
     setIsLoadingSuggestions(true);
     
     try {
@@ -2267,39 +897,27 @@ export default function EnhancedPdfWizard() {
         body: JSON.stringify({ input }),
       });
       
-      console.log('📡 API Response status:', response.status, response.ok);
-      
       if (response.ok) {
         const result = await response.json();
-        console.log('✅ API Success! Received suggestions:', result.suggestions?.length || 0, result);
         setAddressSuggestions(result.suggestions || []);
         setShowSuggestions(true);
         setSelectedSuggestionIndex(-1);
-        console.log('🎯 State updated - showSuggestions:', true, 'suggestions count:', result.suggestions?.length);
       } else {
-        console.error('❌ Address suggestions API error:', response.status);
+        console.error('Address suggestions API error:', response.status);
       }
     } catch (error) {
-      console.error('💥 Address suggestions network error:', error);
+      console.error('Address suggestions network error:', error);
     } finally {
       setIsLoadingSuggestions(false);
-      console.log('🏁 Fetch complete, loading state set to false');
     }
   };
 
-  // Track current address field being edited for smart field population
-  const [currentAddressField, setCurrentAddressField] = useState<string | null>(null);
-
   // Select address suggestion and validate
   const selectAddressSuggestion = async (suggestion: any) => {
-    console.log('🚀🚀🚀 SELECT ADDRESS SUGGESTION FUNCTION CALLED! 🚀🚀🚀');
-    console.log('Suggestion received:', suggestion);
-    
     const mainText = suggestion.structured_formatting?.main_text || suggestion.description.split(',')[0];
     
     console.log('Selecting address suggestion:', suggestion);
     console.log('Previous form data before selection:', formData);
-    console.log('Current address field being edited:', currentAddressField);
     
     // Hide suggestions immediately
     setShowSuggestions(false);
@@ -2307,39 +925,6 @@ export default function EnhancedPdfWizard() {
     
     // Set addressOverrideActive to prevent browser cache interference
     setAddressOverrideActive(true);
-    
-    // Find the actual field names from the current section instead of constructing them
-    const currentFields = filteredSections[currentStep]?.fields || [];
-    
-    console.log('🔍 DEBUG: Current step:', currentStep);
-    console.log('🔍 DEBUG: Total sections:', filteredSections.length);
-    console.log('🔍 DEBUG: Current section name:', filteredSections[currentStep]?.name);
-    console.log('🔍 DEBUG: All field names in current section:', currentFields.map(f => f.fieldName));
-    
-    // Find the actual address, city, state, and zipCode field names from the form definition
-    const addressField = currentFields.find(f => f.fieldName.toLowerCase().includes('address') && !f.fieldName.toLowerCase().includes('line2'));
-    const cityField = currentFields.find(f => f.fieldName.toLowerCase().includes('city'));
-    const stateField = currentFields.find(f => f.fieldName.toLowerCase().includes('state') && !f.fieldName.toLowerCase().includes('filed'));
-    const zipField = currentFields.find(f => f.fieldName.toLowerCase().includes('zip'));
-    
-    console.log('🔍 DEBUG: Field lookup results:', {
-      addressField: addressField?.fieldName,
-      cityField: cityField?.fieldName,
-      stateField: stateField?.fieldName,
-      zipField: zipField?.fieldName
-    });
-    
-    const addressFieldName = addressField?.fieldName || 'address';
-    const cityFieldName = cityField?.fieldName || 'city';
-    const stateFieldName = stateField?.fieldName || 'state';
-    const zipCodeFieldName = zipField?.fieldName || 'zipCode';
-    
-    console.log('✅ Final field names to populate:', {
-      address: addressFieldName,
-      city: cityFieldName,
-      state: stateFieldName,
-      zipCode: zipCodeFieldName
-    });
     
     // Validate the address with Google Maps API for complete information
     try {
@@ -2365,40 +950,32 @@ export default function EnhancedPdfWizard() {
             zipCode: result.zipCode
           });
           
-          console.log('Will populate these actual form fields:', {
-            address: addressFieldName,
-            city: cityFieldName,
-            state: stateFieldName,
-            zipCode: zipCodeFieldName
-          });
-          
           // Create final validated address data - this OVERWRITES any previous data
           const overwrittenFormData = {
             ...formData,  // Keep all existing form data
-            [addressFieldName]: result.streetAddress || mainText,  // OVERWRITE address
-            [cityFieldName]: result.city || '',                     // OVERWRITE city
-            [stateFieldName]: result.state || '',                   // OVERWRITE state
-            [zipCodeFieldName]: result.zipCode || ''                // OVERWRITE zipCode
+            address: result.streetAddress || mainText,  // OVERWRITE address
+            city: result.city || '',                    // OVERWRITE city
+            state: result.state || '',                  // OVERWRITE state
+            zipCode: result.zipCode || ''               // OVERWRITE zipCode
           };
           
-          console.log('Form Data BEFORE update:', formData);
-          console.log('Form Data AFTER construction:', overwrittenFormData);
-          console.log('New field values being set:', {
-            [addressFieldName]: overwrittenFormData[addressFieldName],
-            [cityFieldName]: overwrittenFormData[cityFieldName],
-            [stateFieldName]: overwrittenFormData[stateFieldName],
-            [zipCodeFieldName]: overwrittenFormData[zipCodeFieldName]
+          console.log('OVERWRITING previous address data with selection:', {
+            previous: {
+              address: formData.address,
+              city: formData.city,
+              state: formData.state,
+              zipCode: formData.zipCode
+            },
+            new: {
+              address: overwrittenFormData.address,
+              city: overwrittenFormData.city,
+              state: overwrittenFormData.state,
+              zipCode: overwrittenFormData.zipCode
+            }
           });
           
-          // Merge validated address with existing formData to preserve signature fields
-          setFormData(prev => ({
-            ...prev,
-            [addressFieldName]: overwrittenFormData[addressFieldName],
-            [cityFieldName]: overwrittenFormData[cityFieldName],
-            [stateFieldName]: overwrittenFormData[stateFieldName],
-            [zipCodeFieldName]: overwrittenFormData[zipCodeFieldName]
-          }));
-          console.log('✓ setFormData called with updated address fields');
+          // IMMEDIATELY update form data with the new address - this overwrites any previous data
+          setFormData(overwrittenFormData);
           
           // Clear browser cache and storage that might interfere
           const addressKeys = ['address', 'city', 'state', 'zipCode'];
@@ -2407,16 +984,9 @@ export default function EnhancedPdfWizard() {
             sessionStorage.removeItem(key);
           });
           
-          // IMMEDIATELY save to database with merged data (address + all existing fields)
+          // IMMEDIATELY save to database to ensure persistence and overwrite previous data
           if (isProspectMode && prospectData?.prospect) {
-            const mergedFormData = {
-              ...formData,
-              [addressFieldName]: overwrittenFormData[addressFieldName],
-              [cityFieldName]: overwrittenFormData[cityFieldName],
-              [stateFieldName]: overwrittenFormData[stateFieldName],
-              [zipCodeFieldName]: overwrittenFormData[zipCodeFieldName]
-            };
-            console.log('Saving merged form data to database (preserving ownership):', mergedFormData);
+            console.log('Saving overwritten form data to database:', overwrittenFormData);
             
             try {
               const saveResponse = await fetch(`/api/prospects/${prospectData.prospect.id}/save-form-data`, {
@@ -2425,7 +995,7 @@ export default function EnhancedPdfWizard() {
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({ 
-                  formData: mergedFormData, 
+                  formData: overwrittenFormData, 
                   currentStep: currentStep,
                   overwriteAddress: true  // Flag to indicate this is an address overwrite
                 }),
@@ -2515,59 +1085,39 @@ export default function EnhancedPdfWizard() {
 
   // Handle field changes with auto-save and address override protection
   const handleFieldChange = (fieldName: string, value: any) => {
-    // Block all field changes when application is locked (submitted)
-    if (isApplicationLocked) {
-      console.log(`🔒 Blocking field change for "${fieldName}" - application is locked`);
-      return;
-    }
-    
-    // Log ownership-related field changes for debugging
-    if (fieldName.toLowerCase().includes('owner') || fieldName.toLowerCase().includes('signature')) {
-      console.log(`🔧 handleFieldChange called: fieldName="${fieldName}", value type=${typeof value}, length=${typeof value === 'string' ? value.length : 'N/A'}`);
-    }
-    
-    // Check if this is a city, state, or zipCode field (with any prefix)
-    const isCityField = fieldName.endsWith('City');
-    const isStateField = fieldName.endsWith('State');
-    const isZipCodeField = fieldName.endsWith('ZipCode') || fieldName.endsWith('zipCode');
-    
     // Prevent address field changes if addressOverrideActive and fields are locked
     if (addressOverrideActive && addressFieldsLocked && 
-        (isCityField || isStateField || isZipCodeField)) {
+        (fieldName === 'city' || fieldName === 'state' || fieldName === 'zipCode')) {
       console.log(`Blocking change to ${fieldName} due to address override protection`);
       return;
     }
     
-    // Use functional update to avoid stale closure issues when multiple field changes happen quickly
-    // This is critical for signature group fields which trigger multiple handleFieldChange calls
-    setFormData(prev => {
-      const newFormData = { ...prev, [fieldName]: value };
+    const newFormData = { ...formData, [fieldName]: value };
+    
+    // Calculate years in business when business start date is entered
+    if (fieldName === 'businessStartDate' && value) {
+      const startDate = new Date(value);
+      const currentDate = new Date();
+      const yearsDiff = currentDate.getFullYear() - startDate.getFullYear();
+      const monthsDiff = currentDate.getMonth() - startDate.getMonth();
       
-      // Calculate years in business when business start date is entered
-      if (fieldName === 'businessStartDate' && value) {
-        const startDate = new Date(value);
-        const currentDate = new Date();
-        const yearsDiff = currentDate.getFullYear() - startDate.getFullYear();
-        const monthsDiff = currentDate.getMonth() - startDate.getMonth();
-        
-        // Calculate more precise years (including partial years)
-        let yearsInBusiness = yearsDiff;
-        if (monthsDiff < 0 || (monthsDiff === 0 && currentDate.getDate() < startDate.getDate())) {
-          yearsInBusiness--;
-        }
-        
-        // Ensure minimum of 0 years
-        yearsInBusiness = Math.max(0, yearsInBusiness);
-        
-        // Update both the start date and calculated years
-        newFormData.yearsInBusiness = yearsInBusiness.toString();
+      // Calculate more precise years (including partial years)
+      let yearsInBusiness = yearsDiff;
+      if (monthsDiff < 0 || (monthsDiff === 0 && currentDate.getDate() < startDate.getDate())) {
+        yearsInBusiness--;
       }
       
-      return newFormData;
-    });
+      // Ensure minimum of 0 years
+      yearsInBusiness = Math.max(0, yearsInBusiness);
+      
+      // Update both the start date and calculated years
+      newFormData.yearsInBusiness = yearsInBusiness.toString();
+    }
+    
+    setFormData(newFormData);
 
     // Validate the field and update errors
-    const currentField = filteredSections[currentStep]?.fields.find(f => f.fieldName === fieldName);
+    const currentField = sections[currentStep]?.fields.find(f => f.fieldName === fieldName);
     if (currentField) {
       const error = validateField(currentField, value);
       setValidationErrors(prev => ({
@@ -2579,23 +1129,10 @@ export default function EnhancedPdfWizard() {
     // Track field interaction for prospect status update
     handleFieldInteraction(fieldName, value);
     
-    // Trigger address autocomplete for any field ending with "Address"
-    const isAddressField = fieldName.endsWith('Address');
-    console.log('🔍 Field change detected:', fieldName, 'isAddressField:', isAddressField, 'value length:', value?.length);
-    if (isAddressField) {
-      console.log('✅ This is an address field! fieldName:', fieldName);
-      // Track which address field is being edited for smart population
-      setCurrentAddressField(fieldName);
-      
-      // Extract field prefix to determine which city/state/zip fields to clear
-      const match = fieldName.match(/^(.+?)Address$/);
-      const fieldPrefix = match ? match[1] : '';
-      const cityFieldName = fieldPrefix ? `${fieldPrefix}City` : 'city';
-      const stateFieldName = fieldPrefix ? `${fieldPrefix}State` : 'state';
-      const zipCodeFieldName = fieldPrefix ? `${fieldPrefix}ZipCode` : 'zipCode';
-      
+    // Trigger address autocomplete for address field - allow even when locked to enable new selections
+    if (fieldName === 'address') {
       // If user starts typing in a locked address field, unlock it for new selection
-      if (addressFieldsLocked && value !== formData[fieldName]) {
+      if (addressFieldsLocked && value !== formData.address) {
         console.log('User typing new address - unlocking fields for new selection');
         setAddressFieldsLocked(false);
         setAddressOverrideActive(false);
@@ -2605,32 +1142,27 @@ export default function EnhancedPdfWizard() {
       setAddressValidationStatus('idle');
       // Clear city, state, zip when manually typing new address (if not locked or being unlocked)
       if (value && value.length >= 4) {
-        console.log('📞 Calling fetchAddressSuggestions with value:', value, 'length:', value.length);
         fetchAddressSuggestions(value);
       } else {
-        console.log('⏸️ NOT calling fetchAddressSuggestions - value length too short:', value?.length);
         setShowSuggestions(false);
         setAddressSuggestions([]);
         setSelectedSuggestionIndex(-1);
         // Only clear address-related fields when completely empty (not just short)
         if (value.length === 0 && !addressFieldsLocked) {
           console.log('Address field completely cleared - clearing dependent fields');
-          // Use functional update for clearing address fields too
-          setFormData(prev => ({
-            ...prev,
-            [cityFieldName]: '',
-            [stateFieldName]: '',
-            [zipCodeFieldName]: ''
-          }));
+          const clearedFormData = { ...newFormData };
+          clearedFormData.city = '';
+          clearedFormData.state = '';
+          clearedFormData.zipCode = '';
+          setFormData(clearedFormData);
         }
       }
     }
     
     // Auto-save after 2 seconds of no changes (only for authenticated users, not prospects)
-    // Use formDataRef to get the latest value
     if (!isProspectMode) {
       setTimeout(() => {
-        autoSaveMutation.mutate(formDataRef.current);
+        autoSaveMutation.mutate(newFormData);
       }, 2000);
     }
   };
@@ -2774,12 +1306,15 @@ export default function EnhancedPdfWizard() {
       let signatureData: string | null = null;
       let signatureType: string | null = null;
 
-      const canvas = canvasRef.current;
-      if (canvas) {
-        // For both draw and type modes, save the canvas as an image
-        // This ensures consistent display as an image, not text
-        signatureData = canvas.toDataURL();
-        signatureType = 'canvas';
+      if (signatureMode === 'draw') {
+        const canvas = canvasRef.current;
+        if (canvas) {
+          signatureData = canvas.toDataURL();
+          signatureType = 'canvas';
+        }
+      } else {
+        signatureData = typedSignature;
+        signatureType = 'typed';
       }
 
       onSignatureChange(ownerIndex, signatureData, signatureType);
@@ -2967,7 +1502,7 @@ export default function EnhancedPdfWizard() {
     // Handle ownership validation separately
     if (field.fieldType === 'ownership') {
       const owners = value || [];
-      if (isFieldRequired(field) && owners.length === 0) {
+      if (field.isRequired && owners.length === 0) {
         return 'At least one owner is required';
       }
 
@@ -3015,9 +1550,8 @@ export default function EnhancedPdfWizard() {
       return null;
     }
 
-    if (isFieldRequired(field) && (!value || value.toString().trim() === '')) {
-      // Use custom validation text if provided, otherwise use default message
-      return (field as any).validationText || `${field.fieldLabel} is required`;
+    if (field.isRequired && (!value || value.toString().trim() === '')) {
+      return `${field.fieldLabel} is required`;
     }
 
     if (value && field.validation) {
@@ -3058,70 +1592,8 @@ export default function EnhancedPdfWizard() {
       }
     }
 
-    // Validate date fields
-    if (field.fieldType === 'date' && value) {
-      const enteredDate = new Date(value);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Reset time to start of day for fair comparison
-      
-      // Check if future dates are NOT allowed (allowFutureDates explicitly set to false)
-      if ((field as any).allowFutureDates === false) {
-        if (enteredDate > today) {
-          // Use custom error message or default
-          return (field as any).futureDateErrorMessage || `${field.fieldLabel} cannot be a future date`;
-        }
-      }
-      
-      // Validate expiration dates are in the future (existing logic)
-      const fieldNameLower = field.fieldName.toLowerCase();
-      const isExpirationDate = fieldNameLower.includes('exp') || 
-                              fieldNameLower.includes('expiration');
-      
-      if (isExpirationDate) {
-        if (enteredDate < today) {
-          return 'Expiration date must be in the future';
-        }
-      }
-    }
-
-    // Validate currency fields for negative values
-    if (field.fieldType === 'currency' && value) {
-      // Check if negative values are NOT allowed
-      if ((field as any).allowNegativeValues === false) {
-        const numericValue = parseFloat(String(value).replace(/[^0-9.-]/g, ''));
-        if (!isNaN(numericValue) && numericValue < 0) {
-          return (field as any).negativeValueErrorMessage || `${field.fieldLabel} cannot be a negative amount`;
-        }
-      }
-    }
-
-    // Validate percentage fields - max 100%
-    if (field.fieldType === 'percentage' && value) {
-      const numericValue = parseFloat(String(value).replace(/[^0-9.-]/g, ''));
-      if (!isNaN(numericValue)) {
-        if (numericValue > 100) {
-          return `${field.fieldLabel} cannot exceed 100%`;
-        }
-        if (numericValue < 0) {
-          return `${field.fieldLabel} cannot be negative`;
-        }
-      }
-    }
-
     return null;
   };
-
-  // For preview mode, show loading if template data isn't loaded yet
-  if (isPreviewMode && !previewTemplate) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading template preview...</p>
-        </div>
-      </div>
-    );
-  }
 
   // For prospect mode, show loading if prospect data isn't loaded yet
   if (isProspectMode && !prospectData) {
@@ -3135,8 +1607,8 @@ export default function EnhancedPdfWizard() {
     );
   }
 
-  // For authenticated mode (not preview or prospect), show loading and error states for PDF form
-  if (!isProspectMode && !isPreviewMode) {
+  // For authenticated mode, show loading and error states for PDF form
+  if (!isProspectMode) {
     if (isLoading) {
       return (
         <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -3160,75 +1632,21 @@ export default function EnhancedPdfWizard() {
     }
   }
 
-  // Helper function to detect if a field is an agent field
-  const isAgentField = (fieldName: string): boolean => {
-    const lowerFieldName = fieldName.toLowerCase();
-    return lowerFieldName.includes('agent') || 
-           lowerFieldName === 'salesrep' || 
-           lowerFieldName === 'sales_rep' ||
-           lowerFieldName === 'representative';
-  };
-
-  // Get agent name for pre-population
-  const getAgentName = (): string => {
-    if (!prospectData?.agent) return '';
-    return `${prospectData.agent.firstName} ${prospectData.agent.lastName}`;
-  };
-
-  // Helper to check if field is read-only
-  const isFieldReadOnly = (fieldName: string): boolean => {
-    const isAgent = isProspectMode && isAgentField(fieldName);
-    const isCityField = fieldName.endsWith('City');
-    const isZipCodeField = fieldName.endsWith('ZipCode') || fieldName.endsWith('zipCode');
-    // Contact info fields are read-only in prospect mode (pre-populated from prospect record)
-    const isContactField = fieldName === 'contactFirstName' || fieldName === 'contactLastName' || fieldName === 'companyEmail';
-    return (isProspectMode && (isContactField || isAgent)) ||
-           (addressFieldsLocked && (isCityField || isZipCodeField));
-  };
-
   // Render form field based on type
-  const renderField = (field: FormField, fieldIndex: number = 0) => {
-    // Check if this is an agent field in prospect mode
-    const isAgentFieldInProspectMode = isProspectMode && isAgentField(field.fieldName);
-    const agentName = isAgentFieldInProspectMode ? getAgentName() : '';
-    
-    // Use agent name if this is an agent field, otherwise use existing value
-    const value = isAgentFieldInProspectMode && agentName ? agentName : (formData[field.fieldName] || '');
+  const renderField = (field: FormField) => {
+    const value = formData[field.fieldName] || '';
     const hasError = validationErrors[field.fieldName];
-    
-    // Determine if field is read-only
-    const isReadOnly = isFieldReadOnly(field.fieldName);
-    
-    // Check if field is required (static or conditional)
-    const fieldIsRequired = isFieldRequired(field);
-    
-    // Auto-focus first editable field on initial render only
-    const currentFields = filteredSections[currentStep]?.fields || [];
-    const firstEditableIndex = currentFields.findIndex(f => !isFieldReadOnly(f.fieldName));
-    const shouldAutoFocus = isInitialRender && fieldIndex === firstEditableIndex && firstEditableIndex >= 0;
 
     switch (field.fieldType) {
       case 'text':
       case 'email':
-      case 'url':
+      case 'phone':
         return (
           <div className="space-y-2 relative">
-            <div className="flex items-center gap-1">
-              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-                {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              {field.description && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
             <div className="relative">
               <Input
                 id={field.fieldName}
@@ -3240,7 +1658,7 @@ export default function EnhancedPdfWizard() {
                   handleEINBlur(field.fieldName, e.target.value);
                 }}
                 className={`${hasError ? 'border-red-500' : ''} ${
-                  isProspectMode && (field.fieldName === 'companyEmail' || isAgentFieldInProspectMode) ? 'bg-gray-50 cursor-not-allowed' : ''
+                  isProspectMode && field.fieldName === 'companyEmail' ? 'bg-gray-50 cursor-not-allowed' : ''
                 } ${
                   field.fieldName === 'address' && addressValidationStatus === 'valid' ? 'border-green-500' : ''
                 } ${
@@ -3248,24 +1666,23 @@ export default function EnhancedPdfWizard() {
                 } ${
                   addressFieldsLocked && (field.fieldName === 'city' || field.fieldName === 'zipCode') ? 'bg-gray-50 cursor-not-allowed' : ''
                 }`}
-                placeholder={field.placeholder || 
-                            (field.fieldType === 'email' ? 'Enter email address' : 
+                placeholder={field.fieldType === 'email' ? 'Enter email address' : 
                             field.fieldType === 'phone' ? 'Enter phone number' : 
                             field.fieldName === 'address' ? 'Enter street address (e.g., 123 Main St)' :
                             field.fieldName === 'addressLine2' ? 'Suite, apt, floor, etc. (optional)' :
                             (field.fieldName === 'federalTaxId' || field.fieldName === 'taxId') ? 'Enter 9-digit EIN (will format as XX-XXXXXXX)' :
                             ['monthlyVolume', 'averageTicket', 'highestTicket', 'avgMonthlyVolume', 'avgTicketAmount', 'highestTicketAmount'].includes(field.fieldName) ? 
                               `Enter amount (e.g., 10000.00)` :
-                            `Enter ${field.fieldLabel.toLowerCase()}`)}
-                readOnly={isReadOnly}
-                tabIndex={isReadOnly ? -1 : undefined}
-                autoFocus={shouldAutoFocus}
-                data-testid={`input-${field.fieldName}`}
+                            `Enter ${field.fieldLabel.toLowerCase()}`}
+                readOnly={
+                  (isProspectMode && field.fieldName === 'companyEmail') ||
+                  (addressFieldsLocked && (field.fieldName === 'city' || field.fieldName === 'zipCode'))
+                }
               />
               
               {/* Address autocomplete suggestions */}
-              {field.fieldName.endsWith('Address') && showSuggestions && currentAddressField === field.fieldName && (
-                <div className="absolute z-[9999] w-full mt-1 bg-white border-4 border-blue-600 rounded-md shadow-2xl max-h-60 overflow-auto" style={{ border: '4px solid #0000FF', backgroundColor: '#FFFFFF' }}>
+              {field.fieldName === 'address' && showSuggestions && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
                   {isLoadingSuggestions ? (
                     <div className="p-3 text-center text-gray-500">
                       <div className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
@@ -3281,13 +1698,10 @@ export default function EnhancedPdfWizard() {
                             : 'hover:bg-gray-100'
                         }`}
                         onMouseDown={(e) => {
-                          console.log('👇 Suggestion mousedown! Selecting:', suggestion.description);
                           e.preventDefault();
-                          e.stopPropagation();
                           selectAddressSuggestion(suggestion);
                         }}
                         onMouseEnter={() => setSelectedSuggestionIndex(index)}
-                        data-testid={`suggestion-${index}`}
                       >
                         <div className={`font-medium ${
                           index === selectedSuggestionIndex ? 'text-blue-900' : 'text-gray-900'
@@ -3307,25 +1721,25 @@ export default function EnhancedPdfWizard() {
                 </div>
               )}
               
-              {field.fieldName.endsWith('Address') && (addressValidationStatus === 'validating' || isLoadingSuggestions) && (
+              {field.fieldName === 'address' && (addressValidationStatus === 'validating' || isLoadingSuggestions) && (
                 <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
                 </div>
               )}
-              {field.fieldName.endsWith('Address') && addressValidationStatus === 'valid' && !isLoadingSuggestions && (
+              {field.fieldName === 'address' && addressValidationStatus === 'valid' && !isLoadingSuggestions && (
                 <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-green-600">
                   ✓
                 </div>
               )}
-              {field.fieldName.endsWith('Address') && addressValidationStatus === 'invalid' && !isLoadingSuggestions && (
+              {field.fieldName === 'address' && addressValidationStatus === 'invalid' && !isLoadingSuggestions && (
                 <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-red-600">
                   ⚠
                 </div>
               )}
             </div>
-            {field.fieldName.endsWith('Address') && addressValidationStatus === 'valid' && (
+            {field.fieldName === 'address' && addressValidationStatus === 'valid' && (
               <div className="flex items-center justify-between">
-                <p className="text-xs text-green-600">✓ Address validated and locked.</p>
+                <p className="text-xs text-green-600">✓ Street address validated and auto-populated city, state, and ZIP</p>
                 {addressFieldsLocked && (
                   <button
                     type="button"
@@ -3335,17 +1749,16 @@ export default function EnhancedPdfWizard() {
                       setAddressOverrideActive(false);
                     }}
                     className="text-xs text-blue-600 hover:text-blue-800 underline"
-                    data-testid="button-edit-address"
                   >
                     Edit Address
                   </button>
                 )}
               </div>
             )}
-            {field.fieldName.endsWith('Address') && addressValidationStatus === 'invalid' && (
+            {field.fieldName === 'address' && addressValidationStatus === 'invalid' && (
               <p className="text-xs text-red-600">⚠ Please enter a valid address</p>
             )}
-            {addressFieldsLocked && (field.fieldName.endsWith('City') || field.fieldName.endsWith('State') || field.fieldName.endsWith('ZipCode') || field.fieldName.endsWith('zipCode')) && (
+            {addressFieldsLocked && (field.fieldName === 'city' || field.fieldName === 'state' || field.fieldName === 'zipCode') && (
               <p className="text-xs text-gray-500">
                 🔒 Field locked after address autocomplete selection. 
                 <button 
@@ -3360,9 +1773,6 @@ export default function EnhancedPdfWizard() {
                 </button>
               </p>
             )}
-            {isAgentFieldInProspectMode && agentName && (
-              <p className="text-xs text-gray-500">✓ Auto-populated from assigned agent</p>
-            )}
             {hasError && <p className="text-xs text-red-500">{hasError}</p>}
           </div>
         );
@@ -3370,22 +1780,10 @@ export default function EnhancedPdfWizard() {
       case 'select':
         return (
           <div className="space-y-2">
-            <div className="flex items-center gap-1">
-              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-                {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              {field.description && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
             <Select value={value} onValueChange={(value) => handleFieldChange(field.fieldName, value)}>
               <SelectTrigger className={hasError ? 'border-red-500' : ''}>
                 <SelectValue placeholder={`Select ${field.fieldLabel.toLowerCase()}`} />
@@ -3402,180 +1800,19 @@ export default function EnhancedPdfWizard() {
           </div>
         );
 
-      case 'radio':
-        // Determine layout: 'horizontal' (grid) or 'vertical' (stacked)
-        const radioLayout = (field as any).layout || 'horizontal';
-        const radioContainerClass = radioLayout === 'horizontal' 
-          ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2'
-          : 'space-y-2';
-
-        // Check if "Other" option is selected (case-insensitive)
-        const radioOtherFieldName = `${field.fieldName}_other`;
-        const radioOtherValue = formData[radioOtherFieldName] || '';
-        const radioHasOtherOption = field.options?.some((opt: any) => {
-          const label = typeof opt === 'string' ? opt : opt.label;
-          return label.toLowerCase().trim() === 'other';
-        });
-        const radioIsOtherSelected = radioHasOtherOption && field.options?.some((opt: any) => {
-          const optValue = typeof opt === 'string' ? opt : opt.value;
-          const label = typeof opt === 'string' ? opt : opt.label;
-          return label.toLowerCase().trim() === 'other' && value === optValue;
-        });
-
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center gap-1">
-              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-                {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              {field.description && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-            <RadioGroup 
-              value={value} 
-              onValueChange={(newValue) => {
-                handleFieldChange(field.fieldName, newValue);
-                // Clear "Other" text field when a non-"Other" option is selected
-                const selectedOpt = field.options?.find((opt: any) => {
-                  const optVal = typeof opt === 'string' ? opt : opt.value;
-                  return optVal === newValue;
-                });
-                const selectedLabel = typeof selectedOpt === 'string' ? selectedOpt : selectedOpt?.label || '';
-                if (selectedLabel.toLowerCase().trim() !== 'other') {
-                  handleFieldChange(radioOtherFieldName, '');
-                }
-              }} 
-              className={radioContainerClass}
-            >
-              {field.options?.map((option: any) => {
-                const optionValue = typeof option === 'string' ? option : option.value;
-                const optionLabel = typeof option === 'string' ? option : option.label;
-                
-                return (
-                  <div key={optionValue} className="flex items-center space-x-2">
-                    <RadioGroupItem
-                      value={optionValue}
-                      id={`${field.fieldName}-${optionValue}`}
-                      data-testid={`radio-${field.fieldName}-${optionValue}`}
-                    />
-                    <Label
-                      htmlFor={`${field.fieldName}-${optionValue}`}
-                      className="text-sm font-normal cursor-pointer"
-                    >
-                      {optionLabel}
-                    </Label>
-                  </div>
-                );
-              })}
-            </RadioGroup>
-            {radioIsOtherSelected && (
-              <div className="mt-2 pl-6">
-                <Label htmlFor={radioOtherFieldName} className="text-sm font-medium text-gray-700">
-                  Please specify <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  id={radioOtherFieldName}
-                  type="text"
-                  value={radioOtherValue}
-                  onChange={(e) => handleFieldChange(radioOtherFieldName, e.target.value)}
-                  placeholder="Please specify..."
-                  className={!radioOtherValue ? 'border-red-500' : ''}
-                  data-testid={`input-${radioOtherFieldName}`}
-                />
-                {!radioOtherValue && (
-                  <p className="text-xs text-red-500 mt-1">This field is required when "Other" is selected</p>
-                )}
-              </div>
-            )}
-            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
-          </div>
-        );
-
-      case 'boolean':
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center gap-1">
-              <Label className="text-sm font-medium text-gray-700">
-                {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              {field.description && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-            <RadioGroup value={value} onValueChange={(value) => handleFieldChange(field.fieldName, value)}>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem
-                  value="yes"
-                  id={`${field.fieldName}-yes`}
-                  data-testid={`radio-${field.fieldName}-yes`}
-                />
-                <Label
-                  htmlFor={`${field.fieldName}-yes`}
-                  className="text-sm font-normal cursor-pointer"
-                >
-                  Yes
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem
-                  value="no"
-                  id={`${field.fieldName}-no`}
-                  data-testid={`radio-${field.fieldName}-no`}
-                />
-                <Label
-                  htmlFor={`${field.fieldName}-no`}
-                  className="text-sm font-normal cursor-pointer"
-                >
-                  No
-                </Label>
-              </div>
-            </RadioGroup>
-            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
-          </div>
-        );
-
       case 'textarea':
         return (
           <div className="space-y-2">
-            <div className="flex items-center gap-1">
-              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-                {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              {field.description && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
             <Textarea
               id={field.fieldName}
               value={value}
               onChange={(e) => handleFieldChange(field.fieldName, e.target.value)}
               className={hasError ? 'border-red-500' : ''}
-              placeholder={field.placeholder || `Enter ${field.fieldLabel.toLowerCase()}`}
+              placeholder={`Enter ${field.fieldLabel.toLowerCase()}`}
               rows={3}
             />
             {hasError && <p className="text-xs text-red-500">{hasError}</p>}
@@ -3585,29 +1822,20 @@ export default function EnhancedPdfWizard() {
       case 'mcc-select':
         return (
           <div className="space-y-2">
-            <div className="flex items-center gap-1">
-              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-                {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              {field.description && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
             <MCCSelect
               value={value}
               onValueChange={(value) => handleFieldChange(field.fieldName, value)}
               placeholder="Select your business category"
-              required={fieldIsRequired}
+              required={field.isRequired}
               className={hasError ? 'border-red-500' : ''}
             />
+            {field.helpText && (
+              <p className="text-xs text-gray-500">{field.helpText}</p>
+            )}
             {hasError && <p className="text-xs text-red-500">{hasError}</p>}
           </div>
         );
@@ -3615,22 +1843,10 @@ export default function EnhancedPdfWizard() {
       case 'number':
         return (
           <div className="space-y-2">
-            <div className="flex items-center gap-1">
-              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-                {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              {field.description && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
             <Input
               id={field.fieldName}
               type="text"
@@ -3638,257 +1854,10 @@ export default function EnhancedPdfWizard() {
               onChange={(e) => handleFieldChange(field.fieldName, e.target.value)}
               onBlur={(e) => handleMoneyBlur(field.fieldName, e.target.value)}
               className={hasError ? 'border-red-500' : ''}
-              placeholder={field.placeholder || 
-                (['monthlyVolume', 'averageTicket', 'highestTicket', 'avgMonthlyVolume', 'avgTicketAmount', 'highestTicketAmount'].includes(field.fieldName) ? 
+              placeholder={['monthlyVolume', 'averageTicket', 'highestTicket', 'avgMonthlyVolume', 'avgTicketAmount', 'highestTicketAmount'].includes(field.fieldName) ? 
                 `Enter amount (e.g., 10000.00)` : 
-                `Enter ${field.fieldLabel.toLowerCase()}`)}
+                `Enter ${field.fieldLabel.toLowerCase()}`}
             />
-            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
-          </div>
-        );
-
-      case 'percentage':
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center gap-1">
-              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-                {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              {field.description && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-            <div className="relative">
-              <Input
-                id={field.fieldName}
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                value={value}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  // Allow empty or valid percentage values
-                  if (val === '' || (parseFloat(val) >= 0 && parseFloat(val) <= 100)) {
-                    handleFieldChange(field.fieldName, val);
-                  }
-                }}
-                className={`pr-8 ${hasError ? 'border-red-500' : ''}`}
-                placeholder={field.placeholder || "Enter percentage (0-100)"}
-                data-testid={`input-${field.fieldName}`}
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">
-                %
-              </span>
-            </div>
-            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
-          </div>
-        );
-
-      case 'currency':
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center gap-1">
-              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-                {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              {field.description && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">
-                $
-              </span>
-              <Input
-                id={field.fieldName}
-                type="number"
-                min="0"
-                step="0.01"
-                value={value}
-                onChange={(e) => handleFieldChange(field.fieldName, e.target.value)}
-                onBlur={(e) => handleMoneyBlur(field.fieldName, e.target.value)}
-                className={`pl-7 ${hasError ? 'border-red-500' : ''}`}
-                placeholder={field.placeholder || "0.00"}
-                data-testid={`input-${field.fieldName}`}
-              />
-            </div>
-            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
-          </div>
-        );
-
-      case 'ssn':
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center gap-1">
-              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-                {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              {field.description && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-            <Input
-              id={field.fieldName}
-              type="text"
-              value={value}
-              onChange={(e) => {
-                let val = e.target.value.replace(/\D/g, ''); // Remove non-digits
-                if (val.length > 9) val = val.slice(0, 9); // Limit to 9 digits
-                
-                // Format as XXX-XX-XXXX
-                let formatted = val;
-                if (val.length > 5) {
-                  formatted = `${val.slice(0, 3)}-${val.slice(3, 5)}-${val.slice(5)}`;
-                } else if (val.length > 3) {
-                  formatted = `${val.slice(0, 3)}-${val.slice(3)}`;
-                }
-                
-                handleFieldChange(field.fieldName, formatted);
-              }}
-              className={hasError ? 'border-red-500' : ''}
-              placeholder="XXX-XX-XXXX"
-              maxLength={11}
-              data-testid={`input-${field.fieldName}`}
-            />
-            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
-          </div>
-        );
-
-      case 'bank_routing':
-        const isRoutingVisible = visibleSensitiveFields.has(field.fieldName);
-        const routingDigits = (value || '').replace(/\D/g, '');
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center gap-1">
-              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-                {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              {field.description && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-            <div className="relative">
-              <Input
-                id={field.fieldName}
-                type={isRoutingVisible ? 'text' : 'password'}
-                value={routingDigits}
-                onChange={(e) => {
-                  let val = e.target.value.replace(/\D/g, ''); // Remove non-digits
-                  if (val.length > 9) val = val.slice(0, 9); // Routing numbers are 9 digits
-                  handleFieldChange(field.fieldName, val);
-                }}
-                className={`pr-10 ${hasError ? 'border-red-500' : ''}`}
-                placeholder="9-digit routing number"
-                maxLength={9}
-                data-testid={`input-${field.fieldName}`}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  const newSet = new Set(visibleSensitiveFields);
-                  if (isRoutingVisible) {
-                    newSet.delete(field.fieldName);
-                  } else {
-                    newSet.add(field.fieldName);
-                  }
-                  setVisibleSensitiveFields(newSet);
-                }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-              >
-                {isRoutingVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            <p className="text-xs text-muted-foreground">ABA routing number (9 digits)</p>
-            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
-          </div>
-        );
-
-      case 'bank_account':
-        const isAccountVisible = visibleSensitiveFields.has(field.fieldName);
-        const accountDigits = (value || '').replace(/\D/g, '');
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center gap-1">
-              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-                {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              {field.description && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-            <div className="relative">
-              <Input
-                id={field.fieldName}
-                type={isAccountVisible ? 'text' : 'password'}
-                value={accountDigits}
-                onChange={(e) => {
-                  let val = e.target.value.replace(/\D/g, ''); // Remove non-digits
-                  if (val.length > 17) val = val.slice(0, 17); // Account numbers typically 8-17 digits
-                  handleFieldChange(field.fieldName, val);
-                }}
-                className={`pr-10 ${hasError ? 'border-red-500' : ''}`}
-                placeholder="Account number"
-                maxLength={17}
-                data-testid={`input-${field.fieldName}`}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  const newSet = new Set(visibleSensitiveFields);
-                  if (isAccountVisible) {
-                    newSet.delete(field.fieldName);
-                  } else {
-                    newSet.add(field.fieldName);
-                  }
-                  setVisibleSensitiveFields(newSet);
-                }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-              >
-                {isAccountVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            <p className="text-xs text-muted-foreground">Bank account number (8-17 digits)</p>
             {hasError && <p className="text-xs text-red-500">{hasError}</p>}
           </div>
         );
@@ -3896,22 +1865,10 @@ export default function EnhancedPdfWizard() {
       case 'date':
         return (
           <div className="space-y-2">
-            <div className="flex items-center gap-1">
-              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-                {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              {field.description && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
             <Input
               id={field.fieldName}
               type="date"
@@ -3919,151 +1876,6 @@ export default function EnhancedPdfWizard() {
               onChange={(e) => handleFieldChange(field.fieldName, e.target.value)}
               className={hasError ? 'border-red-500' : ''}
             />
-            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
-          </div>
-        );
-
-      case 'checkbox':
-        const isChecked = value === true || value === 'true' || value === '1';
-        return (
-          <div className="space-y-2">
-            <div className="flex items-start space-x-3 p-3 border rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors">
-              <input
-                type="checkbox"
-                id={field.fieldName}
-                checked={isChecked}
-                onChange={(e) => handleFieldChange(field.fieldName, e.target.checked)}
-                className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                data-testid={`checkbox-${field.fieldName}`}
-              />
-              <div className="flex-1">
-                <Label 
-                  htmlFor={field.fieldName} 
-                  className="text-sm font-medium text-gray-700 cursor-pointer"
-                >
-                  {field.fieldLabel}
-                  {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-                </Label>
-                {field.helpText && (
-                  <p className="text-xs text-gray-500 mt-1">{field.helpText}</p>
-                )}
-              </div>
-            </div>
-            {hasError && <p className="text-xs text-red-500 mt-1">{hasError}</p>}
-          </div>
-        );
-
-      case 'checkbox-list':
-        // Parse value as array of selected options
-        const selectedOptions = (() => {
-          if (!value) return [];
-          if (Array.isArray(value)) return value;
-          if (typeof value === 'string') {
-            try {
-              const parsed = JSON.parse(value);
-              return Array.isArray(parsed) ? parsed : [];
-            } catch {
-              return [value];
-            }
-          }
-          return [];
-        })();
-
-        // Determine layout: 'horizontal' (grid) or 'vertical' (stacked)
-        // Default to horizontal for better space efficiency
-        const checkboxLayout = (field as any).layout || 'horizontal';
-        const containerClass = checkboxLayout === 'horizontal' 
-          ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 border rounded-lg p-3 bg-gray-50'
-          : 'space-y-2 border rounded-lg p-3 bg-gray-50';
-
-        // Check if "Other" option is checked (case-insensitive)
-        const checkboxOtherFieldName = `${field.fieldName}_other`;
-        const checkboxOtherValue = formData[checkboxOtherFieldName] || '';
-        const checkboxIsOtherChecked = field.options?.some((opt: any) => {
-          const optValue = typeof opt === 'string' ? opt : opt.value;
-          const label = typeof opt === 'string' ? opt : opt.label;
-          return label.toLowerCase().trim() === 'other' && selectedOptions.includes(optValue);
-        });
-
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center gap-1">
-              <Label className="text-sm font-medium text-gray-700">
-                {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              {field.description && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-            <div className={containerClass}>
-              {field.options?.map((option: any) => {
-                const optionValue = typeof option === 'string' ? option : option.value;
-                const optionLabel = typeof option === 'string' ? option : option.label;
-                const isOptionChecked = selectedOptions.includes(optionValue);
-                
-                return (
-                  <div key={optionValue} className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      id={`${field.fieldName}-${optionValue}`}
-                      checked={isOptionChecked}
-                      onChange={(e) => {
-                        let newSelected: string[];
-                        if (e.target.checked) {
-                          newSelected = [...selectedOptions, optionValue];
-                        } else {
-                          newSelected = selectedOptions.filter((v: string) => v !== optionValue);
-                          // Clear the "Other" text field if "Other" is unchecked
-                          const isOtherOption = optionLabel.toLowerCase().trim() === 'other';
-                          if (isOtherOption) {
-                            handleFieldChange(checkboxOtherFieldName, '');
-                          }
-                        }
-                        handleFieldChange(field.fieldName, JSON.stringify(newSelected));
-                      }}
-                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      data-testid={`checkbox-${field.fieldName}-${optionValue}`}
-                    />
-                    <Label 
-                      htmlFor={`${field.fieldName}-${optionValue}`}
-                      className="text-sm font-normal cursor-pointer"
-                    >
-                      {optionLabel}
-                    </Label>
-                  </div>
-                );
-              })}
-            </div>
-            {checkboxIsOtherChecked && (
-              <div className="mt-2 pl-6">
-                <Label htmlFor={checkboxOtherFieldName} className="text-sm font-medium text-gray-700">
-                  Please specify <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  id={checkboxOtherFieldName}
-                  type="text"
-                  value={checkboxOtherValue}
-                  onChange={(e) => handleFieldChange(checkboxOtherFieldName, e.target.value)}
-                  placeholder="Please specify..."
-                  className={!checkboxOtherValue ? 'border-red-500' : ''}
-                  data-testid={`input-${checkboxOtherFieldName}`}
-                />
-                {!checkboxOtherValue && (
-                  <p className="text-xs text-red-500 mt-1">This field is required when "Other" is selected</p>
-                )}
-              </div>
-            )}
-            {field.helpText && (
-              <p className="text-xs text-gray-500">{field.helpText}</p>
-            )}
             {hasError && <p className="text-xs text-red-500">{hasError}</p>}
           </div>
         );
@@ -4278,9 +2090,6 @@ export default function EnhancedPdfWizard() {
         };
 
         const updateOwner = (index: number, field: string, value: any) => {
-          // Set editing flag to prevent signature sync from overwriting during user input
-          isEditingOwnersRef.current = true;
-          
           const newOwners = [...owners];
           newOwners[index] = { ...newOwners[index], [field]: value };
           handleFieldChange('owners', newOwners);
@@ -4288,9 +2097,6 @@ export default function EnhancedPdfWizard() {
 
         // Auto-save owner data to database when key fields lose focus
         const handleOwnerBlur = async (index: number, field: string) => {
-          // Clear editing flag after blur (user stopped editing)
-          isEditingOwnersRef.current = false;
-          
           if ((field === 'percentage' || field === 'name' || field === 'email') && isProspectMode && prospectData?.prospect) {
             const updatedFormData = { ...formData, owners };
             
@@ -4322,7 +2128,7 @@ export default function EnhancedPdfWizard() {
             <div className="flex items-center justify-between">
               <Label className="text-lg font-semibold text-gray-800">
                 {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
+                {field.isRequired && <span className="text-red-500 ml-1">*</span>}
               </Label>
               <div className="flex gap-2">
                 {owners.length > 0 && (
@@ -4461,134 +2267,134 @@ export default function EnhancedPdfWizard() {
                       </div>
                     </div>
 
-                    {/* Signature section - always rendered for stable component tree */}
-                    <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                      <div className="flex items-start gap-2 mb-3">
-                        <FileText className="w-5 h-5 text-amber-600 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium text-amber-800">Owner Signature</p>
-                          <p className="text-xs text-amber-700">
-                            {parseFloat(owner.percentage) >= 25 
-                              ? 'Required - owners with 25% or more ownership must provide a signature'
-                              : 'Optional - provide a signature if needed'}
-                          </p>
+                    {/* Signature requirement for owners with >=25% */}
+                    {parseFloat(owner.percentage) >= 25 && (
+                      <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                        <div className="flex items-start gap-2 mb-3">
+                          <FileText className="w-5 h-5 text-amber-600 mt-0.5" />
+                          <div>
+                            <p className="text-sm font-medium text-amber-800">Signature Required</p>
+                            <p className="text-xs text-amber-700">
+                              Owners with 25% or more ownership must provide a signature
+                            </p>
+                          </div>
                         </div>
-                      </div>
 
-                      <DigitalSignaturePad
-                        ownerIndex={index}
-                        owner={owner}
-                        onSignatureChange={async (ownerIndex, signature, type) => {
-                          updateOwner(ownerIndex, 'signature', signature);
-                          updateOwner(ownerIndex, 'signatureType', type);
-                          
-                          // Save inline signature to database
-                          if (signature && type && owner.email && owner.name) {
-                            const prospectId = prospectData?.prospect?.id || prospectData?.id;
-                            if (prospectId) {
-                              try {
-                                const response = await fetch(`/api/prospects/${prospectId}/save-inline-signature`, {
-                                  method: 'POST',
-                                  headers: {
-                                    'Content-Type': 'application/json',
-                                  },
-                                  body: JSON.stringify({
-                                    ownerEmail: owner.email,
-                                    ownerName: owner.name,
-                                    signature,
-                                    signatureType: type,
-                                    ownershipPercentage: owner.percentage
-                                  }),
-                                });
-                                
-                                if (response.ok) {
-                                  const result = await response.json();
-                                  console.log(`Inline signature saved to database for ${owner.name}`);
-                                  // Optionally update owner with signature token
-                                  if (result.signatureToken) {
-                                    updateOwner(ownerIndex, 'signatureToken', result.signatureToken);
-                                  }
-                                } else {
-                                  console.error('Failed to save inline signature to database');
-                                }
-                              } catch (error) {
-                                console.error('Error saving inline signature:', error);
-                              }
-                            }
-                          }
-                        }}
-                      />
-                      
-                      {!owner.signature && owner.email && (
-                        <div className="mt-3 pt-3 border-t border-amber-200">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-sm font-medium text-amber-800">Or Send Email Request</p>
-                              <p className="text-xs text-amber-700">
-                                Send a secure email request for digital signature
-                              </p>
-                            </div>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={async () => {
-                                if (!owner.email || !owner.name || !formData.companyName) {
-                                  return;
-                                }
-
-                                const prospectId = prospectData?.prospect?.id || prospectData?.id;
-                                
-                                if (!prospectId) {
-                                  console.error('No prospect ID available');
-                                  return;
-                                }
-
+                        <DigitalSignaturePad
+                          ownerIndex={index}
+                          owner={owner}
+                          onSignatureChange={async (ownerIndex, signature, type) => {
+                            updateOwner(ownerIndex, 'signature', signature);
+                            updateOwner(ownerIndex, 'signatureType', type);
+                            
+                            // Save inline signature to database
+                            if (signature && type && owner.email && owner.name) {
+                              const prospectId = prospectData?.prospect?.id || prospectData?.id;
+                              if (prospectId) {
                                 try {
-                                  const response = await fetch('/api/signature-request', {
+                                  const response = await fetch(`/api/prospects/${prospectId}/save-inline-signature`, {
                                     method: 'POST',
                                     headers: {
                                       'Content-Type': 'application/json',
                                     },
                                     body: JSON.stringify({
-                                      prospectId: prospectId,
-                                      ownerName: owner.name,
                                       ownerEmail: owner.email,
-                                      companyName: formData.companyName,
-                                      ownershipPercentage: owner.percentage,
-                                      requesterName: formData.companyName,
-                                      agentName: formData.assignedAgent?.split(' (')[0] || 'Agent'
+                                      ownerName: owner.name,
+                                      signature,
+                                      signatureType: type,
+                                      ownershipPercentage: owner.percentage
                                     }),
                                   });
-
-                                  const result = await response.json();
                                   
-                                  if (response.ok && result.success) {
-                                    updateOwner(index, 'signatureToken', result.signatureToken);
-                                    updateOwner(index, 'emailSent', new Date().toISOString());
-                                    console.log(`Signature request sent to ${owner.email}`);
+                                  if (response.ok) {
+                                    const result = await response.json();
+                                    console.log(`Inline signature saved to database for ${owner.name}`);
+                                    // Optionally update owner with signature token
+                                    if (result.signatureToken) {
+                                      updateOwner(ownerIndex, 'signatureToken', result.signatureToken);
+                                    }
                                   } else {
-                                    console.error('Failed to send signature request:', result.message);
+                                    console.error('Failed to save inline signature to database');
                                   }
                                 } catch (error) {
-                                  console.error('Error sending signature request:', error);
+                                  console.error('Error saving inline signature:', error);
                                 }
-                              }}
-                              disabled={!owner.email || !formData.companyName}
-                              className="border-amber-300 text-amber-700 hover:bg-amber-100"
-                            >
-                              Send Email Request
-                            </Button>
-                          </div>
-                          
-                          {owner.emailSent && (
-                            <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-700">
-                              Email sent successfully on {new Date(owner.emailSent).toLocaleDateString()}
+                              }
+                            }
+                          }}
+                        />
+                        
+                        {!owner.signature && owner.email && (
+                          <div className="mt-3 pt-3 border-t border-amber-200">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium text-amber-800">Or Send Email Request</p>
+                                <p className="text-xs text-amber-700">
+                                  Send a secure email request for digital signature
+                                </p>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={async () => {
+                                  if (!owner.email || !owner.name || !formData.companyName) {
+                                    return;
+                                  }
+
+                                  const prospectId = prospectData?.prospect?.id || prospectData?.id;
+                                  
+                                  if (!prospectId) {
+                                    console.error('No prospect ID available');
+                                    return;
+                                  }
+
+                                  try {
+                                    const response = await fetch('/api/signature-request', {
+                                      method: 'POST',
+                                      headers: {
+                                        'Content-Type': 'application/json',
+                                      },
+                                      body: JSON.stringify({
+                                        prospectId: prospectId,
+                                        ownerName: owner.name,
+                                        ownerEmail: owner.email,
+                                        companyName: formData.companyName,
+                                        ownershipPercentage: owner.percentage,
+                                        requesterName: formData.companyName,
+                                        agentName: formData.assignedAgent?.split(' (')[0] || 'Agent'
+                                      }),
+                                    });
+
+                                    const result = await response.json();
+                                    
+                                    if (response.ok && result.success) {
+                                      updateOwner(index, 'signatureToken', result.signatureToken);
+                                      updateOwner(index, 'emailSent', new Date().toISOString());
+                                      console.log(`Signature request sent to ${owner.email}`);
+                                    } else {
+                                      console.error('Failed to send signature request:', result.message);
+                                    }
+                                  } catch (error) {
+                                    console.error('Error sending signature request:', error);
+                                  }
+                                }}
+                                disabled={!owner.email || !formData.companyName}
+                                className="border-amber-300 text-amber-700 hover:bg-amber-100"
+                              >
+                                Send Email Request
+                              </Button>
                             </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                            
+                            {owner.emailSent && (
+                              <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-700">
+                                Email sent successfully on {new Date(owner.emailSent).toLocaleDateString()}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -4611,867 +2417,6 @@ export default function EnhancedPdfWizard() {
           </div>
         );
 
-      case 'agent-signature':
-        const agentSignature = formData.agentSignature;
-        const agentSignatureType = formData.agentSignatureType;
-        const assignedAgentName = prospectData?.agent ? `${prospectData.agent.firstName} ${prospectData.agent.lastName}` : '';
-
-        return (
-          <div className="space-y-4">
-            <div className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg">
-              <div className="flex items-start gap-3 mb-4">
-                <Signature className="w-6 h-6 text-blue-600 mt-1" />
-                <div>
-                  <h3 className="text-lg font-semibold text-blue-900">Agent Final Approval</h3>
-                  <p className="text-sm text-blue-700 mt-1">
-                    All owner signatures have been collected. As the assigned agent, your signature is required to complete this application.
-                  </p>
-                </div>
-              </div>
-              
-              <div className="mb-4 p-3 bg-white rounded border border-blue-100">
-                <p className="text-sm text-gray-600">
-                  <span className="font-medium">Assigned Agent:</span> {assignedAgentName}
-                </p>
-              </div>
-
-              {agentSignature ? (
-                <div className="space-y-3">
-                  <div className="p-4 bg-white rounded border border-green-200">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-green-700">Signature Captured</span>
-                      <Check className="w-5 h-5 text-green-600" />
-                    </div>
-                    <div className="mt-2 p-3 bg-gray-50 rounded border border-gray-200 flex items-center justify-center min-h-[80px]">
-                      {agentSignatureType === 'canvas' ? (
-                        <img src={agentSignature} alt="Agent signature" className="max-h-16" />
-                      ) : (
-                        <span className="text-2xl font-signature">{agentSignature}</span>
-                      )}
-                    </div>
-                  </div>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      handleFieldChange('agentSignature', null);
-                      handleFieldChange('agentSignatureType', null);
-                    }}
-                    className="w-full"
-                    data-testid="button-clear-agent-signature"
-                  >
-                    <RotateCcw className="w-4 h-4 mr-2" />
-                    Clear and Re-sign
-                  </Button>
-                </div>
-              ) : (
-                <DigitalSignaturePad
-                  ownerIndex={-1}
-                  owner={{ name: assignedAgentName }}
-                  onSignatureChange={async (_, signature, type) => {
-                    handleFieldChange('agentSignature', signature);
-                    handleFieldChange('agentSignatureType', type);
-                    
-                    // Save agent signature to database
-                    if (signature && type && prospectData?.prospect?.id) {
-                      try {
-                        const response = await fetch(`/api/prospects/${prospectData.prospect.id}/agent-signature`, {
-                          method: 'POST',
-                          headers: {
-                            'Content-Type': 'application/json',
-                          },
-                          body: JSON.stringify({
-                            agentSignature: signature,
-                            agentSignatureType: type,
-                          }),
-                        });
-                        
-                        if (!response.ok) {
-                          toast({
-                            title: 'Error',
-                            description: 'Failed to save agent signature',
-                            variant: 'destructive'
-                          });
-                        }
-                      } catch (error) {
-                        console.error('Error saving agent signature:', error);
-                      }
-                    }
-                  }}
-                />
-              )}
-            </div>
-          </div>
-        );
-
-      case 'phone':
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center gap-1">
-              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-                {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              {field.description && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-            <PhoneNumberInput
-              value={value}
-              onChange={(value) => handleFieldChange(field.fieldName, value)}
-              placeholder="(555) 555-5555"
-              dataTestId={`input-${field.fieldName}`}
-              className={hasError ? 'border-red-500' : ''}
-            />
-            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
-          </div>
-        );
-
-      case 'ein':
-        return (
-          <div className="space-y-2">
-            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-              {field.fieldLabel}
-              {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-            </Label>
-            <MaskedTaxIdInput
-              type="ein"
-              value={value}
-              onChange={(value) => handleFieldChange(field.fieldName, value)}
-              placeholder="12-3456789"
-              dataTestId={`input-${field.fieldName}`}
-              className={hasError ? 'border-red-500' : ''}
-            />
-            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
-          </div>
-        );
-
-      case 'address':
-        return (
-          <div className="space-y-2">
-            <div className="flex items-center gap-1">
-              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-                {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              {field.description && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-            <AddressAutocompleteInput
-              value={value}
-              onChange={(value) => handleFieldChange(field.fieldName, value)}
-              onAddressSelect={(address) => {
-                // Try to find related city, state, zipCode fields based on naming patterns
-                // Examples: businessAddress -> businessCity, businessState, businessZipCode
-                //           mailingAddress -> mailingCity, mailingState, mailingZipCode
-                //           address -> city, state, zipCode (fallback)
-                
-                const baseFieldName = field.fieldName
-                  .replace(/address/i, '')
-                  .replace(/street/i, '')
-                  .replace(/Address/g, '')
-                  .replace(/Street/g, '');
-                
-                // Generate possible field name variations
-                const possibleCityFields = [
-                  `${baseFieldName}city`,
-                  `${baseFieldName}City`,
-                  'city'
-                ];
-                const possibleStateFields = [
-                  `${baseFieldName}state`,
-                  `${baseFieldName}State`,
-                  'state'
-                ];
-                const possibleZipFields = [
-                  `${baseFieldName}zipCode`,
-                  `${baseFieldName}ZipCode`,
-                  `${baseFieldName}zip`,
-                  `${baseFieldName}Zip`,
-                  `${baseFieldName}postalCode`,
-                  `${baseFieldName}PostalCode`,
-                  'zipCode',
-                  'zip',
-                  'postalCode'
-                ];
-                
-                // Find and populate matching fields
-                const cityField = possibleCityFields.find(f => formData.hasOwnProperty(f));
-                const stateField = possibleStateFields.find(f => formData.hasOwnProperty(f));
-                const zipField = possibleZipFields.find(f => formData.hasOwnProperty(f));
-                
-                // Update formData directly to bypass the locking check
-                const updates: Record<string, any> = {};
-                if (cityField) updates[cityField] = address.city;
-                if (stateField) updates[stateField] = address.state;
-                if (zipField) updates[zipField] = address.zipCode;
-                
-                if (Object.keys(updates).length > 0) {
-                  setFormData(prev => ({ ...prev, ...updates }));
-                }
-                
-                // Lock the address fields after selection to enforce autocomplete usage
-                setAddressFieldsLocked(true);
-                setAddressOverrideActive(true);
-              }}
-              placeholder="Start typing an address..."
-              dataTestId={`input-${field.fieldName}`}
-              className={hasError ? 'border-red-500' : ''}
-              showExpandedFields={true}
-            />
-            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
-          </div>
-        );
-
-      case 'addressGroup':
-        // Render address group with canonical field names
-        const groupConfig = (field as any).addressGroupConfig;
-        if (!groupConfig) return null;
-        
-        const groupType = groupConfig.type;
-        const fieldMappings = groupConfig.fieldMappings || {};
-        
-        // Get actual field IDs from mappings (template-specific names)
-        const street1FieldId = fieldMappings.street1 || '';
-        const street2FieldId = fieldMappings.street2 || '';
-        const cityFieldId = fieldMappings.city || '';
-        const stateFieldId = fieldMappings.state || '';
-        const postalCodeFieldId = fieldMappings.postalCode || fieldMappings.postalcode || fieldMappings.zipCode || fieldMappings.zipcode || '';
-        const countryFieldId = fieldMappings.country || '';
-        
-        // Build canonical field names as fallbacks (pattern: ${groupType}Address.fieldName)
-        const canonicalPrefix = `${groupType}Address`;
-        const canonicalStreet1 = `${canonicalPrefix}.street1`;
-        const canonicalStreet2 = `${canonicalPrefix}.street2`;
-        const canonicalCity = `${canonicalPrefix}.city`;
-        const canonicalState = `${canonicalPrefix}.state`;
-        const canonicalPostalCode = `${canonicalPrefix}.postalcode`; // Match database storage format
-        
-        // Get values from formData - check template-specific names first, then canonical names
-        const streetValue = formData[street1FieldId] || formData[canonicalStreet1] || '';
-        const street2Val = formData[street2FieldId] || formData[canonicalStreet2] || '';
-        const cityVal = formData[cityFieldId] || formData[canonicalCity] || '';
-        const stateVal = formData[stateFieldId] || formData[canonicalState] || '';
-        const zipCodeVal = formData[postalCodeFieldId] || formData[canonicalPostalCode] || '';
-        
-        console.log('🏠 AddressGroup render for', groupType);
-        console.log('  Field mappings:', fieldMappings);
-        console.log('  Template Field IDs:', { street1FieldId, cityFieldId, stateFieldId, postalCodeFieldId });
-        console.log('  Canonical Field IDs:', { canonicalStreet1, canonicalCity, canonicalState, canonicalPostalCode });
-        console.log('  formData keys containing address:', Object.keys(formData).filter(k => k.toLowerCase().includes('address') || k.includes('.')));
-        console.log('  Values retrieved:', { streetValue, cityVal, stateVal, zipCodeVal });
-        console.log('  Raw formData lookups (template):', {
-          [street1FieldId]: formData[street1FieldId],
-          [cityFieldId]: formData[cityFieldId],
-          [stateFieldId]: formData[stateFieldId],
-          [postalCodeFieldId]: formData[postalCodeFieldId]
-        });
-        console.log('  Raw formData lookups (canonical):', {
-          [canonicalStreet1]: formData[canonicalStreet1],
-          [canonicalCity]: formData[canonicalCity],
-          [canonicalState]: formData[canonicalState],
-          [canonicalPostalCode]: formData[canonicalPostalCode]
-        });
-        
-        return (
-          <div className="space-y-2" key={field.fieldName}>
-            <div className="flex items-center gap-1">
-              <Label className="text-sm font-medium text-gray-700">
-                {field.fieldLabel}
-                {fieldIsRequired && <span className="text-red-500 ml-1">*</span>}
-              </Label>
-              {field.description && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-            <AddressAutocompleteInput
-              key={`addressgroup-${groupType}`}
-              value={streetValue}
-              onChange={(value) => {
-                // Save to BOTH template and canonical for consistency
-                if (street1FieldId) handleFieldChange(street1FieldId, value);
-                handleFieldChange(canonicalStreet1, value);
-              }}
-              initialValues={{
-                city: cityVal,
-                state: stateVal,
-                zipCode: zipCodeVal,
-                street2: street2Val
-              }}
-              onAddressSelect={(address) => {
-                console.log('🎯 ADDRESS SELECTED - Full address from Google:', address);
-                console.log('🎯 Template Field IDs:', { street1FieldId, street2FieldId, cityFieldId, stateFieldId, postalCodeFieldId, countryFieldId });
-                console.log('🎯 Canonical Field IDs:', { canonicalStreet1, canonicalStreet2, canonicalCity, canonicalState, canonicalPostalCode });
-                
-                // Update formData directly to bypass the locking check
-                // Save to BOTH template field IDs AND canonical names for consistent storage
-                const updates: Record<string, any> = {};
-                
-                // Template field IDs (e.g., merchant_location_address.city)
-                if (street1FieldId) updates[street1FieldId] = address.street || '';
-                if (street2FieldId) updates[street2FieldId] = address.street2 || '';
-                if (cityFieldId) updates[cityFieldId] = address.city || '';
-                if (stateFieldId) updates[stateFieldId] = address.state || '';
-                if (postalCodeFieldId) updates[postalCodeFieldId] = address.zipCode || '';
-                if (countryFieldId) updates[countryFieldId] = 'US';
-                
-                // Canonical field names (e.g., merchantlocationaddressAddress.city)
-                // These ensure consistent loading regardless of mapping
-                updates[canonicalStreet1] = address.street || '';
-                updates[canonicalStreet2] = address.street2 || '';
-                updates[canonicalCity] = address.city || '';
-                updates[canonicalState] = address.state || '';
-                updates[canonicalPostalCode] = address.zipCode || '';
-                
-                console.log('🎯 UPDATES TO SAVE:', updates);
-                console.log('🎯 Updates count:', Object.keys(updates).length);
-                
-                if (Object.keys(updates).length > 0) {
-                  setFormData(prev => {
-                    const newFormData = { ...prev, ...updates };
-                    console.log('🎯 NEW formData after address update:', Object.keys(newFormData).filter(k => k.toLowerCase().includes('address') || k.toLowerCase().includes('city') || k.toLowerCase().includes('state') || k.toLowerCase().includes('postal') || k.toLowerCase().includes('zip')));
-                    return newFormData;
-                  });
-                }
-                
-                // Lock the address fields after selection to enforce autocomplete usage
-                setAddressFieldsLocked(true);
-                setAddressOverrideActive(true);
-              }}
-              onCityChange={(value) => {
-                // Save to BOTH template and canonical for consistency
-                if (cityFieldId) handleFieldChange(cityFieldId, value);
-                handleFieldChange(canonicalCity, value);
-              }}
-              onStateChange={(value) => {
-                // Save to BOTH template and canonical for consistency
-                if (stateFieldId) handleFieldChange(stateFieldId, value);
-                handleFieldChange(canonicalState, value);
-              }}
-              onZipCodeChange={(value) => {
-                // Save to BOTH template and canonical for consistency
-                if (postalCodeFieldId) handleFieldChange(postalCodeFieldId, value);
-                handleFieldChange(canonicalPostalCode, value);
-              }}
-              onStreet2Change={(value) => {
-                // Save to BOTH template field (if available) and canonical field
-                if (street2FieldId) {
-                  handleFieldChange(street2FieldId, value);
-                }
-                handleFieldChange(canonicalStreet2, value);
-              }}
-              placeholder="Start typing an address..."
-              dataTestId={`addressgroup-${groupType}`}
-              showExpandedFields={true}
-            />
-          </div>
-        );
-
-      case 'signatureGroup':
-        // Render signature group with field mappings
-        const sigGroupConfig = (field as any).signatureGroupConfig;
-        if (!sigGroupConfig) return null;
-        
-        const sigFieldMappings = sigGroupConfig.fieldMappings || {};
-        
-        // Get actual field IDs from mappings
-        const signerNameFieldId = sigFieldMappings.signername || '';
-        const signerEmailFieldId = sigFieldMappings.email || '';
-        const signatureFieldId = sigFieldMappings.signature || '';
-        const initialsFieldId = sigFieldMappings.initials || '';
-        const dateSignedFieldId = sigFieldMappings.datesigned || '';
-        
-        // Get current signature data from formData (stored as JSON string)
-        const fieldNameKey = `signatureGroup_${sigGroupConfig.groupKey}`;
-        const signatureDataStr = formData[fieldNameKey];
-        let signatureData;
-        try {
-          signatureData = signatureDataStr ? JSON.parse(signatureDataStr) : undefined;
-        } catch (e) {
-          // Handle malformed data from legacy cache or previous bugs
-          console.warn(`✍️ Failed to parse signature data for ${sigGroupConfig.groupKey}:`, e);
-          console.warn(`  Raw value: "${signatureDataStr}"`);
-          signatureData = undefined;
-        }
-        
-        // Check if this is an owner signature group
-        // GroupKey format is like "owners_owner1_signature_owner", so we match the number after "owner"
-        const ownerMatch = sigGroupConfig.groupKey.match(/owner(\d+)_signature_owner$/);
-        const isOwnerGroup = !!ownerMatch;
-        const ownerNumber = ownerMatch ? parseInt(ownerMatch[1]) : null;
-        
-        return (
-          <div className="space-y-2" key={field.fieldName}>
-            {field.description && (
-              <div className="flex items-center gap-1 mb-2">
-                <span className="text-sm font-medium text-gray-700">{field.fieldLabel}</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-            )}
-            {/* Note: Business Ownership header is now rendered in the grouped owner section above */}
-            <div className="relative">
-              <SignatureGroupInput
-              config={sigGroupConfig}
-              value={signatureData}
-              onChange={(data) => {
-                // Store at the fieldName key that matches what progress calculation expects
-                const fieldNameKey = `signatureGroup_${sigGroupConfig.groupKey}`;
-                
-                // DEBUG: Log signature data changes
-                console.log(`✍️ SignatureGroup onChange called for ${fieldNameKey}:`, {
-                  signerName: data.signerName,
-                  signerEmail: data.signerEmail,
-                  hasSignature: !!data.signature,
-                  signatureType: data.signatureType,
-                  status: data.status,
-                  signatureLength: data.signature?.length || 0
-                });
-                
-                // Store the complete signature data as JSON string (handleFieldChange expects scalars)
-                handleFieldChange(fieldNameKey, JSON.stringify(data));
-                
-                // Also update individual fields if they exist for backward compatibility
-                if (signerNameFieldId) handleFieldChange(signerNameFieldId, data.signerName);
-                if (signerEmailFieldId) handleFieldChange(signerEmailFieldId, data.signerEmail);
-                if (signatureFieldId) handleFieldChange(signatureFieldId, data.signature);
-                if (initialsFieldId) handleFieldChange(initialsFieldId, data.initials || '');
-                if (dateSignedFieldId) handleFieldChange(dateSignedFieldId, data.dateSigned || '');
-                
-                // Update ownership total directly when user types
-                if (isOwnerGroup && ownerNumber !== null && data.ownershipPercentage !== undefined) {
-                  const percentage = typeof data.ownershipPercentage === 'string' 
-                    ? parseFloat(data.ownershipPercentage) || 0
-                    : data.ownershipPercentage || 0;
-                  
-                  setOwnershipPercentages(prev => {
-                    const updated = { ...prev, [ownerNumber]: percentage };
-                    const newTotal = Object.values(updated).reduce((sum, val) => sum + val, 0);
-                    setTotalOwnership(newTotal);
-                    return updated;
-                  });
-                }
-              }}
-              dataTestId={`signaturegroup-${sigGroupConfig.roleKey}`}
-              isRequired={fieldIsRequired}
-              onRequestSignature={async (roleKey, email) => {
-                const fieldNameKey = `signatureGroup_${sigGroupConfig.groupKey}`;
-                const currentSignatureData = formData[fieldNameKey];
-                let signatureInfo: any = {};
-                
-                if (currentSignatureData && typeof currentSignatureData === 'string') {
-                  try {
-                    signatureInfo = JSON.parse(currentSignatureData);
-                  } catch {
-                    // Ignore parse errors
-                  }
-                }
-                
-                // Get the field label and current section name for context
-                const sigFieldLabel = field.fieldLabel || sigGroupConfig.signerLabel || sigGroupConfig.displayLabel || '';
-                const currentSectionName = filteredSections[currentStep]?.name || '';
-                
-                // Check if this signature group is linked to a disclosure field
-                // First check the group config itself (for multi-signer disclosure-linked groups)
-                let sigDisclosureContent = sigGroupConfig.isDisclosure ? sigGroupConfig.disclosureContent : undefined;
-                let sigDisclosureTitle = sigGroupConfig.isDisclosure ? sigGroupConfig.disclosureTitle : undefined;
-                
-                // If not found, search the current section for a disclosure field
-                // that references this signature group via linkedSignatureGroupKey
-                if (!sigDisclosureContent) {
-                  const currentSectionFields = filteredSections[currentStep]?.fields || [];
-                  const linkedDisclosure = currentSectionFields.find((f: any) => 
-                    f.fieldType === 'disclosure' && (
-                      f.linkedSignatureGroupKey === sigGroupConfig.baseRoleKey ||
-                      f.linkedSignatureGroupKey === sigGroupConfig.roleKey ||
-                      f.linkedSignatureGroupKey === sigGroupConfig.groupKey
-                    )
-                  );
-                  if (linkedDisclosure) {
-                    sigDisclosureContent = linkedDisclosure.disclosureContent || linkedDisclosure.description || undefined;
-                    sigDisclosureTitle = linkedDisclosure.disclosureTitle || linkedDisclosure.fieldLabel || undefined;
-                  }
-                }
-                
-                // Last resort: if the section has exactly one disclosure field, use it
-                if (!sigDisclosureContent) {
-                  const currentSectionFields = filteredSections[currentStep]?.fields || [];
-                  const disclosureFields = currentSectionFields.filter((f: any) => f.fieldType === 'disclosure');
-                  if (disclosureFields.length === 1) {
-                    sigDisclosureContent = disclosureFields[0].disclosureContent || disclosureFields[0].description || undefined;
-                    sigDisclosureTitle = disclosureFields[0].disclosureTitle || disclosureFields[0].fieldLabel || undefined;
-                  }
-                }
-                
-                // Call the mutation
-                const result = await signatureRequestMutation.mutateAsync({
-                  applicationId: null,
-                  prospectId: isProspectMode ? prospectData?.prospect?.id : null,
-                  roleKey,
-                  signerType: sigGroupConfig.prefix || 'owner',
-                  signerName: signatureInfo.signerName || '',
-                  signerEmail: email,
-                  ownershipPercentage: null,
-                  fieldLabel: sigFieldLabel,
-                  sectionName: currentSectionName,
-                  disclosureContent: sigDisclosureContent,
-                  disclosureTitle: sigDisclosureTitle,
-                });
-                
-                // Update local state if successful
-                if (result.success && result.signature) {
-                  const updatedData = {
-                    ...signatureInfo,
-                    signerName: signatureInfo.signerName || '',
-                    signerEmail: email,
-                    status: 'requested' as const,
-                    timestampRequested: new Date(),
-                    timestampExpires: new Date(result.expiresAt),
-                    requestToken: result.signature.requestToken,
-                  };
-                  handleFieldChange(fieldNameKey, JSON.stringify(updatedData));
-                }
-              }}
-              onResendRequest={async (roleKey) => {
-                const fieldNameKey = `signatureGroup_${sigGroupConfig.groupKey}`;
-                const currentSignatureData = formData[fieldNameKey];
-                let signatureInfo: any = {};
-                
-                if (currentSignatureData && typeof currentSignatureData === 'string') {
-                  try {
-                    signatureInfo = JSON.parse(currentSignatureData);
-                  } catch {
-                    // Ignore parse errors
-                  }
-                }
-                
-                // Check if we have a token to resend
-                if (!signatureInfo.requestToken) {
-                  toast({ 
-                    title: 'Cannot resend',
-                    description: 'No signature request token found. Please send a new request.',
-                    variant: 'destructive',
-                  });
-                  return;
-                }
-                
-                // Call the resend mutation
-                const result = await resendSignatureRequestMutation.mutateAsync({
-                  token: signatureInfo.requestToken,
-                });
-                
-                // Update local state if successful
-                if (result.success && result.signature) {
-                  const updatedData = {
-                    ...signatureInfo,
-                    status: 'requested',
-                    timestampRequested: new Date(),
-                    timestampExpires: new Date(result.signature.timestampExpires),
-                    requestToken: result.signature.requestToken,
-                  };
-                  handleFieldChange(fieldNameKey, JSON.stringify(updatedData));
-                }
-              }}
-            />
-            
-            {/* Remove owner button for owners 2-5 */}
-            {isOwnerGroup && ownerNumber && ownerNumber > 1 && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => removeOwnerSlot(ownerNumber)}
-                className="mt-2 text-red-600 hover:text-red-700 hover:bg-red-50"
-                data-testid={`remove-owner${ownerNumber}-btn`}
-              >
-                <X className="h-4 w-4 mr-2" />
-                Remove This Owner
-              </Button>
-            )}
-            
-            {/* Remove signer button for multi-signer slots (slot 2+) */}
-            {sigGroupConfig.isMultiSigner && sigGroupConfig.slotNumber && sigGroupConfig.slotNumber > 1 && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  const baseRole = sigGroupConfig.baseRoleKey;
-                  const slotNum = sigGroupConfig.slotNumber;
-                  setActiveSignerSlots(prev => {
-                    const currentSlots = prev[baseRole] || new Set([1]);
-                    const newSlots = new Set(currentSlots);
-                    newSlots.delete(slotNum);
-                    return { ...prev, [baseRole]: newSlots };
-                  });
-                  // Clear the form data for this slot
-                  const fieldKey = `signatureGroup_${sigGroupConfig.groupKey}`;
-                  handleFieldChange(fieldKey, '');
-                }}
-                className="mt-2 text-red-600 hover:text-red-700 hover:bg-red-50"
-                data-testid={`remove-${sigGroupConfig.baseRoleKey}${sigGroupConfig.slotNumber}-btn`}
-              >
-                <X className="h-4 w-4 mr-2" />
-                Remove This Signer
-              </Button>
-            )}
-            
-            {/* Add Signer button - show on the last active slot if more slots are available */}
-            {sigGroupConfig.isMultiSigner && sigGroupConfig.slotNumber && sigGroupConfig.availableSlots && (() => {
-              const baseRole = sigGroupConfig.baseRoleKey;
-              const currentSlots = activeSignerSlots[baseRole] || new Set([1]);
-              const activeSlotNumbers = Array.from(currentSlots).sort((a, b) => a - b);
-              const isLastActiveSlot = sigGroupConfig.slotNumber === activeSlotNumbers[activeSlotNumbers.length - 1];
-              const maxSlot = Math.max(...sigGroupConfig.availableSlots);
-              const hasMoreSlots = activeSlotNumbers.length < sigGroupConfig.availableSlots.length;
-              
-              if (isLastActiveSlot && hasMoreSlots) {
-                // Find the next available slot number
-                const nextSlot = sigGroupConfig.availableSlots.find((s: number) => !currentSlots.has(s));
-                if (nextSlot) {
-                  return (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setActiveSignerSlots(prev => {
-                          const currentSlots = prev[baseRole] || new Set([1]);
-                          const newSlots = new Set(currentSlots);
-                          newSlots.add(nextSlot);
-                          return { ...prev, [baseRole]: newSlots };
-                        });
-                      }}
-                      className="mt-3 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
-                      data-testid={`add-${baseRole}-btn`}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Another {sigGroupConfig.signerLabel || (sigGroupConfig.baseRoleKey.charAt(0).toUpperCase() + sigGroupConfig.baseRoleKey.slice(1))}
-                    </Button>
-                  );
-                }
-              }
-              return null;
-            })()}
-            </div>
-          </div>
-        );
-
-      case 'disclosure':
-        // Disclosure field with scrollable content and signature requirement
-        // Access extended field properties from the template
-        const disclosureField = field as any;
-        const hasMultiSigner = (disclosureField.maxSigners || 1) > 1 && disclosureField.linkedSignatureGroupKey;
-        const disclosureConfig = {
-          key: field.fieldName,
-          disclosureSlug: field.fieldName.replace('disclosures.', ''),
-          displayLabel: disclosureField.disclosureTitle || field.fieldLabel,
-          sectionName: field.section || 'Disclosures',
-          orderPriority: field.position,
-          isRequired: fieldIsRequired,
-          // When multi-signer is configured, disable inline signature - signature slots handle it
-          requiresSignature: hasMultiSigner ? false : (disclosureField.requiresSignature !== false),
-          requiresInitials: disclosureField.requiresInitials === true,
-          maxSigners: disclosureField.maxSigners || 1,
-          linkedSignatureGroupKey: disclosureField.linkedSignatureGroupKey || '',
-        };
-        
-        // Use configured disclosure content, or fall back to description/placeholder
-        const disclosureContent = {
-          id: field.id,
-          name: field.fieldName,
-          slug: field.fieldName.replace('disclosures.', ''),
-          title: disclosureField.disclosureTitle || field.fieldLabel,
-          content: disclosureField.disclosureContent || field.description || `<p>This is a sample disclosure content for "${field.fieldLabel}". In production, this would contain the full legal disclosure text that the applicant must read and acknowledge.</p><p>The applicant must scroll through the entire disclosure before they can sign and acknowledge.</p>`,
-          version: disclosureField.disclosureVersion || '1.0',
-        };
-        
-        // Parse existing disclosure data or initialize empty
-        let disclosureValue = undefined;
-        try {
-          if (value && typeof value === 'string') {
-            disclosureValue = JSON.parse(value);
-          } else if (value && typeof value === 'object') {
-            disclosureValue = value;
-          }
-        } catch (e) {
-          // Invalid JSON, keep undefined
-        }
-        
-        // Check if this disclosure references a versioned disclosure definition
-        const disclosureDefinitionId = disclosureField.disclosureDefinitionId;
-        
-        return (
-          <div className="space-y-2">
-            {disclosureDefinitionId ? (
-              <DisclosureFieldWrapper
-                config={disclosureConfig}
-                disclosureDefinitionId={disclosureDefinitionId}
-                value={disclosureValue}
-                onChange={(data) => handleFieldChange(field.fieldName, JSON.stringify(data))}
-                disabled={isReadOnly}
-                dataTestId={`disclosure-${field.fieldName}`}
-              />
-            ) : (
-              <DisclosureField
-                config={disclosureConfig}
-                content={disclosureContent}
-                value={disclosureValue}
-                onChange={(data) => handleFieldChange(field.fieldName, JSON.stringify(data))}
-                disabled={isReadOnly}
-                dataTestId={`disclosure-${field.fieldName}`}
-              />
-            )}
-            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
-          </div>
-        );
-
-      case 'signature':
-        // Get linked fields from template configuration
-        const allFormFields = filteredSections.flatMap(section => ({
-          sectionTitle: section.name,
-          fields: section.fields || []
-        }));
-        const configuredLinkedFieldIds = (field as any).linkedFields || [];
-        const linkedFieldsInfo = configuredLinkedFieldIds
-          .map((fieldId: string) => {
-            for (const section of allFormFields) {
-              const foundField = section.fields.find((f: any) => f.fieldName === fieldId || f.id === fieldId);
-              if (foundField) {
-                return {
-                  fieldId: foundField.fieldName || foundField.id,
-                  fieldLabel: foundField.fieldLabel || foundField.label,
-                  fieldType: foundField.fieldType || foundField.type,
-                  sectionTitle: section.sectionTitle,
-                };
-              }
-            }
-            return null;
-          })
-          .filter(Boolean);
-        
-        // Parse existing signature envelope from formData
-        let signatureEnvelope = null;
-        try {
-          if (value && typeof value === 'string') {
-            signatureEnvelope = JSON.parse(value);
-          } else if (value && typeof value === 'object') {
-            signatureEnvelope = value;
-          }
-        } catch (e) {
-          // Not valid JSON, treat as raw signature data
-        }
-        
-        return (
-          <EnhancedSignatureField
-            fieldName={field.fieldName}
-            fieldLabel={field.fieldLabel}
-            value={signatureEnvelope}
-            onChange={(envelope) => handleFieldChange(field.fieldName, JSON.stringify(envelope))}
-            disabled={isReadOnly}
-            isRequired={fieldIsRequired}
-            applicationId={prospectData?.application?.id}
-            linkedFields={linkedFieldsInfo}
-            dataTestId={`signature-${field.fieldName}`}
-          />
-        );
-
-      case 'owner_group':
-        // Parse existing owner group data
-        let ownerGroupValue: any[] = [];
-        try {
-          if (value && typeof value === 'string') {
-            ownerGroupValue = JSON.parse(value);
-          } else if (value && Array.isArray(value)) {
-            ownerGroupValue = value;
-          }
-        } catch (e) {
-          // Invalid JSON, use empty array
-        }
-        
-        // Get config from field
-        const ownerGroupConfig = (field as any).ownerGroupConfig || {};
-        
-        // Handle validation changes from owner group
-        const handleOwnerGroupValidation = (validation: OwnerGroupValidation) => {
-          setValidationErrors(prev => {
-            const currentError = prev[field.fieldName];
-            const newError = !validation.isValid 
-              ? (validation.errors[0] || 
-                 (validation.missingRequiredFields[0] ? `Missing: ${validation.missingRequiredFields[0]}` : 'Owner information incomplete'))
-              : undefined;
-            
-            // Only update if error state changed
-            if (currentError === newError || (!currentError && !newError)) {
-              return prev;
-            }
-            
-            const newErrors = { ...prev };
-            if (newError) {
-              newErrors[field.fieldName] = newError;
-            } else {
-              delete newErrors[field.fieldName];
-            }
-            return newErrors;
-          });
-        };
-        
-        return (
-          <div className="space-y-2">
-            {field.description && (
-              <div className="flex items-center gap-1">
-                <span className="text-sm font-medium text-gray-700">{field.fieldLabel}</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p className="text-sm">{field.description}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-            )}
-            <OwnerGroupField
-              fieldId={field.fieldName}
-              value={ownerGroupValue}
-              onChange={(owners) => handleFieldChange(field.fieldName, JSON.stringify(owners))}
-              onValidationChange={handleOwnerGroupValidation}
-              config={{
-                maxOwners: ownerGroupConfig.maxOwners || 5,
-                requireSignatureThreshold: ownerGroupConfig.signatureThreshold || 25,
-              }}
-              disabled={isReadOnly}
-            />
-          </div>
-        );
-
       default:
         return null;
     }
@@ -5479,40 +2424,6 @@ export default function EnhancedPdfWizard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      {/* Preview Mode Banner */}
-      {isPreviewMode && previewTemplate && (
-        <div className="bg-green-600 text-white px-4 py-3 shadow-md">
-          <div className="max-w-7xl mx-auto flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Monitor className="w-5 h-5" />
-              <div>
-                <p className="font-semibold">Test/Preview Mode</p>
-                <p className="text-xs opacity-90">Testing template: {previewTemplate.templateName} v{previewTemplate.version}</p>
-              </div>
-            </div>
-            <p className="text-xs opacity-90">Data will not be saved</p>
-          </div>
-        </div>
-      )}
-      
-      {/* Locked Application Banner */}
-      {isApplicationLocked && (
-        <div className="bg-amber-600 text-white px-4 py-3 shadow-md" data-testid="locked-application-banner">
-          <div className="max-w-7xl mx-auto flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Lock className="w-5 h-5" />
-              <div>
-                <p className="font-semibold">Application Submitted</p>
-                <p className="text-xs opacity-90">
-                  This application has been submitted and is now read-only. Status: {prospectData?.prospect?.status}
-                </p>
-              </div>
-            </div>
-            <p className="text-xs opacity-90">Contact your agent if you need to make changes</p>
-          </div>
-        </div>
-      )}
-      
       {/* Header - Fixed */}
       <div className="bg-white/95 backdrop-blur-sm border-b border-gray-200 px-4 py-6 sticky top-0 z-50 shadow-sm">
         <div className="max-w-4xl mx-auto">
@@ -5536,17 +2447,7 @@ export default function EnhancedPdfWizard() {
             <div className="text-right">
               <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Progress</div>
               <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-blue-700 bg-clip-text text-transparent">
-                {(() => {
-                  // Calculate progress based on completed required fields
-                  const allRequiredFields = filteredSections.flatMap(section => 
-                    section.fields.filter(field => isFieldRequired(field))
-                  );
-                  const completedRequiredFields = allRequiredFields.filter(field => isFieldCompleted(field));
-                  const progressPercent = allRequiredFields.length > 0 
-                    ? Math.round((completedRequiredFields.length / allRequiredFields.length) * 100)
-                    : 0;
-                  return `${progressPercent}%`;
-                })()}
+                {Math.round(((currentStep + 1) / sections.length) * 100)}%
               </div>
             </div>
           </div>
@@ -5555,28 +2456,14 @@ export default function EnhancedPdfWizard() {
           <div className="mt-6">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-medium text-gray-600">
-                {(() => {
-                  const allRequiredFields = filteredSections.flatMap(section => 
-                    section.fields.filter(field => isFieldRequired(field))
-                  );
-                  const completedRequiredFields = allRequiredFields.filter(field => isFieldCompleted(field));
-                  return `${completedRequiredFields.length} of ${allRequiredFields.length} required fields completed`;
-                })()}
+                Step {currentStep + 1} of {sections.length}
               </span>
               <span className="text-xs text-gray-500">
-                {filteredSections[currentStep]?.name}
+                {sections[currentStep]?.name}
               </span>
             </div>
             <Progress 
-              value={(() => {
-                const allRequiredFields = filteredSections.flatMap(section => 
-                  section.fields.filter(field => isFieldRequired(field))
-                );
-                const completedRequiredFields = allRequiredFields.filter(field => isFieldCompleted(field));
-                return allRequiredFields.length > 0 
-                  ? (completedRequiredFields.length / allRequiredFields.length) * 100
-                  : 0;
-              })()} 
+              value={((currentStep + 1) / sections.length) * 100} 
               className="h-3 bg-gray-200"
             />
           </div>
@@ -5592,14 +2479,24 @@ export default function EnhancedPdfWizard() {
               <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-6 h-fit sticky top-28">
                 <h3 className="text-lg font-semibold text-gray-900 mb-6">Application Sections</h3>
                 <nav className="space-y-3">
-                  {filteredSections.map((section, index) => {
+                  {sections.map((section, index) => {
                     const IconComponent = section.icon;
                     const isActive = currentStep === index;
-                    const isVisited = visitedSections.has(index);
+                    const isCompleted = index < currentStep;
+                    const isVisited = Array.from(visitedSections).includes(index);
                     const hasValidationIssues = getSectionValidationStatus(index);
-                    // A section is complete if it's been visited and has no validation issues
-                    const isCompleted = isVisited && !hasValidationIssues;
                     const showWarning = isVisited && hasValidationIssues && !isActive;
+                    
+                    // Debug logging for Merchant Information section
+                    if (section.name === 'Merchant Information') {
+                      console.log(`Section ${index} (${section.name}) status:`, {
+                        isVisited,
+                        hasValidationIssues,
+                        showWarning,
+                        isActive,
+                        visitedSections: Array.from(visitedSections)
+                      });
+                    }
                     
                     return (
                       <button
@@ -5618,7 +2515,7 @@ export default function EnhancedPdfWizard() {
                             ? 'bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200 text-blue-800 shadow-md transform scale-[1.02]'
                             : showWarning
                             ? 'bg-gradient-to-r from-yellow-50 to-yellow-100 border-yellow-200 text-yellow-800 hover:shadow-sm'
-                            : isCompleted
+                            : isCompleted && !hasValidationIssues
                             ? 'bg-gradient-to-r from-green-50 to-green-100 border-green-200 text-green-800 hover:shadow-sm'
                             : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100 hover:shadow-sm'
                         } border`}
@@ -5629,7 +2526,7 @@ export default function EnhancedPdfWizard() {
                               ? 'bg-blue-200 shadow-sm' 
                               : showWarning
                               ? 'bg-yellow-200'
-                              : isCompleted 
+                              : isCompleted && !hasValidationIssues 
                               ? 'bg-green-200' 
                               : 'bg-gray-200'
                           }`}>
@@ -5639,7 +2536,7 @@ export default function EnhancedPdfWizard() {
                               <IconComponent className={`w-5 h-5 ${
                                 isActive 
                                   ? 'text-blue-700' 
-                                  : isCompleted 
+                                  : isCompleted && !hasValidationIssues 
                                   ? 'text-green-700' 
                                   : 'text-gray-600'
                               }`} />
@@ -5656,7 +2553,7 @@ export default function EnhancedPdfWizard() {
                           </div>
                           {showWarning ? (
                             <AlertTriangle className="w-5 h-5 text-yellow-600" />
-                          ) : isCompleted ? (
+                          ) : isCompleted && !hasValidationIssues ? (
                             <CheckCircle className="w-5 h-5 text-green-600" />
                           ) : null}
                         </div>
@@ -5691,13 +2588,13 @@ export default function EnhancedPdfWizard() {
                 <div className="bg-gradient-to-r from-blue-50 to-blue-100 px-8 py-6 border-b border-blue-200">
                   <div className="flex items-center space-x-4">
                     <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-sm">
-                      {React.createElement(filteredSections[currentStep]?.icon || FileText, {
+                      {React.createElement(sections[currentStep]?.icon || FileText, {
                         className: "w-6 h-6 text-blue-600"
                       })}
                     </div>
                     <div>
-                      <h2 className="text-xl font-bold text-blue-900">{filteredSections[currentStep]?.name}</h2>
-                      <p className="text-blue-700 text-sm mt-1">{filteredSections[currentStep]?.description}</p>
+                      <h2 className="text-xl font-bold text-blue-900">{sections[currentStep]?.name}</h2>
+                      <p className="text-blue-700 text-sm mt-1">{sections[currentStep]?.description}</p>
                     </div>
                   </div>
                 </div>
@@ -5705,183 +2602,12 @@ export default function EnhancedPdfWizard() {
                 {/* Form Fields */}
                 <div className="p-8">
                   <div className="space-y-6">
-                    {(() => {
-                      const fields = filteredSections[currentStep]?.fields || [];
-                      
-                      // Group owner-related fields by owner number
-                      const ownerGroups: Record<number, typeof fields> = {};
-                      const nonOwnerFields: typeof fields = [];
-                      const ownerSignatureGroups: Record<number, typeof fields> = {};
-                      
-                      fields.forEach((field) => {
-                        // Use shared utility to detect owner fields
-                        // Supports both new format (owners.1.firstName) and legacy (owners_owner1_firstName)
-                        const ownerNum = getOwnerNumberFromField(field.fieldName);
-                        const isSigGroup = field.fieldType === 'signatureGroup';
-                        
-                        if (ownerNum !== null) {
-                          if (isSigGroup) {
-                            if (!ownerSignatureGroups[ownerNum]) ownerSignatureGroups[ownerNum] = [];
-                            ownerSignatureGroups[ownerNum].push(field);
-                          } else {
-                            if (!ownerGroups[ownerNum]) ownerGroups[ownerNum] = [];
-                            ownerGroups[ownerNum].push(field);
-                          }
-                        } else {
-                          nonOwnerFields.push(field);
-                        }
-                      });
-                      
-                      // Get unique owner numbers and sort them
-                      const ownerNumbers = [...new Set([
-                        ...Object.keys(ownerGroups).map(Number),
-                        ...Object.keys(ownerSignatureGroups).map(Number)
-                      ])].sort((a, b) => a - b);
-                      
-                      // Render non-owner fields first, then grouped owner sections
-                      return (
-                        <>
-                          {/* Non-owner fields */}
-                          {nonOwnerFields.map((field, index) => (
-                            <div key={field.id}>
-                              {renderField(field, index)}
-                            </div>
-                          ))}
-                          
-                          {/* Owner groups - each in a Card */}
-                          {ownerNumbers.length > 0 && (
-                            <div className="space-y-6">
-                              {/* Business Ownership Header - only show once for all owners */}
-                              {ownerNumbers.length > 0 && (
-                                <Card className="bg-blue-50 border-blue-200">
-                                  <CardContent className="pt-4">
-                                    <div className="flex items-center justify-between">
-                                      <div>
-                                        <h3 className="font-semibold text-blue-900">Business Ownership</h3>
-                                        <p className="text-sm text-blue-700">
-                                          Total Ownership: <span className={`font-bold ${
-                                            Math.abs(totalOwnership - 100) < 0.01 ? 'text-green-600' :
-                                            totalOwnership > 100 ? 'text-red-600' : 'text-orange-600'
-                                          }`}>
-                                            {totalOwnership.toFixed(1)}%
-                                          </span>
-                                        </p>
-                                      </div>
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={addOwnerSlot}
-                                        disabled={activeOwnerSlots.size >= 5 || totalOwnership >= 100}
-                                        data-testid="add-owner-header-btn"
-                                      >
-                                        <Users className="h-4 w-4 mr-2" />
-                                        Add Owner
-                                      </Button>
-                                    </div>
-                                  </CardContent>
-                                </Card>
-                              )}
-                              
-                              {ownerNumbers.map((ownerNum) => {
-                                const ownerFields = ownerGroups[ownerNum] || [];
-                                const sigFields = ownerSignatureGroups[ownerNum] || [];
-                                
-                                // Get owner name from signature group data if available
-                                const sigGroupKey = `signatureGroup_owners_owner${ownerNum}_signature_owner`;
-                                let ownerName = `Owner ${ownerNum}`;
-                                try {
-                                  const sigData = formData[sigGroupKey];
-                                  if (sigData) {
-                                    const parsed = JSON.parse(sigData);
-                                    if (parsed.signerName) ownerName = parsed.signerName;
-                                  }
-                                } catch (e) {}
-                                
-                                // Check if this owner has signed
-                                let isSigned = false;
-                                try {
-                                  const sigData = formData[sigGroupKey];
-                                  if (sigData) {
-                                    const parsed = JSON.parse(sigData);
-                                    isSigned = parsed.status === 'signed' || !!parsed.signature;
-                                  }
-                                } catch (e) {}
-                                
-                                return (
-                                  <Card key={`owner-group-${ownerNum}`} className="border-gray-200 shadow-sm">
-                                    <CardHeader className="bg-gradient-to-r from-gray-50 to-slate-50 border-b pb-4">
-                                      <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                                            <User className="w-5 h-5 text-blue-600" />
-                                          </div>
-                                          <div>
-                                            <CardTitle className="text-lg font-semibold text-gray-900">
-                                              Owner {ownerNum}: {ownerName !== `Owner ${ownerNum}` ? ownerName : ''}
-                                            </CardTitle>
-                                            <p className="text-sm text-gray-500">
-                                              {ownershipPercentages[ownerNum] 
-                                                ? `${ownershipPercentages[ownerNum]}% ownership`
-                                                : 'Enter ownership details below'}
-                                            </p>
-                                          </div>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                          {isSigned && (
-                                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                                              <CheckCircle className="w-3 h-3 mr-1" />
-                                              Signed
-                                            </Badge>
-                                          )}
-                                          {ownerNum > 1 && (
-                                            <Button
-                                              type="button"
-                                              variant="ghost"
-                                              size="sm"
-                                              onClick={() => removeOwnerSlot(ownerNum)}
-                                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                            >
-                                              <X className="w-4 h-4" />
-                                            </Button>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </CardHeader>
-                                    <CardContent className="pt-6 space-y-4">
-                                      {/* Regular owner fields (non-signature) */}
-                                      {ownerFields.map((field, idx) => (
-                                        <div key={field.id}>
-                                          {renderField(field, idx)}
-                                        </div>
-                                      ))}
-                                      
-                                      {/* Signature group for this owner */}
-                                      {sigFields.map((field, idx) => (
-                                        <div key={field.id} className="pt-4 border-t border-gray-100">
-                                          {renderField(field, idx)}
-                                        </div>
-                                      ))}
-                                    </CardContent>
-                                  </Card>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
+                    {sections[currentStep]?.fields.map((field) => (
+                      <div key={field.id}>
+                        {renderField(field)}
+                      </div>
+                    ))}
                   </div>
-
-                  {/* Required Field Legend */}
-                  {filteredSections[currentStep]?.fields.some(f => f.isRequired) && (
-                    <div className="mt-6 pt-4 border-t border-gray-100">
-                      <p className="text-sm text-gray-500 flex items-center">
-                        <span className="text-red-500 font-bold mr-1">*</span>
-                        <span>indicates required field</span>
-                      </p>
-                    </div>
-                  )}
 
                   {/* Navigation Buttons */}
                   <div className="flex items-center justify-between mt-12 pt-8 border-t border-gray-200">
@@ -5899,7 +2625,7 @@ export default function EnhancedPdfWizard() {
                     </div>
                     
                     <div className="flex items-center space-x-4">
-                      {currentStep < filteredSections.length - 1 ? (
+                      {currentStep < sections.length - 1 ? (
                         <Button
                           onClick={handleNext}
                           className="flex items-center space-x-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
@@ -5908,31 +2634,23 @@ export default function EnhancedPdfWizard() {
                           <ArrowRight className="w-4 h-4" />
                         </Button>
                       ) : (
-                        isApplicationLocked ? (
-                          <div className="flex items-center space-x-2 text-amber-600 font-medium">
-                            <Lock className="w-4 h-4" />
-                            <span>Application Already Submitted</span>
-                          </div>
-                        ) : (
-                          <Button
-                            onClick={() => submitApplicationMutation.mutate(formData)}
-                            disabled={submitApplicationMutation.isPending}
-                            className="flex items-center space-x-2 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
-                            data-testid="submit-application-button"
-                          >
-                            {submitApplicationMutation.isPending ? (
-                              <>
-                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                <span>Submitting...</span>
-                              </>
-                            ) : (
-                              <>
-                                <CheckCircle className="w-4 h-4" />
-                                <span>Submit Application</span>
-                              </>
-                            )}
-                          </Button>
-                        )
+                        <Button
+                          onClick={() => submitApplicationMutation.mutate(formData)}
+                          disabled={submitApplicationMutation.isPending}
+                          className="flex items-center space-x-2 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
+                        >
+                          {submitApplicationMutation.isPending ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                              <span>Submitting...</span>
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle className="w-4 h-4" />
+                              <span>Submit Application</span>
+                            </>
+                          )}
+                        </Button>
                       )}
                     </div>
                   </div>

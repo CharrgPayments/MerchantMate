@@ -16,7 +16,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 import { z } from "zod";
 import { getUserTimezone } from "@/lib/timezone";
-import { validatePasswordStrength } from "@shared/schema";
 
 // Form schemas
 const loginSchema = z.object({
@@ -24,21 +23,6 @@ const loginSchema = z.object({
   password: z.string().min(1, "Password required"),
   twoFactorCode: z.string().optional(),
   database: z.string().optional(),
-});
-
-const forcePasswordChangeSchema = z.object({
-  currentPassword: z.string().min(1, "Current password required"),
-  newPassword: z.string().min(12, "Password must be at least 12 characters"),
-  confirmPassword: z.string(),
-}).refine((data) => {
-  const validation = validatePasswordStrength(data.newPassword);
-  return validation.valid;
-}, {
-  message: "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character",
-  path: ["newPassword"],
-}).refine((data) => data.newPassword === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ["confirmPassword"],
 });
 
 
@@ -49,14 +33,8 @@ const forgotPasswordSchema = z.object({
 
 const resetPasswordSchema = z.object({
   token: z.string().min(1, "Reset token required"),
-  password: z.string().min(12, "Password must be at least 12 characters"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
   confirmPassword: z.string(),
-}).refine((data) => {
-  const validation = validatePasswordStrength(data.password);
-  return validation.valid;
-}, {
-  message: "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character",
-  path: ["password"],
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
@@ -65,26 +43,24 @@ const resetPasswordSchema = z.object({
 type LoginForm = z.infer<typeof loginSchema>;
 type ForgotPasswordForm = z.infer<typeof forgotPasswordSchema>;
 type ResetPasswordForm = z.infer<typeof resetPasswordSchema>;
-type ForcePasswordChangeForm = z.infer<typeof forcePasswordChangeSchema>;
 
 export default function Auth() {
   const [activeTab, setActiveTab] = useState("login");
   const [showPassword, setShowPassword] = useState(false);
   const [requires2FA, setRequires2FA] = useState(false);
-  const [requiresPasswordChange, setRequiresPasswordChange] = useState(false);
-  const [passwordChangeUserId, setPasswordChangeUserId] = useState("");
-  const [tempPassword, setTempPassword] = useState("");
   const [resetToken, setResetToken] = useState("");
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const { refetch } = useAuth();
 
-  // Check if we're in development environment (show environment selector)
-  // Hide selector on production domain (crm.charrg.com), show on .replit.app and development
-  const isProduction = window.location.hostname === 'crm.charrg.com';
-  const isNonProduction = !isProduction;
+  // Check if we're in development environment
+  const isNonProduction = import.meta.env.DEV || 
+    window.location.hostname === 'localhost' ||
+    window.location.hostname.includes('.dev') ||
+    window.location.hostname.includes('test') ||
+    window.location.port !== '';
 
-  const [selectedDatabase, setSelectedDatabase] = useState(isProduction ? "production" : "development");
+  const [selectedDatabase, setSelectedDatabase] = useState("dev");
 
 
 
@@ -95,7 +71,7 @@ export default function Auth() {
       usernameOrEmail: "",
       password: "",
       twoFactorCode: "",
-      database: isProduction ? "production" : "development",
+      database: "dev",
     },
   });
 
@@ -119,16 +95,6 @@ export default function Auth() {
     },
   });
 
-  // Force password change form
-  const forcePasswordChangeForm = useForm<ForcePasswordChangeForm>({
-    resolver: zodResolver(forcePasswordChangeSchema),
-    defaultValues: {
-      currentPassword: "",
-      newPassword: "",
-      confirmPassword: "",
-    },
-  });
-
   // Login mutation
   const loginMutation = useMutation({
     mutationFn: async (data: LoginForm) => {
@@ -138,8 +104,11 @@ export default function Auth() {
         timezone: getUserTimezone()
       };
       
-      // Global environment system handles database selection automatically
+      // Build URL with database parameter in non-production environments
       let url = "/api/auth/login";
+      if (isNonProduction && data.database) {
+        url += `?db=${data.database}`;
+      }
       
       const response = await fetch(url, {
         method: "POST",
@@ -166,57 +135,14 @@ export default function Auth() {
           title: "Security Code Required",
           description: data.message,
         });
-      } else if (data.requiresPasswordChange) {
-        // User must change their temporary password
-        setRequiresPasswordChange(true);
-        setPasswordChangeUserId(data.user?.id || "");
-        setTempPassword(loginForm.getValues("password"));
-        forcePasswordChangeForm.setValue("currentPassword", loginForm.getValues("password"));
-        setActiveTab("changePassword"); // Switch to password change tab
-        toast({
-          title: "Password Change Required",
-          description: data.message,
-        });
       } else if (data.success) {
-        // Fetch user data to determine redirect location based on role
-        const userResponse = await fetch("/api/auth/user", {
-          credentials: "include"
+        toast({
+          title: "Login Successful",
+          description: "Welcome to CoreCRM!",
         });
-        
-        if (!userResponse.ok) {
-          console.error("🔴 Failed to fetch user data after login:", userResponse.status);
-          toast({
-            title: "Login Successful",
-            description: "Welcome! Redirecting...",
-          });
-          window.location.href = "/";
-          return;
-        }
-        
-        const userData = await userResponse.json();
-        console.log("🔍 User data after login:", userData);
-        console.log("🔍 User roles:", userData?.roles);
-        console.log("🔍 Is prospect?:", userData?.roles?.includes("prospect"));
-        
-        // Determine redirect based on user role (roles is an array)
-        let redirectUrl = "/";
-        if (userData && userData.roles && userData.roles.includes("prospect")) {
-          redirectUrl = "/prospect-portal";
-          console.log("✅ Redirecting prospect to:", redirectUrl);
-          toast({
-            title: "Login Successful",
-            description: "Welcome to your application portal!",
-          });
-        } else {
-          console.log("✅ Redirecting non-prospect to:", redirectUrl);
-          toast({
-            title: "Login Successful",
-            description: "Welcome to CoreCRM!",
-          });
-        }
         
         // Force complete page reload to ensure proper state management
-        window.location.href = redirectUrl;
+        window.location.href = "/";
       }
     },
     onError: (error: any) => {
@@ -282,60 +208,6 @@ export default function Auth() {
     },
   });
 
-  // Force password change mutation
-  const forcePasswordChangeMutation = useMutation({
-    mutationFn: async (data: ForcePasswordChangeForm) => {
-      const response = await fetch("/api/auth/force-password-change", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: passwordChangeUserId,
-          currentPassword: data.currentPassword,
-          newPassword: data.newPassword,
-          confirmPassword: data.confirmPassword,
-          database: selectedDatabase,
-        }),
-        credentials: "include",
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(result.message || "Password change failed");
-      }
-      return result;
-    },
-    onSuccess: (data) => {
-      if (data.success) {
-        toast({
-          title: "Password Changed Successfully",
-          description: "Your new password is set. Please log in now.",
-        });
-        // Reset all states and show login form
-        setRequiresPasswordChange(false);
-        setPasswordChangeUserId("");
-        setTempPassword("");
-        loginForm.reset();
-        // Re-apply the current database/environment selection after reset
-        // so the user doesn't have to re-select their environment
-        loginForm.setValue("database", selectedDatabase);
-        forcePasswordChangeForm.reset();
-        setActiveTab("login");
-      } else {
-        toast({
-          title: "Password Change Failed",
-          description: data.message,
-          variant: "destructive",
-        });
-      }
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Password Change Failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
   const onLoginSubmit = (data: LoginForm) => {
     loginMutation.mutate(data);
   };
@@ -350,15 +222,10 @@ export default function Auth() {
     resetPasswordMutation.mutate(data);
   };
 
-  const onForcePasswordChangeSubmit = (data: ForcePasswordChangeForm) => {
-    forcePasswordChangeMutation.mutate(data);
-  };
-
   // Check URL for reset token
   useState(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get("token");
-    
     if (token) {
       setResetToken(token);
       setActiveTab("reset");
@@ -373,9 +240,9 @@ export default function Auth() {
           <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-blue-600 flex items-center justify-center">
             <Shield className="h-6 w-6 text-white" />
           </div>
-          <CardTitle className="text-2xl font-bold">Welcome Back</CardTitle>
+          <CardTitle className="text-2xl font-bold">CoreCRM</CardTitle>
           <CardDescription>
-            Sign in to access your account
+            Secure payment management platform
           </CardDescription>
         </CardHeader>
 
@@ -630,87 +497,6 @@ export default function Auth() {
                     </>
                   ) : (
                     "Reset Password"
-                  )}
-                </Button>
-              </form>
-            </TabsContent>
-
-            {/* Force Password Change Tab */}
-            <TabsContent value="changePassword" className="space-y-4">
-              <div className="text-center mb-4">
-                <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-orange-100 flex items-center justify-center">
-                  <Lock className="h-6 w-6 text-orange-600" />
-                </div>
-                <h3 className="text-lg font-semibold">Change Your Password</h3>
-                <p className="text-sm text-gray-600">
-                  You must change your temporary password before continuing
-                </p>
-              </div>
-
-              <Alert className="bg-orange-50 border-orange-200">
-                <AlertDescription className="text-sm text-orange-800">
-                  For security, please create a new password that is at least 12 characters and includes uppercase, lowercase, numbers, and special characters.
-                </AlertDescription>
-              </Alert>
-
-              <form onSubmit={forcePasswordChangeForm.handleSubmit(onForcePasswordChangeSubmit)} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="currentPassword">Current Password (Temporary)</Label>
-                  <Input
-                    id="currentPassword"
-                    type="password"
-                    placeholder="Enter your temporary password"
-                    {...forcePasswordChangeForm.register("currentPassword")}
-                  />
-                  {forcePasswordChangeForm.formState.errors.currentPassword && (
-                    <p className="text-sm text-red-500">
-                      {forcePasswordChangeForm.formState.errors.currentPassword.message}
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="forceNewPassword">New Password</Label>
-                  <Input
-                    id="forceNewPassword"
-                    type="password"
-                    placeholder="Enter new password (min 12 characters)"
-                    {...forcePasswordChangeForm.register("newPassword")}
-                  />
-                  {forcePasswordChangeForm.formState.errors.newPassword && (
-                    <p className="text-sm text-red-500">
-                      {forcePasswordChangeForm.formState.errors.newPassword.message}
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="forceConfirmPassword">Confirm New Password</Label>
-                  <Input
-                    id="forceConfirmPassword"
-                    type="password"
-                    placeholder="Confirm new password"
-                    {...forcePasswordChangeForm.register("confirmPassword")}
-                  />
-                  {forcePasswordChangeForm.formState.errors.confirmPassword && (
-                    <p className="text-sm text-red-500">
-                      {forcePasswordChangeForm.formState.errors.confirmPassword.message}
-                    </p>
-                  )}
-                </div>
-
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={forcePasswordChangeMutation.isPending}
-                >
-                  {forcePasswordChangeMutation.isPending ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Changing Password...
-                    </>
-                  ) : (
-                    "Change Password"
                   )}
                 </Button>
               </form>

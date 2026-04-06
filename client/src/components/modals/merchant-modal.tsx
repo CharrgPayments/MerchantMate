@@ -8,8 +8,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
-  DialogDescription,
 } from "@/components/ui/dialog";
 import {
   Form,
@@ -32,8 +30,6 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { merchantsApi, agentsApi } from "@/lib/api";
 import type { Merchant, InsertMerchant } from "@shared/schema";
-import { formatPhoneNumber, unformatPhoneNumber } from "@/lib/utils";
-import { HelpCircle, Store } from "lucide-react";
 
 const merchantSchema = z.object({
   businessName: z.string().min(1, "Business name is required"),
@@ -45,9 +41,6 @@ const merchantSchema = z.object({
   processingFee: z.string().default("2.50"),
   status: z.enum(["active", "pending", "suspended"]).default("active"),
   monthlyVolume: z.string().default("0"),
-}).refine((data) => unformatPhoneNumber(data.phone).length === 10, {
-  message: "Phone number must be exactly 10 digits",
-  path: ["phone"],
 });
 
 type MerchantFormData = z.infer<typeof merchantSchema>;
@@ -146,138 +139,9 @@ export function MerchantModal({ isOpen, onClose, merchant }: MerchantModalProps)
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <div className="flex items-center justify-between">
-            <DialogTitle>
-              {merchant ? "Edit Merchant" : "Add New Merchant"}
-            </DialogTitle>
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  className="gap-1 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800 h-8"
-                  data-testid="button-merchant-help"
-                >
-                  <HelpCircle className="h-4 w-4" />
-                  <span className="text-xs">Help</span>
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Merchant Information Guide</DialogTitle>
-                  <DialogDescription>
-                    Learn how to properly configure merchant profiles with business details and payment settings.
-                  </DialogDescription>
-                </DialogHeader>
-                
-                <div className="space-y-4 text-sm">
-                  <div>
-                    <h3 className="font-semibold text-base mb-2">Required Fields</h3>
-                    <p className="text-muted-foreground">
-                      Fields marked with an asterisk (*) are required to create a merchant profile. These ensure you have the minimum information needed for payment processing.
-                    </p>
-                  </div>
-
-                  <div className="space-y-3">
-                    <h3 className="font-semibold">Business Types</h3>
-                    <p className="text-muted-foreground mb-2">
-                      Select the business type that best describes the merchant's operation:
-                    </p>
-                    
-                    <div className="space-y-2">
-                      <div className="bg-blue-50 p-3 rounded-md border border-blue-200">
-                        <h4 className="font-medium text-blue-900 mb-1">🏢 Retail</h4>
-                        <p className="text-sm text-blue-800">
-                          Physical store locations accepting in-person payments (card present transactions)
-                        </p>
-                      </div>
-
-                      <div className="bg-green-50 p-3 rounded-md border border-green-200">
-                        <h4 className="font-medium text-green-900 mb-1">🍔 Restaurant</h4>
-                        <p className="text-sm text-green-800">
-                          Food service businesses including restaurants, cafes, and food trucks
-                        </p>
-                      </div>
-
-                      <div className="bg-purple-50 p-3 rounded-md border border-purple-200">
-                        <h4 className="font-medium text-purple-900 mb-1">🛒 E-commerce</h4>
-                        <p className="text-sm text-purple-800">
-                          Online businesses processing card-not-present (CNP) transactions
-                        </p>
-                      </div>
-
-                      <div className="bg-orange-50 p-3 rounded-md border border-orange-200">
-                        <h4 className="font-medium text-orange-900 mb-1">🚚 Service</h4>
-                        <p className="text-sm text-orange-800">
-                          Service-based businesses like contractors, consultants, or delivery services
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="font-semibold mb-2">Phone Number Format</h3>
-                    <p className="text-muted-foreground">
-                      Enter phone numbers in standard format: <code className="bg-gray-100 px-1 py-0.5 rounded">(555) 123-4567</code>. The system requires exactly 10 digits for US phone numbers. Auto-formatting will be applied as you type.
-                    </p>
-                  </div>
-
-                  <div>
-                    <h3 className="font-semibold mb-2">Processing Fee (%)</h3>
-                    <p className="text-muted-foreground mb-2">
-                      The percentage fee charged per transaction. Typical ranges:
-                    </p>
-                    <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
-                      <li><strong>2.5% - 2.9%:</strong> Standard retail card-present transactions</li>
-                      <li><strong>2.9% - 3.5%:</strong> E-commerce card-not-present transactions</li>
-                      <li><strong>3.5%+:</strong> High-risk or premium card transactions</li>
-                    </ul>
-                  </div>
-
-                  <div>
-                    <h3 className="font-semibold mb-2">Monthly Volume ($)</h3>
-                    <p className="text-muted-foreground">
-                      The estimated or actual monthly transaction volume in dollars. This helps with:
-                    </p>
-                    <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
-                      <li>Pricing tier calculations and volume discounts</li>
-                      <li>Risk assessment and fraud prevention</li>
-                      <li>Analytics and revenue forecasting</li>
-                      <li>Agent commission calculations</li>
-                    </ul>
-                  </div>
-
-                  <div>
-                    <h3 className="font-semibold mb-2">Merchant Status</h3>
-                    <div className="space-y-2">
-                      <div className="flex items-start gap-2">
-                        <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">Active</span>
-                        <p className="text-xs text-muted-foreground flex-1">Merchant can process transactions</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-yellow-100 text-yellow-800">Pending</span>
-                        <p className="text-xs text-muted-foreground flex-1">Awaiting approval or document verification</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-800">Suspended</span>
-                        <p className="text-xs text-muted-foreground flex-1">Temporarily disabled - cannot process payments</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-amber-50 p-3 rounded-md border border-amber-200">
-                    <h3 className="font-semibold text-amber-900 mb-2">💡 Pro Tips</h3>
-                    <ul className="list-disc pl-5 space-y-1 text-sm text-amber-800">
-                      <li>Assign an agent to track commissions and maintain relationships</li>
-                      <li>Update monthly volume regularly for accurate reporting</li>
-                      <li>Use "Pending" status during onboarding to prevent premature activation</li>
-                      <li>Include complete address information for compliance and fraud prevention</li>
-                    </ul>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
+          <DialogTitle>
+            {merchant ? "Edit Merchant" : "Add New Merchant"}
+          </DialogTitle>
         </DialogHeader>
 
         <Form {...form}>
@@ -348,11 +212,7 @@ export function MerchantModal({ isOpen, onClose, merchant }: MerchantModalProps)
                   <FormItem>
                     <FormLabel>Phone Number *</FormLabel>
                     <FormControl>
-                      <Input 
-                        placeholder="(555) 555-5555" 
-                        value={field.value || ""}
-                        onChange={(e) => field.onChange(formatPhoneNumber(e.target.value))}
-                      />
+                      <Input placeholder="+1 (555) 000-0000" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

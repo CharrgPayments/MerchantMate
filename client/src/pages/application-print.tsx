@@ -12,8 +12,7 @@ import {
   Users, 
   DollarSign,
   FileText,
-  CheckCircle,
-  RefreshCw
+  CheckCircle
 } from 'lucide-react';
 
 interface ProspectData {
@@ -160,7 +159,7 @@ export default function ApplicationPrint() {
     return (
       <div className="print-container">
         <div className="flex items-center justify-center min-h-screen">
-          <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+          <div className="text-lg">Loading application data...</div>
         </div>
       </div>
     );

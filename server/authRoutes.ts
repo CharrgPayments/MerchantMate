@@ -6,8 +6,7 @@ import {
   loginUserSchema, 
   passwordResetRequestSchema, 
   passwordResetSchema,
-  twoFactorVerifySchema,
-  forcePasswordChangeSchema
+  twoFactorVerifySchema 
 } from "@shared/schema";
 import { dbEnvironmentMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
 
@@ -26,13 +25,33 @@ export function setupAuthRoutes(app: Express) {
       return res.status(401).json({ message: "Authentication required" });
     }
     
-    // Use storage layer for consistent user lookup across environments
+    // Use dynamic database if available, otherwise fallback to default storage
     let user;
     try {
-      user = await req.storage!.getUser(req.session.userId);
-    } catch (error) {
-      console.error("Error fetching user from storage:", error);
-      user = null;
+      if (req.dynamicDB) {
+        const schema = await import('@shared/schema');
+        const { eq } = await import('drizzle-orm');
+        
+        const users = await req.dynamicDB
+          .select()
+          .from(schema.users)
+          .where(eq(schema.users.id, req.session.userId));
+        
+        const raw = users[0];
+        // Add backward-compat 'role' from 'roles' array column
+        user = raw ? { ...raw, role: (raw.roles?.[0] || (raw as any).role || 'merchant') } : undefined;
+      } else {
+        user = await storage.getUser(req.session.userId);
+      }
+    } catch (dbError: any) {
+      // Fall back to default storage if dynamic DB query fails (e.g. schema mismatch between environments)
+      console.warn('requireAuth: dynamic DB query failed, falling back to default storage:', dbError?.message);
+      try {
+        user = await storage.getUser(req.session.userId);
+      } catch (fallbackError: any) {
+        console.error('requireAuth: fallback storage also failed:', fallbackError?.message);
+        return res.status(500).json({ message: "Authentication error" });
+      }
     }
     
     if (!user || user.status !== 'active') {
@@ -84,23 +103,6 @@ export function setupAuthRoutes(app: Express) {
       const dynamicDB = getRequestDB(req);
       const result = await authService.loginWithDB(validatedData, req, dynamicDB);
       
-      // If user must change password, return response without creating a full session
-      if (result.success && result.requiresPasswordChange && result.user) {
-        console.log(`Password change required for user: ${result.user.username}`);
-        // Return success with requiresPasswordChange flag - no session created yet
-        return res.json({
-          success: true,
-          requiresPasswordChange: true,
-          message: result.message,
-          user: {
-            id: result.user.id,
-            username: result.user.username,
-            email: result.user.email
-          },
-          database: req.dbEnv
-        });
-      }
-      
       if (result.success && result.user) {
         // Store user session data including database environment
         req.session.userId = result.user.id;
@@ -129,50 +131,6 @@ export function setupAuthRoutes(app: Express) {
     }
   });
 
-  // Password verification endpoint for sensitive operations
-  app.post('/api/auth/verify-password', dbEnvironmentMiddleware, requireAuth, async (req: RequestWithDB, res) => {
-    try {
-      const { password } = req.body;
-      const userId = req.session.userId!;
-      const dbEnv = req.dbEnv;
-      const ipAddress = req.ip || req.headers['x-forwarded-for'] || 'unknown';
-      
-      if (!password) {
-        return res.status(400).json({ success: false, message: "Verification failed" });
-      }
-      
-      // Use dynamic database consistent with session environment
-      const dynamicDB = getRequestDB(req);
-      const { users } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      
-      const user = await dynamicDB
-        .select()
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1)
-        .then((rows: any) => rows[0]);
-      
-      if (!user) {
-        console.error(`[Security] Password verification failed: User ${userId} not found in ${dbEnv} environment from IP ${ipAddress}`);
-        return res.status(401).json({ success: false, message: "Verification failed" });
-      }
-      
-      const isValid = await authService.verifyPassword(password, user.passwordHash);
-      
-      if (isValid) {
-        console.log(`[Security] Password verification successful for user ${userId} (${user.username}) in ${dbEnv} environment from IP ${ipAddress}`);
-        res.json({ success: true, message: "Password verified" });
-      } else {
-        console.warn(`[Security] Password verification failed for user ${userId} (${user.username}) in ${dbEnv} environment from IP ${ipAddress} - Invalid password provided`);
-        res.status(401).json({ success: false, message: "Verification failed" });
-      }
-    } catch (error) {
-      console.error("Password verification error:", error);
-      res.status(500).json({ success: false, message: "Verification failed" });
-    }
-  });
-
   // User logout
   app.post('/api/auth/logout', (req: any, res) => {
     console.log(`Logout: clearing session for user ${req.session?.userId}, dbEnv: ${req.session?.dbEnv}`);
@@ -192,11 +150,10 @@ export function setupAuthRoutes(app: Express) {
   });
 
   // Forgot password
-  app.post('/api/auth/forgot-password', dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+  app.post('/api/auth/forgot-password', async (req, res) => {
     try {
       const validatedData = passwordResetRequestSchema.parse(req.body);
-      const dynamicDB = getRequestDB(req);
-      const result = await authService.requestPasswordReset(validatedData, req.dbEnv, dynamicDB);
+      const result = await authService.requestPasswordReset(validatedData);
       res.json(result);
     } catch (error) {
       console.error("Password reset request error:", error);
@@ -208,12 +165,10 @@ export function setupAuthRoutes(app: Express) {
   });
 
   // Reset password
-  app.post('/api/auth/reset-password', dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+  app.post('/api/auth/reset-password', async (req, res) => {
     try {
       const validatedData = passwordResetSchema.parse(req.body);
-      // Use dynamic database for password reset
-      const dynamicDB = getRequestDB(req);
-      const result = await authService.resetPasswordWithDB(validatedData, dynamicDB);
+      const result = await authService.resetPassword(validatedData);
       
       if (result.success) {
         res.json(result);
@@ -226,41 +181,6 @@ export function setupAuthRoutes(app: Express) {
         success: false, 
         message: "Invalid reset data" 
       });
-    }
-  });
-
-  // Force password change (for temporary passwords)
-  app.post('/api/auth/force-password-change', dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
-    try {
-      const validatedData = forcePasswordChangeSchema.parse(req.body);
-      // Use dynamic database for password change
-      const dynamicDB = getRequestDB(req);
-      const result = await authService.forcePasswordChangeWithDB(
-        validatedData.userId,
-        validatedData.currentPassword,
-        validatedData.newPassword,
-        dynamicDB
-      );
-      
-      if (result.success) {
-        res.json(result);
-      } else {
-        res.status(400).json(result);
-      }
-    } catch (error: any) {
-      console.error("Force password change error:", error);
-      if (error?.issues) {
-        res.status(400).json({ 
-          success: false, 
-          message: "Validation failed",
-          errors: error.issues
-        });
-      } else {
-        res.status(400).json({ 
-          success: false, 
-          message: "Password change failed" 
-        });
-      }
     }
   });
 
@@ -337,7 +257,7 @@ export function setupAuthRoutes(app: Express) {
         return res.status(400).json({ available: false, message: "Username required" });
       }
       
-      const existingUser = await req.storage!.getUserByUsername(username);
+      const existingUser = await storage.getUserByUsername(username);
       res.json({ 
         available: !existingUser,
         message: existingUser ? "Username already taken" : "Username available"
@@ -356,7 +276,7 @@ export function setupAuthRoutes(app: Express) {
         return res.status(400).json({ available: false, message: "Email required" });
       }
       
-      const existingUser = await req.storage!.getUserByEmail(email);
+      const existingUser = await storage.getUserByEmail(email);
       res.json({ 
         available: !existingUser,
         message: existingUser ? "Email already registered" : "Email available"

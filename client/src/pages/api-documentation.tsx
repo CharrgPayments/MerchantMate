@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,10 +12,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Copy, Eye, EyeOff, Key, Plus, Trash2, AlertTriangle, CheckCircle, Clock, Activity, Book, Code, Shield, BarChart3, Search, ChevronDown } from "lucide-react";
+import { Copy, Eye, EyeOff, Key, Plus, Trash2, AlertTriangle, CheckCircle, Clock, Activity, Book, Code, Shield, BarChart3 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { apiEndpoints, searchEndpoints, getAllEndpoints } from "@/data/apiEndpoints";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 interface ApiKey {
   id: number;
@@ -42,7 +40,6 @@ export default function ApiDocumentation() {
   const [activeTab, setActiveTab] = useState("overview");
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [showApiKey, setShowApiKey] = useState<Record<number, boolean>>({});
-  const [endpointSearch, setEndpointSearch] = useState("");
   const [formData, setFormData] = useState({
     name: "",
     organizationName: "",
@@ -51,16 +48,6 @@ export default function ApiDocumentation() {
     rateLimit: 1000,
     expiresAt: "",
   });
-
-  // Filter endpoints based on search
-  const filteredEndpoints = useMemo(() => {
-    if (!endpointSearch.trim()) {
-      return apiEndpoints;
-    }
-    return searchEndpoints(endpointSearch);
-  }, [endpointSearch]);
-
-  const totalEndpointCount = useMemo(() => getAllEndpoints().length, []);
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -230,7 +217,7 @@ export default function ApiDocumentation() {
                   </CardHeader>
                   <CardContent>
                     <code className="text-sm bg-gray-100 px-2 py-1 rounded">
-                      https://your-domain.replit.app/api
+                      https://your-domain.replit.app/api/v1
                     </code>
                   </CardContent>
                 </Card>
@@ -393,143 +380,329 @@ export default function ApiDocumentation() {
             <CardHeader>
               <CardTitle>API Endpoints</CardTitle>
               <CardDescription>
-                Complete reference for all {totalEndpointCount} available API endpoints. Use the search below to find specific endpoints.
+                Complete reference for all available API endpoints
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {/* Search Input */}
-              <div className="mb-6">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  <Input
-                    placeholder="Search endpoints by path, method, or description..."
-                    value={endpointSearch}
-                    onChange={(e) => setEndpointSearch(e.target.value)}
-                    className="pl-10"
-                    data-testid="input-endpoint-search"
-                  />
-                </div>
-                {endpointSearch && (
-                  <p className="text-sm text-gray-500 mt-2">
-                    Found {Object.values(filteredEndpoints).flat().length} matching endpoints
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-6 max-h-[600px] overflow-y-auto">
-                {/* Dynamically render all endpoint categories */}
-                {Object.entries(filteredEndpoints).map(([category, endpoints]) => (
-                  <div key={category} className="space-y-4">
-                    <h3 className="text-lg font-semibold border-b pb-2 sticky top-0 bg-white">
-                      {category}
-                    </h3>
-                    <div className="space-y-2">
-                      {endpoints.map((endpoint, idx) => {
-                        const hasExamples = endpoint.requestExample || endpoint.responseExample;
-                        
-                        if (!hasExamples) {
-                          // Simple card for endpoints without examples
-                          return (
-                            <div key={`${endpoint.method}-${endpoint.path}-${idx}`} className="border rounded-lg p-3">
-                              <div className="flex items-center gap-2 mb-1">
-                                <Badge
-                                  variant="outline"
-                                  className={`text-xs ${
-                                    endpoint.method === 'GET' ? 'bg-green-50 text-green-700' :
-                                    endpoint.method === 'POST' ? 'bg-blue-50 text-blue-700' :
-                                    endpoint.method === 'PUT' ? 'bg-yellow-50 text-yellow-700' :
-                                    endpoint.method === 'PATCH' ? 'bg-orange-50 text-orange-700' :
-                                    'bg-red-50 text-red-700'
-                                  }`}
-                                >
-                                  {endpoint.method}
-                                </Badge>
-                                <code className="text-xs">{endpoint.path}</code>
-                              </div>
-                              <p className="text-xs text-gray-600">{endpoint.description}</p>
-                            </div>
-                          );
-                        }
-                        
-                        // Accordion card for endpoints with examples
-                        return (
-                          <Accordion key={`${endpoint.method}-${endpoint.path}-${idx}`} type="single" collapsible>
-                            <AccordionItem value="item-1" className="border rounded-lg">
-                              <AccordionTrigger className="px-3 py-2 hover:no-underline" data-testid={`endpoint-${endpoint.method.toLowerCase()}-${endpoint.path.replace(/[/:]/g, '-')}`}>
-                                <div className="flex items-center gap-2 text-left w-full">
-                                  <Badge
-                                    variant="outline"
-                                    className={`text-xs ${
-                                      endpoint.method === 'GET' ? 'bg-green-50 text-green-700' :
-                                      endpoint.method === 'POST' ? 'bg-blue-50 text-blue-700' :
-                                      endpoint.method === 'PUT' ? 'bg-yellow-50 text-yellow-700' :
-                                      endpoint.method === 'PATCH' ? 'bg-orange-50 text-orange-700' :
-                                      'bg-red-50 text-red-700'
-                                    }`}
-                                  >
-                                    {endpoint.method}
-                                  </Badge>
-                                  <div className="flex-1">
-                                    <code className="text-xs">{endpoint.path}</code>
-                                    <p className="text-xs text-gray-600 mt-1">{endpoint.description}</p>
-                                  </div>
-                                </div>
-                              </AccordionTrigger>
-                              <AccordionContent className="px-3 pb-3">
-                                <div className="space-y-3 pt-2">
-                                  {endpoint.requestExample && (
-                                    <div>
-                                      <h4 className="text-xs font-semibold mb-1 flex items-center gap-1">
-                                        <Code className="w-3 h-3" />
-                                        Request Example
-                                      </h4>
-                                      {endpoint.requestDescription && (
-                                        <p className="text-xs text-gray-600 mb-2">{endpoint.requestDescription}</p>
-                                      )}
-                                      <pre className="bg-gray-50 dark:bg-gray-800 p-2 rounded text-xs overflow-x-auto">
-                                        <code>{JSON.stringify(endpoint.requestExample, null, 2)}</code>
-                                      </pre>
-                                    </div>
-                                  )}
-                                  {endpoint.responseExample && (
-                                    <div>
-                                      <h4 className="text-xs font-semibold mb-1 flex items-center gap-1">
-                                        <CheckCircle className="w-3 h-3" />
-                                        Response Example
-                                      </h4>
-                                      {endpoint.responseDescription && (
-                                        <p className="text-xs text-gray-600 mb-2">{endpoint.responseDescription}</p>
-                                      )}
-                                      <pre className="bg-gray-50 dark:bg-gray-800 p-2 rounded text-xs overflow-x-auto">
-                                        <code>{JSON.stringify(endpoint.responseExample, null, 2)}</code>
-                                      </pre>
-                                    </div>
-                                  )}
-                                </div>
-                              </AccordionContent>
-                            </AccordionItem>
-                          </Accordion>
-                        );
-                      })}
+              <div className="space-y-6">
+                {/* Merchants Endpoints */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2">Merchants</h3>
+                  <div className="space-y-3">
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-green-50 text-green-700">GET</Badge>
+                        <code className="text-sm">/api/v1/merchants</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Retrieve all merchants</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: merchants:read</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-green-50 text-green-700">GET</Badge>
+                        <code className="text-sm">/api/v1/merchants/:id</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Retrieve a specific merchant by ID</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: merchants:read</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700">POST</Badge>
+                        <code className="text-sm">/api/v1/merchants</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Create a new merchant</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: merchants:write</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-yellow-50 text-yellow-700">PUT</Badge>
+                        <code className="text-sm">/api/v1/merchants/:id</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Update an existing merchant</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: merchants:write</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-red-50 text-red-700">DELETE</Badge>
+                        <code className="text-sm">/api/v1/merchants/:id</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Delete a merchant</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: merchants:delete</p>
                     </div>
                   </div>
-                ))}
+                </div>
 
-                {Object.keys(filteredEndpoints).length === 0 && (
-                  <div className="text-center py-8 text-gray-500">
-                    No endpoints found matching "{endpointSearch}"
+                {/* Agents Endpoints */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2">Agents</h3>
+                  <div className="space-y-3">
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-green-50 text-green-700">GET</Badge>
+                        <code className="text-sm">/api/v1/agents</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Retrieve all agents</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: agents:read</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-green-50 text-green-700">GET</Badge>
+                        <code className="text-sm">/api/v1/agents/:id</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Retrieve a specific agent by ID</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: agents:read</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700">POST</Badge>
+                        <code className="text-sm">/api/v1/agents</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Create a new agent</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: agents:write</p>
+                    </div>
                   </div>
-                )}
-              </div>
+                </div>
 
-              {!endpointSearch && (
-                  <Alert className="mt-4">
-                  <AlertDescription>
-                    <strong>Complete Endpoint Reference:</strong> All {totalEndpointCount} endpoints are now displayed above. 
-                    Use the search feature to quickly find specific endpoints by path, method, or description.
-                  </AlertDescription>
-                </Alert>
-              )}
+                {/* Transactions Endpoints */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2">Transactions</h3>
+                  <div className="space-y-3">
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-green-50 text-green-700">GET</Badge>
+                        <code className="text-sm">/api/v1/transactions</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Retrieve all transactions</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: transactions:read</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700">POST</Badge>
+                        <code className="text-sm">/api/v1/transactions</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Create a new transaction</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: transactions:write</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Campaign Management Endpoints */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2">Campaign Management</h3>
+                  <div className="space-y-3">
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-green-50 text-green-700">GET</Badge>
+                        <code className="text-sm">/api/campaigns</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Retrieve all campaigns</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: campaigns:read</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700">POST</Badge>
+                        <code className="text-sm">/api/campaigns</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Create a new campaign</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: campaigns:write</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-green-50 text-green-700">GET</Badge>
+                        <code className="text-sm">/api/fee-groups</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Retrieve all fee groups with associated fee items</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: campaigns:read</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-green-50 text-green-700">GET</Badge>
+                        <code className="text-sm">/api/fee-items</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Retrieve all fee items</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: campaigns:read</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-green-50 text-green-700">GET</Badge>
+                        <code className="text-sm">/api/pricing-types</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Retrieve all pricing types</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: campaigns:read</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Dashboard Analytics Endpoints */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2">Dashboard & Analytics</h3>
+                  <div className="space-y-3">
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-green-50 text-green-700">GET</Badge>
+                        <code className="text-sm">/api/dashboard/metrics</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Retrieve dashboard metrics and KPIs</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: merchants:read</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-green-50 text-green-700">GET</Badge>
+                        <code className="text-sm">/api/dashboard/revenue</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Retrieve revenue analytics</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: transactions:read</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-green-50 text-green-700">GET</Badge>
+                        <code className="text-sm">/api/dashboard/recent-activity</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Retrieve recent system activity</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: merchants:read</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-green-50 text-green-700">GET</Badge>
+                        <code className="text-sm">/api/dashboard/widgets</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Retrieve user's dashboard widget preferences</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: merchants:read</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Location Management Endpoints */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2">Locations</h3>
+                  <div className="space-y-3">
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-green-50 text-green-700">GET</Badge>
+                        <code className="text-sm">/api/merchants/:merchantId/locations</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Retrieve all locations for a merchant</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: locations:read</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700">POST</Badge>
+                        <code className="text-sm">/api/merchants/:merchantId/locations</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Create a new location for a merchant</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: locations:write</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-yellow-50 text-yellow-700">PUT</Badge>
+                        <code className="text-sm">/api/locations/:locationId</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Update an existing location</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: locations:write</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-red-50 text-red-700">DELETE</Badge>
+                        <code className="text-sm">/api/locations/:locationId</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Delete a location</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: locations:delete</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* User Management Endpoints */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2">User Management</h3>
+                  <div className="space-y-3">
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-green-50 text-green-700">GET</Badge>
+                        <code className="text-sm">/api/users</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Retrieve all users</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: merchants:read</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-orange-50 text-orange-700">PATCH</Badge>
+                        <code className="text-sm">/api/users/:id/role</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Update user role</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: * (super_admin only)</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700">POST</Badge>
+                        <code className="text-sm">/api/users/:id/reset-password</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Reset user password</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: merchants:write</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Prospect Management Endpoints */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold border-b pb-2">Prospects</h3>
+                  <div className="space-y-3">
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-green-50 text-green-700">GET</Badge>
+                        <code className="text-sm">/api/prospects</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Retrieve all prospects</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: prospects:read</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700">POST</Badge>
+                        <code className="text-sm">/api/prospects</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Create a new prospect</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: prospects:write</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-yellow-50 text-yellow-700">PUT</Badge>
+                        <code className="text-sm">/api/prospects/:id</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Update an existing prospect</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: prospects:write</p>
+                    </div>
+                    
+                    <div className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700">POST</Badge>
+                        <code className="text-sm">/api/prospects/:id/resend-invitation</code>
+                      </div>
+                      <p className="text-sm text-gray-600">Resend invitation to prospect</p>
+                      <p className="text-xs text-gray-500 mt-1">Required permission: prospects:write</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

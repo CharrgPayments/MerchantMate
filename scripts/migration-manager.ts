@@ -4,31 +4,18 @@
  * Migration Manager - Bulletproof Database Schema Management
  * 
  * This system ensures proper development → test → production workflow:
- * 1. Make schema changes in shared/schema.ts
- * 2. Generate migration from development schema
- * 3. Apply to test for validation
- * 4. After certification, promote to production
+ * 1. Changes are made in development
+ * 2. Migrations are generated and tested
+ * 3. Changes are pushed to test for validation
+ * 4. After certification, changes are promoted to production
  * 
- * QUICK START - Development Workflow:
- *   1. Edit shared/schema.ts with your changes
- *   2. tsx scripts/migration-manager.ts generate        # Generate migration SQL
- *   3. tsx scripts/migration-manager.ts apply test      # Test in Test environment
- *   4. tsx scripts/migration-manager.ts validate        # Verify consistency
- *   5. tsx scripts/migration-manager.ts apply prod      # Deploy to Production
- * 
- * AUTOMATED SYNC - For Admin Users:
- *   tsx scripts/sync-environments.ts dev-to-test       # Promote Dev → Test
- *   tsx scripts/sync-environments.ts test-to-prod      # Promote Test → Production
- *   Note: sync-environments.ts uses this script under the hood
- * 
- * All Commands:
+ * Usage:
  *   tsx scripts/migration-manager.ts generate    # Generate migration from development schema
- *   tsx scripts/migration-manager.ts apply dev   # Apply migrations to development
- *   tsx scripts/migration-manager.ts apply test  # Apply migrations to test
- *   tsx scripts/migration-manager.ts apply prod  # Apply migrations to production
- *   tsx scripts/migration-manager.ts status      # Show migration status across environments
- *   tsx scripts/migration-manager.ts validate    # Validate schema consistency
- *   tsx scripts/migration-manager.ts backup prod # Create schema backup (automatic before apply)
+ *   tsx scripts/migration-manager.ts apply dev  # Apply migrations to development
+ *   tsx scripts/migration-manager.ts apply test # Apply migrations to test
+ *   tsx scripts/migration-manager.ts apply prod # Apply migrations to production
+ *   tsx scripts/migration-manager.ts status     # Show migration status across environments
+ *   tsx scripts/migration-manager.ts validate   # Validate schema consistency
  */
 
 import { exec } from 'child_process';
@@ -174,37 +161,21 @@ class MigrationManager {
     
     try {
       // Use Drizzle generate to create proper migration files
-      // We need to handle potential interactive prompts by providing input
       const command = `DATABASE_URL="${devUrl}" npx drizzle-kit generate --name=${migrationName}`;
+      const { stdout, stderr } = await execAsync(command);
       
-      console.log('🔄 Running drizzle-kit generate...');
-      console.log('ℹ️ If prompted about column changes, please respond appropriately');
-      console.log('💡 Tip: Use "create column" for new columns, "rename column" for renamed ones');
+      if (stderr && !stderr.includes('Warning')) {
+        throw new Error(stderr);
+      }
       
-      // Use spawn instead of exec to handle interactive prompts
-      const { spawn } = await import('child_process');
+      console.log('✅ Migration generated successfully');
+      console.log(`📄 Migration ID: ${migrationId}`);
+      console.log(`📁 Check migrations directory for generated files`);
       
-      return new Promise((resolve, reject) => {
-        const child = spawn('npx', ['drizzle-kit', 'generate', `--name=${migrationName}`], {
-          env: { ...process.env, DATABASE_URL: devUrl },
-          stdio: 'inherit' // This allows interactive input/output
-        });
-        
-        child.on('close', (code) => {
-          if (code === 0) {
-            console.log('✅ Migration generated successfully');
-            console.log(`📄 Migration ID: ${migrationId}`);
-            console.log(`📁 Check migrations directory for generated files`);
-            resolve();
-          } else {
-            reject(new Error(`drizzle-kit generate exited with code ${code}`));
-          }
-        });
-        
-        child.on('error', (error) => {
-          reject(error);
-        });
-      });
+      if (stdout.includes('No schema changes')) {
+        console.log('ℹ️ No schema changes detected');
+        return;
+      }
       
     } catch (error: any) {
       console.error('❌ Failed to generate migration:', error.message);
@@ -212,41 +183,7 @@ class MigrationManager {
     }
   }
 
-  async applyMigrations(environment: string, options: { forceProduction?: boolean } = {}): Promise<void> {
-    // PRODUCTION PROTECTION: Block direct production access without --force-production
-    if (environment === 'production' && !options.forceProduction) {
-      console.error('');
-      console.error('╔══════════════════════════════════════════════════════════════════════════════╗');
-      console.error('║  🚫 BLOCKED: DIRECT PRODUCTION MIGRATIONS NOT ALLOWED                       ║');
-      console.error('╚══════════════════════════════════════════════════════════════════════════════╝');
-      console.error('');
-      console.error('  DEPLOYMENT PIPELINE ENFORCEMENT:');
-      console.error('  ================================');
-      console.error('  1. Apply migrations to DEVELOPMENT first: apply dev');
-      console.error('  2. Test in development, then apply to TEST: apply test');
-      console.error('  3. Certify in test environment');
-      console.error('  4. Promote from test to production: promote test prod');
-      console.error('');
-      console.error('  Proper command sequence:');
-      console.error('    tsx scripts/migration-manager.ts apply dev');
-      console.error('    tsx scripts/migration-manager.ts apply test');
-      console.error('    tsx scripts/migration-manager.ts promote test prod');
-      console.error('');
-      console.error('  ⚠️  If this is an emergency, use: apply prod --force-production');
-      console.error('      This will be audit logged and should require approval.');
-      console.error('');
-      throw new Error('Direct production migration blocked. Use promotion workflow.');
-    }
-
-    if (environment === 'production' && options.forceProduction) {
-      console.log('');
-      console.log('⚠️  WARNING: PRODUCTION PROTECTION OVERRIDE ACTIVATED');
-      console.log('    This action has been audit logged.');
-      console.log(`    User: ${process.env.USER || 'unknown'}`);
-      console.log(`    Timestamp: ${new Date().toISOString()}`);
-      console.log('');
-    }
-
+  async applyMigrations(environment: string): Promise<void> {
     console.log(`🚀 Applying migrations to ${environment}...\n`);
 
     // Create backup first
@@ -496,66 +433,14 @@ async function main(): Promise<void> {
         await manager.generateMigration();
         break;
         
-      case 'apply': {
+      case 'apply':
         if (!environment || !['dev', 'development', 'test', 'prod', 'production'].includes(environment)) {
           throw new Error('Please specify environment: dev, test, or prod');
         }
         const env = environment === 'dev' ? 'development' : 
                    environment === 'prod' ? 'production' : environment;
-        const forceProduction = process.argv.includes('--force-production');
-        await manager.applyMigrations(env, { forceProduction });
+        await manager.applyMigrations(env);
         break;
-      }
-      
-      case 'promote': {
-        const fromEnv = process.argv[3];
-        const toEnv = process.argv[4];
-        
-        if (!fromEnv || !toEnv) {
-          throw new Error('Usage: promote <from-env> <to-env> (e.g., promote test prod)');
-        }
-        
-        const normalizeEnv = (e: string) => e === 'dev' ? 'development' : e === 'prod' ? 'production' : e;
-        const from = normalizeEnv(fromEnv);
-        const to = normalizeEnv(toEnv);
-        
-        // Validate promotion path
-        const validPromotions: Record<string, string> = {
-          'development': 'test',
-          'test': 'production',
-        };
-        
-        if (validPromotions[from] !== to) {
-          console.error('');
-          console.error('╔══════════════════════════════════════════════════════════════════════════════╗');
-          console.error('║  🚫 INVALID PROMOTION PATH                                                   ║');
-          console.error('╚══════════════════════════════════════════════════════════════════════════════╝');
-          console.error('');
-          console.error(`  You attempted: ${from} → ${to}`);
-          console.error('');
-          console.error('  Valid promotion paths:');
-          console.error('    • development → test');
-          console.error('    • test → production');
-          console.error('');
-          console.error('  You cannot skip environments or promote backwards.');
-          console.error('');
-          throw new Error('Invalid promotion path');
-        }
-        
-        console.log(`\n🚀 PROMOTING: ${from.toUpperCase()} → ${to.toUpperCase()}\n`);
-        console.log('═'.repeat(70));
-        
-        // For promotion, we allow applying to the target environment
-        // because it's coming from a certified source
-        await manager.applyMigrations(to, { forceProduction: to === 'production' });
-        
-        console.log('');
-        console.log('═'.repeat(70));
-        console.log('✅ PROMOTION COMPLETED SUCCESSFULLY');
-        console.log('═'.repeat(70));
-        console.log('');
-        break;
-      }
         
       case 'status':
         await manager.showStatus();
@@ -571,50 +456,26 @@ async function main(): Promise<void> {
         
       default:
         console.log(`
-╔══════════════════════════════════════════════════════════════════════════════╗
-║  MIGRATION MANAGER - Schema Management with Production Protection            ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+🔧 Migration Manager - Bulletproof Schema Management
 
-DEPLOYMENT PIPELINE:
-  Development → Test → Production
+Usage:
+  tsx scripts/migration-manager.ts generate           Generate migration from development
+  tsx scripts/migration-manager.ts apply <env>       Apply migrations (dev/test/prod)
+  tsx scripts/migration-manager.ts status           Show migration status
+  tsx scripts/migration-manager.ts validate         Validate consistency
+  tsx scripts/migration-manager.ts bootstrap        Bootstrap existing databases
 
-  Direct production modifications are BLOCKED. Use the promote command.
-
-COMMANDS:
-  generate              Generate migration from development schema
-  apply <env>           Apply migrations (dev/test only - prod blocked)
-  promote <from> <to>   Promote schema between environments
-  status                Show migration status across all environments
-  validate              Validate schema consistency
-  bootstrap             Bootstrap existing databases
-
-USAGE:
-  tsx scripts/migration-manager.ts generate
-  tsx scripts/migration-manager.ts apply dev
-  tsx scripts/migration-manager.ts apply test
-  tsx scripts/migration-manager.ts promote dev test    # Dev → Test
-  tsx scripts/migration-manager.ts promote test prod   # Test → Production
-
-PROPER WORKFLOW:
+Proper Workflow:
   1. Make schema changes in shared/schema.ts
-  2. Generate migration:     generate
-  3. Apply to development:   apply dev
-  4. Test your changes
-  5. Apply to test:          apply test
-  6. Certify in test environment
-  7. Promote to production:  promote test prod
+  2. Generate migration: generate
+  3. Apply to development: apply dev
+  4. Test changes, then apply to test: apply test
+  5. After validation, apply to production: apply prod
 
-PRODUCTION PROTECTION:
-  ✓ apply dev      → Allowed
-  ✓ apply test     → Allowed
-  ✗ apply prod     → BLOCKED (use: promote test prod)
-  ⚠ apply prod --force-production → Emergency override (audit logged)
-
-PROMOTION RULES:
-  ✓ development → test       (allowed via: promote dev test)
-  ✓ test → production        (allowed via: promote test prod)
-  ✗ development → production (BLOCKED - must go through test)
-  ✗ production → any         (BLOCKED - production is read-only)
+Bootstrap Command:
+  Use 'bootstrap' to mark existing databases as having the initial migration
+  applied without actually running the migration (for databases that already
+  have the tables). This brings existing environments into the migration workflow.
         `);
         break;
     }

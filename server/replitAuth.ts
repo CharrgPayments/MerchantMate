@@ -6,27 +6,8 @@ import session from "express-session";
 import type { Express, RequestHandler } from "express";
 import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
-import { storage, createStorage } from "./storage";
+import { storage } from "./storage";
 import { v4 as uuidv4 } from "uuid";
-
-// Extended request type with storage
-interface RequestWithStorage {
-  storage?: ReturnType<typeof createStorage>;
-  dynamicDB?: any;
-}
-
-// Helper function to get user from dynamic database
-async function getUserFromDynamicDB(dynamicDB: any, userId: string) {
-  try {
-    const { users } = await import('@shared/schema');
-    const { eq } = await import('drizzle-orm');
-    const result = await dynamicDB.select().from(users).where(eq(users.id, userId)).limit(1);
-    return result[0] || null;
-  } catch (error) {
-    console.error('Error getting user from dynamic database:', error);
-    return null;
-  }
-}
 
 if (!process.env.REPLIT_DOMAINS) {
   throw new Error("Environment variable REPLIT_DOMAINS not provided");
@@ -84,7 +65,6 @@ async function upsertUser(
   await storage.upsertUser({
     id: claims["sub"],
     email: claims["email"],
-    username: claims["email"]?.split('@')[0] || claims["sub"],
     firstName: claims["first_name"],
     lastName: claims["last_name"],
     profileImageUrl: claims["profile_image_url"],
@@ -184,12 +164,25 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     try {
       let dbUser;
       
-      // Use request storage if available, otherwise fallback to static storage
-      const reqStorage = (req as RequestWithStorage).storage || storage;
-      dbUser = await reqStorage.getUser(sessionUserId);
-      console.log('Session Auth - Using storage layer for user lookup');
+      // Use session-stored database environment for user lookup
+      if (sessionDbEnv) {
+        const { getDynamicDatabase } = await import('./db');
+        const { users } = await import('@shared/schema');
+        const { eq } = await import('drizzle-orm');
+        
+        const dynamicDB = getDynamicDatabase(sessionDbEnv);
+        const userResults = await dynamicDB.select().from(users).where(eq(users.id, sessionUserId));
+        const rawUser = userResults[0] || null;
+        // Add backward-compat 'role' from 'roles' array column
+        dbUser = rawUser ? { ...rawUser, role: (rawUser.roles?.[0] || (rawUser as any).role || 'merchant') } : null;
+        console.log(`Session Auth - Looking in ${sessionDbEnv} database for user:`, sessionUserId);
+      } else {
+        // Fallback to default storage
+        dbUser = await storage.getUser(sessionUserId);
+        console.log('Session Auth - Using default storage for user lookup');
+      }
       
-      console.log('Session Auth - Found user:', dbUser ? `${dbUser.username} (${dbUser.roles.join(', ')})` : 'NULL');
+      console.log('Session Auth - Found user:', dbUser ? `${dbUser.username} (${dbUser.role})` : 'NULL');
       if (dbUser && dbUser.status === 'active') {
         // Set up user object for session-based auth
         req.user = { 
@@ -214,8 +207,7 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     (req.session as any).sessionId = uuidv4();
     
     try {
-      const reqStorage = (req as RequestWithStorage).storage || storage;
-      const dbUser = await reqStorage.getUser(userId);
+      const dbUser = await storage.getUser(userId);
       if (!dbUser) {
         return res.status(401).json({ message: "User not found" });
       }
@@ -249,8 +241,7 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     // Attach user data to request
     try {
       if (user.claims?.sub) {
-        const reqStorage = (req as RequestWithStorage).storage || storage;
-        const dbUser = await reqStorage.getUser(user.claims.sub);
+        const dbUser = await storage.getUser(user.claims.sub);
         (req as any).currentUser = dbUser;
       }
     } catch (error) {
@@ -272,8 +263,7 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     
     // Attach user data to request after refresh
     if (user.claims?.sub) {
-      const reqStorage = (req as RequestWithStorage).storage || storage;
-      const dbUser = await reqStorage.getUser(user.claims.sub);
+      const dbUser = await storage.getUser(user.claims.sub);
       (req as any).currentUser = dbUser;
     }
     return next();
@@ -290,10 +280,7 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
     const sessionUserId = (req.session as any)?.userId;
     if (sessionUserId) {
       try {
-        // Use request storage if available, otherwise fallback to global storage
-        const reqWithDB = req as RequestWithStorage;
-        const reqStorage = reqWithDB.storage || storage;
-        const dbUser = await reqStorage.getUser(sessionUserId);
+        const dbUser = await storage.getUser(sessionUserId);
         if (!dbUser) {
           return res.status(401).json({ message: "User not found" });
         }
@@ -302,9 +289,7 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
           return res.status(403).json({ message: "Account suspended" });
         }
 
-        // Check if user has any of the allowed roles
-        const hasAllowedRole = dbUser.roles.some((role: string) => allowedRoles.includes(role));
-        if (!hasAllowedRole) {
+        if (!allowedRoles.includes(dbUser.role)) {
           return res.status(403).json({ message: "Insufficient permissions" });
         }
 
@@ -329,10 +314,7 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
       (req.session as any).sessionId = uuidv4();
       
       try {
-        // Use request storage if available, otherwise fallback to global storage
-        const reqWithDB = req as RequestWithStorage;
-        const reqStorage = reqWithDB.storage || storage;
-        const dbUser = await reqStorage.getUser(userId);
+        const dbUser = await storage.getUser(userId);
         if (!dbUser) {
           return res.status(401).json({ message: "User not found" });
         }
@@ -341,9 +323,7 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
           return res.status(403).json({ message: "Account suspended" });
         }
 
-        // Check if user has any of the allowed roles
-        const hasAllowedRole = dbUser.roles.some((role: string) => allowedRoles.includes(role));
-        if (!hasAllowedRole) {
+        if (!allowedRoles.includes(dbUser.role)) {
           return res.status(403).json({ message: "Insufficient permissions" });
         }
 
@@ -371,8 +351,7 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
     }
 
     try {
-      const reqStorage = (req as RequestWithStorage).storage || storage;
-      const dbUser = await reqStorage.getUser(user.claims.sub);
+      const dbUser = await storage.getUser(user.claims.sub);
       if (!dbUser) {
         return res.status(401).json({ message: "User not found" });
       }
@@ -381,9 +360,7 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
         return res.status(403).json({ message: "Account suspended" });
       }
 
-      // Check if user has any of the allowed roles
-      const hasAllowedRole = dbUser.roles.some(role => allowedRoles.includes(role));
-      if (!hasAllowedRole) {
+      if (!allowedRoles.includes(dbUser.role)) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
 
@@ -407,8 +384,7 @@ export const requirePermission = (permission: string): RequestHandler => {
     }
 
     try {
-      const reqStorage = (req as RequestWithStorage).storage || storage;
-      const dbUser = await reqStorage.getUser(user.claims.sub);
+      const dbUser = await storage.getUser(user.claims.sub);
       if (!dbUser) {
         return res.status(401).json({ message: "User not found" });
       }
@@ -420,7 +396,7 @@ export const requirePermission = (permission: string): RequestHandler => {
       const permissions = dbUser.permissions as Record<string, boolean> || {};
       
       // Super admin has all permissions
-      if (dbUser.roles.includes('super_admin')) {
+      if (dbUser.role === 'super_admin') {
         (req as any).currentUser = dbUser;
         return next();
       }

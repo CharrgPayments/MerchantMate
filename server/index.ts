@@ -1,19 +1,10 @@
-import dotenv from "dotenv";
-dotenv.config();
-
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-import { environmentManager } from "./environmentManager";
-import { globalEnvironmentMiddleware } from "./globalEnvironmentMiddleware";
 
 const app = express();
 app.use(express.json({ limit: '10mb' })); // Increase limit for image uploads
 app.use(express.urlencoded({ extended: false, limit: '10mb' }));
-
-// Apply global environment middleware to all API routes
-// This attaches req.storage, req.db, and req.dbEnv automatically
-app.use('/api', globalEnvironmentMiddleware as any);
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -46,10 +37,6 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Initialize global environment manager
-  console.log("📊 Database: Development environment");
-  console.log(`🌍 Global environment manager initialized: ${environmentManager.getGlobalEnvironment()}`);
-  
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

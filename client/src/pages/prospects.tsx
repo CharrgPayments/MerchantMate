@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,14 +19,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Plus, Search, Edit, Trash2, Mail, Calendar, User, Send, Download, ChevronDown, ChevronRight, Users, FileText, ExternalLink, Play, CheckCircle, XCircle, Bell, FileUp, UserPlus, Upload } from "lucide-react";
-import { EmptyState } from "@/components/ui/empty-state";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
-import { insertMerchantProspectSchema, type MerchantProspectWithAgent, type Agent, type ProspectApplicationWithDetails, type Acquirer, type AcquirerApplicationTemplate } from "@shared/schema";
+import { Plus, Search, Edit, Trash2, Mail, Calendar, User, Send, Download, ChevronDown, ChevronRight, Users } from "lucide-react";
+import { insertMerchantProspectSchema, type MerchantProspectWithAgent, type Agent } from "@shared/schema";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -39,7 +35,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { prospectsApi } from "@/lib/api";
 
 // Interface for agent prospect summary
 interface AgentProspectSummary {
@@ -56,64 +51,17 @@ export default function Prospects() {
   const [editingProspect, setEditingProspect] = useState<MerchantProspectWithAgent | undefined>();
   const [resendingEmail, setResendingEmail] = useState<number | null>(null);
   const [expandedAgents, setExpandedAgents] = useState<Set<number>>(new Set());
-  const [selectedProspectForApplications, setSelectedProspectForApplications] = useState<MerchantProspectWithAgent | null>(null);
-  const [isApplicationsDialogOpen, setIsApplicationsDialogOpen] = useState(false);
-  const [notificationDialogProspect, setNotificationDialogProspect] = useState<MerchantProspectWithAgent | null>(null);
-  const [documentRequestDialogProspect, setDocumentRequestDialogProspect] = useState<MerchantProspectWithAgent | null>(null);
-  const [selectedProspectIds, setSelectedProspectIds] = useState<Set<number>>(new Set());
 
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const [, setLocation] = useLocation();
-  
-  // Get user roles for permission checking
-  const userRoles = user?.roles || [];
 
   const { data: prospects = [], isLoading } = useQuery({
     queryKey: ["/api/prospects", searchQuery],
     queryFn: async () => {
-      const response = await fetch(`/api/prospects${searchQuery ? `?search=${searchQuery}` : ''}`, {
-        credentials: 'include'
-      });
+      const response = await fetch(`/api/prospects${searchQuery ? `?search=${searchQuery}` : ''}`);
       if (!response.ok) throw new Error('Failed to fetch prospects');
       return response.json() as Promise<MerchantProspectWithAgent[]>;
-    },
-    staleTime: 0,
-    gcTime: 0
-  });
-
-  // Fetch prospect applications for all prospects
-  const { data: prospectApplications = [], isLoading: applicationsLoading } = useQuery({
-    queryKey: ["/api/prospect-applications"],
-    queryFn: async () => {
-      const response = await fetch("/api/prospect-applications");
-      if (!response.ok) throw new Error('Failed to fetch prospect applications');
-      return response.json() as Promise<ProspectApplicationWithDetails[]>;
-    },
-    staleTime: 0,
-    gcTime: 0
-  });
-
-  // Fetch acquirers for application creation
-  const { data: acquirers = [] } = useQuery({
-    queryKey: ["/api/acquirers"],
-    queryFn: async () => {
-      const response = await fetch("/api/acquirers");
-      if (!response.ok) throw new Error('Failed to fetch acquirers');
-      return response.json() as Promise<Acquirer[]>;
-    },
-  });
-
-  // Fetch current database environment for link generation
-  const { data: dbEnvironment } = useQuery({
-    queryKey: ['/api/environment'],
-    queryFn: async () => {
-      const response = await fetch('/api/environment', {
-        credentials: 'include'
-      });
-      if (!response.ok) return { environment: 'production' };
-      return response.json();
     },
   });
 
@@ -134,48 +82,6 @@ export default function Prospects() {
       toast({
         title: "Error",
         description: "Failed to delete prospect",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const bulkDeleteMutation = useMutation({
-    mutationFn: async (ids: number[]) => {
-      return await prospectsApi.bulkDelete(ids);
-    },
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/prospects"] });
-      setSelectedProspectIds(new Set());
-      toast({
-        title: "Success",
-        description: result.message,
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to delete prospects",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const bulkStatusUpdateMutation = useMutation({
-    mutationFn: async ({ ids, status }: { ids: number[]; status: string }) => {
-      return await prospectsApi.bulkStatusUpdate(ids, status);
-    },
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/prospects"] });
-      setSelectedProspectIds(new Set());
-      toast({
-        title: "Success",
-        description: result.message,
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to update prospect status",
         variant: "destructive",
       });
     },
@@ -204,101 +110,18 @@ export default function Prospects() {
     },
   });
 
-  // Send notification mutation
-  const sendNotificationMutation = useMutation({
-    mutationFn: async ({ prospectId, subject, message, type }: { prospectId: number; subject: string; message: string; type: string }) => {
-      const response = await fetch(`/api/prospects/${prospectId}/notifications`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ subject, message, type }),
-      });
-      if (!response.ok) throw new Error('Failed to send notification');
-      return response.json();
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/prospects', variables.prospectId, 'notifications'] });
-      toast({
-        title: "Success",
-        description: "Notification sent successfully",
-      });
-      setNotificationDialogProspect(null);
-      setDocumentRequestDialogProspect(null);
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to send notification",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Helper function to get applications for a specific prospect
-  const getProspectApplications = (prospectId: number) => {
-    return prospectApplications.filter(app => app.prospectId === prospectId);
-  };
-
-  // Create new application mutation
-  const createApplicationMutation = useMutation({
-    mutationFn: async ({ prospectId, acquirerId, templateId }: { prospectId: number; acquirerId: number; templateId: number }) => {
-      const response = await fetch("/api/prospect-applications", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prospectId,
-          acquirerId,
-          templateId,
-          templateVersion: "1.0",
-          status: "draft",
-          applicationData: {}
-        }),
-      });
-      
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Failed to create application' }));
-        throw new Error(error.error || 'Failed to create application');
-      }
-      
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/prospect-applications"] });
-      toast({
-        title: "Success",
-        description: "Application created successfully",
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to create application",
-        variant: "destructive",
-      });
-    }
-  });
-
-  const handleDownloadPDF = async (application: ProspectApplicationWithDetails) => {
+  const handleDownloadPDF = async (prospect: MerchantProspectWithAgent) => {
     try {
-      if (!application.generatedPdfPath) {
-        toast({
-          title: "PDF Not Available",
-          description: "This application has not been submitted yet or PDF generation failed",
-          variant: "destructive",
-        });
-        return;
-      }
-      
-      const response = await fetch(`/api/prospect-applications/${application.id}/download-pdf`);
+      const response = await fetch(`/api/prospects/${prospect.id}/download-pdf`);
       if (!response.ok) {
-        throw new Error('Failed to download PDF');
+        throw new Error('Failed to generate PDF');
       }
       
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${application.prospect.firstName}_${application.prospect.lastName}_${application.acquirer.name}_Application.pdf`;
+      link.download = `${prospect.firstName}_${prospect.lastName}_Application_${new Date().toLocaleDateString().replace(/\//g, '_')}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -326,7 +149,7 @@ export default function Prospects() {
 
   // Group prospects by agent for admin users
   const agentProspectSummaries: AgentProspectSummary[] = (() => {
-    if (!userRoles.some(role => ['super_admin', 'admin', 'corporate'].includes(role))) {
+    if (user?.role !== 'super_admin' && user?.role !== 'admin' && user?.role !== 'corporate') {
       return [];
     }
 
@@ -421,62 +244,12 @@ export default function Prospects() {
     return styles[status as keyof typeof styles] || "bg-gray-100 text-gray-800";
   };
 
-  const getApplicationStatusBadge = (status: string) => {
-    const styles = {
-      draft: "bg-gray-100 text-gray-800",
-      in_progress: "bg-blue-100 text-blue-800",
-      submitted: "bg-purple-100 text-purple-800",
-      approved: "bg-green-100 text-green-800",
-      rejected: "bg-red-100 text-red-800",
-    };
-    return styles[status as keyof typeof styles] || "bg-gray-100 text-gray-800";
-  };
-
   const copyProspectLink = (prospect: MerchantProspectWithAgent) => {
-    let link = `${window.location.origin}/prospect-validation?token=${prospect.validationToken}`;
-    
-    // Add database environment parameter for non-production environments
-    if (dbEnvironment && dbEnvironment.environment !== 'production') {
-      link += `&db=${dbEnvironment.environment}`;
-    }
-    
+    const link = `${window.location.origin}/prospect-validation?token=${prospect.validationToken}`;
     navigator.clipboard.writeText(link);
     toast({
       title: "Link Copied",
       description: "Prospect validation link copied to clipboard",
-    });
-  };
-
-  const toggleProspectSelection = (prospectId: number) => {
-    setSelectedProspectIds(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(prospectId)) {
-        newSet.delete(prospectId);
-      } else {
-        newSet.add(prospectId);
-      }
-      return newSet;
-    });
-  };
-
-  const toggleAllProspectsSelection = () => {
-    if (selectedProspectIds.size === filteredProspects.length) {
-      setSelectedProspectIds(new Set());
-    } else {
-      setSelectedProspectIds(new Set(filteredProspects.map(p => p.id)));
-    }
-  };
-
-  const handleBulkDelete = () => {
-    if (confirm(`Are you sure you want to delete ${selectedProspectIds.size} prospects?`)) {
-      bulkDeleteMutation.mutate(Array.from(selectedProspectIds));
-    }
-  };
-
-  const handleBulkStatusUpdate = (status: string) => {
-    bulkStatusUpdateMutation.mutate({ 
-      ids: Array.from(selectedProspectIds), 
-      status 
     });
   };
 
@@ -523,37 +296,8 @@ export default function Prospects() {
             </div>
           </div>
 
-          {/* Bulk Action Bar */}
-          {selectedProspectIds.size > 0 && (
-            <BulkActionBar
-              selectedCount={selectedProspectIds.size}
-              onClearSelection={() => setSelectedProspectIds(new Set())}
-              actions={[
-                {
-                  label: 'Delete Selected',
-                  onClick: handleBulkDelete,
-                  variant: 'destructive',
-                  icon: <Trash2 className="h-4 w-4 mr-2" />,
-                },
-              ]}
-              actionGroups={[
-                {
-                  label: 'Set Status',
-                  actions: [
-                    { label: 'Pending', onClick: () => handleBulkStatusUpdate('pending') },
-                    { label: 'Contacted', onClick: () => handleBulkStatusUpdate('contacted') },
-                    { label: 'In Progress', onClick: () => handleBulkStatusUpdate('in_progress') },
-                    { label: 'Applied', onClick: () => handleBulkStatusUpdate('applied') },
-                    { label: 'Approved', onClick: () => handleBulkStatusUpdate('approved') },
-                    { label: 'Rejected', onClick: () => handleBulkStatusUpdate('rejected') },
-                  ],
-                },
-              ]}
-            />
-          )}
-
           {/* Agent-based hierarchical view for admin users */}
-          {userRoles.some(role => ['super_admin', 'admin', 'corporate'].includes(role)) ? (
+          {(user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'corporate') ? (
             <div className="space-y-4">
               {isLoading ? (
                 Array.from({ length: 3 }).map((_, i) => (
@@ -573,30 +317,9 @@ export default function Prospects() {
                   </Card>
                 ))
               ) : agentProspectSummaries.length === 0 ? (
-                searchQuery || statusFilter !== "all" ? (
-                  <div className="text-center py-8 text-gray-500">
-                    No prospects found matching your filters
-                  </div>
-                ) : (
-                  <EmptyState
-                    icon={UserPlus}
-                    title="No Prospects Yet"
-                    description="Start building your pipeline by adding prospects. Track leads, manage applications, and convert prospects into merchants."
-                    suggestions={[
-                      "Create a new prospect manually",
-                      "Import prospects from a spreadsheet",
-                      "Invite prospects via email"
-                    ]}
-                    actions={[
-                      {
-                        label: "Create First Prospect",
-                        onClick: () => setIsModalOpen(true),
-                        icon: Plus,
-                        variant: "default"
-                      }
-                    ]}
-                  />
-                )
+                <div className="text-center py-8 text-gray-500">
+                  {searchQuery || statusFilter !== "all" ? "No prospects found matching your filters" : "No prospects found"}
+                </div>
               ) : (
                 agentProspectSummaries.map((summary) => (
                   <Collapsible
@@ -621,7 +344,7 @@ export default function Prospects() {
                                 <h3 className="font-semibold text-lg text-gray-900">
                                   {summary.agent.firstName} {summary.agent.lastName}
                                 </h3>
-                                <p className="text-sm text-gray-500">Agent ID: {summary.agent.id}</p>
+                                <p className="text-sm text-gray-500">{summary.agent.email}</p>
                               </div>
                             </div>
                             <div className="flex items-center space-x-4">
@@ -650,24 +373,6 @@ export default function Prospects() {
                             <Table>
                               <TableHeader>
                                 <TableRow>
-                                  <TableHead className="w-12">
-                                    <Checkbox
-                                      checked={summary.prospects.every(p => selectedProspectIds.has(p.id))}
-                                      onCheckedChange={() => {
-                                        const allSelected = summary.prospects.every(p => selectedProspectIds.has(p.id));
-                                        const newSet = new Set(selectedProspectIds);
-                                        summary.prospects.forEach(p => {
-                                          if (allSelected) {
-                                            newSet.delete(p.id);
-                                          } else {
-                                            newSet.add(p.id);
-                                          }
-                                        });
-                                        setSelectedProspectIds(newSet);
-                                      }}
-                                      data-testid="checkbox-select-all-prospects"
-                                    />
-                                  </TableHead>
                                   <TableHead>Prospect</TableHead>
                                   <TableHead>Email</TableHead>
                                   <TableHead>Status</TableHead>
@@ -680,16 +385,9 @@ export default function Prospects() {
                                 {summary.prospects.map((prospect) => (
                                   <TableRow key={prospect.id}>
                                     <TableCell>
-                                      <Checkbox
-                                        checked={selectedProspectIds.has(prospect.id)}
-                                        onCheckedChange={() => toggleProspectSelection(prospect.id)}
-                                        data-testid={`checkbox-select-prospect-${prospect.id}`}
-                                      />
-                                    </TableCell>
-                                    <TableCell>
                                       <div className="flex items-center space-x-3">
-                                        <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
-                                          <User className="w-4 h-4 text-yellow-600" />
+                                        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                                          <User className="w-4 h-4 text-blue-600" />
                                         </div>
                                         <div className="font-medium text-gray-900">
                                           {prospect.firstName} {prospect.lastName}
@@ -720,55 +418,22 @@ export default function Prospects() {
                                     </TableCell>
                                     <TableCell>
                                       <div className="flex items-center space-x-2">
-                                        {/* View Application Form - only show if prospect has started application and has validation token */}
-                                        {(['in_progress', 'submitted', 'applied', 'application_submitted', 'approved', 'converted'].includes(prospect.status)) && prospect.validationToken && (
+                                        {(prospect.status === 'submitted' || prospect.status === 'applied') && (
                                           <Button
                                             variant="ghost"
                                             size="sm"
-                                            onClick={() => setLocation(`/enhanced-pdf-wizard/${prospect.id}?token=${prospect.validationToken}`)}
-                                            title="View application form"
-                                            data-testid={`button-view-form-${prospect.id}`}
+                                            onClick={() => handleDownloadPDF(prospect)}
+                                            title="Download application PDF"
                                           >
-                                            <ExternalLink className="w-4 h-4 text-blue-600" />
+                                            <Download className="w-4 h-4" />
                                           </Button>
                                         )}
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => {
-                                            setSelectedProspectForApplications(prospect);
-                                            setIsApplicationsDialogOpen(true);
-                                          }}
-                                          title="Manage acquirer applications"
-                                          data-testid={`button-view-applications-${prospect.id}`}
-                                        >
-                                          <FileText className="w-4 h-4" />
-                                        </Button>
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => setNotificationDialogProspect(prospect)}
-                                          title="Send notification"
-                                          data-testid={`button-send-notification-${prospect.id}`}
-                                        >
-                                          <Bell className="w-4 h-4" />
-                                        </Button>
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => setDocumentRequestDialogProspect(prospect)}
-                                          title="Request document"
-                                          data-testid={`button-request-document-${prospect.id}`}
-                                        >
-                                          <FileUp className="w-4 h-4" />
-                                        </Button>
                                         <Button
                                           variant="ghost"
                                           size="sm"
                                           onClick={() => handleResendInvitation(prospect)}
                                           disabled={resendingEmail === prospect.id || resendInvitationMutation.isPending}
                                           title="Resend invitation email"
-                                          data-testid={`button-resend-invitation-${prospect.id}`}
                                         >
                                           <Send className="w-4 h-4" />
                                         </Button>
@@ -777,7 +442,6 @@ export default function Prospects() {
                                           size="sm"
                                           onClick={() => copyProspectLink(prospect)}
                                           title="Copy validation link"
-                                          data-testid={`button-copy-link-${prospect.id}`}
                                         >
                                           <Mail className="w-4 h-4" />
                                         </Button>
@@ -787,7 +451,6 @@ export default function Prospects() {
                                           onClick={() => handleEdit(prospect)}
                                           disabled={prospect.status !== 'pending'}
                                           title={prospect.status !== 'pending' ? 'Can only edit prospects with pending status' : 'Edit prospect'}
-                                          data-testid={`button-edit-prospect-${prospect.id}`}
                                         >
                                           <Edit className="w-4 h-4" />
                                         </Button>
@@ -798,7 +461,6 @@ export default function Prospects() {
                                             onClick={() => handleDelete(prospect)}
                                             disabled={deleteMutation.isPending}
                                             title="Delete prospect"
-                                            data-testid={`button-delete-prospect-${prospect.id}`}
                                           >
                                             <Trash2 className="w-4 h-4" />
                                           </Button>
@@ -852,31 +514,8 @@ export default function Prospects() {
                     ))
                   ) : filteredProspects.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="p-0">
-                        {searchQuery || statusFilter !== "all" ? (
-                          <div className="text-center py-8 text-gray-500">
-                            No prospects found matching your filters
-                          </div>
-                        ) : (
-                          <EmptyState
-                            icon={UserPlus}
-                            title="No Prospects Yet"
-                            description="Start building your pipeline by adding prospects. Track leads, manage applications, and convert prospects into merchants."
-                            suggestions={[
-                              "Create a new prospect manually",
-                              "Import prospects from a spreadsheet",
-                              "Invite prospects via email"
-                            ]}
-                            actions={[
-                              {
-                                label: "Create First Prospect",
-                                onClick: () => setIsModalOpen(true),
-                                icon: Plus,
-                                variant: "default"
-                              }
-                            ]}
-                          />
-                        )}
+                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                        {searchQuery || statusFilter !== "all" ? "No prospects found matching your filters" : "No prospects found"}
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -884,8 +523,8 @@ export default function Prospects() {
                       <TableRow key={prospect.id}>
                         <TableCell>
                           <div className="flex items-center space-x-3">
-                            <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
-                              <User className="w-4 h-4 text-yellow-600" />
+                            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                              <User className="w-4 h-4 text-blue-600" />
                             </div>
                             <div className="font-medium text-gray-900">
                               {prospect.firstName} {prospect.lastName}
@@ -919,55 +558,22 @@ export default function Prospects() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-2">
-                            {/* View Application Form - only show if prospect has started application and has validation token */}
-                            {(['in_progress', 'submitted', 'applied', 'application_submitted', 'approved', 'converted'].includes(prospect.status)) && prospect.validationToken && (
+                            {(prospect.status === 'submitted' || prospect.status === 'applied') && (
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => setLocation(`/enhanced-pdf-wizard/${prospect.id}?token=${prospect.validationToken}`)}
-                                title="View application form"
-                                data-testid={`button-view-form-${prospect.id}`}
+                                onClick={() => handleDownloadPDF(prospect)}
+                                title="Download application PDF"
                               >
-                                <ExternalLink className="w-4 h-4 text-blue-600" />
+                                <Download className="w-4 h-4" />
                               </Button>
                             )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedProspectForApplications(prospect);
-                                setIsApplicationsDialogOpen(true);
-                              }}
-                              title="Manage acquirer applications"
-                              data-testid={`button-view-applications-${prospect.id}`}
-                            >
-                              <FileText className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setNotificationDialogProspect(prospect)}
-                              title="Send notification"
-                              data-testid={`button-send-notification-${prospect.id}`}
-                            >
-                              <Bell className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setDocumentRequestDialogProspect(prospect)}
-                              title="Request document"
-                              data-testid={`button-request-document-${prospect.id}`}
-                            >
-                              <FileUp className="w-4 h-4" />
-                            </Button>
                             <Button
                               variant="ghost"
                               size="sm"
                               onClick={() => handleResendInvitation(prospect)}
                               disabled={resendingEmail === prospect.id || resendInvitationMutation.isPending}
                               title="Resend invitation email"
-                              data-testid={`button-resend-invitation-${prospect.id}`}
                             >
                               <Send className="w-4 h-4" />
                             </Button>
@@ -976,7 +582,6 @@ export default function Prospects() {
                               size="sm"
                               onClick={() => copyProspectLink(prospect)}
                               title="Copy validation link"
-                              data-testid={`button-copy-link-${prospect.id}`}
                             >
                               <Mail className="w-4 h-4" />
                             </Button>
@@ -986,7 +591,6 @@ export default function Prospects() {
                               onClick={() => handleEdit(prospect)}
                               disabled={prospect.status !== 'pending'}
                               title={prospect.status !== 'pending' ? 'Can only edit prospects with pending status' : 'Edit prospect'}
-                              data-testid={`button-edit-prospect-${prospect.id}`}
                             >
                               <Edit className="w-4 h-4" />
                             </Button>
@@ -997,7 +601,6 @@ export default function Prospects() {
                                 onClick={() => handleDelete(prospect)}
                                 disabled={deleteMutation.isPending}
                                 title="Delete prospect"
-                                data-testid={`button-delete-prospect-${prospect.id}`}
                               >
                                 <Trash2 className="w-4 h-4" />
                               </Button>
@@ -1018,35 +621,6 @@ export default function Prospects() {
         isOpen={isModalOpen}
         onClose={handleCloseModal}
         prospect={editingProspect}
-      />
-
-      <ApplicationsManagementDialog
-        isOpen={isApplicationsDialogOpen}
-        onClose={() => {
-          setIsApplicationsDialogOpen(false);
-          setSelectedProspectForApplications(null);
-        }}
-        prospect={selectedProspectForApplications}
-        applications={selectedProspectForApplications ? getProspectApplications(selectedProspectForApplications.id) : []}
-        acquirers={acquirers}
-        onCreateApplication={createApplicationMutation.mutate}
-        isCreatingApplication={createApplicationMutation.isPending}
-      />
-
-      <NotificationDialog
-        prospect={notificationDialogProspect}
-        isOpen={!!notificationDialogProspect}
-        onClose={() => setNotificationDialogProspect(null)}
-        onSend={sendNotificationMutation.mutate}
-        isPending={sendNotificationMutation.isPending}
-      />
-
-      <DocumentRequestDialog
-        prospect={documentRequestDialogProspect}
-        isOpen={!!documentRequestDialogProspect}
-        onClose={() => setDocumentRequestDialogProspect(null)}
-        onSend={sendNotificationMutation.mutate}
-        isPending={sendNotificationMutation.isPending}
       />
     </div>
   );
@@ -1072,22 +646,12 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { user } = useAuth();
 
-  // Fetch agents for the dropdown FIRST so we can use them for defaults
-  const { data: agents = [] } = useQuery({
-    queryKey: ["/api/agents"],
-    queryFn: async () => {
-      const response = await fetch("/api/agents");
-      if (!response.ok) throw new Error('Failed to fetch agents');
-      return response.json() as Promise<Agent[]>;
-    },
-  });
-
   // Agent role detection and display logic
-  const userRoles = user?.roles || [];
-  const isAgent = userRoles.includes('agent');
-  // Use first available agent from fetched list, or 0 if none available
-  const agentDefaultId = agents.length > 0 ? agents[0].id : 0;
+  const isAgent = user?.role === 'agent';
+  const agentDefaultId = isAgent ? 2 : 1; // Use agent ID 2 for Mike Chen
   const agentDisplayValue = isAgent && user ? `${user.firstName} ${user.lastName} (${user.email})` : '';
+
+
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -1095,14 +659,14 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
       firstName: "",
       lastName: "",
       email: "",
-      agentId: 0,
+      agentId: agentDefaultId,
       status: "pending",
       notes: "",
       campaignId: 0,
     },
   });
 
-  // Reset form when prospect data changes or agents load
+  // Reset form when prospect data changes
   useEffect(() => {
     if (prospect) {
       form.reset({
@@ -1112,13 +676,30 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
         agentId: prospect.agentId,
         status: prospect.status,
         notes: prospect.notes || "",
-        campaignId: (prospect as any).campaignId || 0,
+        campaignId: 0, // Default to 0 when editing existing prospects
       });
-    } else if (agents.length > 0 && form.getValues('agentId') === 0) {
-      // Set default agent once agents are loaded
-      form.setValue('agentId', agents[0].id);
+    } else {
+      form.reset({
+        firstName: "",
+        lastName: "",
+        email: "",
+        agentId: agentDefaultId,
+        status: "pending",
+        notes: "",
+        campaignId: 0,
+      });
     }
-  }, [prospect, form, agents]);
+  }, [prospect, form, agentDefaultId]);
+
+  // Fetch agents for the dropdown
+  const { data: agents = [] } = useQuery({
+    queryKey: ["/api/agents"],
+    queryFn: async () => {
+      const response = await fetch("/api/agents");
+      if (!response.ok) throw new Error('Failed to fetch agents');
+      return response.json() as Promise<Agent[]>;
+    },
+  });
 
   // Fetch campaigns for the dropdown
   const { data: campaigns = [] } = useQuery({
@@ -1137,7 +718,6 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
       const response = await fetch("/api/prospects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: 'include',
         body: JSON.stringify(data),
       });
       
@@ -1240,7 +820,7 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
                   <FormItem>
                     <FormLabel>First Name</FormLabel>
                     <FormControl>
-                      <Input placeholder="Enter first name" data-testid="input-firstname" {...field} />
+                      <Input placeholder="Enter first name" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1254,7 +834,7 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
                   <FormItem>
                     <FormLabel>Last Name</FormLabel>
                     <FormControl>
-                      <Input placeholder="Enter last name" data-testid="input-lastname" {...field} />
+                      <Input placeholder="Enter last name" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -1269,7 +849,7 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
                 <FormItem>
                   <FormLabel>Email Address</FormLabel>
                   <FormControl>
-                    <Input type="email" placeholder="Enter email address" data-testid="input-email" {...field} />
+                    <Input type="email" placeholder="Enter email address" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -1292,7 +872,7 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
                     </FormControl>
                   ) : (
                     <Select
-                      value={field.value?.toString() ?? ''}
+                      value={field.value.toString()}
                       onValueChange={(value) => field.onChange(parseInt(value))}
                     >
                       <FormControl>
@@ -1321,25 +901,20 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
                 <FormItem>
                   <FormLabel>Campaign Assignment *</FormLabel>
                   <Select
-                    value={field.value > 0 ? field.value.toString() : ""}
+                    value={field.value.toString()}
                     onValueChange={(value) => field.onChange(parseInt(value))}
                   >
                     <FormControl>
-                      <SelectTrigger data-testid="select-campaign">
+                      <SelectTrigger>
                         <SelectValue placeholder="Select a campaign" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {campaigns
-                        .filter((campaign: any) => campaign.isActive)
-                        .map((campaign: any) => {
-                          const templateNames = campaign.templates?.map((t: any) => t.template.templateName).join(', ') || 'No template';
-                          return (
-                            <SelectItem key={campaign.id} value={campaign.id.toString()} data-testid={`campaign-option-${campaign.id}`}>
-                              {campaign.name} {templateNames !== 'No template' && `(${templateNames})`}
-                            </SelectItem>
-                          );
-                        })}
+                      {campaigns.map((campaign: any) => (
+                        <SelectItem key={campaign.id} value={campaign.id.toString()}>
+                          {campaign.name} - {campaign.acquirer}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -1347,6 +922,31 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
               )}
             />
 
+            <FormField
+              control={form.control}
+              name="status"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Status</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select status" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="contacted">Contacted</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="applied">Applied</SelectItem>
+                      <SelectItem value="approved">Approved</SelectItem>
+                      <SelectItem value="rejected">Rejected</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <FormField
               control={form.control}
@@ -1375,734 +975,6 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
                 disabled={isSubmitting || createMutation.isPending || updateMutation.isPending}
               >
                 {isSubmitting ? "Saving..." : prospect ? "Update Prospect" : "Create Prospect"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// Applications Management Dialog Component
-interface ApplicationsManagementDialogProps {
-  isOpen: boolean;
-  onClose: () => void;
-  prospect: MerchantProspectWithAgent | null;
-  applications: ProspectApplicationWithDetails[];
-  acquirers: Acquirer[];
-  onCreateApplication: (params: { prospectId: number; acquirerId: number; templateId: number }) => void;
-  isCreatingApplication: boolean;
-}
-
-function ApplicationsManagementDialog({ 
-  isOpen, 
-  onClose, 
-  prospect, 
-  applications, 
-  acquirers,
-  onCreateApplication,
-  isCreatingApplication
-}: ApplicationsManagementDialogProps) {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const [, setLocation] = useLocation();
-  const [selectedAcquirer, setSelectedAcquirer] = useState<number | null>(null);
-
-  // Application status badge helper function
-  const getApplicationStatusBadge = (status: string) => {
-    const styles = {
-      draft: "bg-gray-100 text-gray-800",
-      in_progress: "bg-blue-100 text-blue-800",
-      submitted: "bg-purple-100 text-purple-800",
-      approved: "bg-green-100 text-green-800",
-      rejected: "bg-red-100 text-red-800",
-    };
-    return styles[status as keyof typeof styles] || "bg-gray-100 text-gray-800";
-  };
-
-  // Workflow action mutations
-  const startApplicationMutation = useMutation({
-    mutationFn: async (applicationId: number) => {
-      const response = await fetch(`/api/prospect-applications/${applicationId}/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" }
-      });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to start application');
-      }
-      return response.json();
-    },
-    onSuccess: (updatedApplication) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/prospect-applications"] });
-      
-      // Navigate to the form using the prospect ID and validation token
-      const prospectId = updatedApplication.prospectId || prospect?.id;
-      const token = prospect?.validationToken;
-      if (prospectId && token) {
-        setLocation(`/enhanced-pdf-wizard/${prospectId}?token=${token}`);
-      } else if (prospectId) {
-        // Fallback without token - will show error but at least navigate
-        console.warn('No validation token available for prospect', prospectId);
-        setLocation(`/enhanced-pdf-wizard/${prospectId}`);
-      }
-      
-      toast({
-        title: "Success",
-        description: "Application started successfully - redirecting to form",
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to start application",
-        variant: "destructive",
-      });
-    }
-  });
-
-  const submitApplicationMutation = useMutation({
-    mutationFn: async (applicationId: number) => {
-      const response = await fetch(`/api/prospect-applications/${applicationId}/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" }
-      });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to submit application');
-      }
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/prospect-applications"] });
-      toast({
-        title: "Success",
-        description: "Application submitted successfully",
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to submit application",
-        variant: "destructive",
-      });
-    }
-  });
-
-  const approveApplicationMutation = useMutation({
-    mutationFn: async (applicationId: number) => {
-      const response = await fetch(`/api/prospect-applications/${applicationId}/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" }
-      });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to approve application');
-      }
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/prospect-applications"] });
-      toast({
-        title: "Success",
-        description: "Application approved successfully",
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to approve application",
-        variant: "destructive",
-      });
-    }
-  });
-
-  const rejectApplicationMutation = useMutation({
-    mutationFn: async ({ applicationId, rejectionReason }: { applicationId: number; rejectionReason?: string }) => {
-      const response = await fetch(`/api/prospect-applications/${applicationId}/reject`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rejectionReason })
-      });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to reject application');
-      }
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/prospect-applications"] });
-      toast({
-        title: "Success",
-        description: "Application rejected successfully",
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to reject application",
-        variant: "destructive",
-      });
-    }
-  });
-
-  const generatePdfMutation = useMutation({
-    mutationFn: async (applicationId: number) => {
-      const response = await fetch(`/api/prospect-applications/${applicationId}/generate-pdf`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" }
-      });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to generate PDF');
-      }
-      return response.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/prospect-applications"] });
-      toast({
-        title: "Success",
-        description: "PDF generated successfully",
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to generate PDF",
-        variant: "destructive",
-      });
-    }
-  });
-
-  // Get workflow actions for current application status
-  const getWorkflowActions = (application: ProspectApplicationWithDetails) => {
-    const actions = [];
-    
-    switch (application.status) {
-      case 'draft':
-        actions.push({
-          label: 'Start Application',
-          action: () => startApplicationMutation.mutate(application.id),
-          variant: 'outline' as const,
-          icon: 'Play',
-          testId: `button-start-application-${application.id}`
-        });
-        break;
-      
-      case 'in_progress':
-        actions.push({
-          label: 'Submit Application',
-          action: () => submitApplicationMutation.mutate(application.id),
-          variant: 'outline' as const,
-          icon: 'Send',
-          testId: `button-submit-application-${application.id}`
-        });
-        break;
-      
-      case 'submitted':
-        actions.push({
-          label: 'Approve',
-          action: () => approveApplicationMutation.mutate(application.id),
-          variant: 'outline' as const,
-          icon: 'CheckCircle',
-          testId: `button-approve-application-${application.id}`
-        });
-        actions.push({
-          label: 'Reject',
-          action: () => {
-            const reason = prompt('Rejection reason (optional):');
-            rejectApplicationMutation.mutate({ applicationId: application.id, rejectionReason: reason || undefined });
-          },
-          variant: 'outline' as const,
-          icon: 'XCircle',
-          testId: `button-reject-application-${application.id}`
-        });
-        break;
-      
-      case 'approved':
-      case 'rejected':
-        // No actions available for final states
-        break;
-    }
-    
-    return actions;
-  };
-
-  // Download PDF handler for applications
-  const handleDownloadPDF = async (application: ProspectApplicationWithDetails) => {
-    try {
-      if (!application.generatedPdfPath) {
-        toast({
-          title: "PDF Not Available",
-          description: "This application has not been submitted yet or PDF generation failed",
-          variant: "destructive",
-        });
-        return;
-      }
-      
-      const response = await fetch(`/api/prospect-applications/${application.id}/download-pdf`);
-      if (!response.ok) {
-        throw new Error('Failed to download PDF');
-      }
-      
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${application.prospect.firstName}_${application.prospect.lastName}_${application.acquirer.name}_Application.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      
-      toast({
-        title: "Success",
-        description: "Application PDF downloaded successfully",
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to download PDF",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Fetch application templates for the selected acquirer
-  const { data: templates = [] } = useQuery({
-    queryKey: ["/api/acquirer-application-templates", selectedAcquirer],
-    queryFn: async () => {
-      if (!selectedAcquirer) return [];
-      const response = await fetch(`/api/acquirer-application-templates?acquirerId=${selectedAcquirer}`);
-      if (!response.ok) throw new Error('Failed to fetch templates');
-      return response.json() as Promise<AcquirerApplicationTemplate[]>;
-    },
-    enabled: !!selectedAcquirer,
-  });
-
-  const handleCreateApplication = async (templateId: number) => {
-    if (!prospect || !selectedAcquirer) return;
-    
-    // Check if application already exists for this acquirer
-    const existingApp = applications.find(app => app.acquirerId === selectedAcquirer);
-    if (existingApp) {
-      toast({
-        title: "Application Exists",
-        description: `An application for ${existingApp.acquirer.name} already exists`,
-        variant: "destructive",
-      });
-      return;
-    }
-
-    onCreateApplication({
-      prospectId: prospect.id,
-      acquirerId: selectedAcquirer,
-      templateId
-    });
-  };
-
-  if (!prospect) return null;
-
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Applications for {prospect.firstName} {prospect.lastName}</DialogTitle>
-          <DialogDescription>
-            Manage acquirer applications for this prospect
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-6">
-          {/* Existing Applications */}
-          <div>
-            <h3 className="text-lg font-medium mb-3">Current Applications</h3>
-            {applications.length === 0 ? (
-              <p className="text-gray-500 py-4">No applications created yet</p>
-            ) : (
-              <div className="space-y-3">
-                {applications.map((application) => (
-                  <Card key={application.id} className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                          <FileText className="w-5 h-5 text-blue-600" />
-                        </div>
-                        <div>
-                          <h4 className="font-medium">{application.acquirer?.name || 'Unknown Acquirer'}</h4>
-                          <p className="text-sm text-gray-500">{application.template?.templateName || 'Unknown Template'}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-3">
-                        <Badge className={`text-xs ${getApplicationStatusBadge(application.status)}`}>
-                          {application.status.charAt(0).toUpperCase() + application.status.slice(1)}
-                        </Badge>
-                        <div className="flex items-center space-x-1">
-                          {/* Workflow Action Buttons */}
-                          {getWorkflowActions(application).map((action, index) => {
-                            const IconComponent = action.icon === 'Play' ? Play : 
-                                               action.icon === 'Send' ? Send :
-                                               action.icon === 'CheckCircle' ? CheckCircle :
-                                               action.icon === 'XCircle' ? XCircle : Edit;
-                            
-                            return (
-                              <Button
-                                key={index}
-                                variant={action.variant}
-                                size="sm"
-                                onClick={action.action}
-                                title={action.label}
-                                data-testid={action.testId}
-                                disabled={startApplicationMutation.isPending || 
-                                         submitApplicationMutation.isPending || 
-                                         approveApplicationMutation.isPending || 
-                                         rejectApplicationMutation.isPending ||
-                                         generatePdfMutation.isPending}
-                              >
-                                <IconComponent className="w-4 h-4" />
-                              </Button>
-                            );
-                          })}
-                          
-                          {/* PDF Generation Button - Show for applications without PDF */}
-                          {!application.generatedPdfPath && application.status !== 'draft' && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => generatePdfMutation.mutate(application.id)}
-                              title="Generate PDF"
-                              data-testid={`button-generate-pdf-${application.id}`}
-                              disabled={generatePdfMutation.isPending}
-                            >
-                              <FileText className="w-4 h-4" />
-                            </Button>
-                          )}
-                          
-                          {/* PDF Download Button - Show for applications with PDF */}
-                          {application.generatedPdfPath && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDownloadPDF(application)}
-                              title="Download PDF"
-                              data-testid={`button-download-pdf-${application.id}`}
-                            >
-                              <Download className="w-4 h-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Create New Application */}
-          <div>
-            <h3 className="text-lg font-medium mb-3">Create New Application</h3>
-            <Card className="p-4">
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium">Select Acquirer</label>
-                  <Select 
-                    value={selectedAcquirer?.toString() || ""} 
-                    onValueChange={(value) => setSelectedAcquirer(parseInt(value))}
-                  >
-                    <SelectTrigger className="mt-1" data-testid="select-acquirer">
-                      <SelectValue placeholder="Choose an acquirer" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {acquirers.map((acquirer) => {
-                        const hasApplication = applications.some(app => app.acquirerId === acquirer.id);
-                        return (
-                          <SelectItem 
-                            key={acquirer.id} 
-                            value={acquirer.id.toString()}
-                            disabled={hasApplication}
-                          >
-                            {acquirer.displayName || acquirer.name} {hasApplication && "(Already has application)"}
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {selectedAcquirer && templates.length > 0 && (
-                  <div>
-                    <label className="text-sm font-medium">Select Template</label>
-                    <div className="mt-2 space-y-2">
-                      {templates.map((template) => (
-                        <Card key={template.id} className="p-3 cursor-pointer hover:bg-gray-50">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <h4 className="font-medium">{template.templateName}</h4>
-                              <p className="text-sm text-gray-500">Version {template.version}</p>
-                            </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleCreateApplication(template.id)}
-                              disabled={isCreatingApplication}
-                              data-testid={`button-create-application-${template.id}`}
-                            >
-                              {isCreatingApplication ? "Creating..." : "Create Application"}
-                            </Button>
-                          </div>
-                        </Card>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {selectedAcquirer && templates.length === 0 && (
-                  <p className="text-gray-500 py-2">No templates available for this acquirer</p>
-                )}
-              </div>
-            </Card>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// Notification Dialog Component
-const notificationFormSchema = z.object({
-  subject: z.string().min(1, "Subject is required").max(200, "Subject must be less than 200 characters"),
-  message: z.string().min(1, "Message is required").max(2000, "Message must be less than 2000 characters"),
-  type: z.enum(["general", "reminder", "urgent"], { required_error: "Type is required" }),
-});
-
-type NotificationFormData = z.infer<typeof notificationFormSchema>;
-
-interface NotificationDialogProps {
-  prospect: MerchantProspectWithAgent | null;
-  isOpen: boolean;
-  onClose: () => void;
-  onSend: (data: { prospectId: number; subject: string; message: string; type: string }) => void;
-  isPending: boolean;
-}
-
-function NotificationDialog({ prospect, isOpen, onClose, onSend, isPending }: NotificationDialogProps) {
-  const form = useForm<NotificationFormData>({
-    resolver: zodResolver(notificationFormSchema),
-    defaultValues: {
-      subject: "",
-      message: "",
-      type: "general",
-    },
-  });
-
-  useEffect(() => {
-    if (!isOpen) {
-      form.reset();
-    }
-  }, [isOpen, form]);
-
-  const onSubmit = (data: NotificationFormData) => {
-    if (!prospect) return;
-    onSend({
-      prospectId: prospect.id,
-      subject: data.subject,
-      message: data.message,
-      type: data.type,
-    });
-  };
-
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle>Send Notification</DialogTitle>
-          <DialogDescription>
-            Send a notification to {prospect?.firstName} {prospect?.lastName}
-          </DialogDescription>
-        </DialogHeader>
-
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="subject"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Subject</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Enter notification subject" {...field} data-testid="input-notification-subject" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="message"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Message</FormLabel>
-                  <FormControl>
-                    <Textarea 
-                      placeholder="Enter notification message" 
-                      rows={5}
-                      {...field} 
-                      data-testid="textarea-notification-message"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="type"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Type</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <FormControl>
-                      <SelectTrigger data-testid="select-notification-type">
-                        <SelectValue placeholder="Select notification type" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="general">General</SelectItem>
-                      <SelectItem value="reminder">Reminder</SelectItem>
-                      <SelectItem value="urgent">Urgent</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isPending} data-testid="button-send-notification">
-                {isPending ? "Sending..." : "Send Notification"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// Document Request Dialog Component
-const documentRequestFormSchema = z.object({
-  documents: z.string().min(1, "Please specify which documents are needed"),
-  instructions: z.string().optional(),
-});
-
-type DocumentRequestFormData = z.infer<typeof documentRequestFormSchema>;
-
-interface DocumentRequestDialogProps {
-  prospect: MerchantProspectWithAgent | null;
-  isOpen: boolean;
-  onClose: () => void;
-  onSend: (data: { prospectId: number; subject: string; message: string; type: string }) => void;
-  isPending: boolean;
-}
-
-function DocumentRequestDialog({ prospect, isOpen, onClose, onSend, isPending }: DocumentRequestDialogProps) {
-  const form = useForm<DocumentRequestFormData>({
-    resolver: zodResolver(documentRequestFormSchema),
-    defaultValues: {
-      documents: "",
-      instructions: "",
-    },
-  });
-
-  useEffect(() => {
-    if (!isOpen) {
-      form.reset();
-    }
-  }, [isOpen, form]);
-
-  const onSubmit = (data: DocumentRequestFormData) => {
-    if (!prospect) return;
-    
-    // Compose message from documents and instructions
-    const message = `Please upload the following documents:\n\n${data.documents}\n\n${data.instructions ? `Additional Instructions:\n${data.instructions}` : ''}`;
-    
-    onSend({
-      prospectId: prospect.id,
-      subject: "Document Request",
-      message: message.trim(),
-      type: "document_request",
-    });
-  };
-
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle>Request Documents</DialogTitle>
-          <DialogDescription>
-            Request documents from {prospect?.firstName} {prospect?.lastName}
-          </DialogDescription>
-        </DialogHeader>
-
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="documents"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Required Documents</FormLabel>
-                  <FormControl>
-                    <Textarea 
-                      placeholder="List required documents (e.g., Business License, Tax Returns, Bank Statements)" 
-                      rows={4}
-                      {...field} 
-                      data-testid="textarea-required-documents"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="instructions"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Additional Instructions (Optional)</FormLabel>
-                  <FormControl>
-                    <Textarea 
-                      placeholder="Enter any additional instructions or requirements" 
-                      rows={3}
-                      {...field} 
-                      data-testid="textarea-document-instructions"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={onClose} disabled={isPending}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isPending} data-testid="button-request-documents">
-                {isPending ? "Sending..." : "Send Request"}
               </Button>
             </DialogFooter>
           </form>

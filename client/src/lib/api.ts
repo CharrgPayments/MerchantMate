@@ -109,32 +109,3 @@ export const analyticsApi = {
     return response.json();
   }
 };
-
-// Prospects API
-export const prospectsApi = {
-  bulkDelete: async (ids: number[]): Promise<{ success: boolean; deletedCount: number; message: string }> => {
-    const response = await apiRequest('POST', '/api/prospects/bulk-delete', { ids });
-    return response.json();
-  },
-
-  bulkStatusUpdate: async (ids: number[], status: string): Promise<{ success: boolean; updatedCount: number; message: string }> => {
-    const response = await apiRequest('POST', '/api/prospects/bulk-status-update', { ids, status });
-    return response.json();
-  }
-};
-
-// Merchants bulk operations
-export const merchantsBulkApi = {
-  bulkStatusUpdate: async (ids: number[], status: 'active' | 'inactive' | 'suspended'): Promise<{ success: boolean; updatedCount: number; message: string }> => {
-    const response = await apiRequest('POST', '/api/merchants/bulk-status-update', { ids, status });
-    return response.json();
-  }
-};
-
-// Agents bulk operations
-export const agentsBulkApi = {
-  bulkStatusUpdate: async (ids: number[], status: 'active' | 'inactive'): Promise<{ success: boolean; updatedCount: number; message: string }> => {
-    const response = await apiRequest('POST', '/api/agents/bulk-status-update', { ids, status });
-    return response.json();
-  }
-};

@@ -1,8 +1,8 @@
 import { useRoute } from 'wouter';
-import { AlertCircle, Upload, FileText, ExternalLink, RefreshCw } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
 export default function ApplicationStatus() {
@@ -38,7 +38,10 @@ export default function ApplicationStatus() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading application status...</p>
+        </div>
       </div>
     );
   }
@@ -213,47 +216,6 @@ export default function ApplicationStatus() {
             </div>
           </CardContent>
         </Card>
-
-        {/* Document Upload Card - shown after application is submitted */}
-        {(prospect.status === 'submitted' || prospect.status === 'applied' || prospect.status === 'in_progress' || prospect.status === 'approved') && (
-          <Card className="w-full">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5" />
-                Document Management
-              </CardTitle>
-              <CardDescription>
-                Upload supporting documents or access your full prospect portal
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <div className="flex items-start gap-4">
-                  <Upload className="h-8 w-8 text-blue-600 mt-1" />
-                  <div className="flex-1">
-                    <h4 className="font-medium text-gray-900">Upload Supporting Documents</h4>
-                    <p className="text-sm text-gray-600 mt-1">
-                      You can upload bank statements, business licenses, identification documents, and other supporting materials through your prospect portal.
-                    </p>
-                    <div className="mt-4">
-                      <Button 
-                        onClick={() => window.location.href = '/prospect-portal'}
-                        className="gap-2"
-                        data-testid="button-go-to-portal"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                        Go to Prospect Portal
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <p className="text-xs text-gray-500">
-                Note: You'll need to log in with your email address to access the prospect portal. If you haven't set up your password yet, use the password reset option.
-              </p>
-            </CardContent>
-          </Card>
-        )}
       </div>
     </div>
   );

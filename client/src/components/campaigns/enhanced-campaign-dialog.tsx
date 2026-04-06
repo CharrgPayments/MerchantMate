@@ -7,10 +7,10 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { DollarSign, AlertCircle, HelpCircle, Package } from 'lucide-react';
+import { DollarSign, AlertCircle } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { queryClient } from '@/lib/queryClient';
@@ -58,27 +58,11 @@ interface EquipmentItem {
   isActive: boolean;
 }
 
-interface ApplicationTemplate {
-  id: number;
-  templateName: string;
-  version: string;
-  acquirerId: number;
-  isActive: boolean;
-}
-
 interface Campaign {
   id: number;
   name: string;
   description?: string;
-  acquirerId: number;
-  acquirer: {
-    id: number;
-    name: string;
-    displayName: string;
-    code: string;
-    description?: string;
-    isActive: boolean;
-  };
+  acquirer: string;
   pricingType: {
     id: number;
     name: string;
@@ -110,7 +94,7 @@ export function EnhancedCampaignDialog({
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    acquirerId: null as number | null,
+    acquirer: '',
     equipment: '',
     currency: 'USD',
     pricingTypeId: null as number | null,
@@ -118,7 +102,6 @@ export function EnhancedCampaignDialog({
   
   const [feeValues, setFeeValues] = useState<Record<number, string>>({});
   const [selectedEquipment, setSelectedEquipment] = useState<number[]>([]);
-  const [selectedTemplates, setSelectedTemplates] = useState<number[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const defaultsSetRef = useRef(false);
 
@@ -130,18 +113,6 @@ export function EnhancedCampaignDialog({
         credentials: 'include'
       });
       if (!response.ok) throw new Error('Failed to fetch pricing types');
-      return response.json();
-    },
-  });
-
-  // Get acquirers for dropdown
-  const { data: acquirers = [], isLoading: acquirersLoading } = useQuery({
-    queryKey: ['/api/acquirers'],
-    queryFn: async () => {
-      const response = await fetch('/api/acquirers', {
-        credentials: 'include'
-      });
-      if (!response.ok) throw new Error('Failed to fetch acquirers');
       return response.json();
     },
   });
@@ -170,36 +141,6 @@ export function EnhancedCampaignDialog({
       if (!response.ok) throw new Error('Failed to fetch equipment items');
       return response.json();
     },
-  });
-
-  // Get application templates for selected acquirer
-  const { data: applicationTemplates = [], isLoading: templatesLoading } = useQuery({
-    queryKey: ['/api/acquirer-application-templates', formData.acquirerId],
-    queryFn: async () => {
-      if (!formData.acquirerId) return [];
-      const response = await fetch('/api/acquirer-application-templates', {
-        credentials: 'include'
-      });
-      if (!response.ok) throw new Error('Failed to fetch templates');
-      const allTemplates = await response.json();
-      // Filter by acquirer
-      return allTemplates.filter((t: ApplicationTemplate) => t.acquirerId === formData.acquirerId && t.isActive);
-    },
-    enabled: !!formData.acquirerId,
-  });
-
-  // Fetch existing campaign templates when editing
-  const { data: campaignTemplates = [] } = useQuery<{ id: number; templateId: number }[]>({
-    queryKey: ['/api/campaigns', editCampaignId, 'templates'],
-    queryFn: async () => {
-      if (!editCampaignId) return [];
-      const response = await fetch(`/api/campaigns/${editCampaignId}/templates`, {
-        credentials: 'include'
-      });
-      if (!response.ok) throw new Error('Failed to fetch campaign templates');
-      return response.json();
-    },
-    enabled: !!editCampaignId && open,
   });
 
   // Create campaign mutation
@@ -278,14 +219,13 @@ export function EnhancedCampaignDialog({
     setFormData({
       name: '',
       description: '',
-      acquirerId: null,
+      acquirer: '',
       equipment: '',
       currency: 'USD',
       pricingTypeId: null,
     });
     setFeeValues({});
     setSelectedEquipment([]);
-    setSelectedTemplates([]);
     setErrors({});
     defaultsSetRef.current = false;
   };
@@ -296,16 +236,6 @@ export function EnhancedCampaignDialog({
         return [...prev, equipmentId];
       } else {
         return prev.filter(id => id !== equipmentId);
-      }
-    });
-  };
-
-  const handleTemplateChange = (templateId: number, checked: boolean) => {
-    setSelectedTemplates(prev => {
-      if (checked) {
-        return [...prev, templateId];
-      } else {
-        return prev.filter(id => id !== templateId);
       }
     });
   };
@@ -335,7 +265,7 @@ export function EnhancedCampaignDialog({
       newErrors.pricingType = 'Pricing type is required';
     }
     
-    if (!formData.acquirerId) {
+    if (!formData.acquirer) {
       newErrors.acquirer = 'Acquirer is required';
     }
 
@@ -346,21 +276,11 @@ export function EnhancedCampaignDialog({
   const handleSubmit = () => {
     if (!validateForm()) return;
 
-    // Transform feeValues object to array format expected by backend
-    const feeValuesArray = Object.entries(feeValues)
-      .filter(([_, value]) => value && value.trim() !== '') // Only include non-empty values
-      .map(([feeItemId, value]) => ({
-        feeItemId: parseInt(feeItemId),
-        value: value.trim(),
-        valueType: "percentage" // Default to percentage, can be enhanced later
-      }));
-
     const campaignData = {
       ...formData,
       pricingTypeId: formData.pricingTypeId,
-      feeValues: feeValuesArray,
-      equipmentIds: selectedEquipment, // Backend expects 'equipmentIds', not 'selectedEquipment'
-      templateIds: selectedTemplates, // Backend expects 'templateIds'
+      feeValues,
+      selectedEquipment,
     };
 
     if (editCampaignId) {
@@ -376,7 +296,7 @@ export function EnhancedCampaignDialog({
       setFormData({
         name: editCampaignData.name,
         description: editCampaignData.description || '',
-        acquirerId: editCampaignData.acquirer?.id || editCampaignData.acquirerId || null,
+        acquirer: editCampaignData.acquirer,
         equipment: '',
         currency: 'USD',
         pricingTypeId: editCampaignData.pricingType?.id || null,
@@ -390,25 +310,11 @@ export function EnhancedCampaignDialog({
         });
         setFeeValues(feeValueMap);
       }
-      
-      // Set selected equipment if available
-      if (editCampaignData.equipmentAssociations) {
-        const equipmentIds = editCampaignData.equipmentAssociations.map(assoc => assoc.equipmentItem.id);
-        setSelectedEquipment(equipmentIds);
-      }
     } else if (!editCampaignData && open) {
       // Reset form when opening for creation
       resetForm();
     }
   }, [editCampaignData, open]);
-
-  // Separate effect to load campaign templates when editing
-  useEffect(() => {
-    if (editCampaignId && campaignTemplates && open) {
-      const templateIds = campaignTemplates.map(ct => ct.templateId);
-      setSelectedTemplates(templateIds);
-    }
-  }, [campaignTemplates, editCampaignId, open]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -433,18 +339,37 @@ export function EnhancedCampaignDialog({
                 <CardTitle className="text-base">Campaign Information</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="name">Campaign Name *</Label>
-                  <Input
-                    id="name"
-                    placeholder="Enter campaign name"
-                    value={formData.name}
-                    onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                    className={errors.name ? 'border-destructive' : ''}
-                  />
-                  {errors.name && (
-                    <p className="text-sm text-destructive mt-1">{errors.name}</p>
-                  )}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="name">Campaign Name *</Label>
+                    <Input
+                      id="name"
+                      placeholder="Enter campaign name"
+                      value={formData.name}
+                      onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                      className={errors.name ? 'border-destructive' : ''}
+                    />
+                    {errors.name && (
+                      <p className="text-sm text-destructive mt-1">{errors.name}</p>
+                    )}
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="acquirer">Acquirer *</Label>
+                    <Select value={formData.acquirer} onValueChange={(value) => setFormData(prev => ({ ...prev, acquirer: value }))}>
+                      <SelectTrigger className={errors.acquirer ? 'border-destructive' : ''}>
+                        <SelectValue placeholder="Select acquirer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Esquire">Esquire</SelectItem>
+                        <SelectItem value="Merrick">Merrick</SelectItem>
+                        <SelectItem value="Wells Fargo">Wells Fargo</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {errors.acquirer && (
+                      <p className="text-sm text-destructive mt-1">{errors.acquirer}</p>
+                    )}
+                  </div>
                 </div>
 
                 <div>
@@ -475,25 +400,6 @@ export function EnhancedCampaignDialog({
                 </div>
                 
                 <div>
-                  <Label htmlFor="acquirer">Acquirer *</Label>
-                  <Select value={formData.acquirerId?.toString() || ''} onValueChange={(value) => setFormData(prev => ({ ...prev, acquirerId: parseInt(value) }))}>
-                    <SelectTrigger className={errors.acquirer ? 'border-destructive' : ''}>
-                      <SelectValue placeholder="Select acquirer" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {acquirers.map((acquirer) => (
-                        <SelectItem key={acquirer.id} value={acquirer.id.toString()}>
-                          {acquirer.displayName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {errors.acquirer && (
-                    <p className="text-sm text-destructive mt-1">{errors.acquirer}</p>
-                  )}
-                </div>
-
-                <div>
                   <Label htmlFor="pricingType">Pricing Type *</Label>
                   <Select value={formData.pricingTypeId?.toString() || ''} onValueChange={handlePricingTypeChange}>
                     <SelectTrigger className={errors.pricingType ? 'border-destructive' : ''}>
@@ -518,89 +424,13 @@ export function EnhancedCampaignDialog({
             {formData.pricingTypeId && selectedPricingTypeFeeGroups && (
               <Card>
                 <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-base flex items-center">
-                        <DollarSign className="h-4 w-4 mr-2" />
-                        Fee Configuration
-                      </CardTitle>
-                      <CardDescription>
-                        Configure fee values for {selectedPricingTypeFeeGroups.pricingType.name} pricing type.
-                      </CardDescription>
-                    </div>
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          className="gap-1 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800 h-8"
-                          data-testid="button-fee-config-help"
-                        >
-                          <HelpCircle className="h-4 w-4" />
-                          <span className="text-xs">Help</span>
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-                        <DialogHeader>
-                          <DialogTitle>Fee Configuration Guide</DialogTitle>
-                          <DialogDescription>
-                            Learn how to configure fees for your campaign based on the selected pricing type.
-                          </DialogDescription>
-                        </DialogHeader>
-                        
-                        <div className="space-y-4 text-sm">
-                          <div>
-                            <h3 className="font-semibold text-base mb-2">Understanding Fee Configuration</h3>
-                            <p className="text-muted-foreground">
-                              Fees are organized into groups (e.g., "Transaction Fees", "Monthly Fees"). Each group contains specific fee items that define the pricing structure for your campaign.
-                            </p>
-                          </div>
-
-                          <div className="space-y-3">
-                            <h3 className="font-semibold">Fee Value Types</h3>
-                            
-                            <div className="bg-blue-50 p-3 rounded-md border border-blue-200">
-                              <h4 className="font-medium text-blue-900 mb-1">Percentage Fees</h4>
-                              <p className="text-sm text-blue-800">
-                                Enter values like <code className="bg-blue-100 px-1 py-0.5 rounded">2.50</code> for 2.50%. Used for transaction fees that scale with amount (e.g., 2.5% per transaction).
-                              </p>
-                            </div>
-
-                            <div className="bg-green-50 p-3 rounded-md border border-green-200">
-                              <h4 className="font-medium text-green-900 mb-1">Fixed Fees</h4>
-                              <p className="text-sm text-green-800">
-                                Enter dollar amounts like <code className="bg-green-100 px-1 py-0.5 rounded">25.00</code> for $25. Used for flat fees (e.g., $25 monthly gateway fee).
-                              </p>
-                            </div>
-
-                            <div className="bg-purple-50 p-3 rounded-md border border-purple-200">
-                              <h4 className="font-medium text-purple-900 mb-1">Basis Points</h4>
-                              <p className="text-sm text-purple-800">
-                                Enter values like <code className="bg-purple-100 px-1 py-0.5 rounded">250</code> for 2.50% (250 basis points). Used in financial calculations where 100 basis points = 1%.
-                              </p>
-                            </div>
-                          </div>
-
-                          <div>
-                            <h3 className="font-semibold mb-2">Required vs Optional Fees</h3>
-                            <p className="text-muted-foreground">
-                              Fees marked with a red asterisk (<span className="text-destructive">*</span>) are required. The system will prevent you from creating a campaign without values for required fees.
-                            </p>
-                          </div>
-
-                          <div>
-                            <h3 className="font-semibold mb-2">Best Practices</h3>
-                            <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
-                              <li>Review the default values - they may be pre-filled based on your pricing type</li>
-                              <li>Double-check percentage vs fixed fee values to avoid pricing errors</li>
-                              <li>Optional fees can be left empty if not applicable to this campaign</li>
-                              <li>Fee configurations apply to all merchants enrolled in this campaign</li>
-                            </ul>
-                          </div>
-                        </div>
-                      </DialogContent>
-                    </Dialog>
-                  </div>
+                  <CardTitle className="text-base flex items-center">
+                    <DollarSign className="h-4 w-4 mr-2" />
+                    Fee Configuration
+                  </CardTitle>
+                  <CardDescription>
+                    Configure fee values for {selectedPricingTypeFeeGroups.pricingType.name} pricing type.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   {feeGroupsLoading ? (
@@ -652,145 +482,13 @@ export function EnhancedCampaignDialog({
               </Card>
             )}
 
-            {/* Application Template Selection */}
-            {formData.acquirerId && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Application Templates</CardTitle>
-                  <CardDescription>
-                    Select application templates for this campaign (e.g., for amendments and different use cases).
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {templatesLoading ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      Loading templates...
-                    </div>
-                  ) : applicationTemplates.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      No templates available for this acquirer. Please create templates first.
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {applicationTemplates.map((template: ApplicationTemplate) => (
-                        <div key={template.id} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`template-${template.id}`}
-                            checked={selectedTemplates.includes(template.id)}
-                            onCheckedChange={(checked) => handleTemplateChange(template.id, checked as boolean)}
-                            data-testid={`checkbox-template-${template.id}`}
-                          />
-                          <Label htmlFor={`template-${template.id}`} className="text-sm cursor-pointer">
-                            {template.templateName} <Badge variant="outline" className="ml-1 text-xs">v{template.version}</Badge>
-                          </Label>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
             {/* Equipment Selection */}
             <Card>
               <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-base flex items-center">
-                      <Package className="h-4 w-4 mr-2" />
-                      Equipment Selection
-                    </CardTitle>
-                    <CardDescription>
-                      Select equipment items to include with this campaign.
-                    </CardDescription>
-                  </div>
-                  <Dialog>
-                    <DialogTrigger asChild>
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        className="gap-1 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800 h-8"
-                        data-testid="button-equipment-help"
-                      >
-                        <HelpCircle className="h-4 w-4" />
-                        <span className="text-xs">Help</span>
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-                      <DialogHeader>
-                        <DialogTitle>Equipment Selection Guide</DialogTitle>
-                        <DialogDescription>
-                          Learn how to select and configure equipment for your campaign.
-                        </DialogDescription>
-                      </DialogHeader>
-                      
-                      <div className="space-y-4 text-sm">
-                        <div>
-                          <h3 className="font-semibold text-base mb-2">What is Equipment Selection?</h3>
-                          <p className="text-muted-foreground">
-                            Equipment items are physical hardware (e.g., card readers, terminals, PIN pads) that merchants receive as part of their campaign enrollment. Selecting equipment here determines which devices are available to merchants in this campaign.
-                          </p>
-                        </div>
-
-                        <div className="space-y-3">
-                          <h3 className="font-semibold">How to Select Equipment</h3>
-                          
-                          <div className="bg-blue-50 p-3 rounded-md border border-blue-200">
-                            <h4 className="font-medium text-blue-900 mb-1 flex items-center gap-2">
-                              <span className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">1</span>
-                              Browse Available Equipment
-                            </h4>
-                            <p className="text-sm text-blue-800 ml-8">
-                              Review the list of equipment items. Each item shows its name, description, and specifications.
-                            </p>
-                          </div>
-
-                          <div className="bg-green-50 p-3 rounded-md border border-green-200">
-                            <h4 className="font-medium text-green-900 mb-1 flex items-center gap-2">
-                              <span className="w-6 h-6 rounded-full bg-green-600 text-white flex items-center justify-center text-xs font-bold">2</span>
-                              Check Equipment Boxes
-                            </h4>
-                            <p className="text-sm text-green-800 ml-8">
-                              Click the checkbox next to each equipment item you want to include in this campaign. You can select multiple items.
-                            </p>
-                          </div>
-
-                          <div className="bg-purple-50 p-3 rounded-md border border-purple-200">
-                            <h4 className="font-medium text-purple-900 mb-1 flex items-center gap-2">
-                              <span className="w-6 h-6 rounded-full bg-purple-600 text-white flex items-center justify-center text-xs font-bold">3</span>
-                              Review Your Selection
-                            </h4>
-                            <p className="text-sm text-purple-800 ml-8">
-                              Selected equipment items will be highlighted. Merchants enrolling in this campaign can choose from these devices.
-                            </p>
-                          </div>
-                        </div>
-
-                        <div>
-                          <h3 className="font-semibold mb-2">Equipment vs Fees</h3>
-                          <p className="text-muted-foreground mb-2">
-                            Equipment selection is separate from fee configuration. Equipment costs may be:
-                          </p>
-                          <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
-                            <li><strong>Included in fees:</strong> Equipment cost is part of the monthly or setup fee</li>
-                            <li><strong>Separate charge:</strong> Equipment billed separately from processing fees</li>
-                            <li><strong>Free with contract:</strong> Equipment provided at no cost with commitment</li>
-                          </ul>
-                        </div>
-
-                        <div>
-                          <h3 className="font-semibold mb-2">Best Practices</h3>
-                          <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
-                            <li>Select equipment that matches your target merchant type (retail, mobile, e-commerce)</li>
-                            <li>Ensure selected equipment is compatible with the chosen acquirer/processor</li>
-                            <li>Consider offering multiple device options to accommodate different merchant needs</li>
-                            <li>Keep equipment selection up-to-date as new devices become available</li>
-                          </ul>
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                </div>
+                <CardTitle className="text-base">Equipment Selection</CardTitle>
+                <CardDescription>
+                  Select equipment items to include with this campaign.
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 {equipmentLoading ? (

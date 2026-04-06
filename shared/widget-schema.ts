@@ -85,14 +85,6 @@ export const ROLE_WIDGET_PERMISSIONS = {
     WIDGET_TYPES.REVENUE_OVERVIEW,
     WIDGET_TYPES.SYSTEM_OVERVIEW,
   ],
-  underwriter: [
-    WIDGET_TYPES.QUICK_STATS,
-    WIDGET_TYPES.RECENT_ACTIVITY,
-    WIDGET_TYPES.PROFILE_SUMMARY,
-    WIDGET_TYPES.PIPELINE_OVERVIEW,
-    WIDGET_TYPES.ALERTS_CENTER,
-    WIDGET_TYPES.COMPLIANCE_MONITOR,
-  ],
   super_admin: Object.values(WIDGET_TYPES),
 } as const;
 
@@ -211,77 +203,20 @@ export const DEFAULT_DASHBOARD_LAYOUTS = {
       configuration: {},
     },
   ],
-  
-  underwriter: [
-    {
-      widgetId: WIDGET_TYPES.QUICK_STATS,
-      position: 0,
-      size: WIDGET_SIZES.LARGE,
-      configuration: {},
-    },
-    {
-      widgetId: WIDGET_TYPES.PIPELINE_OVERVIEW,
-      position: 1,
-      size: WIDGET_SIZES.MEDIUM,
-      configuration: {},
-    },
-    {
-      widgetId: WIDGET_TYPES.COMPLIANCE_MONITOR,
-      position: 2,
-      size: WIDGET_SIZES.MEDIUM,
-      configuration: {},
-    },
-    {
-      widgetId: WIDGET_TYPES.ALERTS_CENTER,
-      position: 3,
-      size: WIDGET_SIZES.SMALL,
-      configuration: {},
-    },
-  ],
 } as const;
 
 // Utility functions
 export function getAvailableWidgets(role: string): WidgetType[] {
-  const widgets = ROLE_WIDGET_PERMISSIONS[role as keyof typeof ROLE_WIDGET_PERMISSIONS] || [];
-  return [...widgets]; // Convert readonly array to mutable array
+  return ROLE_WIDGET_PERMISSIONS[role as keyof typeof ROLE_WIDGET_PERMISSIONS] || [];
 }
 
-export function getAvailableWidgetsForUser(roles: string[]): WidgetType[] {
-  const allWidgets = new Set<WidgetType>();
-  for (const role of roles) {
-    const roleWidgets = ROLE_WIDGET_PERMISSIONS[role as keyof typeof ROLE_WIDGET_PERMISSIONS] || [];
-    roleWidgets.forEach(widget => allWidgets.add(widget));
-  }
-  return Array.from(allWidgets);
+export function canUserAccessWidget(role: string, widgetType: WidgetType): boolean {
+  const availableWidgets = getAvailableWidgets(role);
+  return availableWidgets.includes(widgetType);
 }
 
-export function canUserAccessWidget(roles: string[] | string, widgetType: WidgetType): boolean {
-  // Support both single role (string) and multiple roles (array) for backward compatibility
-  const userRoles = Array.isArray(roles) ? roles : [roles];
-  for (const role of userRoles) {
-    const availableWidgets = getAvailableWidgets(role);
-    if (availableWidgets.includes(widgetType)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-export function getDefaultLayout(roles: string[] | string) {
-  // Support both single role (string) and multiple roles (array)
-  const userRoles = Array.isArray(roles) ? roles : [roles];
-  
-  // Use the highest privilege role for default layout
-  const roleHierarchy = ['super_admin', 'admin', 'underwriter', 'corporate', 'agent', 'merchant'];
-  
-  for (const hierarchyRole of roleHierarchy) {
-    if (userRoles.includes(hierarchyRole)) {
-      return DEFAULT_DASHBOARD_LAYOUTS[hierarchyRole as keyof typeof DEFAULT_DASHBOARD_LAYOUTS] || [];
-    }
-  }
-  
-  // Fallback to merchant layout if no role matches
-  return DEFAULT_DASHBOARD_LAYOUTS.merchant || [];
+export function getDefaultLayout(role: string) {
+  return DEFAULT_DASHBOARD_LAYOUTS[role as keyof typeof DEFAULT_DASHBOARD_LAYOUTS] || [];
 }
 
 export function validateWidgetConfig(widgetType: WidgetType, config: any) {

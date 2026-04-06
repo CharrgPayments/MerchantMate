@@ -19,13 +19,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Search, Eye, Edit, Trash2, Filter, ChevronDown, ChevronRight, MapPin, Store, Upload } from "lucide-react";
-import { EmptyState } from "@/components/ui/empty-state";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
-import { merchantsApi, merchantsBulkApi } from "@/lib/api";
+import { Plus, Search, Eye, Edit, Trash2, Filter, ChevronDown, ChevronRight, MapPin } from "lucide-react";
+import { merchantsApi } from "@/lib/api";
 import { MerchantModal } from "@/components/modals/merchant-modal";
 import { useAuth } from "@/hooks/useAuth";
 import type { Merchant } from "@shared/schema";
@@ -36,7 +33,6 @@ export default function Merchants() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingMerchant, setEditingMerchant] = useState<Merchant | undefined>();
   const [expandedMerchants, setExpandedMerchants] = useState<Set<number>>(new Set());
-  const [selectedMerchantIds, setSelectedMerchantIds] = useState<Set<number>>(new Set());
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -150,27 +146,6 @@ export default function Merchants() {
     },
   });
 
-  const bulkStatusUpdateMutation = useMutation({
-    mutationFn: async ({ ids, status }: { ids: number[]; status: 'active' | 'inactive' | 'suspended' }) => {
-      return await merchantsBulkApi.bulkStatusUpdate(ids, status);
-    },
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/merchants"] });
-      setSelectedMerchantIds(new Set());
-      toast({
-        title: "Success",
-        description: result.message,
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to update merchant status",
-        variant: "destructive",
-      });
-    },
-  });
-
   const filteredMerchants = merchants.filter((merchant) => {
     if (statusFilter === "all") return true;
     return merchant.status === statusFilter;
@@ -190,33 +165,6 @@ export default function Merchants() {
   const handleAddNew = () => {
     setEditingMerchant(undefined);
     setIsModalOpen(true);
-  };
-
-  const toggleMerchantSelection = (merchantId: number) => {
-    setSelectedMerchantIds(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(merchantId)) {
-        newSet.delete(merchantId);
-      } else {
-        newSet.add(merchantId);
-      }
-      return newSet;
-    });
-  };
-
-  const toggleAllMerchantsSelection = () => {
-    if (selectedMerchantIds.size === filteredMerchants.length) {
-      setSelectedMerchantIds(new Set());
-    } else {
-      setSelectedMerchantIds(new Set(filteredMerchants.map(m => m.id)));
-    }
-  };
-
-  const handleBulkStatusUpdate = (status: 'active' | 'inactive' | 'suspended') => {
-    bulkStatusUpdateMutation.mutate({ 
-      ids: Array.from(selectedMerchantIds), 
-      status 
-    });
   };
 
   const toggleMerchantExpansion = (merchantId: number) => {
@@ -296,36 +244,11 @@ export default function Merchants() {
             </div>
           </div>
 
-          {/* Bulk Action Bar */}
-          {selectedMerchantIds.size > 0 && (
-            <BulkActionBar
-              selectedCount={selectedMerchantIds.size}
-              onClearSelection={() => setSelectedMerchantIds(new Set())}
-              actionGroups={[
-                {
-                  label: 'Set Status',
-                  actions: [
-                    { label: 'Active', onClick: () => handleBulkStatusUpdate('active') },
-                    { label: 'Inactive', onClick: () => handleBulkStatusUpdate('inactive') },
-                    { label: 'Suspended', onClick: () => handleBulkStatusUpdate('suspended') },
-                  ],
-                },
-              ]}
-            />
-          )}
-
           {/* Table */}
           <div className="border rounded-lg">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-12">
-                    <Checkbox
-                      checked={filteredMerchants.length > 0 && filteredMerchants.every(m => selectedMerchantIds.has(m.id))}
-                      onCheckedChange={toggleAllMerchantsSelection}
-                      data-testid="checkbox-select-all-merchants"
-                    />
-                  </TableHead>
                   <TableHead>Merchant</TableHead>
                   <TableHead>Business Type</TableHead>
                   <TableHead>Monthly Volume</TableHead>
@@ -356,31 +279,8 @@ export default function Merchants() {
                   ))
                 ) : filteredMerchants.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="p-0">
-                      {searchQuery || statusFilter !== "all" ? (
-                        <div className="text-center py-8 text-gray-500">
-                          No merchants found matching your filters
-                        </div>
-                      ) : (
-                        <EmptyState
-                          icon={Store}
-                          title="No Merchants Yet"
-                          description="Build your merchant network by adding businesses. Manage their locations, track transactions, and monitor performance."
-                          suggestions={[
-                            "Add a new merchant manually",
-                            "Import merchants from CSV",
-                            "Convert approved prospects to merchants"
-                          ]}
-                          actions={[
-                            {
-                              label: "Add First Merchant",
-                              onClick: () => setIsModalOpen(true),
-                              icon: Plus,
-                              variant: "default"
-                            }
-                          ]}
-                        />
-                      )}
+                    <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                      {searchQuery || statusFilter !== "all" ? "No merchants found matching your filters" : "No merchants found"}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -391,13 +291,6 @@ export default function Merchants() {
                     
                     const rows = [
                       <TableRow key={merchant.id}>
-                        <TableCell>
-                          <Checkbox
-                            checked={selectedMerchantIds.has(merchant.id)}
-                            onCheckedChange={() => toggleMerchantSelection(merchant.id)}
-                            data-testid={`checkbox-select-merchant-${merchant.id}`}
-                          />
-                        </TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-3">
                             {showExpandButton && (
@@ -414,8 +307,8 @@ export default function Merchants() {
                                 )}
                               </Button>
                             )}
-                            <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                              <span className="text-green-600 font-medium text-sm">
+                            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                              <span className="text-blue-600 font-medium text-sm">
                                 {merchant.businessName.charAt(0)}
                               </span>
                             </div>

@@ -241,16 +241,9 @@ export default function MerchantApplicationPage() {
             
             <CardContent className="p-6">
               <Button 
-                onClick={() => {
-                  // Use template ID from prospect's application or assigned template
-                  const templateId = prospectData?.prospectApplication?.templateId || 
-                                    prospectData?.applicationTemplate?.id || 
-                                    1;
-                  setLocation(`/enhanced-pdf-wizard/${templateId}?token=${prospectToken}`);
-                }}
+                onClick={() => setLocation(`/enhanced-pdf-wizard/1?token=${prospectToken}`)}
                 className="w-full"
                 size="lg"
-                data-testid="button-start-application"
               >
                 <Play className="w-4 h-4 mr-2" />
                 Start Application

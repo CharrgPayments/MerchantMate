@@ -1,22 +1,19 @@
 import { Link, useLocation } from "wouter";
-import { CreditCard, BarChart3, Store, Users, Receipt, FileText, LogOut, User, MapPin, Shield, UserPlus, DollarSign, ChevronLeft, ChevronRight, Monitor, ChevronDown, ChevronUp, Book, TestTube, Mail, Crown, Building2, Zap, GitBranch, Lock, Settings, ScrollText, X } from "lucide-react";
-import charrgLogo from "@/assets/charrg-logo.png";
+import { CreditCard, BarChart3, Store, Users, Receipt, FileText, LogOut, User, MapPin, Shield, Upload, UserPlus, DollarSign, ChevronLeft, ChevronRight, Monitor, ChevronDown, ChevronUp, Book, TestTube, Mail, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { canAccessAnalytics, canAccessMerchants, canAccessAgents, canAccessTransactions } from "@/lib/authUtils";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
-import { useMobileSidebar } from "@/contexts/MobileSidebarContext";
+import { useState } from "react";
 
 const baseNavigation = [
-  { name: "Dashboard", href: "/", icon: BarChart3, requiresRole: ['merchant', 'agent', 'admin', 'corporate', 'super_admin', 'underwriter'] },
+  { name: "Dashboard", href: "/", icon: BarChart3, requiresRole: ['merchant', 'agent', 'admin', 'corporate', 'super_admin'] },
   { name: "Agent Dashboard", href: "/agent-dashboard", icon: CreditCard, requiresRole: ['agent'] },
-  { name: "Agent Messages", href: "/agent-communications", icon: Mail, requiresRole: ['agent'] },
   { name: "Merchants", href: "/merchants", icon: Store, requiresRole: ['agent', 'admin', 'corporate', 'super_admin'] },
   { name: "Locations", href: "/locations", icon: MapPin, requiresRole: ['merchant'] },
   { name: "Agents", href: "/agents", icon: Users, requiresRole: ['admin', 'corporate', 'super_admin'] },
-  { name: "Prospects", href: "/prospects", icon: UserPlus, requiresRole: ['admin', 'corporate', 'super_admin', 'underwriter'] },
+  { name: "Prospects", href: "/prospects", icon: UserPlus, requiresRole: ['admin', 'corporate', 'super_admin'] },
   { 
     name: "Campaigns", 
     href: "/campaigns", 
@@ -26,40 +23,13 @@ const baseNavigation = [
       { name: "Equipment", href: "/equipment", icon: Monitor, requiresRole: ['admin', 'super_admin'] }
     ]
   },
-  { 
-    name: "Acquirers", 
-    href: "/acquirers", 
-    icon: Building2, 
-    requiresRole: ['admin', 'super_admin', 'underwriter'],
-    subItems: [
-      { name: "Application Templates", href: "/application-templates", icon: FileText, requiresRole: ['admin', 'super_admin'] },
-      { name: "Disclosure Library", href: "/disclosure-library", icon: ScrollText, requiresRole: ['admin', 'super_admin', 'underwriter'] },
-      { name: "MCC Codes", href: "/mcc-codes", icon: CreditCard, requiresRole: ['admin', 'super_admin', 'underwriter'] },
-      { name: "MCC Policies", href: "/mcc-policies", icon: Shield, requiresRole: ['admin', 'super_admin', 'underwriter'] }
-    ]
-  },
   { name: "Transactions", href: "/transactions", icon: Receipt, requiresRole: ['merchant', 'agent', 'admin', 'corporate', 'super_admin'] },
-  { 
-    name: "Users", 
-    href: "/users", 
-    icon: User, 
-    requiresRole: ['admin', 'corporate', 'super_admin'],
-    subItems: [
-      { name: "Permissions", href: "/permissions", icon: Lock, requiresRole: ['super_admin'] }
-    ]
-  },
+  { name: "PDF Forms", href: "/pdf-forms", icon: Upload, requiresRole: ['admin', 'super_admin'] },
+  { name: "Users", href: "/users", icon: User, requiresRole: ['admin', 'corporate', 'super_admin'] },
   { name: "Reports", href: "/reports", icon: FileText, requiresRole: ['admin', 'corporate', 'super_admin'] },
   { name: "Security", href: "/security", icon: Shield, requiresRole: ['admin', 'super_admin'] },
-  { 
-    name: "Workflows", 
-    href: "/workflows", 
-    icon: GitBranch, 
-    requiresRole: ['admin', 'super_admin', 'underwriter'],
-    subItems: [
-      { name: "Workflow Settings", href: "/workflow-settings", icon: Settings, requiresRole: ['admin', 'super_admin'] }
-    ]
-  },
-  { name: "Communications", href: "/communications", icon: Mail, requiresRole: ['admin', 'super_admin'] },
+  { name: "Email Management", href: "/email-management", icon: Mail, requiresRole: ['admin', 'super_admin'] },
+  { name: "Workflows", href: "/workflows", icon: Zap, requiresRole: ['admin', 'super_admin'] },
   { name: "API Documentation", href: "/api-documentation", icon: Book, requiresRole: ['admin', 'super_admin'] },
   { name: "Testing Utilities", href: "/testing-utilities", icon: TestTube, requiresRole: ['super_admin'] },
 ];
@@ -69,12 +39,6 @@ export function Sidebar() {
   const { user, logout } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
-  const { isOpen: isMobileOpen, close: closeMobile } = useMobileSidebar();
-
-  // Close mobile sidebar on route change
-  useEffect(() => {
-    closeMobile();
-  }, [location, closeMobile]);
 
   // Fetch PDF forms that should appear in navigation
   const { data: pdfForms = [] } = useQuery({
@@ -100,20 +64,15 @@ export function Sidebar() {
   const getFilteredNavigation = () => {
     if (!user) return [];
     
-    const userRoles = (user as any)?.roles || [];
-    
-    // Helper function to check if user has any of the required roles
-    const hasRequiredRole = (requiredRoles: string[]) => {
-      return userRoles.some((userRole: string) => requiredRoles.includes(userRole));
-    };
+    const userRole = (user as any)?.role;
     
     // Filter base navigation with sub-items
     const filteredBase = baseNavigation.filter(item => {
-      return hasRequiredRole(item.requiresRole);
+      return item.requiresRole.includes(userRole);
     }).map(item => ({
       ...item,
       subItems: (item as any).subItems?.filter((subItem: any) => 
-        hasRequiredRole(subItem.requiresRole)
+        subItem.requiresRole.includes(userRole)
       ) || []
     }));
 
@@ -121,7 +80,7 @@ export function Sidebar() {
     const dynamicNavItems = pdfForms
       .filter((form: any) => 
         form.showInNavigation && 
-        hasRequiredRole(form.allowedRoles)
+        form.allowedRoles.includes(userRole)
       )
       .map((form: any) => ({
         name: form.navigationTitle || form.name,
@@ -134,16 +93,14 @@ export function Sidebar() {
     return [...filteredBase, ...dynamicNavItems];
   };
 
-  const sidebarContent = (
-    <>
+  return (
+    <div className={cn("corecrm-sidebar min-h-screen flex flex-col transition-all duration-300", isCollapsed ? "w-16" : "w-64")}>
       {/* Logo */}
-      <div className={cn("border-b border-gray-200 relative flex-shrink-0", isCollapsed ? "p-4" : "p-6")}>
+      <div className={cn("border-b border-gray-200 relative", isCollapsed ? "p-4" : "p-6")}>
         <div className="flex items-center space-x-3">
-          <img 
-            src={charrgLogo} 
-            alt="Charrg Logo" 
-            className="w-10 h-10 object-contain"
-          />
+          <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
+            <CreditCard className="w-6 h-6 text-white" />
+          </div>
           {!isCollapsed && (
             <div>
               <h1 className="text-xl font-bold text-gray-900">CoreCRM</h1>
@@ -152,10 +109,10 @@ export function Sidebar() {
           )}
         </div>
         
-        {/* Collapse Toggle Button - hidden on mobile */}
+        {/* Collapse Toggle Button */}
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-white border border-gray-200 rounded-full hidden md:flex items-center justify-center hover:bg-gray-50 transition-colors shadow-sm"
+          className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-white border border-gray-200 rounded-full flex items-center justify-center hover:bg-gray-50 transition-colors shadow-sm"
         >
           {isCollapsed ? (
             <ChevronRight className="w-3 h-3 text-gray-600" />
@@ -163,18 +120,10 @@ export function Sidebar() {
             <ChevronLeft className="w-3 h-3 text-gray-600" />
           )}
         </button>
-        
-        {/* Mobile close button */}
-        <button
-          onClick={closeMobile}
-          className="absolute right-4 top-1/2 -translate-y-1/2 w-8 h-8 flex md:hidden items-center justify-center hover:bg-gray-100 rounded-lg transition-colors"
-        >
-          <X className="w-5 h-5 text-gray-600" />
-        </button>
       </div>
 
       {/* Navigation */}
-      <nav className={cn("flex-1 overflow-y-auto space-y-2", isCollapsed ? "p-2" : "p-4")}>
+      <nav className={cn("flex-1 space-y-2", isCollapsed ? "p-2" : "p-4")}>
         {getFilteredNavigation().map((item: any) => {
           const isActive = location === item.href;
           const hasSubItems = item.subItems && item.subItems.length > 0;
@@ -257,24 +206,18 @@ export function Sidebar() {
 
       {/* User Profile & Logout */}
       {user && (
-        <div className={cn("border-t border-gray-200 flex-shrink-0", isCollapsed ? "p-2" : "p-4")}>
+        <div className={cn("border-t border-gray-200", isCollapsed ? "p-2" : "p-4")}>
           {!isCollapsed && (
             <div className="flex items-center space-x-3 mb-3">
               <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
                 <User className="w-4 h-4 text-gray-600" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center space-x-2">
-                  <p className="text-sm font-medium text-gray-900 truncate">
-                    {(user as any)?.firstName} {(user as any)?.lastName}
-                  </p>
-                  {/* Super Admin Crown Badge */}
-                  {(user as any)?.roles?.includes('super_admin') && (
-                    <Crown className="w-4 h-4 text-yellow-500" title="Super Administrator" />
-                  )}
-                </div>
+                <p className="text-sm font-medium text-gray-900 truncate">
+                  {(user as any)?.firstName} {(user as any)?.lastName}
+                </p>
                 <p className="text-xs text-gray-500 capitalize">
-                  {(user as any)?.roles?.[0]?.replace('_', ' ') || 'User'}
+                  {(user as any)?.role?.replace('_', ' ')}
                 </p>
               </div>
             </div>
@@ -303,36 +246,6 @@ export function Sidebar() {
           </div>
         </div>
       )}
-    </>
-  );
-
-  return (
-    <>
-      {/* Desktop Sidebar */}
-      <div className={cn(
-        "corecrm-sidebar h-screen flex-col transition-all duration-300 hidden md:flex",
-        isCollapsed ? "w-16" : "w-64"
-      )}>
-        {sidebarContent}
-      </div>
-
-      {/* Mobile Overlay */}
-      {isMobileOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-40 md:hidden"
-          onClick={closeMobile}
-        />
-      )}
-
-      {/* Mobile Sidebar Drawer */}
-      <div className={cn(
-        "fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-xl transform transition-transform duration-300 ease-in-out md:hidden",
-        isMobileOpen ? "translate-x-0" : "-translate-x-full"
-      )}>
-        <div className="corecrm-sidebar h-full flex flex-col">
-          {sidebarContent}
-        </div>
-      </div>
-    </>
+    </div>
   );
 }

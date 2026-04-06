@@ -20,8 +20,7 @@ import {
   Download,
   XCircle,
   Clock,
-  AlertCircle,
-  RefreshCw
+  AlertCircle
 } from 'lucide-react';
 import { Link } from 'wouter';
 
@@ -87,8 +86,11 @@ export default function ApplicationView() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading application...</p>
+        </div>
       </div>
     );
   }
