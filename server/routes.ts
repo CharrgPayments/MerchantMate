@@ -6392,6 +6392,166 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
 
+  // ============================================================================
+  // WORKFLOW DEFINITIONS API
+  // ============================================================================
+
+  // Get all workflow definitions
+  app.get("/api/admin/workflows", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const db = getRequestDB(req);
+      const { workflowDefinitions, workflowEndpoints, workflowEnvironmentConfigs } = await import('@shared/schema');
+      const workflows = await db.select().from(workflowDefinitions).orderBy(workflowDefinitions.createdAt);
+      // For each workflow, fetch its endpoints and environment configs
+      const enriched = await Promise.all(workflows.map(async (wf) => {
+        const { eq } = await import('drizzle-orm');
+        const endpoints = await db.select().from(workflowEndpoints).where(eq(workflowEndpoints.workflowId, wf.id)).orderBy(workflowEndpoints.sortOrder);
+        const envConfigs = await db.select().from(workflowEnvironmentConfigs).where(eq(workflowEnvironmentConfigs.workflowId, wf.id));
+        return { ...wf, endpoints, environmentConfigs: envConfigs };
+      }));
+      res.json(enriched);
+    } catch (error) {
+      console.error("Error fetching workflows:", error);
+      res.status(500).json({ message: "Failed to fetch workflows" });
+    }
+  });
+
+  // Create workflow definition
+  app.post("/api/admin/workflows", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const db = getRequestDB(req);
+      const { workflowDefinitions, insertWorkflowDefinitionSchema } = await import('@shared/schema');
+      const validated = insertWorkflowDefinitionSchema.parse({ ...req.body, createdBy: (req as any).user?.id });
+      const [created] = await db.insert(workflowDefinitions).values(validated).returning();
+      res.status(201).json(created);
+    } catch (error: any) {
+      console.error("Error creating workflow:", error);
+      res.status(error.name === 'ZodError' ? 400 : 500).json({ message: error.message || "Failed to create workflow" });
+    }
+  });
+
+  // Update workflow definition
+  app.put("/api/admin/workflows/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const db = getRequestDB(req);
+      const { workflowDefinitions } = await import('@shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const id = parseInt(req.params.id);
+      const [updated] = await db.update(workflowDefinitions).set({ ...req.body, updatedAt: new Date() }).where(eq(workflowDefinitions.id, id)).returning();
+      if (!updated) return res.status(404).json({ message: "Workflow not found" });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating workflow:", error);
+      res.status(500).json({ message: "Failed to update workflow" });
+    }
+  });
+
+  // Delete workflow definition
+  app.delete("/api/admin/workflows/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const db = getRequestDB(req);
+      const { workflowDefinitions } = await import('@shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const id = parseInt(req.params.id);
+      await db.delete(workflowDefinitions).where(eq(workflowDefinitions.id, id));
+      res.json({ message: "Workflow deleted" });
+    } catch (error) {
+      console.error("Error deleting workflow:", error);
+      res.status(500).json({ message: "Failed to delete workflow" });
+    }
+  });
+
+  // Create workflow endpoint
+  app.post("/api/admin/workflows/:id/endpoints", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const db = getRequestDB(req);
+      const { workflowEndpoints, insertWorkflowEndpointSchema } = await import('@shared/schema');
+      const workflowId = parseInt(req.params.id);
+      const validated = insertWorkflowEndpointSchema.parse({ ...req.body, workflowId });
+      const [created] = await db.insert(workflowEndpoints).values(validated).returning();
+      res.status(201).json(created);
+    } catch (error: any) {
+      console.error("Error creating workflow endpoint:", error);
+      res.status(error.name === 'ZodError' ? 400 : 500).json({ message: error.message || "Failed to create endpoint" });
+    }
+  });
+
+  // Update workflow endpoint
+  app.put("/api/admin/workflows/:id/endpoints/:endpointId", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const db = getRequestDB(req);
+      const { workflowEndpoints } = await import('@shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const endpointId = parseInt(req.params.endpointId);
+      const [updated] = await db.update(workflowEndpoints).set({ ...req.body, updatedAt: new Date() }).where(eq(workflowEndpoints.id, endpointId)).returning();
+      if (!updated) return res.status(404).json({ message: "Endpoint not found" });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating workflow endpoint:", error);
+      res.status(500).json({ message: "Failed to update endpoint" });
+    }
+  });
+
+  // Delete workflow endpoint
+  app.delete("/api/admin/workflows/:id/endpoints/:endpointId", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const db = getRequestDB(req);
+      const { workflowEndpoints } = await import('@shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const endpointId = parseInt(req.params.endpointId);
+      await db.delete(workflowEndpoints).where(eq(workflowEndpoints.id, endpointId));
+      res.json({ message: "Endpoint deleted" });
+    } catch (error) {
+      console.error("Error deleting workflow endpoint:", error);
+      res.status(500).json({ message: "Failed to delete endpoint" });
+    }
+  });
+
+  // Upsert environment config for a workflow (one per environment)
+  app.put("/api/admin/workflows/:id/env-configs/:environment", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const db = getRequestDB(req);
+      const { workflowEnvironmentConfigs } = await import('@shared/schema');
+      const { eq, and } = await import('drizzle-orm');
+      const workflowId = parseInt(req.params.id);
+      const environment = req.params.environment;
+      const existing = await db.select().from(workflowEnvironmentConfigs)
+        .where(and(eq(workflowEnvironmentConfigs.workflowId, workflowId), eq(workflowEnvironmentConfigs.environment, environment)));
+      if (existing.length > 0) {
+        const [updated] = await db.update(workflowEnvironmentConfigs)
+          .set({ ...req.body, updatedAt: new Date() })
+          .where(eq(workflowEnvironmentConfigs.id, existing[0].id))
+          .returning();
+        return res.json(updated);
+      } else {
+        const [created] = await db.insert(workflowEnvironmentConfigs)
+          .values({ workflowId, environment, ...req.body })
+          .returning();
+        return res.status(201).json(created);
+      }
+    } catch (error) {
+      console.error("Error upserting env config:", error);
+      res.status(500).json({ message: "Failed to save environment config" });
+    }
+  });
+
+  // Delete environment config
+  app.delete("/api/admin/workflows/:id/env-configs/:environment", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const db = getRequestDB(req);
+      const { workflowEnvironmentConfigs } = await import('@shared/schema');
+      const { eq, and } = await import('drizzle-orm');
+      const workflowId = parseInt(req.params.id);
+      const environment = req.params.environment;
+      await db.delete(workflowEnvironmentConfigs)
+        .where(and(eq(workflowEnvironmentConfigs.workflowId, workflowId), eq(workflowEnvironmentConfigs.environment, environment)));
+      res.json({ message: "Environment config deleted" });
+    } catch (error) {
+      console.error("Error deleting env config:", error);
+      res.status(500).json({ message: "Failed to delete environment config" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

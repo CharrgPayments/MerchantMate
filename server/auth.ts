@@ -157,7 +157,7 @@ export class AuthService {
         passwordHash,
         firstName: userData.firstName,
         lastName: userData.lastName,
-        role: userData.role || "merchant",
+        roles: [userData.role || "merchant"],
         emailVerificationToken,
         emailVerified: false,
         status: 'active' as const,
@@ -221,10 +221,10 @@ export class AuthService {
         passwordHash,
         firstName: userData.firstName,
         lastName: userData.lastName,
-        role: userData.role || "merchant",
+        roles: [userData.role || "merchant"],
         emailVerificationToken,
         emailVerified: false,
-      });
+      } as any);
 
       // Send verification email
       await this.sendEmail(

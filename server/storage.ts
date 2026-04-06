@@ -1533,83 +1533,110 @@ export class DatabaseStorage implements IStorage {
   }
 
   // User operations
+  // Add backward-compat 'role' (singular) from the 'roles' array column
+  private withRole(user: any): User {
+    if (!user) return user;
+    return { ...user, role: (user.roles?.[0] || user.role || 'merchant') };
+  }
+  private withRoles(userList: any[]): User[] {
+    return userList.map(u => this.withRole(u));
+  }
+
   async getUser(id: string): Promise<User | undefined> {
     console.log('Storage.getUser - Looking for user with ID:', id);
     const [user] = await db.select().from(users).where(eq(users.id, id));
     console.log('Storage.getUser - Found:', user ? `${user.username} (${user.id})` : 'null');
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.email, email));
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.username, username));
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async getUserByUsernameOrEmail(username: string, email: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(
       or(eq(users.username, username), eq(users.email, email))
     );
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async getUserByResetToken(token: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.passwordResetToken, token));
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async getUserByEmailVerificationToken(token: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.emailVerificationToken, token));
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async createUser(userData: Partial<UpsertUser>): Promise<User> {
+    // Convert role (string) to roles (array) if needed
+    const normalized: any = { ...userData };
+    if (normalized.role && !normalized.roles) {
+      normalized.roles = [normalized.role];
+      delete normalized.role;
+    }
     const [user] = await db
       .insert(users)
-      .values(userData as UpsertUser)
+      .values(normalized as UpsertUser)
       .returning();
-    return user;
+    return this.withRole(user);
   }
 
   async getAllUsers(): Promise<User[]> {
-    return await db.select().from(users);
+    const result = await db.select().from(users);
+    return this.withRoles(result);
   }
 
   async upsertUser(userData: UpsertUser): Promise<User> {
+    const normalized: any = { ...userData };
+    if (normalized.role && !normalized.roles) {
+      normalized.roles = [normalized.role];
+      delete normalized.role;
+    }
     const [user] = await db
       .insert(users)
-      .values(userData)
+      .values(normalized)
       .onConflictDoUpdate({
         target: users.id,
         set: {
-          ...userData,
+          ...normalized,
           updatedAt: new Date(),
         },
       })
       .returning();
-    return user;
+    return this.withRole(user);
   }
 
   async updateUser(id: string, updates: Partial<UpsertUser>): Promise<User | undefined> {
+    const normalized: any = { ...updates };
+    if (normalized.role && !normalized.roles) {
+      normalized.roles = [normalized.role];
+      delete normalized.role;
+    }
     const [user] = await db
       .update(users)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...normalized, updatedAt: new Date() })
       .where(eq(users.id, id))
       .returning();
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async updateUserRole(id: string, role: string): Promise<User | undefined> {
+    // Store as array in the 'roles' column
     const [user] = await db
       .update(users)
-      .set({ role, updatedAt: new Date() })
+      .set({ roles: [role], updatedAt: new Date() } as any)
       .where(eq(users.id, id))
       .returning();
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async updateUserStatus(id: string, status: string): Promise<User | undefined> {

@@ -42,6 +42,7 @@ import Campaigns from "@/pages/campaigns";
 import Equipment from "@/pages/equipment";
 import EmailManagement from "@/pages/email-management";
 import ApiDocumentation from "@/pages/api-documentation";
+import Workflows from "@/pages/workflows";
 import TestingUtilities from "@/pages/testing-utilities";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
@@ -506,6 +507,19 @@ function AuthenticatedApp() {
                   />
                   <main className="flex-1 overflow-auto bg-gray-50">
                     <Equipment />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/workflows">
+            {() => {
+              if (!canAccessSecurityDashboard(user)) return <NotFound />;
+              return (
+                <>
+                  <Header title="Workflows" onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <Workflows />
                   </main>
                 </>
               );

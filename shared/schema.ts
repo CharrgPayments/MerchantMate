@@ -212,18 +212,22 @@ export const users = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
-  role: text("role").notNull().default("merchant"), // merchant, agent, admin, corporate, super_admin
+  // DB column is "roles" (array) — schema synced to match actual database
+  roles: text("roles").array().notNull().default(["merchant"]), // merchant, agent, admin, corporate, super_admin
   status: text("status").notNull().default("active"), // active, suspended, inactive
   permissions: jsonb("permissions").default("{}"),
   lastLoginAt: timestamp("last_login_at"),
   lastLoginIp: varchar("last_login_ip"),
-  timezone: varchar("timezone").default("UTC"), // User's preferred timezone e.g., "America/New_York"
+  timezone: varchar("timezone").default("UTC"),
   twoFactorEnabled: boolean("two_factor_enabled").default(false),
   twoFactorSecret: varchar("two_factor_secret"),
   passwordResetToken: varchar("password_reset_token"),
   passwordResetExpires: timestamp("password_reset_expires"),
   emailVerified: boolean("email_verified").default(false),
   emailVerificationToken: varchar("email_verification_token"),
+  phone: text("phone"),
+  communicationPreference: text("communication_preference"),
+  mustChangePassword: boolean("must_change_password").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -317,7 +321,7 @@ export type PasswordReset = z.infer<typeof passwordResetSchema>;
 export type TwoFactorVerify = z.infer<typeof twoFactorVerifySchema>;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type UpsertUser = typeof users.$inferInsert;
-export type User = typeof users.$inferSelect;
+export type User = typeof users.$inferSelect & { role?: string };
 export type LoginAttempt = typeof loginAttempts.$inferSelect;
 export type TwoFactorCode = typeof twoFactorCodes.$inferSelect;
 
@@ -974,3 +978,57 @@ export type EmailActivity = typeof emailActivity.$inferSelect;
 export type InsertEmailActivity = z.infer<typeof insertEmailActivitySchema>;
 export type EmailTrigger = typeof emailTriggers.$inferSelect;
 export type InsertEmailTrigger = z.infer<typeof insertEmailTriggerSchema>;
+
+// ============================================================================
+// WORKFLOW DEFINITIONS
+// ============================================================================
+
+export const workflowDefinitions = pgTable('workflow_definitions', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  category: varchar('category', { length: 100 }).default('merchant'), // merchant, transaction, reporting, general
+  isActive: boolean('is_active').default(true),
+  createdBy: varchar('created_by', { length: 255 }),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const workflowEndpoints = pgTable('workflow_endpoints', {
+  id: serial('id').primaryKey(),
+  workflowId: integer('workflow_id').notNull().references(() => workflowDefinitions.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  method: varchar('method', { length: 10 }).notNull().default('GET'), // GET, POST, PUT, DELETE, PATCH
+  path: varchar('path', { length: 500 }).notNull(), // URL path, e.g. /merchants/{id}
+  requestSchema: jsonb('request_schema'), // JSON schema for request body/params
+  responseSchema: jsonb('response_schema'), // JSON schema for expected response
+  defaultHeaders: jsonb('default_headers'), // Static headers besides Bearer token
+  queryParams: jsonb('query_params'), // Query parameter definitions
+  sortOrder: integer('sort_order').default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const workflowEnvironmentConfigs = pgTable('workflow_environment_configs', {
+  id: serial('id').primaryKey(),
+  workflowId: integer('workflow_id').notNull().references(() => workflowDefinitions.id, { onDelete: 'cascade' }),
+  environment: varchar('environment', { length: 50 }).notNull(), // development, test, production
+  baseUrl: varchar('base_url', { length: 500 }).notNull(),
+  bearerToken: text('bearer_token'),
+  additionalHeaders: jsonb('additional_headers'),
+  isActive: boolean('is_active').default(true),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const insertWorkflowDefinitionSchema = createInsertSchema(workflowDefinitions).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWorkflowEndpointSchema = createInsertSchema(workflowEndpoints).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWorkflowEnvironmentConfigSchema = createInsertSchema(workflowEnvironmentConfigs).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type WorkflowDefinition = typeof workflowDefinitions.$inferSelect;
+export type InsertWorkflowDefinition = z.infer<typeof insertWorkflowDefinitionSchema>;
+export type WorkflowEndpoint = typeof workflowEndpoints.$inferSelect;
+export type InsertWorkflowEndpoint = z.infer<typeof insertWorkflowEndpointSchema>;
+export type WorkflowEnvironmentConfig = typeof workflowEnvironmentConfigs.$inferSelect;
+export type InsertWorkflowEnvironmentConfig = z.infer<typeof insertWorkflowEnvironmentConfigSchema>;

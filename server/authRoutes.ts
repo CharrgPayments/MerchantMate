@@ -27,18 +27,31 @@ export function setupAuthRoutes(app: Express) {
     
     // Use dynamic database if available, otherwise fallback to default storage
     let user;
-    if (req.dynamicDB) {
-      const schema = await import('@shared/schema');
-      const { eq } = await import('drizzle-orm');
-      
-      const users = await req.dynamicDB
-        .select()
-        .from(schema.users)
-        .where(eq(schema.users.id, req.session.userId));
-      
-      user = users[0];
-    } else {
-      user = await storage.getUser(req.session.userId);
+    try {
+      if (req.dynamicDB) {
+        const schema = await import('@shared/schema');
+        const { eq } = await import('drizzle-orm');
+        
+        const users = await req.dynamicDB
+          .select()
+          .from(schema.users)
+          .where(eq(schema.users.id, req.session.userId));
+        
+        const raw = users[0];
+        // Add backward-compat 'role' from 'roles' array column
+        user = raw ? { ...raw, role: (raw.roles?.[0] || (raw as any).role || 'merchant') } : undefined;
+      } else {
+        user = await storage.getUser(req.session.userId);
+      }
+    } catch (dbError: any) {
+      // Fall back to default storage if dynamic DB query fails (e.g. schema mismatch between environments)
+      console.warn('requireAuth: dynamic DB query failed, falling back to default storage:', dbError?.message);
+      try {
+        user = await storage.getUser(req.session.userId);
+      } catch (fallbackError: any) {
+        console.error('requireAuth: fallback storage also failed:', fallbackError?.message);
+        return res.status(500).json({ message: "Authentication error" });
+      }
     }
     
     if (!user || user.status !== 'active') {
