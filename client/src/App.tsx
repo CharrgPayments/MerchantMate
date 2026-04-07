@@ -43,6 +43,7 @@ import Equipment from "@/pages/equipment";
 import EmailManagement from "@/pages/email-management";
 import ApiDocumentation from "@/pages/api-documentation";
 import TestingUtilities from "@/pages/testing-utilities";
+import Workflows from "@/pages/workflows";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import Auth from "@/pages/auth";
@@ -134,6 +135,11 @@ function AuthenticatedApp() {
         return {
           title: "Email Management",
           subtitle: "Manage email templates and track communication activity"
+        };
+      case "/workflows":
+        return {
+          title: "Workflow Definitions",
+          subtitle: "Configure and manage automation workflows"
         };
       case "/pdf-forms":
         return {
@@ -506,6 +512,23 @@ function AuthenticatedApp() {
                   />
                   <main className="flex-1 overflow-auto bg-gray-50">
                     <Equipment />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/workflows">
+            {() => {
+              if (!user || (user.role !== 'admin' && user.role !== 'super_admin')) return <NotFound />;
+              const pageInfo = getPageInfo("/workflows");
+              return (
+                <>
+                  <Header
+                    title={pageInfo.title}
+                    onSearch={setGlobalSearch}
+                  />
+                  <main className="flex-1 overflow-hidden bg-white">
+                    <Workflows />
                   </main>
                 </>
               );

@@ -173,7 +173,7 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
         const dynamicDB = getDynamicDatabase(sessionDbEnv);
         const userResults = await dynamicDB.select().from(users).where(eq(users.id, sessionUserId));
         const rawUser = userResults[0] || null;
-        dbUser = rawUser ? { ...rawUser, role: rawUser.roles?.[0] ?? "merchant" } : null;
+        dbUser = rawUser ? { ...rawUser, role: rawUser.roles?.[0] ?? (rawUser as any).role ?? "merchant" } : null;
         console.log(`Session Auth - Looking in ${sessionDbEnv} database for user:`, sessionUserId);
       } else {
         // Fallback to default storage

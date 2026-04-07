@@ -224,6 +224,8 @@ export const users = pgTable("users", {
   passwordResetExpires: timestamp("password_reset_expires"),
   emailVerified: boolean("email_verified").default(false),
   emailVerificationToken: varchar("email_verification_token"),
+  communicationPreference: varchar("communication_preference").default("email"), // email, sms, both
+  mustChangePassword: boolean("must_change_password").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -974,3 +976,64 @@ export type EmailActivity = typeof emailActivity.$inferSelect;
 export type InsertEmailActivity = z.infer<typeof insertEmailActivitySchema>;
 export type EmailTrigger = typeof emailTriggers.$inferSelect;
 export type InsertEmailTrigger = z.infer<typeof insertEmailTriggerSchema>;
+
+// ─── Workflow Definitions ─────────────────────────────────────────────────────
+
+// Core workflow automation templates
+export const workflowDefinitions = pgTable("workflow_definitions", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  trigger: varchar("trigger", { length: 50 }).notNull().default("manual"), // manual, webhook, schedule, event
+  triggerConfig: jsonb("trigger_config").default("{}"),
+  steps: jsonb("steps").default("[]"), // array of step definitions
+  status: varchar("status", { length: 20 }).notNull().default("draft"), // draft, active, inactive
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  allowedRoles: text("allowed_roles").array().default(['admin']),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// External API endpoint configurations used by workflow steps
+export const workflowEndpoints = pgTable("workflow_endpoints", {
+  id: serial("id").primaryKey(),
+  workflowId: integer("workflow_id").references(() => workflowDefinitions.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  url: varchar("url", { length: 2048 }).notNull(),
+  method: varchar("method", { length: 10 }).notNull().default("POST"), // GET, POST, PUT, DELETE, PATCH
+  headers: jsonb("headers").default("{}"),
+  authType: varchar("auth_type", { length: 20 }).default("none"), // none, api_key, bearer, basic
+  authConfig: jsonb("auth_config").default("{}"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Per-environment configuration overrides for workflows
+export const workflowEnvironmentConfigs = pgTable("workflow_environment_configs", {
+  id: serial("id").primaryKey(),
+  workflowId: integer("workflow_id").notNull().references(() => workflowDefinitions.id, { onDelete: "cascade" }),
+  environment: varchar("environment", { length: 20 }).notNull(), // production, development, test
+  config: jsonb("config").default("{}"), // environment-specific config overrides
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Workflow Zod schemas and types
+export const insertWorkflowDefinitionSchema = createInsertSchema(workflowDefinitions).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWorkflowEndpointSchema = createInsertSchema(workflowEndpoints).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWorkflowEnvironmentConfigSchema = createInsertSchema(workflowEnvironmentConfigs).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type WorkflowDefinition = typeof workflowDefinitions.$inferSelect;
+export type InsertWorkflowDefinition = z.infer<typeof insertWorkflowDefinitionSchema>;
+export type WorkflowEndpoint = typeof workflowEndpoints.$inferSelect;
+export type InsertWorkflowEndpoint = z.infer<typeof insertWorkflowEndpointSchema>;
+export type WorkflowEnvironmentConfig = typeof workflowEnvironmentConfigs.$inferSelect;
+export type InsertWorkflowEnvironmentConfig = z.infer<typeof insertWorkflowEnvironmentConfigSchema>;
+
+export type WorkflowDefinitionWithDetails = WorkflowDefinition & {
+  endpoints?: WorkflowEndpoint[];
+  environmentConfigs?: WorkflowEnvironmentConfig[];
+};

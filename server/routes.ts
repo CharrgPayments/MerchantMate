@@ -6392,6 +6392,149 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
 
+  // ============================================================================
+  // WORKFLOW DEFINITIONS API ENDPOINTS
+  // ============================================================================
+
+  // List all workflow definitions
+  app.get("/api/admin/workflows", requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const workflows = await storage.getAllWorkflowDefinitions();
+      res.json(workflows);
+    } catch (error) {
+      console.error("Error fetching workflows:", error);
+      res.status(500).json({ message: "Failed to fetch workflows" });
+    }
+  });
+
+  // Get a single workflow with its endpoints and environment configs
+  app.get("/api/admin/workflows/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const workflow = await storage.getWorkflowDefinition(id);
+      if (!workflow) return res.status(404).json({ message: "Workflow not found" });
+      res.json(workflow);
+    } catch (error) {
+      console.error("Error fetching workflow:", error);
+      res.status(500).json({ message: "Failed to fetch workflow" });
+    }
+  });
+
+  // Create a workflow definition
+  app.post("/api/admin/workflows", requireRole(['admin', 'super_admin']), async (req: any, res) => {
+    try {
+      const currentUser = req.currentUser;
+      const data = { ...req.body, createdBy: currentUser?.id };
+      const workflow = await storage.createWorkflowDefinition(data);
+      res.status(201).json(workflow);
+    } catch (error) {
+      console.error("Error creating workflow:", error);
+      res.status(500).json({ message: "Failed to create workflow" });
+    }
+  });
+
+  // Update a workflow definition
+  app.put("/api/admin/workflows/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const workflow = await storage.updateWorkflowDefinition(id, req.body);
+      if (!workflow) return res.status(404).json({ message: "Workflow not found" });
+      res.json(workflow);
+    } catch (error) {
+      console.error("Error updating workflow:", error);
+      res.status(500).json({ message: "Failed to update workflow" });
+    }
+  });
+
+  // Delete a workflow definition
+  app.delete("/api/admin/workflows/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deleted = await storage.deleteWorkflowDefinition(id);
+      if (!deleted) return res.status(404).json({ message: "Workflow not found" });
+      res.json({ message: "Workflow deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting workflow:", error);
+      res.status(500).json({ message: "Failed to delete workflow" });
+    }
+  });
+
+  // Toggle workflow enabled/disabled
+  app.patch("/api/admin/workflows/:id/toggle", requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const existing = await storage.getWorkflowDefinition(id);
+      if (!existing) return res.status(404).json({ message: "Workflow not found" });
+      const workflow = await storage.updateWorkflowDefinition(id, { isEnabled: !existing.isEnabled });
+      res.json(workflow);
+    } catch (error) {
+      console.error("Error toggling workflow:", error);
+      res.status(500).json({ message: "Failed to toggle workflow" });
+    }
+  });
+
+  // Workflow endpoints CRUD
+  app.get("/api/admin/workflows/:id/endpoints", requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const endpoints = await storage.getWorkflowEndpoints(parseInt(req.params.id));
+      res.json(endpoints);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch endpoints" });
+    }
+  });
+
+  app.post("/api/admin/workflows/:id/endpoints", requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const endpoint = await storage.createWorkflowEndpoint({ ...req.body, workflowId: parseInt(req.params.id) });
+      res.status(201).json(endpoint);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to create endpoint" });
+    }
+  });
+
+  app.put("/api/admin/workflows/endpoints/:epId", requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const endpoint = await storage.updateWorkflowEndpoint(parseInt(req.params.epId), req.body);
+      if (!endpoint) return res.status(404).json({ message: "Endpoint not found" });
+      res.json(endpoint);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update endpoint" });
+    }
+  });
+
+  app.delete("/api/admin/workflows/endpoints/:epId", requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const deleted = await storage.deleteWorkflowEndpoint(parseInt(req.params.epId));
+      if (!deleted) return res.status(404).json({ message: "Endpoint not found" });
+      res.json({ message: "Endpoint deleted" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete endpoint" });
+    }
+  });
+
+  // Workflow environment configs
+  app.get("/api/admin/workflows/:id/env-configs", requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const configs = await storage.getWorkflowEnvironmentConfigs(parseInt(req.params.id));
+      res.json(configs);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch environment configs" });
+    }
+  });
+
+  app.put("/api/admin/workflows/:id/env-configs/:env", requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const config = await storage.upsertWorkflowEnvironmentConfig(
+        parseInt(req.params.id),
+        req.params.env,
+        req.body.config
+      );
+      res.json(config);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to save environment config" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
