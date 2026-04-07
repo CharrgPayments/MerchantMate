@@ -1,15 +1,15 @@
 import { MailService } from '@sendgrid/mail';
 
-if (!process.env.SENDGRID_API_KEY) {
-  throw new Error("SENDGRID_API_KEY environment variable must be set");
-}
+const SENDGRID_ENABLED = !!(process.env.SENDGRID_API_KEY && process.env.SENDGRID_FROM_EMAIL);
 
-if (!process.env.SENDGRID_FROM_EMAIL) {
-  throw new Error("SENDGRID_FROM_EMAIL environment variable must be set");
+if (!SENDGRID_ENABLED) {
+  console.warn("Warning: SENDGRID_API_KEY or SENDGRID_FROM_EMAIL not set. Email sending will be disabled.");
 }
 
 const mailService = new MailService();
-mailService.setApiKey(process.env.SENDGRID_API_KEY);
+if (SENDGRID_ENABLED) {
+  mailService.setApiKey(process.env.SENDGRID_API_KEY!);
+}
 
 interface ProspectEmailData {
   firstName: string;
@@ -132,6 +132,11 @@ Merchant Processing Services
 This is an automated message. Please do not reply to this email.
       `;
 
+      if (!SENDGRID_ENABLED) {
+        console.log(`[Email disabled] Would send prospect validation email to ${data.email}`);
+        return false;
+      }
+
       await mailService.send({
         to: data.email,
         from: process.env.SENDGRID_FROM_EMAIL!,
@@ -239,6 +244,11 @@ By signing, you acknowledge your ownership percentage and authorize the applicat
 Core CRM - Merchant Services Division
 This email was sent to ${data.ownerEmail}
       `;
+
+      if (!SENDGRID_ENABLED) {
+        console.log(`[Email disabled] Would send signature request email to ${data.ownerEmail}`);
+        return false;
+      }
 
       await mailService.send({
         to: data.ownerEmail,
@@ -376,6 +386,11 @@ This email was sent to ${data.ownerEmail}
           </div>
         `
       };
+
+      if (!SENDGRID_ENABLED) {
+        console.log(`[Email disabled] Would send application submission notifications for ${data.companyName}`);
+        return false;
+      }
 
       // Send both emails
       await Promise.all([

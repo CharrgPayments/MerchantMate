@@ -1194,7 +1194,7 @@ export const disclosureDefinitions = pgTable("disclosure_definitions", {
   displayName: text("display_name").notNull(),
   description: text("description"),
   category: text("category").notNull().default("general"),
-  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }),
+  companyId: integer("company_id"),
   isActive: boolean("is_active").notNull().default(true),
   requiresSignature: boolean("requires_signature").notNull().default(false),
   createdBy: varchar("created_by").references(() => users.id),
