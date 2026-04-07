@@ -6468,12 +6468,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create a workflow definition
-  app.post("/api/admin/workflows", requireRole(['admin', 'super_admin']), async (req: any, res) => {
+  app.post("/api/admin/workflows", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
-      const currentUser = req.currentUser;
-      const data = { ...req.body, createdBy: currentUser?.id };
-      const workflow = await storage.createWorkflowDefinition(data);
-      res.status(201).json(workflow);
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const currentUser = (req as any).currentUser;
+      const { code, name, description, version = "1.0", category, entity_type,
+              initial_status = "submitted", final_statuses = ["approved","rejected"],
+              configuration = {}, is_active = true } = req.body;
+      if (!code || !name || !category || !entity_type) {
+        return res.status(400).json({ message: "code, name, category, and entity_type are required" });
+      }
+      const result = await dynamicDB.execute(sqlTag`
+        INSERT INTO workflow_definitions
+          (code, name, description, version, category, entity_type, initial_status,
+           final_statuses, configuration, is_active, created_by, created_at, updated_at)
+        VALUES (
+          ${code}, ${name}, ${description ?? null}, ${version}, ${category}, ${entity_type},
+          ${initial_status}, ${final_statuses}, ${JSON.stringify(configuration)},
+          ${is_active}, ${currentUser?.id ?? 'system'}, NOW(), NOW()
+        )
+        RETURNING *
+      `);
+      res.status(201).json((result.rows ?? result)[0]);
     } catch (error) {
       console.error("Error creating workflow:", error);
       res.status(500).json({ message: "Failed to create workflow" });
@@ -6481,12 +6498,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update a workflow definition
-  app.put("/api/admin/workflows/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.put("/api/admin/workflows/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
       const id = parseInt(req.params.id);
-      const workflow = await storage.updateWorkflowDefinition(id, req.body);
-      if (!workflow) return res.status(404).json({ message: "Workflow not found" });
-      res.json(workflow);
+      const { code, name, description, version, category, entity_type,
+              initial_status, final_statuses, configuration, is_active } = req.body;
+      const result = await dynamicDB.execute(sqlTag`
+        UPDATE workflow_definitions SET
+          code = COALESCE(${code ?? null}, code),
+          name = COALESCE(${name ?? null}, name),
+          description = COALESCE(${description ?? null}, description),
+          version = COALESCE(${version ?? null}, version),
+          category = COALESCE(${category ?? null}, category),
+          entity_type = COALESCE(${entity_type ?? null}, entity_type),
+          initial_status = COALESCE(${initial_status ?? null}, initial_status),
+          final_statuses = COALESCE(${final_statuses ?? null}, final_statuses),
+          configuration = COALESCE(${configuration ? JSON.stringify(configuration) : null}::jsonb, configuration),
+          is_active = COALESCE(${is_active ?? null}, is_active),
+          updated_at = NOW()
+        WHERE id = ${id}
+        RETURNING *
+      `);
+      const rows = result.rows ?? result;
+      if (!rows.length) return res.status(404).json({ message: "Workflow not found" });
+      res.json(rows[0]);
     } catch (error) {
       console.error("Error updating workflow:", error);
       res.status(500).json({ message: "Failed to update workflow" });
@@ -6494,11 +6531,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete a workflow definition
-  app.delete("/api/admin/workflows/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.delete("/api/admin/workflows/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
       const id = parseInt(req.params.id);
-      const deleted = await storage.deleteWorkflowDefinition(id);
-      if (!deleted) return res.status(404).json({ message: "Workflow not found" });
+      await dynamicDB.execute(sqlTag`DELETE FROM workflow_stages WHERE workflow_definition_id = ${id}`);
+      const result = await dynamicDB.execute(sqlTag`DELETE FROM workflow_definitions WHERE id = ${id} RETURNING id`);
+      const rows = result.rows ?? result;
+      if (!rows.length) return res.status(404).json({ message: "Workflow not found" });
       res.json({ message: "Workflow deleted successfully" });
     } catch (error) {
       console.error("Error deleting workflow:", error);
@@ -6506,96 +6547,163 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Toggle workflow enabled/disabled
-  app.patch("/api/admin/workflows/:id/toggle", requireRole(['admin', 'super_admin']), async (req, res) => {
+  // Toggle workflow active/inactive
+  app.patch("/api/admin/workflows/:id/toggle", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
       const id = parseInt(req.params.id);
-      const existing = await storage.getWorkflowDefinition(id);
-      if (!existing) return res.status(404).json({ message: "Workflow not found" });
-      const workflow = await storage.updateWorkflowDefinition(id, { isEnabled: !existing.isEnabled });
-      res.json(workflow);
+      const result = await dynamicDB.execute(sqlTag`
+        UPDATE workflow_definitions SET is_active = NOT is_active, updated_at = NOW()
+        WHERE id = ${id} RETURNING *
+      `);
+      const rows = result.rows ?? result;
+      if (!rows.length) return res.status(404).json({ message: "Workflow not found" });
+      res.json(rows[0]);
     } catch (error) {
       console.error("Error toggling workflow:", error);
       res.status(500).json({ message: "Failed to toggle workflow" });
     }
   });
 
-  // Workflow endpoints CRUD
-  app.get("/api/admin/workflows/:id/endpoints", requireRole(['admin', 'super_admin']), async (req, res) => {
+  // Workflow endpoints CRUD (raw SQL — actual schema: id,workflow_id,name,url,method,headers,auth_type,auth_config,is_active)
+  app.get("/api/admin/workflows/:id/endpoints", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
-      const endpoints = await storage.getWorkflowEndpoints(parseInt(req.params.id));
-      res.json(endpoints);
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const result = await dynamicDB.execute(sqlTag`
+        SELECT id, workflow_id, name, url, method, headers, auth_type, auth_config, is_active, created_at
+        FROM workflow_endpoints WHERE workflow_id = ${parseInt(req.params.id)} ORDER BY id
+      `);
+      res.json(result.rows ?? result);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch endpoints" });
     }
   });
 
-  app.post("/api/admin/workflows/:id/endpoints", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.post("/api/admin/workflows/:id/endpoints", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
-      const endpoint = await storage.createWorkflowEndpoint({ ...req.body, workflowId: parseInt(req.params.id) });
-      res.status(201).json(endpoint);
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const workflowId = parseInt(req.params.id);
+      const { name, url, method = "POST", headers, auth_type = "none", auth_config, is_active = true } = req.body;
+      if (!name || !url) return res.status(400).json({ message: "name and url are required" });
+      const result = await dynamicDB.execute(sqlTag`
+        INSERT INTO workflow_endpoints (workflow_id, name, url, method, headers, auth_type, auth_config, is_active, created_at, updated_at)
+        VALUES (${workflowId}, ${name}, ${url}, ${method},
+                ${headers ? JSON.stringify(headers) : null}::jsonb,
+                ${auth_type},
+                ${auth_config ? JSON.stringify(auth_config) : null}::jsonb,
+                ${is_active}, NOW(), NOW())
+        RETURNING *
+      `);
+      res.status(201).json((result.rows ?? result)[0]);
     } catch (error) {
+      console.error("Error creating endpoint:", error);
       res.status(500).json({ message: "Failed to create endpoint" });
     }
   });
 
-  app.put("/api/admin/workflows/endpoints/:epId", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.put("/api/admin/workflows/:id/endpoints/:epId", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
-      const endpoint = await storage.updateWorkflowEndpoint(parseInt(req.params.epId), req.body);
-      if (!endpoint) return res.status(404).json({ message: "Endpoint not found" });
-      res.json(endpoint);
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const epId = parseInt(req.params.epId);
+      const { name, url, method, headers, auth_type, auth_config, is_active } = req.body;
+      const result = await dynamicDB.execute(sqlTag`
+        UPDATE workflow_endpoints SET
+          name = COALESCE(${name ?? null}, name),
+          url = COALESCE(${url ?? null}, url),
+          method = COALESCE(${method ?? null}, method),
+          headers = COALESCE(${headers ? JSON.stringify(headers) : null}::jsonb, headers),
+          auth_type = COALESCE(${auth_type ?? null}, auth_type),
+          auth_config = COALESCE(${auth_config ? JSON.stringify(auth_config) : null}::jsonb, auth_config),
+          is_active = COALESCE(${is_active ?? null}, is_active),
+          updated_at = NOW()
+        WHERE id = ${epId}
+        RETURNING *
+      `);
+      const rows = result.rows ?? result;
+      if (!rows.length) return res.status(404).json({ message: "Endpoint not found" });
+      res.json(rows[0]);
     } catch (error) {
+      console.error("Error updating endpoint:", error);
       res.status(500).json({ message: "Failed to update endpoint" });
     }
   });
 
-  app.delete("/api/admin/workflows/endpoints/:epId", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.delete("/api/admin/workflows/:id/endpoints/:epId", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
-      const deleted = await storage.deleteWorkflowEndpoint(parseInt(req.params.epId));
-      if (!deleted) return res.status(404).json({ message: "Endpoint not found" });
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const result = await dynamicDB.execute(sqlTag`
+        DELETE FROM workflow_endpoints WHERE id = ${parseInt(req.params.epId)} RETURNING id
+      `);
+      const rows = result.rows ?? result;
+      if (!rows.length) return res.status(404).json({ message: "Endpoint not found" });
       res.json({ message: "Endpoint deleted" });
     } catch (error) {
       res.status(500).json({ message: "Failed to delete endpoint" });
     }
   });
 
-  // Workflow environment configs
-  app.get("/api/admin/workflows/:id/env-configs", requireRole(['admin', 'super_admin']), async (req, res) => {
+  // Workflow environment configs (raw SQL — actual schema: id,workflow_id,environment,config jsonb,is_active)
+  app.get("/api/admin/workflows/:id/env-configs", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
-      const configs = await storage.getWorkflowEnvironmentConfigs(parseInt(req.params.id));
-      res.json(configs);
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const result = await dynamicDB.execute(sqlTag`
+        SELECT id, workflow_id, environment, config, is_active, created_at
+        FROM workflow_environment_configs WHERE workflow_id = ${parseInt(req.params.id)} ORDER BY environment
+      `);
+      res.json(result.rows ?? result);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch environment configs" });
     }
   });
 
-  app.post("/api/admin/workflows/:id/env-configs", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.put("/api/admin/workflows/:id/env-configs/:env", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
-      const { environment, config } = req.body;
-      if (!environment) return res.status(400).json({ message: "environment is required" });
-      const result = await storage.upsertWorkflowEnvironmentConfig(parseInt(req.params.id), environment, config ?? {});
-      res.status(201).json(result);
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const workflowId = parseInt(req.params.id);
+      const environment = req.params.env;
+      const { config, is_active = true } = req.body;
+      const configJson = JSON.stringify(config ?? req.body);
+      // Check if exists first
+      const existing = await dynamicDB.execute(sqlTag`
+        SELECT id FROM workflow_environment_configs WHERE workflow_id = ${workflowId} AND environment = ${environment}
+      `);
+      const existingRows = existing.rows ?? existing;
+      let result;
+      if (existingRows.length > 0) {
+        result = await dynamicDB.execute(sqlTag`
+          UPDATE workflow_environment_configs
+          SET config = ${configJson}::jsonb, is_active = ${is_active}, updated_at = NOW()
+          WHERE workflow_id = ${workflowId} AND environment = ${environment}
+          RETURNING *
+        `);
+      } else {
+        result = await dynamicDB.execute(sqlTag`
+          INSERT INTO workflow_environment_configs (workflow_id, environment, config, is_active, created_at, updated_at)
+          VALUES (${workflowId}, ${environment}, ${configJson}::jsonb, ${is_active}, NOW(), NOW())
+          RETURNING *
+        `);
+      }
+      res.json((result.rows ?? result)[0]);
     } catch (error) {
-      res.status(500).json({ message: "Failed to create environment config" });
-    }
-  });
-
-  app.put("/api/admin/workflows/:id/env-configs/:env", requireRole(['admin', 'super_admin']), async (req, res) => {
-    try {
-      const config = await storage.upsertWorkflowEnvironmentConfig(
-        parseInt(req.params.id),
-        req.params.env,
-        req.body.config ?? req.body
-      );
-      res.json(config);
-    } catch (error) {
+      console.error("Error upserting env config:", error);
       res.status(500).json({ message: "Failed to save environment config" });
     }
   });
 
-  app.delete("/api/admin/workflows/:id/env-configs/:env", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.delete("/api/admin/workflows/:id/env-configs/:env", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
-      await storage.deleteWorkflowEnvironmentConfig(parseInt(req.params.id), req.params.env);
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      await dynamicDB.execute(sqlTag`
+        DELETE FROM workflow_environment_configs WHERE workflow_id = ${parseInt(req.params.id)} AND environment = ${req.params.env}
+      `);
       res.json({ message: "Environment config deleted" });
     } catch (error) {
       res.status(500).json({ message: "Failed to delete environment config" });
@@ -6609,17 +6717,213 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dynamicDB = getRequestDB(req);
       const id = parseInt(req.params.id);
       const result = await dynamicDB.execute(sqlTag`
-        SELECT id, workflow_definition_id, code, name, description, order_index,
-               stage_type, handler_key, is_required, requires_review, auto_advance,
-               issue_blocks_severity, timeout_minutes, is_active, created_at
-        FROM workflow_stages
-        WHERE workflow_definition_id = ${id}
-        ORDER BY order_index
+        SELECT ws.id, ws.workflow_definition_id, ws.code, ws.name, ws.description, ws.order_index,
+               ws.stage_type, ws.handler_key, ws.is_required, ws.requires_review, ws.auto_advance,
+               ws.issue_blocks_severity, ws.timeout_minutes, ws.is_active, ws.created_at,
+               sac.id AS api_config_id, sac.endpoint_url, sac.http_method,
+               sac.auth_type, sac.request_mapping, sac.response_mapping,
+               sac.timeout_seconds, sac.max_retries, sac.retry_delay_seconds,
+               sac.test_mode, sac.is_active AS api_config_active
+        FROM workflow_stages ws
+        LEFT JOIN stage_api_configs sac ON sac.stage_id = ws.id AND sac.is_active = true
+        WHERE ws.workflow_definition_id = ${id}
+        ORDER BY ws.order_index
       `);
       res.json(result.rows ?? result);
     } catch (error) {
       console.error("Error fetching workflow stages:", error);
       res.status(500).json({ message: "Failed to fetch workflow stages" });
+    }
+  });
+
+  // Get stage API config
+  app.get("/api/admin/workflows/:id/stages/:stageId/api-config", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const stageId = parseInt(req.params.stageId);
+      const result = await dynamicDB.execute(sqlTag`
+        SELECT sac.*, we.name AS endpoint_name, we.url AS endpoint_base_url
+        FROM stage_api_configs sac
+        LEFT JOIN workflow_endpoints we ON we.id = sac.integration_id
+        WHERE sac.stage_id = ${stageId}
+        ORDER BY sac.id LIMIT 1
+      `);
+      const rows = result.rows ?? result;
+      res.json(rows[0] ?? null);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch stage API config" });
+    }
+  });
+
+  // Upsert stage API config (link endpoint to stage)
+  app.put("/api/admin/workflows/:id/stages/:stageId/api-config", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const stageId = parseInt(req.params.stageId);
+      const currentUser = (req as any).currentUser;
+      const {
+        integration_id, endpoint_url, http_method = "POST",
+        auth_type, auth_secret_key,
+        request_mapping, response_mapping,
+        timeout_seconds, max_retries = 3, retry_delay_seconds = 5,
+        fallback_on_error, fallback_on_timeout,
+        test_mode = false, mock_response, is_active = true,
+      } = req.body;
+      // Check if exists
+      const existing = await dynamicDB.execute(sqlTag`SELECT id FROM stage_api_configs WHERE stage_id = ${stageId} LIMIT 1`);
+      const existingRows = existing.rows ?? existing;
+      let result;
+      if (existingRows.length > 0) {
+        result = await dynamicDB.execute(sqlTag`
+          UPDATE stage_api_configs SET
+            integration_id = ${integration_id ?? null},
+            endpoint_url = ${endpoint_url ?? null},
+            http_method = ${http_method},
+            auth_type = ${auth_type ?? null},
+            auth_secret_key = ${auth_secret_key ?? null},
+            request_mapping = ${request_mapping ? JSON.stringify(request_mapping) : null}::jsonb,
+            response_mapping = ${response_mapping ? JSON.stringify(response_mapping) : null}::jsonb,
+            timeout_seconds = ${timeout_seconds ?? null},
+            max_retries = ${max_retries},
+            retry_delay_seconds = ${retry_delay_seconds},
+            fallback_on_error = ${fallback_on_error ?? null},
+            fallback_on_timeout = ${fallback_on_timeout ?? null},
+            test_mode = ${test_mode},
+            mock_response = ${mock_response ? JSON.stringify(mock_response) : null}::jsonb,
+            is_active = ${is_active},
+            updated_at = NOW()
+          WHERE stage_id = ${stageId}
+          RETURNING *
+        `);
+      } else {
+        result = await dynamicDB.execute(sqlTag`
+          INSERT INTO stage_api_configs (
+            stage_id, integration_id, endpoint_url, http_method,
+            auth_type, auth_secret_key, request_mapping, response_mapping,
+            timeout_seconds, max_retries, retry_delay_seconds,
+            fallback_on_error, fallback_on_timeout, test_mode, mock_response,
+            is_active, created_by, created_at, updated_at
+          ) VALUES (
+            ${stageId}, ${integration_id ?? null}, ${endpoint_url ?? null}, ${http_method},
+            ${auth_type ?? null}, ${auth_secret_key ?? null},
+            ${request_mapping ? JSON.stringify(request_mapping) : null}::jsonb,
+            ${response_mapping ? JSON.stringify(response_mapping) : null}::jsonb,
+            ${timeout_seconds ?? null}, ${max_retries}, ${retry_delay_seconds},
+            ${fallback_on_error ?? null}, ${fallback_on_timeout ?? null},
+            ${test_mode}, ${mock_response ? JSON.stringify(mock_response) : null}::jsonb,
+            ${is_active}, ${currentUser?.id ?? 'system'}, NOW(), NOW()
+          ) RETURNING *
+        `);
+      }
+      res.json((result.rows ?? result)[0]);
+    } catch (error) {
+      console.error("Error saving stage API config:", error);
+      res.status(500).json({ message: "Failed to save stage API config" });
+    }
+  });
+
+  // Delete stage API config
+  app.delete("/api/admin/workflows/:id/stages/:stageId/api-config", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      await dynamicDB.execute(sqlTag`DELETE FROM stage_api_configs WHERE stage_id = ${parseInt(req.params.stageId)}`);
+      res.json({ message: "API config removed" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete stage API config" });
+    }
+  });
+
+  // Create a stage
+  app.post("/api/admin/workflows/:id/stages", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const workflowId = parseInt(req.params.id);
+      const { code, name, description, stage_type = "manual", handler_key,
+              is_required = true, requires_review = false, auto_advance = false,
+              issue_blocks_severity, timeout_minutes, configuration = {}, is_active = true } = req.body;
+      if (!code || !name) return res.status(400).json({ message: "code and name are required" });
+      // Auto-assign order_index as max + 1
+      const maxResult = await dynamicDB.execute(sqlTag`
+        SELECT COALESCE(MAX(order_index), -1) + 1 AS next_index
+        FROM workflow_stages WHERE workflow_definition_id = ${workflowId}
+      `);
+      const nextIndex = (maxResult.rows ?? maxResult)[0]?.next_index ?? 0;
+      const result = await dynamicDB.execute(sqlTag`
+        INSERT INTO workflow_stages
+          (workflow_definition_id, code, name, description, order_index, stage_type,
+           handler_key, is_required, requires_review, auto_advance, issue_blocks_severity,
+           timeout_minutes, configuration, is_active, created_at, updated_at)
+        VALUES (
+          ${workflowId}, ${code}, ${name}, ${description ?? null}, ${nextIndex},
+          ${stage_type}, ${handler_key ?? null}, ${is_required}, ${requires_review},
+          ${auto_advance}, ${issue_blocks_severity ?? null}, ${timeout_minutes ?? null},
+          ${JSON.stringify(configuration)}, ${is_active}, NOW(), NOW()
+        )
+        RETURNING *
+      `);
+      res.status(201).json((result.rows ?? result)[0]);
+    } catch (error) {
+      console.error("Error creating stage:", error);
+      res.status(500).json({ message: "Failed to create stage" });
+    }
+  });
+
+  // Update a stage
+  app.put("/api/admin/workflows/:id/stages/:stageId", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const stageId = parseInt(req.params.stageId);
+      const { code, name, description, stage_type, handler_key, is_required,
+              requires_review, auto_advance, issue_blocks_severity, timeout_minutes,
+              order_index, configuration, is_active } = req.body;
+      const result = await dynamicDB.execute(sqlTag`
+        UPDATE workflow_stages SET
+          code = COALESCE(${code ?? null}, code),
+          name = COALESCE(${name ?? null}, name),
+          description = COALESCE(${description ?? null}, description),
+          stage_type = COALESCE(${stage_type ?? null}, stage_type),
+          handler_key = COALESCE(${handler_key ?? null}, handler_key),
+          is_required = COALESCE(${is_required ?? null}, is_required),
+          requires_review = COALESCE(${requires_review ?? null}, requires_review),
+          auto_advance = COALESCE(${auto_advance ?? null}, auto_advance),
+          issue_blocks_severity = COALESCE(${issue_blocks_severity ?? null}, issue_blocks_severity),
+          timeout_minutes = COALESCE(${timeout_minutes ?? null}, timeout_minutes),
+          order_index = COALESCE(${order_index ?? null}, order_index),
+          configuration = COALESCE(${configuration ? JSON.stringify(configuration) : null}::jsonb, configuration),
+          is_active = COALESCE(${is_active ?? null}, is_active),
+          updated_at = NOW()
+        WHERE id = ${stageId}
+        RETURNING *
+      `);
+      const rows = result.rows ?? result;
+      if (!rows.length) return res.status(404).json({ message: "Stage not found" });
+      res.json(rows[0]);
+    } catch (error) {
+      console.error("Error updating stage:", error);
+      res.status(500).json({ message: "Failed to update stage" });
+    }
+  });
+
+  // Delete a stage
+  app.delete("/api/admin/workflows/:id/stages/:stageId", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const stageId = parseInt(req.params.stageId);
+      const result = await dynamicDB.execute(sqlTag`
+        DELETE FROM workflow_stages WHERE id = ${stageId} RETURNING id
+      `);
+      const rows = result.rows ?? result;
+      if (!rows.length) return res.status(404).json({ message: "Stage not found" });
+      res.json({ message: "Stage deleted" });
+    } catch (error) {
+      console.error("Error deleting stage:", error);
+      res.status(500).json({ message: "Failed to delete stage" });
     }
   });
 
