@@ -1,161 +1,320 @@
 import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
-import { Button } from "@/components/ui/button";
+import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Zap, Plus, Edit, Trash2, Power, Globe, Settings2, ChevronRight, Play, Pause, Loader2 } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Zap, ChevronRight, Loader2, CheckCircle2, Circle, Clock, AlertCircle,
+  Bot, User, Globe, Settings2, FileText, Hash, Calendar, ArrowRight,
+  XCircle, AlertTriangle, PlayCircle, PauseCircle
+} from "lucide-react";
+import { format } from "date-fns";
 
-const workflowFormSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  description: z.string().optional(),
-  trigger: z.enum(["manual", "webhook", "schedule", "event"]).default("manual"),
-  status: z.enum(["draft", "active", "inactive"]).default("draft"),
-  isEnabled: z.boolean().default(true),
-});
+// ─── Status / type helpers ────────────────────────────────────────────────────
 
-const endpointFormSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  url: z.string().url("Must be a valid URL"),
-  method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).default("POST"),
-  authType: z.enum(["none", "api_key", "bearer", "basic"]).default("none"),
-});
-
-type WorkflowFormValues = z.infer<typeof workflowFormSchema>;
-type EndpointFormValues = z.infer<typeof endpointFormSchema>;
-
-const TRIGGER_LABELS: Record<string, string> = {
-  manual: "Manual",
-  webhook: "Webhook",
-  schedule: "Scheduled",
-  event: "Event-driven",
+const STAGE_TYPE_ICON: Record<string, JSX.Element> = {
+  automated: <Bot className="h-3.5 w-3.5 text-blue-500" />,
+  manual:    <User className="h-3.5 w-3.5 text-orange-500" />,
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  draft: "bg-gray-100 text-gray-700",
-  active: "bg-green-100 text-green-700",
-  inactive: "bg-yellow-100 text-yellow-700",
+const TICKET_STATUS_CONFIG: Record<string, { label: string; color: string; icon: JSX.Element }> = {
+  submitted:       { label: "Submitted",       color: "bg-blue-100 text-blue-700",   icon: <Circle className="h-3 w-3" /> },
+  pending_review:  { label: "Pending Review",  color: "bg-yellow-100 text-yellow-700", icon: <Clock className="h-3 w-3" /> },
+  in_review:       { label: "In Review",       color: "bg-purple-100 text-purple-700", icon: <PlayCircle className="h-3 w-3" /> },
+  approved:        { label: "Approved",        color: "bg-green-100 text-green-700",  icon: <CheckCircle2 className="h-3 w-3" /> },
+  declined:        { label: "Declined",        color: "bg-red-100 text-red-700",      icon: <XCircle className="h-3 w-3" /> },
+  on_hold:         { label: "On Hold",         color: "bg-gray-100 text-gray-600",    icon: <PauseCircle className="h-3 w-3" /> },
+  cancelled:       { label: "Cancelled",       color: "bg-gray-100 text-gray-500",    icon: <XCircle className="h-3 w-3" /> },
 };
+
+const STAGE_STATUS_CONFIG: Record<string, { color: string; icon: JSX.Element }> = {
+  pending:    { color: "bg-gray-100 text-gray-500",   icon: <Circle className="h-3.5 w-3.5" /> },
+  in_progress:{ color: "bg-blue-100 text-blue-600",   icon: <Loader2 className="h-3.5 w-3.5 animate-spin" /> },
+  completed:  { color: "bg-green-100 text-green-700", icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
+  blocked:    { color: "bg-red-100 text-red-600",     icon: <AlertCircle className="h-3.5 w-3.5" /> },
+  skipped:    { color: "bg-gray-100 text-gray-400",   icon: <ArrowRight className="h-3.5 w-3.5" /> },
+  failed:     { color: "bg-red-100 text-red-700",     icon: <XCircle className="h-3.5 w-3.5" /> },
+};
+
+function ticketStatusBadge(status: string) {
+  const cfg = TICKET_STATUS_CONFIG[status] ?? { label: status, color: "bg-gray-100 text-gray-600", icon: <Circle className="h-3 w-3" /> };
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.color}`}>
+      {cfg.icon} {cfg.label}
+    </span>
+  );
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function PipelineView({ stages }: { stages: any[] }) {
+  if (!stages.length) return (
+    <div className="py-12 text-center text-gray-400">
+      <Zap className="h-10 w-10 mx-auto mb-2 text-gray-200" />
+      <p className="text-sm">No stages defined</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-2">
+      {stages.map((stage: any, idx: number) => (
+        <div key={stage.id} className="flex items-start gap-3">
+          {/* Step number + connector */}
+          <div className="flex flex-col items-center">
+            <div className="w-8 h-8 rounded-full bg-blue-50 border-2 border-blue-200 flex items-center justify-center text-xs font-bold text-blue-600">
+              {idx + 1}
+            </div>
+            {idx < stages.length - 1 && <div className="w-0.5 h-4 bg-gray-200 my-0.5" />}
+          </div>
+
+          {/* Stage card */}
+          <Card className="flex-1 mb-0">
+            <CardContent className="py-3 px-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {STAGE_TYPE_ICON[stage.stage_type] ?? <Circle className="h-3.5 w-3.5 text-gray-400" />}
+                  <span className="font-medium text-sm text-gray-900">{stage.name}</span>
+                  {stage.is_required && (
+                    <Badge variant="outline" className="text-xs py-0 h-4">Required</Badge>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  {stage.stage_type === "automated" ? (
+                    <span className="flex items-center gap-1"><Bot className="h-3 w-3" /> Automated</span>
+                  ) : (
+                    <span className="flex items-center gap-1"><User className="h-3 w-3" /> Manual Review</span>
+                  )}
+                  {stage.timeout_minutes && (
+                    <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {stage.timeout_minutes}m</span>
+                  )}
+                </div>
+              </div>
+              {stage.description && (
+                <p className="text-xs text-gray-500 mt-1">{stage.description}</p>
+              )}
+              <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400">
+                <span className="font-mono">{stage.code}</span>
+                {stage.handler_key && <span>→ {stage.handler_key}</span>}
+                {stage.requires_review && <Badge variant="secondary" className="py-0 h-4 text-xs">Requires Review</Badge>}
+                {stage.auto_advance && <Badge variant="secondary" className="py-0 h-4 text-xs">Auto-advance</Badge>}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TicketsView({ tickets, onSelect }: { tickets: any[]; onSelect: (t: any) => void }) {
+  if (!tickets.length) return (
+    <div className="py-12 text-center text-gray-400">
+      <FileText className="h-10 w-10 mx-auto mb-2 text-gray-200" />
+      <p className="text-sm">No tickets found</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-2">
+      {tickets.map((t: any) => (
+        <Card
+          key={t.id}
+          className="cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => onSelect(t)}
+        >
+          <CardContent className="py-3 px-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">{t.ticket_number}</span>
+                {ticketStatusBadge(t.status)}
+                {t.priority && t.priority !== "normal" && (
+                  <Badge variant="outline" className="text-xs py-0 h-5">{t.priority}</Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-2 text-xs text-gray-400">
+                {t.risk_score != null && (
+                  <span className={`font-medium ${t.risk_score > 70 ? "text-red-500" : t.risk_score > 40 ? "text-yellow-500" : "text-green-500"}`}>
+                    Risk: {t.risk_score}
+                  </span>
+                )}
+                <ChevronRight className="h-3.5 w-3.5" />
+              </div>
+            </div>
+            <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+              <span className="flex items-center gap-1">
+                <Hash className="h-3 w-3" /> Entity #{t.entity_id} ({t.entity_type?.replace("_", " ")})
+              </span>
+              {t.current_stage_name && (
+                <span className="flex items-center gap-1">
+                  <Zap className="h-3 w-3 text-blue-400" /> {t.current_stage_name}
+                </span>
+              )}
+              {t.submitted_at && (
+                <span className="flex items-center gap-1">
+                  <Calendar className="h-3 w-3" /> {format(new Date(t.submitted_at), "MMM d, yyyy")}
+                </span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function TicketDetailPanel({ ticket, onClose }: { ticket: any; onClose: () => void }) {
+  const { data: detail, isLoading } = useQuery<any>({
+    queryKey: ["/api/admin/workflow-tickets", ticket.id],
+    queryFn: () => fetch(`/api/admin/workflow-tickets/${ticket.id}`).then(r => r.json()),
+  });
+
+  if (isLoading) return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+    </div>
+  );
+
+  const stageProgress: any[] = detail?.stageProgress ?? [];
+  const issues: any[] = detail?.issues ?? [];
+  const notes: any[] = detail?.notes ?? [];
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="flex items-center justify-between p-4 border-b">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-sm font-bold text-gray-700">{ticket.ticket_number}</span>
+            {ticketStatusBadge(ticket.status)}
+          </div>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {ticket.entity_type?.replace(/_/g, " ")} #{ticket.entity_id}
+            {ticket.metadata?.businessName && ` — ${ticket.metadata.businessName}`}
+          </p>
+        </div>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xs">← Back</button>
+      </div>
+
+      <ScrollArea className="flex-1">
+        <div className="p-4 space-y-4">
+          {/* Stats row */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="bg-gray-50 rounded-lg p-3 text-center">
+              <div className="text-lg font-bold text-gray-800">{stageProgress.length}</div>
+              <div className="text-xs text-gray-500">Stages Run</div>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3 text-center">
+              <div className="text-lg font-bold text-red-600">{issues.filter((i:any) => i.status !== "resolved").length}</div>
+              <div className="text-xs text-gray-500">Open Issues</div>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3 text-center">
+              <div className={`text-lg font-bold ${ticket.risk_score > 70 ? "text-red-600" : ticket.risk_score > 40 ? "text-yellow-600" : "text-green-600"}`}>
+                {ticket.risk_score ?? "—"}
+              </div>
+              <div className="text-xs text-gray-500">Risk Score</div>
+            </div>
+          </div>
+
+          {/* Stage progress */}
+          {stageProgress.length > 0 && (
+            <>
+              <Separator />
+              <div>
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Stage Progress</h4>
+                <div className="space-y-1.5">
+                  {stageProgress.map((sp: any) => {
+                    const cfg = STAGE_STATUS_CONFIG[sp.status] ?? STAGE_STATUS_CONFIG.pending;
+                    return (
+                      <div key={sp.id} className="flex items-center gap-2 text-sm">
+                        <span className={`p-1 rounded-full ${cfg.color}`}>{cfg.icon}</span>
+                        <span className="flex-1 text-gray-700">{sp.stage_name}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${cfg.color}`}>{sp.status}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Issues */}
+          {issues.length > 0 && (
+            <>
+              <Separator />
+              <div>
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Issues ({issues.length})</h4>
+                <div className="space-y-2">
+                  {issues.map((issue: any) => (
+                    <div key={issue.id} className="flex items-start gap-2 text-sm bg-red-50 rounded-lg p-2.5">
+                      <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-800 text-xs">{issue.title}</span>
+                          <Badge variant="outline" className="text-xs py-0 h-4">{issue.severity}</Badge>
+                        </div>
+                        {issue.description && <p className="text-xs text-gray-500 mt-0.5 truncate">{issue.description}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Notes */}
+          {notes.length > 0 && (
+            <>
+              <Separator />
+              <div>
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Notes ({notes.length})</h4>
+                <div className="space-y-2">
+                  {notes.map((note: any) => (
+                    <div key={note.id} className="bg-gray-50 rounded-lg p-2.5 text-sm">
+                      <p className="text-gray-700 text-xs">{note.content}</p>
+                      <p className="text-gray-400 text-xs mt-1">
+                        {note.created_by} · {format(new Date(note.created_at), "MMM d, h:mm a")}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function Workflows() {
-  const { toast } = useToast();
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [editingWorkflow, setEditingWorkflow] = useState<any>(null);
   const [selectedWorkflow, setSelectedWorkflow] = useState<any>(null);
-  const [showEndpointDialog, setShowEndpointDialog] = useState(false);
-  const [editingEndpoint, setEditingEndpoint] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState("overview");
+  const [selectedTicket, setSelectedTicket]     = useState<any>(null);
+  const [activeTab, setActiveTab]               = useState("stages");
 
   const { data: workflows = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/workflows"],
   });
 
-  const { data: workflowDetails } = useQuery<any>({
-    queryKey: ["/api/admin/workflows", selectedWorkflow?.id],
+  const { data: stages = [], isLoading: stagesLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/workflows", selectedWorkflow?.id, "stages"],
+    queryFn: () => fetch(`/api/admin/workflows/${selectedWorkflow.id}/stages`).then(r => r.json()),
     enabled: !!selectedWorkflow?.id,
   });
 
-  const form = useForm<WorkflowFormValues>({
-    resolver: zodResolver(workflowFormSchema),
-    defaultValues: { name: "", description: "", trigger: "manual", status: "draft", isEnabled: true },
+  const { data: tickets = [], isLoading: ticketsLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/workflow-tickets", selectedWorkflow?.id],
+    queryFn: () => fetch(`/api/admin/workflow-tickets?workflowId=${selectedWorkflow.id}`).then(r => r.json()),
+    enabled: !!selectedWorkflow?.id,
   });
 
-  const endpointForm = useForm<EndpointFormValues>({
-    resolver: zodResolver(endpointFormSchema),
-    defaultValues: { name: "", url: "", method: "POST", authType: "none" },
+  const { data: wfDetail } = useQuery<any>({
+    queryKey: ["/api/admin/workflows", selectedWorkflow?.id],
+    queryFn: () => fetch(`/api/admin/workflows/${selectedWorkflow.id}`).then(r => r.json()),
+    enabled: !!selectedWorkflow?.id,
   });
-
-  const createWorkflow = useMutation({
-    mutationFn: (data: WorkflowFormValues) => apiRequest("POST", "/api/admin/workflows", data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows"] });
-      setShowCreateDialog(false);
-      form.reset();
-      toast({ title: "Workflow created successfully" });
-    },
-    onError: () => toast({ title: "Failed to create workflow", variant: "destructive" }),
-  });
-
-  const updateWorkflow = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<WorkflowFormValues> }) =>
-      apiRequest("PUT", `/api/admin/workflows/${id}`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows"] });
-      setEditingWorkflow(null);
-      toast({ title: "Workflow updated" });
-    },
-    onError: () => toast({ title: "Failed to update workflow", variant: "destructive" }),
-  });
-
-  const deleteWorkflow = useMutation({
-    mutationFn: (id: number) => apiRequest("DELETE", `/api/admin/workflows/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows"] });
-      setSelectedWorkflow(null);
-      toast({ title: "Workflow deleted" });
-    },
-    onError: () => toast({ title: "Failed to delete workflow", variant: "destructive" }),
-  });
-
-  const toggleWorkflow = useMutation({
-    mutationFn: (id: number) => apiRequest("PATCH", `/api/admin/workflows/${id}/toggle`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows"] });
-      if (selectedWorkflow) {
-        queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows", selectedWorkflow.id] });
-      }
-      toast({ title: "Workflow status updated" });
-    },
-    onError: () => toast({ title: "Failed to toggle workflow", variant: "destructive" }),
-  });
-
-  const createEndpoint = useMutation({
-    mutationFn: (data: EndpointFormValues) =>
-      apiRequest("POST", `/api/admin/workflows/${selectedWorkflow?.id}/endpoints`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows", selectedWorkflow?.id] });
-      setShowEndpointDialog(false);
-      endpointForm.reset();
-      toast({ title: "Endpoint added" });
-    },
-    onError: () => toast({ title: "Failed to add endpoint", variant: "destructive" }),
-  });
-
-  const deleteEndpoint = useMutation({
-    mutationFn: (epId: number) => apiRequest("DELETE", `/api/admin/workflows/endpoints/${epId}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows", selectedWorkflow?.id] });
-      toast({ title: "Endpoint removed" });
-    },
-    onError: () => toast({ title: "Failed to remove endpoint", variant: "destructive" }),
-  });
-
-  const openEdit = (wf: any) => {
-    setEditingWorkflow(wf);
-    form.reset({ name: wf.name, description: wf.description || "", trigger: wf.trigger, status: wf.status, isEnabled: wf.isEnabled });
-  };
-
-  const handleSubmit = (values: WorkflowFormValues) => {
-    if (editingWorkflow) {
-      updateWorkflow.mutate({ id: editingWorkflow.id, data: values });
-    } else {
-      createWorkflow.mutate(values);
-    }
-  };
-
-  const displayedWorkflow = workflowDetails || selectedWorkflow;
 
   if (isLoading) {
     return (
@@ -166,395 +325,223 @@ export default function Workflows() {
   }
 
   return (
-    <div className="flex h-full">
-      {/* Left panel — workflow list */}
-      <div className="w-80 border-r bg-white flex flex-col">
+    <div className="flex h-full overflow-hidden">
+
+      {/* ── Left panel: workflow list ── */}
+      <div className="w-72 border-r bg-white flex flex-col shrink-0">
         <div className="p-4 border-b">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Zap className="h-5 w-5 text-blue-600" />
-              <h2 className="font-semibold text-gray-900">Workflows</h2>
-              <Badge variant="secondary">{workflows.length}</Badge>
-            </div>
-            <Button size="sm" onClick={() => { setShowCreateDialog(true); form.reset(); setEditingWorkflow(null); }}>
-              <Plus className="h-4 w-4 mr-1" /> New
-            </Button>
+          <div className="flex items-center gap-2">
+            <Zap className="h-5 w-5 text-blue-600" />
+            <h2 className="font-semibold text-gray-900">Workflows</h2>
+            <Badge variant="secondary">{(workflows as any[]).length}</Badge>
           </div>
+          <p className="text-xs text-gray-400 mt-1">Automation workflow definitions</p>
         </div>
 
-        <div className="flex-1 overflow-auto">
-          {workflows.length === 0 ? (
-            <div className="p-6 text-center text-gray-500">
-              <Zap className="h-10 w-10 mx-auto mb-2 text-gray-300" />
-              <p className="text-sm">No workflows yet</p>
-              <p className="text-xs text-gray-400 mt-1">Create your first automation workflow</p>
+        <ScrollArea className="flex-1">
+          {(workflows as any[]).length === 0 ? (
+            <div className="p-6 text-center text-gray-400">
+              <Zap className="h-10 w-10 mx-auto mb-2 text-gray-200" />
+              <p className="text-sm">No workflows configured</p>
             </div>
           ) : (
-            workflows.map((wf: any) => (
+            (workflows as any[]).map((wf: any) => (
               <div
                 key={wf.id}
-                onClick={() => setSelectedWorkflow(wf)}
-                className={`p-4 border-b cursor-pointer hover:bg-gray-50 transition-colors ${selectedWorkflow?.id === wf.id ? "bg-blue-50 border-l-2 border-l-blue-500" : ""}`}
+                onClick={() => { setSelectedWorkflow(wf); setSelectedTicket(null); setActiveTab("stages"); }}
+                className={`p-4 border-b cursor-pointer hover:bg-gray-50 transition-colors ${selectedWorkflow?.id === wf.id ? "bg-blue-50 border-l-4 border-l-blue-500" : ""}`}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-sm text-gray-900 truncate">{wf.name}</p>
-                    {wf.description && <p className="text-xs text-gray-500 mt-0.5 truncate">{wf.description}</p>}
+                    {wf.category && <p className="text-xs text-gray-400 mt-0.5 capitalize">{wf.category}</p>}
                     <div className="flex items-center gap-2 mt-2">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[wf.status] || STATUS_COLORS.draft}`}>
-                        {wf.status}
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${wf.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                        {wf.is_active ? "Active" : "Inactive"}
                       </span>
-                      <span className="text-xs text-gray-400">{TRIGGER_LABELS[wf.trigger] || wf.trigger}</span>
+                      <span className="text-xs text-gray-400">{wf.stage_count ?? 0} stages</span>
+                      <span className="text-xs text-gray-400">{wf.ticket_count ?? 0} tickets</span>
                     </div>
                   </div>
-                  <div className="flex items-center ml-2">
-                    {wf.isEnabled ? (
-                      <span className="w-2 h-2 rounded-full bg-green-400" title="Enabled" />
-                    ) : (
-                      <span className="w-2 h-2 rounded-full bg-gray-300" title="Disabled" />
-                    )}
-                    <ChevronRight className="h-4 w-4 text-gray-300 ml-1" />
-                  </div>
+                  <ChevronRight className="h-4 w-4 text-gray-300 ml-2 shrink-0 mt-1" />
                 </div>
               </div>
             ))
           )}
-        </div>
+        </ScrollArea>
       </div>
 
-      {/* Right panel — workflow detail */}
-      <div className="flex-1 overflow-auto bg-gray-50">
+      {/* ── Right panel ── */}
+      <div className="flex-1 overflow-hidden bg-gray-50 flex">
+
         {!selectedWorkflow ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+          <div className="flex flex-col items-center justify-center flex-1 text-gray-400">
             <Zap className="h-16 w-16 mb-4 text-gray-200" />
             <p className="text-lg font-medium">Select a workflow</p>
-            <p className="text-sm">Choose a workflow from the left panel to view its details</p>
+            <p className="text-sm">Choose a workflow from the left to view its details</p>
+          </div>
+        ) : selectedTicket ? (
+          /* Ticket detail view */
+          <div className="flex-1 overflow-hidden">
+            <TicketDetailPanel ticket={selectedTicket} onClose={() => setSelectedTicket(null)} />
           </div>
         ) : (
-          <div className="p-6">
+          /* Workflow detail view */
+          <div className="flex-1 overflow-hidden flex flex-col">
             {/* Header */}
-            <div className="flex items-start justify-between mb-6">
-              <div>
-                <div className="flex items-center gap-3 mb-1">
-                  <h1 className="text-2xl font-bold text-gray-900">{displayedWorkflow?.name}</h1>
-                  <span className={`text-sm px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[displayedWorkflow?.status] || STATUS_COLORS.draft}`}>
-                    {displayedWorkflow?.status}
-                  </span>
-                  <Badge variant={displayedWorkflow?.isEnabled ? "default" : "secondary"}>
-                    {displayedWorkflow?.isEnabled ? "Enabled" : "Disabled"}
-                  </Badge>
+            <div className="bg-white border-b px-6 py-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="flex items-center gap-3">
+                    <h1 className="text-xl font-bold text-gray-900">{selectedWorkflow.name}</h1>
+                    <span className={`text-sm px-2 py-0.5 rounded-full font-medium ${selectedWorkflow.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                      {selectedWorkflow.is_active ? "Active" : "Inactive"}
+                    </span>
+                  </div>
+                  {selectedWorkflow.description && (
+                    <p className="text-sm text-gray-500 mt-1">{selectedWorkflow.description}</p>
+                  )}
+                  <div className="flex items-center gap-4 mt-2 text-xs text-gray-400">
+                    {selectedWorkflow.category && <span className="capitalize">{selectedWorkflow.category}</span>}
+                    {selectedWorkflow.entity_type && <span className="font-mono bg-gray-100 px-1.5 rounded">{selectedWorkflow.entity_type}</span>}
+                    {selectedWorkflow.code && <span className="font-mono text-blue-400">{selectedWorkflow.code}</span>}
+                  </div>
                 </div>
-                {displayedWorkflow?.description && (
-                  <p className="text-gray-600">{displayedWorkflow.description}</p>
-                )}
-                <p className="text-sm text-gray-400 mt-1">
-                  Trigger: {TRIGGER_LABELS[displayedWorkflow?.trigger] || displayedWorkflow?.trigger}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => toggleWorkflow.mutate(selectedWorkflow.id)}
-                  disabled={toggleWorkflow.isPending}
-                >
-                  {displayedWorkflow?.isEnabled ? <Pause className="h-4 w-4 mr-1" /> : <Play className="h-4 w-4 mr-1" />}
-                  {displayedWorkflow?.isEnabled ? "Disable" : "Enable"}
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => openEdit(selectedWorkflow)}>
-                  <Edit className="h-4 w-4 mr-1" /> Edit
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => {
-                    if (confirm("Delete this workflow?")) deleteWorkflow.mutate(selectedWorkflow.id);
-                  }}
-                >
-                  <Trash2 className="h-4 w-4 mr-1" /> Delete
-                </Button>
+                <div className="flex items-center gap-4 text-center shrink-0">
+                  <div>
+                    <div className="text-2xl font-bold text-blue-600">{stages.length}</div>
+                    <div className="text-xs text-gray-400">Stages</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-gray-700">{tickets.length}</div>
+                    <div className="text-xs text-gray-400">Tickets</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-yellow-600">
+                      {(tickets as any[]).filter((t:any) => t.status === "pending_review").length}
+                    </div>
+                    <div className="text-xs text-gray-400">Pending</div>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="mb-6">
-                <TabsTrigger value="overview">Overview</TabsTrigger>
-                <TabsTrigger value="endpoints">
-                  API Endpoints
-                  {displayedWorkflow?.endpoints?.length > 0 && (
-                    <Badge variant="secondary" className="ml-2">{displayedWorkflow.endpoints.length}</Badge>
-                  )}
-                </TabsTrigger>
-                <TabsTrigger value="environments">Environments</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="overview">
-                <div className="grid grid-cols-2 gap-4">
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-500">Trigger Type</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-lg font-semibold">{TRIGGER_LABELS[displayedWorkflow?.trigger] || displayedWorkflow?.trigger}</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-500">Status</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-lg font-semibold capitalize">{displayedWorkflow?.status}</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-500">API Endpoints</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-lg font-semibold">{displayedWorkflow?.endpoints?.length ?? 0}</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-medium text-gray-500">Environment Configs</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-lg font-semibold">{displayedWorkflow?.environmentConfigs?.length ?? 0}</p>
-                    </CardContent>
-                  </Card>
+            {/* Tabs */}
+            <div className="flex-1 overflow-hidden">
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
+                <div className="bg-white border-b px-6">
+                  <TabsList className="h-10 bg-transparent border-0 p-0 gap-0">
+                    <TabsTrigger value="stages" className="rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-transparent h-10">
+                      <Zap className="h-3.5 w-3.5 mr-1.5" /> Stages ({stages.length})
+                    </TabsTrigger>
+                    <TabsTrigger value="tickets" className="rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-transparent h-10">
+                      <FileText className="h-3.5 w-3.5 mr-1.5" /> Tickets ({tickets.length})
+                    </TabsTrigger>
+                    <TabsTrigger value="endpoints" className="rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-transparent h-10">
+                      <Globe className="h-3.5 w-3.5 mr-1.5" /> Endpoints ({wfDetail?.endpoints?.length ?? 0})
+                    </TabsTrigger>
+                    <TabsTrigger value="environments" className="rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-transparent h-10">
+                      <Settings2 className="h-3.5 w-3.5 mr-1.5" /> Environments
+                    </TabsTrigger>
+                  </TabsList>
                 </div>
-                {displayedWorkflow?.steps && Array.isArray(displayedWorkflow.steps) && displayedWorkflow.steps.length > 0 && (
-                  <Card className="mt-4">
-                    <CardHeader>
-                      <CardTitle className="text-sm">Workflow Steps</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <pre className="text-xs bg-gray-50 p-3 rounded overflow-auto max-h-48">
-                        {JSON.stringify(displayedWorkflow.steps, null, 2)}
-                      </pre>
-                    </CardContent>
-                  </Card>
-                )}
-              </TabsContent>
 
-              <TabsContent value="endpoints">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold text-gray-900">API Endpoints</h3>
-                  <Button size="sm" onClick={() => { setShowEndpointDialog(true); endpointForm.reset(); setEditingEndpoint(null); }}>
-                    <Plus className="h-4 w-4 mr-1" /> Add Endpoint
-                  </Button>
-                </div>
-                {!displayedWorkflow?.endpoints?.length ? (
-                  <Card>
-                    <CardContent className="py-8 text-center text-gray-400">
-                      <Globe className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-                      <p className="text-sm">No endpoints configured</p>
-                      <p className="text-xs mt-1">Add API endpoints this workflow calls</p>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <div className="space-y-3">
-                    {displayedWorkflow.endpoints.map((ep: any) => (
-                      <Card key={ep.id}>
-                        <CardContent className="py-4">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <Badge variant="outline" className="font-mono text-xs">{ep.method}</Badge>
-                              <div>
-                                <p className="font-medium text-sm">{ep.name}</p>
-                                <p className="text-xs text-gray-500 font-mono truncate max-w-xs">{ep.url}</p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge variant={ep.isActive ? "default" : "secondary"}>
-                                {ep.isActive ? "Active" : "Inactive"}
-                              </Badge>
-                              <span className="text-xs text-gray-400">{ep.authType}</span>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => deleteEndpoint.mutate(ep.id)}
-                                className="text-red-500 hover:text-red-700"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                <ScrollArea className="flex-1">
+                  <div className="p-6">
+
+                    <TabsContent value="stages" className="mt-0">
+                      {stagesLoading ? (
+                        <div className="flex items-center justify-center py-12">
+                          <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+                        </div>
+                      ) : (
+                        <PipelineView stages={stages} />
+                      )}
+                    </TabsContent>
+
+                    <TabsContent value="tickets" className="mt-0">
+                      {ticketsLoading ? (
+                        <div className="flex items-center justify-center py-12">
+                          <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+                        </div>
+                      ) : (
+                        <TicketsView tickets={tickets} onSelect={setSelectedTicket} />
+                      )}
+                    </TabsContent>
+
+                    <TabsContent value="endpoints" className="mt-0">
+                      {!wfDetail?.endpoints?.length ? (
+                        <Card>
+                          <CardContent className="py-8 text-center text-gray-400">
+                            <Globe className="h-8 w-8 mx-auto mb-2 text-gray-200" />
+                            <p className="text-sm">No API endpoints configured</p>
+                          </CardContent>
+                        </Card>
+                      ) : (
+                        <div className="space-y-3">
+                          {wfDetail.endpoints.map((ep: any) => (
+                            <Card key={ep.id}>
+                              <CardContent className="py-4">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-3">
+                                    <Badge variant="outline" className="font-mono text-xs">{ep.method}</Badge>
+                                    <div>
+                                      <p className="font-medium text-sm">{ep.name}</p>
+                                      <p className="text-xs text-gray-500 font-mono truncate max-w-xs">{ep.url}</p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant={ep.is_active ? "default" : "secondary"}>
+                                      {ep.is_active ? "Active" : "Inactive"}
+                                    </Badge>
+                                    <span className="text-xs text-gray-400">{ep.auth_type}</span>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
+                      )}
+                    </TabsContent>
+
+                    <TabsContent value="environments" className="mt-0">
+                      <div className="space-y-4">
+                        {["production", "development", "test"].map((env) => {
+                          const config = wfDetail?.environmentConfigs?.find((c: any) => c.environment === env);
+                          return (
+                            <Card key={env}>
+                              <CardHeader className="pb-3">
+                                <div className="flex items-center justify-between">
+                                  <CardTitle className="text-sm capitalize flex items-center gap-2">
+                                    <Settings2 className="h-4 w-4" /> {env} environment
+                                  </CardTitle>
+                                  <Badge variant={config?.is_active ? "default" : "secondary"}>
+                                    {config ? (config.is_active ? "Configured" : "Inactive") : "Not configured"}
+                                  </Badge>
+                                </div>
+                              </CardHeader>
+                              <CardContent>
+                                {config?.config ? (
+                                  <pre className="text-xs bg-gray-50 p-3 rounded overflow-auto max-h-32">
+                                    {JSON.stringify(config.config, null, 2)}
+                                  </pre>
+                                ) : (
+                                  <p className="text-sm text-gray-400">No configuration overrides set</p>
+                                )}
+                              </CardContent>
+                            </Card>
+                          );
+                        })}
+                      </div>
+                    </TabsContent>
+
                   </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="environments">
-                <div className="space-y-4">
-                  {["production", "development", "test"].map((env) => {
-                    const config = displayedWorkflow?.environmentConfigs?.find((c: any) => c.environment === env);
-                    return (
-                      <Card key={env}>
-                        <CardHeader className="pb-3">
-                          <div className="flex items-center justify-between">
-                            <CardTitle className="text-sm capitalize flex items-center gap-2">
-                              <Settings2 className="h-4 w-4" />
-                              {env} environment
-                            </CardTitle>
-                            <Badge variant={config?.isActive ? "default" : "secondary"}>
-                              {config ? (config.isActive ? "Configured" : "Inactive") : "Not configured"}
-                            </Badge>
-                          </div>
-                        </CardHeader>
-                        <CardContent>
-                          {config?.config ? (
-                            <pre className="text-xs bg-gray-50 p-3 rounded overflow-auto max-h-32">
-                              {JSON.stringify(config.config, null, 2)}
-                            </pre>
-                          ) : (
-                            <p className="text-sm text-gray-400">No configuration overrides set for this environment</p>
-                          )}
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
-              </TabsContent>
-            </Tabs>
+                </ScrollArea>
+              </Tabs>
+            </div>
           </div>
         )}
       </div>
-
-      {/* Create/Edit Workflow Dialog */}
-      <Dialog open={showCreateDialog || !!editingWorkflow} onOpenChange={(open) => { if (!open) { setShowCreateDialog(false); setEditingWorkflow(null); } }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{editingWorkflow ? "Edit Workflow" : "New Workflow Definition"}</DialogTitle>
-          </DialogHeader>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-              <FormField control={form.control} name="name" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl><Input placeholder="e.g. Merchant Onboarding" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="description" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description</FormLabel>
-                  <FormControl><Textarea placeholder="What does this workflow do?" rows={2} {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <div className="grid grid-cols-2 gap-4">
-                <FormField control={form.control} name="trigger" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Trigger</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        <SelectItem value="manual">Manual</SelectItem>
-                        <SelectItem value="webhook">Webhook</SelectItem>
-                        <SelectItem value="schedule">Schedule</SelectItem>
-                        <SelectItem value="event">Event</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="status" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Status</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        <SelectItem value="draft">Draft</SelectItem>
-                        <SelectItem value="active">Active</SelectItem>
-                        <SelectItem value="inactive">Inactive</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              </div>
-              <FormField control={form.control} name="isEnabled" render={({ field }) => (
-                <FormItem className="flex items-center justify-between rounded-lg border p-3">
-                  <FormLabel className="cursor-pointer">Enable workflow</FormLabel>
-                  <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
-                </FormItem>
-              )} />
-              <Separator />
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => { setShowCreateDialog(false); setEditingWorkflow(null); }}>Cancel</Button>
-                <Button type="submit" disabled={createWorkflow.isPending || updateWorkflow.isPending}>
-                  {(createWorkflow.isPending || updateWorkflow.isPending) && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                  {editingWorkflow ? "Save Changes" : "Create Workflow"}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Endpoint Dialog */}
-      <Dialog open={showEndpointDialog} onOpenChange={setShowEndpointDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add API Endpoint</DialogTitle>
-          </DialogHeader>
-          <Form {...endpointForm}>
-            <form onSubmit={endpointForm.handleSubmit((v) => createEndpoint.mutate(v))} className="space-y-4">
-              <FormField control={endpointForm.control} name="name" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Endpoint Name</FormLabel>
-                  <FormControl><Input placeholder="e.g. Notify Compliance Team" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={endpointForm.control} name="url" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>URL</FormLabel>
-                  <FormControl><Input placeholder="https://api.example.com/notify" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <div className="grid grid-cols-2 gap-4">
-                <FormField control={endpointForm.control} name="method" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Method</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        {["GET", "POST", "PUT", "PATCH", "DELETE"].map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </FormItem>
-                )} />
-                <FormField control={endpointForm.control} name="authType" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Auth Type</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="api_key">API Key</SelectItem>
-                        <SelectItem value="bearer">Bearer Token</SelectItem>
-                        <SelectItem value="basic">Basic Auth</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </FormItem>
-                )} />
-              </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setShowEndpointDialog(false)}>Cancel</Button>
-                <Button type="submit" disabled={createEndpoint.isPending}>
-                  {createEndpoint.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                  Add Endpoint
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

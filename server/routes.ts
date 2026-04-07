@@ -6420,27 +6420,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // WORKFLOW DEFINITIONS API ENDPOINTS
   // ============================================================================
 
-  // List all workflow definitions
-  app.get("/api/admin/workflows", requireRole(['admin', 'super_admin']), async (req, res) => {
+  // List all workflow definitions (raw SQL to match actual DB schema)
+  app.get("/api/admin/workflows", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
-      const workflows = await storage.getAllWorkflowDefinitions();
-      res.json(workflows);
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const result = await dynamicDB.execute(sqlTag`
+        SELECT wd.id, wd.code, wd.name, wd.description, wd.category, wd.entity_type,
+               wd.is_active, wd.created_at, wd.updated_at,
+               COUNT(DISTINCT ws.id)::int AS stage_count,
+               COUNT(DISTINCT wt.id)::int AS ticket_count
+        FROM workflow_definitions wd
+        LEFT JOIN workflow_stages ws ON ws.workflow_definition_id = wd.id
+        LEFT JOIN workflow_tickets wt ON wt.workflow_definition_id = wd.id
+        GROUP BY wd.id
+        ORDER BY wd.name
+      `);
+      res.json(result.rows ?? result);
     } catch (error) {
       console.error("Error fetching workflows:", error);
       res.status(500).json({ message: "Failed to fetch workflows" });
     }
   });
 
-  // Get a single workflow with its endpoints and environment configs
-  app.get("/api/admin/workflows/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
+  // Get a single workflow definition with endpoints and environment configs
+  app.get("/api/admin/workflows/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
       const id = parseInt(req.params.id);
-      const workflow = await storage.getWorkflowDefinition(id);
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const wfResult = await dynamicDB.execute(sqlTag`
+        SELECT id, code, name, description, category, entity_type, initial_status,
+               final_statuses, configuration, is_active, created_by, created_at, updated_at
+        FROM workflow_definitions WHERE id = ${id}
+      `);
+      const workflow = (wfResult.rows ?? wfResult)[0];
       if (!workflow) return res.status(404).json({ message: "Workflow not found" });
-      res.json(workflow);
+      const epResult = await dynamicDB.execute(sqlTag`SELECT * FROM workflow_endpoints WHERE workflow_id = ${id}`);
+      const envResult = await dynamicDB.execute(sqlTag`SELECT * FROM workflow_environment_configs WHERE workflow_id = ${id}`);
+      res.json({ ...workflow, endpoints: epResult.rows ?? epResult, environmentConfigs: envResult.rows ?? envResult });
+      return;
     } catch (error) {
       console.error("Error fetching workflow:", error);
       res.status(500).json({ message: "Failed to fetch workflow" });
+      return;
     }
   });
 
@@ -6576,6 +6599,104 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ message: "Environment config deleted" });
     } catch (error) {
       res.status(500).json({ message: "Failed to delete environment config" });
+    }
+  });
+
+  // ─── Workflow Stages ─────────────────────────────────────────────────────
+  app.get("/api/admin/workflows/:id/stages", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const id = parseInt(req.params.id);
+      const result = await dynamicDB.execute(sqlTag`
+        SELECT id, workflow_definition_id, code, name, description, order_index,
+               stage_type, handler_key, is_required, requires_review, auto_advance,
+               issue_blocks_severity, timeout_minutes, is_active, created_at
+        FROM workflow_stages
+        WHERE workflow_definition_id = ${id}
+        ORDER BY order_index
+      `);
+      res.json(result.rows ?? result);
+    } catch (error) {
+      console.error("Error fetching workflow stages:", error);
+      res.status(500).json({ message: "Failed to fetch workflow stages" });
+    }
+  });
+
+  // ─── Workflow Tickets ─────────────────────────────────────────────────────
+  app.get("/api/admin/workflow-tickets", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const workflowId = req.query.workflowId ? parseInt(req.query.workflowId as string) : null;
+      const result = await dynamicDB.execute(sqlTag`
+        SELECT wt.id, wt.ticket_number, wt.workflow_definition_id, wt.entity_type,
+               wt.entity_id, wt.status, wt.sub_status, wt.priority, wt.risk_level,
+               wt.risk_score, wt.assigned_to_id, wt.submitted_at, wt.started_at,
+               wt.completed_at, wt.due_at, wt.review_count, wt.metadata,
+               wt.created_at, wt.updated_at,
+               ws.name AS current_stage_name, ws.code AS current_stage_code,
+               ws.stage_type AS current_stage_type
+        FROM workflow_tickets wt
+        LEFT JOIN workflow_stages ws ON ws.id = wt.current_stage_id
+        WHERE (${workflowId}::int IS NULL OR wt.workflow_definition_id = ${workflowId})
+        ORDER BY wt.created_at DESC
+        LIMIT 100
+      `);
+      res.json(result.rows ?? result);
+    } catch (error) {
+      console.error("Error fetching workflow tickets:", error);
+      res.status(500).json({ message: "Failed to fetch workflow tickets" });
+    }
+  });
+
+  app.get("/api/admin/workflow-tickets/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const id = parseInt(req.params.id);
+      const ticketResult = await dynamicDB.execute(sqlTag`
+        SELECT wt.*, ws.name AS current_stage_name, ws.code AS current_stage_code
+        FROM workflow_tickets wt
+        LEFT JOIN workflow_stages ws ON ws.id = wt.current_stage_id
+        WHERE wt.id = ${id}
+      `);
+      const ticket = (ticketResult.rows ?? ticketResult)[0];
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+
+      const stageProgressResult = await dynamicDB.execute(sqlTag`
+        SELECT wts.id, wts.ticket_id, wts.stage_id, wts.status,
+               wts.started_at, wts.completed_at, wts.error_message,
+               ws.name AS stage_name, ws.code AS stage_code,
+               ws.stage_type, ws.order_index
+        FROM workflow_ticket_stages wts
+        JOIN workflow_stages ws ON ws.id = wts.stage_id
+        WHERE wts.ticket_id = ${id}
+        ORDER BY ws.order_index
+      `);
+
+      const notesResult = await dynamicDB.execute(sqlTag`
+        SELECT id, content, note_type, is_internal, created_by, created_at
+        FROM workflow_notes WHERE ticket_id = ${id} ORDER BY created_at DESC LIMIT 20
+      `);
+
+      const issuesResult = await dynamicDB.execute(sqlTag`
+        SELECT id, issue_code, issue_type, severity, title, description,
+               status, score_impact, created_at
+        FROM workflow_issues WHERE ticket_id = ${id} ORDER BY created_at DESC LIMIT 50
+      `);
+
+      res.json({
+        ...ticket,
+        stageProgress: stageProgressResult.rows ?? stageProgressResult,
+        notes: notesResult.rows ?? notesResult,
+        issues: issuesResult.rows ?? issuesResult,
+      });
+      return;
+    } catch (error) {
+      console.error("Error fetching workflow ticket:", error);
+      res.status(500).json({ message: "Failed to fetch workflow ticket" });
+      return;
     }
   });
 
