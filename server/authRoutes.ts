@@ -36,7 +36,8 @@ export function setupAuthRoutes(app: Express) {
         .from(schema.users)
         .where(eq(schema.users.id, req.session.userId));
       
-      user = users[0];
+      const raw = users[0];
+      user = raw ? { ...raw, role: (raw.roles?.[0] ?? "merchant") } : undefined;
     } else {
       user = await storage.getUser(req.session.userId);
     }
