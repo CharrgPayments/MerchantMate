@@ -9,8 +9,10 @@ import connectPg from "connect-pg-simple";
 import { storage } from "./storage";
 import { v4 as uuidv4 } from "uuid";
 
-if (!process.env.REPLIT_DOMAINS) {
+if (!process.env.REPLIT_DOMAINS && process.env.NODE_ENV !== 'development') {
   throw new Error("Environment variable REPLIT_DOMAINS not provided");
+} else if (!process.env.REPLIT_DOMAINS) {
+  console.warn("Warning: REPLIT_DOMAINS not set. Replit OAuth disabled — using local dev auth bypass.");
 }
 
 const getOidcConfig = memoize(
@@ -76,6 +78,16 @@ export async function setupAuth(app: Express) {
   app.use(getSession());
   app.use(passport.initialize());
   app.use(passport.session());
+
+  // Skip Replit OIDC setup when running locally without REPLIT_DOMAINS
+  if (!process.env.REPLIT_DOMAINS) {
+    console.log("Local dev mode: skipping Replit OAuth setup, using dev auth bypass.");
+    passport.serializeUser((user: Express.User, cb) => cb(null, user));
+    passport.deserializeUser((user: Express.User, cb) => cb(null, user));
+    app.get("/api/login", (req, res) => res.redirect("/"));
+    app.get("/api/logout", (req, res) => { req.logout(() => res.redirect("/")); });
+    return;
+  }
 
   const config = await getOidcConfig();
 
