@@ -1254,11 +1254,16 @@ function TicketDetailPanel({ ticket, onClose }: { ticket: any; onClose: () => vo
     staleTime: 0,
   });
 
-  const { data: staffUsers = [] } = useQuery<any[]>({
+  const { data: rawStaffUsers } = useQuery<any[]>({
     queryKey: ["/api/admin/workflow-users"],
-    queryFn: () => fetch("/api/admin/workflow-users", { credentials: "include" }).then(r => r.json()),
+    queryFn: async () => {
+      const r = await fetch("/api/admin/workflow-users", { credentials: "include" });
+      if (!r.ok) throw new Error(`${r.status}`);
+      return r.json();
+    },
     staleTime: 60000,
   });
+  const staffUsers: any[] = Array.isArray(rawStaffUsers) ? rawStaffUsers : [];
 
   const actionMutation = useMutation({
     mutationFn: ({ ticketStageId, action, notes }: { ticketStageId: number; action: string; notes: string }) =>
