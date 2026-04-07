@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Search, Plus, Settings, Trash2, RotateCcw, Users, Edit2, Key, Wand2, Copy, Check } from "lucide-react";
+import { Search, Plus, Settings, Trash2, RotateCcw, Users, Edit2, Key } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -54,34 +54,6 @@ import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type { User } from "@shared/schema";
-import { validatePasswordStrength } from "@shared/schema";
-import { formatPhoneNumber, unformatPhoneNumber, generatePassword } from "@/lib/utils";
-import { PasswordConfirmationDialog } from "@/components/password-confirmation-dialog";
-
-// User create form schema
-const createUserSchema = z.object({
-  firstName: z.string().min(1, "First name is required"),
-  lastName: z.string().min(1, "Last name is required"),
-  email: z.string().email("Invalid email address"),
-  username: z.string().min(3, "Username must be at least 3 characters"),
-  password: z.string().min(12, "Password must be at least 12 characters"),
-  confirmPassword: z.string(),
-  phone: z.string().min(1, "Phone number is required"),
-  communicationPreference: z.enum(["email", "sms", "both"]).default("email"),
-  roles: z.array(z.enum(["merchant", "agent", "admin", "corporate", "super_admin"])).min(1, "At least one role is required"),
-}).refine((data) => {
-  const validation = validatePasswordStrength(data.password);
-  return validation.valid;
-}, {
-  message: "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character",
-  path: ["password"],
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ["confirmPassword"],
-}).refine((data) => unformatPhoneNumber(data.phone).length === 10, {
-  message: "Phone number must be exactly 10 digits",
-  path: ["phone"],
-});
 
 // User update form schema
 const updateUserSchema = z.object({
@@ -89,334 +61,16 @@ const updateUserSchema = z.object({
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Invalid email address"),
   username: z.string().min(3, "Username must be at least 3 characters"),
-  communicationPreference: z.enum(["email", "sms", "both"]),
-  roles: z.array(z.enum(["merchant", "agent", "admin", "corporate", "super_admin"])).min(1, "At least one role is required"),
+  role: z.enum(["merchant", "agent", "admin", "corporate", "super_admin"]),
   status: z.enum(["active", "suspended", "inactive"]),
 });
 
-type CreateUserFormData = z.infer<typeof createUserSchema>;
 type UpdateUserFormData = z.infer<typeof updateUserSchema>;
-
-// Create User Form Component
-function CreateUserForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel: () => void }) {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const [copiedPassword, setCopiedPassword] = useState(false);
-
-  const createUserForm = useForm<CreateUserFormData>({
-    resolver: zodResolver(createUserSchema),
-    defaultValues: {
-      firstName: "",
-      lastName: "",
-      email: "",
-      username: "",
-      password: "",
-      confirmPassword: "",
-      phone: "",
-      communicationPreference: "email" as const,
-      roles: ["merchant"],
-    },
-  });
-
-  const handleGeneratePassword = () => {
-    const newPassword = generatePassword();
-    createUserForm.setValue("password", newPassword);
-    createUserForm.setValue("confirmPassword", newPassword);
-    
-    navigator.clipboard.writeText(newPassword).then(() => {
-      setCopiedPassword(true);
-      setTimeout(() => setCopiedPassword(false), 2000);
-      toast({
-        title: "Password Generated",
-        description: "A strong password has been generated and copied to clipboard.",
-      });
-    }).catch(() => {
-      toast({
-        title: "Password Generated",
-        description: "A strong password has been generated. Please copy it manually from the field.",
-        variant: "default",
-      });
-    });
-  };
-
-  const createUserMutation = useMutation({
-    mutationFn: async (data: CreateUserFormData) => {
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(data),
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to create user');
-      }
-      
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
-      toast({
-        title: "Success",
-        description: "User account created successfully. A verification email has been sent.",
-      });
-      createUserForm.reset();
-      onSuccess();
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const onSubmit = (data: CreateUserFormData) => {
-    createUserMutation.mutate(data);
-  };
-
-  return (
-    <Form {...createUserForm}>
-      <form onSubmit={createUserForm.handleSubmit(onSubmit)} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <FormField
-            control={createUserForm.control}
-            name="firstName"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>First Name</FormLabel>
-                <FormControl>
-                  <Input placeholder="Enter first name" name={field.name} value={field.value || ""} onChange={field.onChange} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={createUserForm.control}
-            name="lastName"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Last Name</FormLabel>
-                <FormControl>
-                  <Input placeholder="Enter last name" name={field.name} value={field.value || ""} onChange={field.onChange} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-        
-        <FormField
-          control={createUserForm.control}
-          name="email"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Email</FormLabel>
-              <FormControl>
-                <Input type="email" placeholder="Enter email address" name={field.name} value={field.value || ""} onChange={field.onChange} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        
-        <FormField
-          control={createUserForm.control}
-          name="username"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Username</FormLabel>
-              <FormControl>
-                <Input placeholder="Enter username" name={field.name} value={field.value || ""} onChange={field.onChange} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        
-        <FormField
-          control={createUserForm.control}
-          name="phone"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Phone Number *</FormLabel>
-              <FormControl>
-                <Input 
-                  type="tel" 
-                  placeholder="(555) 555-5555" 
-                  name={field.name} 
-                  value={field.value || ""} 
-                  onChange={(e) => field.onChange(formatPhoneNumber(e.target.value))} 
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        
-        <FormField
-          control={createUserForm.control}
-          name="communicationPreference"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Communication Preferences *</FormLabel>
-              <FormControl>
-                <div className="space-y-3">
-                  <div className="text-sm text-gray-600 mb-2">
-                    Choose how you'd like to receive notifications:
-                  </div>
-                  <div className="space-y-2">
-                    <label className="flex items-center space-x-2">
-                      <input
-                        type="radio"
-                        name="communicationPreference"
-                        value="email"
-                        checked={field.value === "email"}
-                        onChange={() => field.onChange("email")}
-                        className="rounded"
-                      />
-                      <span className="text-sm">📧 Email notifications</span>
-                    </label>
-                    <label className="flex items-center space-x-2">
-                      <input
-                        type="radio"
-                        name="communicationPreference"
-                        value="sms"
-                        checked={field.value === "sms"}
-                        onChange={() => field.onChange("sms")}
-                        className="rounded"
-                      />
-                      <span className="text-sm">📱 SMS text messages</span>
-                    </label>
-                  </div>
-                </div>
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <FormLabel>Password</FormLabel>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleGeneratePassword}
-              className="h-7 text-xs"
-              data-testid="button-generate-password"
-            >
-              {copiedPassword ? (
-                <>
-                  <Check className="h-3 w-3 mr-1" />
-                  Copied!
-                </>
-              ) : (
-                <>
-                  <Wand2 className="h-3 w-3 mr-1" />
-                  Generate Password
-                </>
-              )}
-            </Button>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <FormField
-              control={createUserForm.control}
-              name="password"
-              render={({ field }) => (
-                <FormItem>
-                  <FormControl>
-                    <Input type="password" placeholder="Enter password" name={field.name} value={field.value || ""} onChange={field.onChange} data-testid="input-password" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            
-            <FormField
-              control={createUserForm.control}
-              name="confirmPassword"
-              render={({ field }) => (
-                <FormItem>
-                  <FormControl>
-                    <Input type="password" placeholder="Confirm password" name={field.name} value={field.value || ""} onChange={field.onChange} data-testid="input-confirm-password" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-        </div>
-        
-        <FormField
-          control={createUserForm.control}
-          name="roles"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Roles</FormLabel>
-              <FormControl>
-                <div className="space-y-2">
-                  {[
-                    { value: "merchant", label: "Merchant" },
-                    { value: "agent", label: "Agent" },
-                    { value: "admin", label: "Admin" },
-                    { value: "corporate", label: "Corporate" },
-                    { value: "super_admin", label: "Super Admin" },
-                  ].map((role) => (
-                    <label key={role.value} className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        checked={field.value.includes(role.value)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            field.onChange([...field.value, role.value]);
-                          } else {
-                            field.onChange(field.value.filter((r: string) => r !== role.value));
-                          }
-                        }}
-                        className="rounded"
-                      />
-                      <span className="text-sm">{role.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        
-        <div className="flex justify-end gap-2 pt-4">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              createUserForm.reset();
-              onCancel();
-            }}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={createUserMutation.isPending}>
-            {createUserMutation.isPending ? "Creating..." : "Create User"}
-          </Button>
-        </div>
-      </form>
-    </Form>
-  );
-}
 
 export default function UsersPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [passwordConfirmOpen, setPasswordConfirmOpen] = useState(false);
-  const [pendingUpdate, setPendingUpdate] = useState<{ userId: string; updates: UpdateUserFormData } | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -427,8 +81,7 @@ export default function UsersPage() {
       lastName: "",
       email: "",
       username: "",
-      communicationPreference: "email" as const,
-      roles: ["merchant"],
+      role: "merchant",
       status: "active",
     },
   });
@@ -479,7 +132,7 @@ export default function UsersPage() {
   });
 
   const updateUserMutation = useMutation({
-    mutationFn: (data: { userId: string; updates: UpdateUserFormData & { password?: string } }) =>
+    mutationFn: (data: { userId: string; updates: UpdateUserFormData }) =>
       apiRequest("PATCH", `/api/users/${data.userId}`, data.updates),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
@@ -489,46 +142,15 @@ export default function UsersPage() {
       });
       setEditDialogOpen(false);
       setEditingUser(null);
-      setPendingUpdate(null);
     },
-    onError: (error: any) => {
-      const message = error.message || "Failed to update user";
+    onError: () => {
       toast({
         title: "Error",
-        description: message,
+        description: "Failed to update user",
         variant: "destructive",
       });
     },
   });
-
-  const handlePasswordVerified = (password: string) => {
-    if (pendingUpdate) {
-      // Include the verified password in the update request
-      updateUserMutation.mutate({
-        ...pendingUpdate,
-        updates: { ...pendingUpdate.updates, password }
-      });
-    }
-  };
-
-  const handleUpdateUser = (updates: UpdateUserFormData) => {
-    if (!editingUser) return;
-
-    // Check if roles or status are being changed
-    const rolesChanged = JSON.stringify(updates.roles) !== JSON.stringify(editingUser.roles);
-    const statusChanged = updates.status !== editingUser.status;
-    const isSensitiveUpdate = rolesChanged || statusChanged;
-
-    if (isSensitiveUpdate) {
-      // Store the update and show password confirmation
-      setPendingUpdate({ userId: editingUser.id, updates });
-      setPasswordConfirmOpen(true);
-    } else {
-      // No sensitive changes, exclude roles and status from updates to avoid password requirement
-      const { roles, status, ...nonSensitiveUpdates } = updates;
-      updateUserMutation.mutate({ userId: editingUser.id, updates: nonSensitiveUpdates });
-    }
-  };
 
   const deleteUserMutation = useMutation({
     mutationFn: (userId: string) =>
@@ -556,13 +178,13 @@ export default function UsersPage() {
     user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.roles.some((role: string) => role.toLowerCase().includes(searchTerm.toLowerCase()))
+    user.role.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
       case "super_admin":
-        return "gold";
+        return "destructive";
       case "admin":
         return "destructive";
       case "agent":
@@ -597,49 +219,21 @@ export default function UsersPage() {
   return (
     <div className="p-6 space-y-6">
       {/* Action Buttons */}
-      <div className="flex justify-between">
-        <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-bold">Users</h1>
-        </div>
-        <div className="flex gap-2">
-          <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Users className="h-4 w-4 mr-2" />
-                Create User
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
-              <DialogHeader>
-                <DialogTitle>Create New User</DialogTitle>
-                <DialogDescription>
-                  Add a new user to the system with their role and details.
-                </DialogDescription>
-              </DialogHeader>
-              <CreateUserForm 
-                onSuccess={() => {
-                  setCreateDialogOpen(false);
-                  refetch();
-                }} 
-                onCancel={() => setCreateDialogOpen(false)}
-              />
-            </DialogContent>
-          </Dialog>
-          <Button onClick={() => refetch()} disabled={isLoading} variant="outline">
-            {isLoading ? "Refreshing..." : "Refresh Data"}
-          </Button>
-          <Button 
-            variant="outline" 
-            onClick={async () => {
-              // Clear React Query cache and force fresh data fetch
-              await queryClient.resetQueries();
-              window.location.reload();
-            }} 
-            disabled={isLoading}
-          >
-            Force Refresh
-          </Button>
-        </div>
+      <div className="flex justify-end gap-2">
+        <Button onClick={() => refetch()} disabled={isLoading}>
+          {isLoading ? "Refreshing..." : "Refresh Data"}
+        </Button>
+        <Button 
+          variant="outline" 
+          onClick={async () => {
+            // Clear React Query cache and force fresh data fetch
+            await queryClient.resetQueries();
+            window.location.reload();
+          }} 
+          disabled={isLoading}
+        >
+          Force Refresh
+        </Button>
       </div>
 
       {/* Stats Cards */}
@@ -660,7 +254,7 @@ export default function UsersPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {users.filter((u: User) => u.roles?.includes("agent")).length}
+              {users.filter((u: User) => u.role === "agent").length}
             </div>
           </CardContent>
         </Card>
@@ -671,7 +265,7 @@ export default function UsersPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {users.filter((u: User) => u.roles?.includes("merchant")).length}
+              {users.filter((u: User) => u.role === "merchant").length}
             </div>
           </CardContent>
         </Card>
@@ -682,7 +276,7 @@ export default function UsersPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {users.filter((u: User) => u.roles?.includes("admin") || u.roles?.includes("super_admin")).length}
+              {users.filter((u: User) => u.role === "admin" || u.role === "super_admin").length}
             </div>
           </CardContent>
         </Card>
@@ -739,13 +333,9 @@ export default function UsersPage() {
                     <TableCell>{user.email}</TableCell>
                     <TableCell>{user.username}</TableCell>
                     <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {user.roles.map((role: string) => (
-                          <Badge key={role} variant={getRoleBadgeVariant(role)}>
-                            {role.replace('_', ' ').toUpperCase()}
-                          </Badge>
-                        ))}
-                      </div>
+                      <Badge variant={getRoleBadgeVariant(user.role)}>
+                        {user.role.replace('_', ' ').toUpperCase()}
+                      </Badge>
                     </TableCell>
                     <TableCell>
                       <Badge variant={getStatusBadgeVariant(user.status)}>
@@ -840,7 +430,11 @@ export default function UsersPage() {
           
           <Form {...updateUserForm}>
             <form
-              onSubmit={updateUserForm.handleSubmit(handleUpdateUser)}
+              onSubmit={updateUserForm.handleSubmit((data) => {
+                if (editingUser) {
+                  updateUserMutation.mutate({ userId: editingUser.id, updates: data });
+                }
+              })}
               className="space-y-4"
             >
               <div className="grid grid-cols-2 gap-4">
@@ -851,7 +445,7 @@ export default function UsersPage() {
                     <FormItem>
                       <FormLabel>First Name</FormLabel>
                       <FormControl>
-                        <Input name={field.name} value={field.value || ""} onChange={field.onChange} />
+                        <Input {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -864,7 +458,7 @@ export default function UsersPage() {
                     <FormItem>
                       <FormLabel>Last Name</FormLabel>
                       <FormControl>
-                        <Input name={field.name} value={field.value || ""} onChange={field.onChange} />
+                        <Input {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -879,7 +473,7 @@ export default function UsersPage() {
                   <FormItem>
                     <FormLabel>Email</FormLabel>
                     <FormControl>
-                      <Input type="email" name={field.name} value={field.value || ""} onChange={field.onChange} />
+                      <Input type="email" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -893,31 +487,8 @@ export default function UsersPage() {
                   <FormItem>
                     <FormLabel>Username</FormLabel>
                     <FormControl>
-                      <Input name={field.name} value={field.value || ""} onChange={field.onChange} />
+                      <Input {...field} />
                     </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={updateUserForm.control}
-                name="communicationPreference"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Communication Preference</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select preference" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="email">Email Only</SelectItem>
-                        <SelectItem value="sms">SMS Only</SelectItem>
-                        <SelectItem value="both">Both Email & SMS</SelectItem>
-                      </SelectContent>
-                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -926,37 +497,24 @@ export default function UsersPage() {
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={updateUserForm.control}
-                  name="roles"
+                  name="role"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Roles</FormLabel>
-                      <FormControl>
-                        <div className="space-y-2">
-                          {[
-                            { value: "merchant", label: "Merchant" },
-                            { value: "agent", label: "Agent" },
-                            { value: "admin", label: "Admin" },
-                            { value: "corporate", label: "Corporate" },
-                            { value: "super_admin", label: "Super Admin" },
-                          ].map((role) => (
-                            <label key={role.value} className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                checked={field.value.includes(role.value)}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    field.onChange([...field.value, role.value]);
-                                  } else {
-                                    field.onChange(field.value.filter((r: string) => r !== role.value));
-                                  }
-                                }}
-                                className="rounded"
-                              />
-                              <span className="text-sm">{role.label}</span>
-                            </label>
-                          ))}
-                        </div>
-                      </FormControl>
+                      <FormLabel>Role</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="merchant">Merchant</SelectItem>
+                          <SelectItem value="agent">Agent</SelectItem>
+                          <SelectItem value="admin">Admin</SelectItem>
+                          <SelectItem value="corporate">Corporate</SelectItem>
+                          <SelectItem value="super_admin">Super Admin</SelectItem>
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -1005,18 +563,6 @@ export default function UsersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Password Confirmation Dialog */}
-      <PasswordConfirmationDialog
-        isOpen={passwordConfirmOpen}
-        onClose={() => {
-          setPasswordConfirmOpen(false);
-          setPendingUpdate(null);
-        }}
-        onConfirm={handlePasswordVerified}
-        title="Confirm Role/Status Change"
-        description="This action requires password verification for security purposes. Changing user roles or status is a sensitive operation. Please enter your password to continue."
-      />
-
     </div>
   );
 
@@ -1028,8 +574,7 @@ export default function UsersPage() {
       lastName: user.lastName || "",
       email: user.email,
       username: user.username,
-      communicationPreference: (user.communicationPreference || "email") as any,
-      roles: user.roles || ["merchant"],
+      role: user.role as any,
       status: user.status as any,
     });
     setEditDialogOpen(true);

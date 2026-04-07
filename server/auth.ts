@@ -3,10 +3,7 @@ import speakeasy from "speakeasy";
 import crypto from "crypto";
 import { v4 as uuidv4 } from "uuid";
 import sgMail from "@sendgrid/mail";
-import { storage, DatabaseStorage } from "./storage";
-import { emailService } from "./emailService";
-import { users, loginAttempts } from "@shared/schema";
-import { eq, and, or, gte, sql } from "drizzle-orm";
+import { storage } from "./storage";
 import type { Request } from "express";
 import type { 
   RegisterUser, 
@@ -36,16 +33,7 @@ export class AuthService {
 
   // Verify password against hash
   async verifyPassword(password: string, hash: string): Promise<boolean> {
-    console.log(`verifyPassword: Input password: "${password}" (length: ${password?.length})`);
-    console.log(`verifyPassword: Hash: "${hash}" (length: ${hash?.length})`);
-    try {
-      const result = await bcrypt.compare(password, hash);
-      console.log(`verifyPassword: Comparison result: ${result}`);
-      return result;
-    } catch (error) {
-      console.error(`verifyPassword: Error during comparison:`, error);
-      return false;
-    }
+    return bcrypt.compare(password, hash);
   }
 
   // Generate secure random token
@@ -74,36 +62,9 @@ export class AuthService {
   }
 
   // Check for recent failed login attempts
-  async checkLoginAttempts(usernameOrEmail: string, ip: string, db: any = null): Promise<boolean> {
-    if (db) {
-      // Use dynamic database for login attempts check
-      console.log(`🔍 checkLoginAttempts: Using dynamic DB for user: ${usernameOrEmail}`);
-      
-      // Test raw query first
-      try {
-        const rawTest: any = await db.execute(sql`SELECT COUNT(*) as count FROM login_attempts WHERE created_at > NOW() - INTERVAL '15 minutes'`);
-        console.log(`🔍 Raw SQL test - login_attempts count:`, rawTest.rows?.[0]?.count || rawTest[0]?.count || 'unknown');
-      } catch (rawError: any) {
-        console.error(`❌ Raw SQL test failed:`, rawError.message);
-      }
-      
-      const timeThreshold = new Date(Date.now() - LOCKOUT_TIME);
-      const recentAttempts = await db.select().from(loginAttempts)
-        .where(and(
-          or(
-            eq(loginAttempts.username, usernameOrEmail),
-            eq(loginAttempts.email, usernameOrEmail)
-          ),
-          eq(loginAttempts.ipAddress, ip),
-          gte(loginAttempts.createdAt, timeThreshold)
-        ));
-      console.log(`✅ checkLoginAttempts: Found ${recentAttempts.length} recent attempts`);
-      return recentAttempts.length < MAX_LOGIN_ATTEMPTS;
-    } else {
-      // Fallback to storage for backward compatibility
-      const recentAttempts = await storage.getRecentLoginAttempts(usernameOrEmail, ip, LOCKOUT_TIME);
-      return recentAttempts.length < MAX_LOGIN_ATTEMPTS;
-    }
+  async checkLoginAttempts(usernameOrEmail: string, ip: string): Promise<boolean> {
+    const recentAttempts = await storage.getRecentLoginAttempts(usernameOrEmail, ip, LOCKOUT_TIME);
+    return recentAttempts.length < MAX_LOGIN_ATTEMPTS;
   }
 
   // Log login attempt
@@ -112,30 +73,16 @@ export class AuthService {
     ip: string,
     userAgent: string,
     success: boolean,
-    failureReason?: string,
-    db: any = null
+    failureReason?: string
   ): Promise<void> {
-    if (db) {
-      // Use dynamic database for login attempt logging
-      await db.insert(loginAttempts).values({
-        username: usernameOrEmail.includes("@") ? null : usernameOrEmail,
-        email: usernameOrEmail.includes("@") ? usernameOrEmail : null,
-        ipAddress: ip,
-        userAgent,
-        success,
-        failureReason: failureReason || null,
-      });
-    } else {
-      // Fallback to storage for backward compatibility
-      await storage.createLoginAttempt({
-        username: usernameOrEmail.includes("@") ? null : usernameOrEmail,
-        email: usernameOrEmail.includes("@") ? usernameOrEmail : null,
-        ipAddress: ip,
-        userAgent,
-        success,
-        failureReason,
-      });
-    }
+    await storage.createLoginAttempt({
+      username: usernameOrEmail.includes("@") ? null : usernameOrEmail,
+      email: usernameOrEmail.includes("@") ? usernameOrEmail : null,
+      ipAddress: ip,
+      userAgent,
+      success,
+      failureReason,
+    });
   }
 
   // Send email using SendGrid
@@ -210,9 +157,7 @@ export class AuthService {
         passwordHash,
         firstName: userData.firstName,
         lastName: userData.lastName,
-        phone: userData.phone,
-        communicationPreference: userData.communicationPreference || "email",
-        roles: userData.roles || ["merchant"],
+        role: userData.role || "merchant",
         emailVerificationToken,
         emailVerified: false,
         status: 'active' as const,
@@ -276,7 +221,7 @@ export class AuthService {
         passwordHash,
         firstName: userData.firstName,
         lastName: userData.lastName,
-        roles: userData.roles || ["merchant"],
+        role: userData.role || "merchant",
         emailVerificationToken,
         emailVerified: false,
       });
@@ -441,7 +386,7 @@ export class AuthService {
     }
   }
 
-  // Login with dynamic database support - bypasses storage layer for database switching
+  // Login with dynamic database support
   async loginWithDB(loginData: LoginUser, req: Request, db: any): Promise<{ 
     success: boolean; 
     message: string; 
@@ -453,87 +398,33 @@ export class AuthService {
     const userAgent = req.headers["user-agent"] || "";
 
     try {
-      // Check login attempts
-      if (!(await this.checkLoginAttempts(loginData.usernameOrEmail, ip, db))) {
-        await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, false, "too_many_attempts", db);
+      // Import schema and drizzle functions
+      const schema = await import('@shared/schema');
+      const { eq, or } = await import('drizzle-orm');
+
+      // Check login attempts (still use storage for cross-database tracking)
+      if (!(await this.checkLoginAttempts(loginData.usernameOrEmail, ip))) {
+        await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, false, "too_many_attempts");
         return {
           success: false,
           message: "Too many failed login attempts. Please try again in 15 minutes."
         };
       }
 
-      // Get user by username or email using dynamic database
-      let user;
-      try {
-        const [userByUsername] = await db.select({
-          id: users.id,
-          email: users.email,
-          username: users.username,
-          passwordHash: users.passwordHash,
-          firstName: users.firstName,
-          lastName: users.lastName,
-          profileImageUrl: users.profileImageUrl,
-          status: users.status,
-          permissions: users.permissions,
-          lastLoginAt: users.lastLoginAt,
-          lastLoginIp: users.lastLoginIp,
-          timezone: users.timezone,
-          twoFactorEnabled: users.twoFactorEnabled,
-          twoFactorSecret: users.twoFactorSecret,
-          passwordResetToken: users.passwordResetToken,
-          passwordResetExpires: users.passwordResetExpires,
-          emailVerified: users.emailVerified,
-          emailVerificationToken: users.emailVerificationToken,
-          createdAt: users.createdAt,
-          updatedAt: users.updatedAt,
-          roles: users.roles
-        }).from(users).where(eq(users.username, loginData.usernameOrEmail));
-        if (userByUsername) {
-          console.log(`LoginWithDB: Found user by username: ${userByUsername.username} (${userByUsername.id})`);
-          console.log(`LoginWithDB: Password hash preview: ${userByUsername.passwordHash?.substring(0, 30)}...`);
-          user = userByUsername;
-        } else {
-          const [userByEmail] = await db.select({
-            id: users.id,
-            email: users.email,
-            username: users.username,
-            passwordHash: users.passwordHash,
-            firstName: users.firstName,
-            lastName: users.lastName,
-            profileImageUrl: users.profileImageUrl,
-            status: users.status,
-            permissions: users.permissions,
-            lastLoginAt: users.lastLoginAt,
-            lastLoginIp: users.lastLoginIp,
-            timezone: users.timezone,
-            twoFactorEnabled: users.twoFactorEnabled,
-            twoFactorSecret: users.twoFactorSecret,
-            passwordResetToken: users.passwordResetToken,
-            passwordResetExpires: users.passwordResetExpires,
-            emailVerified: users.emailVerified,
-            emailVerificationToken: users.emailVerificationToken,
-            createdAt: users.createdAt,
-            updatedAt: users.updatedAt,
-            roles: users.roles
-          }).from(users).where(eq(users.email, loginData.usernameOrEmail));
-          if (userByEmail) {
-            console.log(`LoginWithDB: Found user by email: ${userByEmail.username} (${userByEmail.id})`);
-            user = userByEmail;
-          } else {
-            console.log(`LoginWithDB: No user found by username or email`);
-          }
-        }
-      } catch (dbError) {
-        console.error("Database query error:", dbError);
-        await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, false, "database_error", db);
-        return {
-          success: false,
-          message: "Login failed. Please try again."
-        };
-      }
+      // Get user from the specific database
+      const users = await db
+        .select()
+        .from(schema.users)
+        .where(
+          or(
+            eq(schema.users.username, loginData.usernameOrEmail),
+            eq(schema.users.email, loginData.usernameOrEmail)
+          )
+        );
 
+      const user = users[0];
       if (!user) {
-        await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, false, "user_not_found", db);
+        await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, false, "user_not_found");
         return {
           success: false,
           message: "Invalid username/email or password"
@@ -542,7 +433,7 @@ export class AuthService {
 
       // Check if account is active
       if (user.status !== "active") {
-        await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, false, "account_inactive", db);
+        await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, false, "account_inactive");
         return {
           success: false,
           message: "Account is suspended. Please contact support."
@@ -551,76 +442,27 @@ export class AuthService {
 
       // Verify password
       if (!(await this.verifyPassword(loginData.password, user.passwordHash))) {
-        await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, false, "invalid_password", db);
+        await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, false, "invalid_password");
         return {
           success: false,
           message: "Invalid username/email or password"
         };
       }
 
-      // Check if IP changed or 2FA is enabled
-      const ipChanged = await this.hasIPChanged(user, ip);
-      if (user.twoFactorEnabled || ipChanged) {
-        if (!loginData.twoFactorCode) {
-          // Generate and send 2FA code
-          const code = this.generate2FACode();
-          const type = ipChanged ? "ip_change" : "login";
-          
-          await storage.create2FACode({
-            userId: user.id,
-            code,
-            type,
-            expiresAt: new Date(Date.now() + TWO_FACTOR_EXPIRES),
-          });
-
-          // Send 2FA code via email
-          await this.sendEmail(
-            user.email,
-            `CoreCRM Security Code${ipChanged ? " - New IP Address Detected" : ""}`,
-            `
-            <h2>Security Code Required</h2>
-            ${ipChanged ? "<p><strong>We detected a login from a new IP address.</strong></p>" : ""}
-            <p>Your verification code is: <strong style="font-size: 24px; color: #007bff;">${code}</strong></p>
-            <p>This code will expire in 5 minutes.</p>
-            <p>IP Address: ${ip}</p>
-            `
-          );
-
-          return {
-            success: false,
-            requires2FA: true,
-            message: ipChanged 
-              ? "New IP address detected. Please check your email for a security code."
-              : "Please enter your 2FA code."
-          };
-        } else {
-          // Verify 2FA code
-          const validCode = await storage.verify2FACode(user.id, loginData.twoFactorCode);
-          if (!validCode) {
-            await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, false, "invalid_2fa", db);
-            return {
-              success: false,
-              message: "Invalid or expired security code"
-            };
-          }
-        }
-      }
-
-      // Update user login info with timezone if provided using dynamic database
-      const updateData: any = {
+      // Update user login info in the specific database
+      const updateData = {
         lastLoginAt: new Date(),
         lastLoginIp: ip,
+        ...(loginData.timezone && { timezone: loginData.timezone }),
       };
       
-      // Update timezone if provided in login data
-      if (loginData.timezone) {
-        updateData.timezone = loginData.timezone;
-      }
-      
-      await db.update(users).set(updateData).where(eq(users.id, user.id));
+      await db
+        .update(schema.users)
+        .set(updateData)
+        .where(eq(schema.users.id, user.id));
 
       // Log successful login
-      await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, true, undefined, db);
+      await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, true);
 
       return {
         success: true,
@@ -630,7 +472,7 @@ export class AuthService {
       };
     } catch (error) {
       console.error("Login error:", error);
-      await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, false, "system_error", db);
+      await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, false, "system_error");
       return {
         success: false,
         message: "Login failed. Please try again."
@@ -639,7 +481,7 @@ export class AuthService {
   }
 
   // Request password reset
-  async requestPasswordReset(data: PasswordResetRequest, dbEnv?: string): Promise<{ success: boolean; message: string }> {
+  async requestPasswordReset(data: PasswordResetRequest): Promise<{ success: boolean; message: string }> {
     try {
       const user = await storage.getUserByUsernameOrEmail(data.usernameOrEmail, data.usernameOrEmail);
       if (!user) {
@@ -660,12 +502,21 @@ export class AuthService {
         passwordResetExpires: resetExpires,
       });
 
-      // Send reset email using EmailService
-      await emailService.sendPasswordResetEmail({
-        email: user.email,
-        resetToken: resetToken,
-        dbEnv: dbEnv
-      });
+      // Send reset email
+      await this.sendEmail(
+        user.email,
+        "CoreCRM Password Reset",
+        `
+        <h2>Password Reset Request</h2>
+        <p>You requested a password reset for your CoreCRM account.</p>
+        <p>Click the link below to reset your password:</p>
+        <a href="${process.env.APP_URL || "http://localhost:5000"}/auth/reset-password?token=${resetToken}">
+          Reset Password
+        </a>
+        <p>This link will expire in 1 hour.</p>
+        <p>If you didn't request this reset, please ignore this email.</p>
+        `
+      );
 
       return {
         success: true,
@@ -696,54 +547,6 @@ export class AuthService {
 
       // Update user
       await storage.updateUser(user.id, {
-        passwordHash,
-        passwordResetToken: null,
-        passwordResetExpires: null,
-      });
-
-      // Send confirmation email
-      await this.sendEmail(
-        user.email,
-        "CoreCRM Password Changed",
-        `
-        <h2>Password Successfully Changed</h2>
-        <p>Your CoreCRM account password has been successfully changed.</p>
-        <p>If you didn't make this change, please contact support immediately.</p>
-        `
-      );
-
-      return {
-        success: true,
-        message: "Password reset successful. You can now log in with your new password."
-      };
-    } catch (error) {
-      console.error("Password reset error:", error);
-      return {
-        success: false,
-        message: "Password reset failed. Please try again."
-      };
-    }
-  }
-
-  // Reset password with dynamic database
-  async resetPasswordWithDB(data: PasswordReset, dynamicDB: any): Promise<{ success: boolean; message: string }> {
-    try {
-      // Create a temporary storage instance with the dynamic database
-      const tempStorage = new DatabaseStorage(dynamicDB);
-      
-      const user = await tempStorage.getUserByResetToken(data.token);
-      if (!user || !user.passwordResetExpires || user.passwordResetExpires < new Date()) {
-        return {
-          success: false,
-          message: "Invalid or expired reset token"
-        };
-      }
-
-      // Hash new password
-      const passwordHash = await this.hashPassword(data.password);
-
-      // Update user
-      await tempStorage.updateUser(user.id, {
         passwordHash,
         passwordResetToken: null,
         passwordResetExpires: null,

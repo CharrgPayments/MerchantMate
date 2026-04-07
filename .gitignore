@@ -32,4 +32,4 @@ test_results.json
 test_output.log
 
 # PDF files (may contain sensitive data)
-*.pdf
+*.pdf.replit
