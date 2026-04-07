@@ -6548,15 +6548,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/admin/workflows/:id/env-configs/:env", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
-      const { workflowEnvironmentConfigs: wec } = await import("@shared/schema");
-      const { and: andOp, eq: eqOp } = await import("drizzle-orm");
-      const { db: dbConn } = await import("./db");
-      await dbConn.delete(wec).where(
-        andOp(
-          eqOp(wec.workflowId, parseInt(req.params.id)),
-          eqOp(wec.environment, req.params.env)
-        )
-      );
+      await storage.deleteWorkflowEnvironmentConfig(parseInt(req.params.id), req.params.env);
       res.json({ message: "Environment config deleted" });
     } catch (error) {
       res.status(500).json({ message: "Failed to delete environment config" });

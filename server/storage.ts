@@ -373,6 +373,7 @@ export interface IStorage {
   // Workflow Environment Configs
   getWorkflowEnvironmentConfigs(workflowId: number): Promise<WorkflowEnvironmentConfig[]>;
   upsertWorkflowEnvironmentConfig(workflowId: number, environment: string, config: any): Promise<WorkflowEnvironmentConfig>;
+  deleteWorkflowEnvironmentConfig(workflowId: number, environment: string): Promise<void>;
 }
 
 // Extended user input type that accepts legacy `role` string alongside new `roles` array
@@ -2304,6 +2305,15 @@ export class DatabaseStorage implements IStorage {
     }
     const [created] = await db.insert(workflowEnvironmentConfigs).values({ workflowId, environment, config }).returning();
     return created;
+  }
+
+  async deleteWorkflowEnvironmentConfig(workflowId: number, environment: string): Promise<void> {
+    await db.delete(workflowEnvironmentConfigs).where(
+      and(
+        eq(workflowEnvironmentConfigs.workflowId, workflowId),
+        eq(workflowEnvironmentConfigs.environment, environment)
+      )
+    );
   }
 }
 
