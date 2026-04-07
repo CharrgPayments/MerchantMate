@@ -1245,11 +1245,19 @@ function TicketDetailPanel({ ticket, onClose }: { ticket: any; onClose: () => vo
   const { toast } = useToast();
   const [actionState, setActionState] = useState<{ ticketStageId: number; stageName: string; action: "approve" | "reject" | "unblock" } | null>(null);
   const [actionNotes, setActionNotes] = useState("");
+  const [showAssignDialog, setShowAssignDialog] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState("");
 
   const { data: detail, isLoading, refetch } = useQuery<any>({
     queryKey: ["/api/admin/workflow-tickets", ticket.id],
     queryFn: () => fetch(`/api/admin/workflow-tickets/${ticket.id}`, { credentials: "include" }).then(r => r.json()),
     staleTime: 0,
+  });
+
+  const { data: staffUsers = [] } = useQuery<any[]>({
+    queryKey: ["/api/admin/workflow-users"],
+    queryFn: () => fetch("/api/admin/workflow-users", { credentials: "include" }).then(r => r.json()),
+    staleTime: 60000,
   });
 
   const actionMutation = useMutation({
@@ -1268,6 +1276,21 @@ function TicketDetailPanel({ ticket, onClose }: { ticket: any; onClose: () => vo
     },
   });
 
+  const assignMutation = useMutation({
+    mutationFn: (userId: string | null) =>
+      apiRequest("PATCH", `/api/admin/workflow-tickets/${ticket.id}/assign`, { assigned_to_id: userId }),
+    onSuccess: (_, userId) => {
+      toast({ title: userId ? "Ticket assigned" : "Ticket unassigned" });
+      setShowAssignDialog(false);
+      setSelectedUserId("");
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/workflow-tickets"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
       <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
@@ -1277,10 +1300,16 @@ function TicketDetailPanel({ ticket, onClose }: { ticket: any; onClose: () => vo
   const stageProgress: any[] = detail?.stageProgress ?? [];
   const issues: any[] = detail?.issues ?? [];
   const notes: any[] = detail?.notes ?? [];
+  const assignee = detail?.assigned_to_username;
 
   const openAction = (sp: any, action: "approve" | "reject" | "unblock") => {
     setActionNotes("");
     setActionState({ ticketStageId: sp.id, stageName: sp.stage_name, action });
+  };
+
+  const openAssign = () => {
+    setSelectedUserId(detail?.assigned_to_id ?? "");
+    setShowAssignDialog(true);
   };
 
   return (
@@ -1297,6 +1326,36 @@ function TicketDetailPanel({ ticket, onClose }: { ticket: any; onClose: () => vo
           </p>
         </div>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xs">← Back</button>
+      </div>
+
+      {/* Assignment bar */}
+      <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b">
+        <div className="flex items-center gap-2">
+          <User className="h-3.5 w-3.5 text-gray-400" />
+          {assignee ? (
+            <span className="text-xs text-gray-700">
+              Assigned to <span className="font-semibold">{assignee}</span>
+            </span>
+          ) : (
+            <span className="text-xs text-gray-400 italic">Unassigned</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <Button size="sm" variant="outline" className="h-6 text-xs" onClick={openAssign}>
+            {assignee ? "Reassign" : "Assign"}
+          </Button>
+          {assignee && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 text-xs text-red-500 hover:text-red-700 hover:bg-red-50"
+              onClick={() => assignMutation.mutate(null)}
+              disabled={assignMutation.isPending}
+            >
+              Unassign
+            </Button>
+          )}
+        </div>
       </div>
 
       <ScrollArea className="flex-1">
@@ -1478,6 +1537,54 @@ function TicketDetailPanel({ ticket, onClose }: { ticket: any; onClose: () => vo
               {actionState?.action === "approve" && "Approve"}
               {actionState?.action === "reject" && "Reject"}
               {actionState?.action === "unblock" && "Unblock & Advance"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Dialog */}
+      <Dialog open={showAssignDialog} onOpenChange={(open) => { if (!open) { setShowAssignDialog(false); setSelectedUserId(""); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Assign Ticket</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600">
+              Select a team member to assign <strong>{ticket.ticket_number}</strong> to for review.
+            </p>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Assignee</Label>
+              <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a user…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {staffUsers.map((u: any) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{u.username}</span>
+                        <span className="text-xs text-gray-400">{u.email}</span>
+                        <Badge variant="outline" className="text-xs py-0 h-4 ml-auto">
+                          {(u.roles?.[0] ?? "").replace(/_/g, " ")}
+                        </Badge>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => { setShowAssignDialog(false); setSelectedUserId(""); }}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={!selectedUserId || assignMutation.isPending}
+              onClick={() => assignMutation.mutate(selectedUserId)}
+            >
+              {assignMutation.isPending && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+              Assign
             </Button>
           </DialogFooter>
         </DialogContent>

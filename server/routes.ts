@@ -6960,9 +6960,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dynamicDB = getRequestDB(req);
       const id = parseInt(req.params.id);
       const ticketResult = await dynamicDB.execute(sqlTag`
-        SELECT wt.*, ws.name AS current_stage_name, ws.code AS current_stage_code
+        SELECT wt.*, ws.name AS current_stage_name, ws.code AS current_stage_code,
+               u.username AS assigned_to_username, u.email AS assigned_to_email
         FROM workflow_tickets wt
         LEFT JOIN workflow_stages ws ON ws.id = wt.current_stage_id
+        LEFT JOIN users u ON u.id = wt.assigned_to_id
         WHERE wt.id = ${id}
       `);
       const ticket = (ticketResult.rows ?? ticketResult)[0];
@@ -7113,6 +7115,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error performing stage action:", error);
       res.status(500).json({ message: "Failed to perform stage action" });
+    }
+  });
+
+  // Get staff users for workflow assignment
+  app.get("/api/admin/workflow-users", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const result = await dynamicDB.execute(sqlTag`
+        SELECT id, username, email, roles
+        FROM users
+        WHERE roles && ARRAY['admin','super_admin','agent','corporate']::text[]
+        ORDER BY username
+      `);
+      res.json(result.rows ?? result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch workflow users" });
+    }
+  });
+
+  // Assign / unassign a ticket
+  app.patch("/api/admin/workflow-tickets/:id/assign", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const ticketId = parseInt(req.params.id);
+      const currentUser = (req as any).currentUser;
+      const { assigned_to_id } = req.body; // null = unassign
+
+      if (assigned_to_id !== null && assigned_to_id !== undefined) {
+        // Verify user exists
+        const userCheck = await dynamicDB.execute(sqlTag`SELECT id, username FROM users WHERE id = ${assigned_to_id}`);
+        if ((userCheck.rows ?? userCheck).length === 0) {
+          return res.status(404).json({ message: "User not found" });
+        }
+        await dynamicDB.execute(sqlTag`
+          UPDATE workflow_tickets SET
+            assigned_to_id = ${assigned_to_id},
+            assigned_at = NOW(),
+            updated_at = NOW()
+          WHERE id = ${ticketId}
+        `);
+        const assignee = ((userCheck.rows ?? userCheck)[0] as any).username;
+        // Log to notes
+        await dynamicDB.execute(sqlTag`
+          INSERT INTO workflow_notes (ticket_id, content, note_type, is_internal, created_by, created_at, updated_at)
+          VALUES (${ticketId}, ${`Ticket assigned to ${assignee} by ${currentUser?.username ?? currentUser?.id ?? 'admin'}.`}, 'action', true, ${currentUser?.id ?? 'system'}, NOW(), NOW())
+        `);
+      } else {
+        await dynamicDB.execute(sqlTag`
+          UPDATE workflow_tickets SET
+            assigned_to_id = NULL,
+            assigned_at = NULL,
+            updated_at = NOW()
+          WHERE id = ${ticketId}
+        `);
+        await dynamicDB.execute(sqlTag`
+          INSERT INTO workflow_notes (ticket_id, content, note_type, is_internal, created_by, created_at, updated_at)
+          VALUES (${ticketId}, ${`Ticket unassigned by ${currentUser?.username ?? currentUser?.id ?? 'admin'}.`}, 'action', true, ${currentUser?.id ?? 'system'}, NOW(), NOW())
+        `);
+      }
+      res.json({ message: assigned_to_id ? "Ticket assigned" : "Ticket unassigned" });
+    } catch (error) {
+      console.error("Error assigning ticket:", error);
+      res.status(500).json({ message: "Failed to assign ticket" });
     }
   });
 
