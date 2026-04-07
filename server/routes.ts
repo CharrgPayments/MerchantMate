@@ -6970,9 +6970,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const stageProgressResult = await dynamicDB.execute(sqlTag`
         SELECT wts.id, wts.ticket_id, wts.stage_id, wts.status,
+               wts.result, wts.review_decision, wts.review_notes,
                wts.started_at, wts.completed_at, wts.error_message,
                ws.name AS stage_name, ws.code AS stage_code,
-               ws.stage_type, ws.order_index
+               ws.stage_type, ws.order_index, ws.requires_review
         FROM workflow_ticket_stages wts
         JOIN workflow_stages ws ON ws.id = wts.stage_id
         WHERE wts.ticket_id = ${id}
@@ -7001,6 +7002,117 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error fetching workflow ticket:", error);
       res.status(500).json({ message: "Failed to fetch workflow ticket" });
       return;
+    }
+  });
+
+  // Stage action: approve / reject / unblock
+  app.patch("/api/admin/workflow-tickets/:ticketId/stages/:ticketStageId", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const ticketId = parseInt(req.params.ticketId);
+      const ticketStageId = parseInt(req.params.ticketStageId);
+      const currentUser = (req as any).currentUser;
+      const { action, notes } = req.body; // action: "approve" | "reject" | "unblock"
+
+      if (!["approve", "reject", "unblock"].includes(action)) {
+        return res.status(400).json({ message: "Invalid action. Must be approve, reject, or unblock." });
+      }
+
+      // Get the current ticket stage record with stage info
+      const tsResult = await dynamicDB.execute(sqlTag`
+        SELECT wts.*, ws.order_index, ws.workflow_definition_id
+        FROM workflow_ticket_stages wts
+        JOIN workflow_stages ws ON ws.id = wts.stage_id
+        WHERE wts.id = ${ticketStageId} AND wts.ticket_id = ${ticketId}
+      `);
+      const ticketStage = (tsResult.rows ?? tsResult)[0];
+      if (!ticketStage) return res.status(404).json({ message: "Stage record not found" });
+
+      const isApprove = action === "approve" || action === "unblock";
+      const newStatus = isApprove ? "completed" : "failed";
+      const newResult = isApprove ? "approved" : "rejected";
+      const reviewDecision = action === "unblock" ? null : action;
+
+      // Update the ticket stage
+      await dynamicDB.execute(sqlTag`
+        UPDATE workflow_ticket_stages SET
+          status = ${newStatus},
+          result = ${newResult},
+          completed_at = NOW(),
+          review_decision = ${reviewDecision},
+          review_notes = ${notes ?? null},
+          reviewed_at = NOW(),
+          reviewed_by = ${currentUser?.id ?? 'system'},
+          updated_at = NOW()
+        WHERE id = ${ticketStageId}
+      `);
+
+      if (isApprove) {
+        // Find the next stage in the workflow
+        const nextStageResult = await dynamicDB.execute(sqlTag`
+          SELECT id FROM workflow_stages
+          WHERE workflow_definition_id = ${ticketStage.workflow_definition_id}
+            AND order_index > ${ticketStage.order_index}
+            AND is_active = true
+          ORDER BY order_index
+          LIMIT 1
+        `);
+        const nextStageRows = nextStageResult.rows ?? nextStageResult;
+
+        if (nextStageRows.length > 0) {
+          const nextStageId = (nextStageRows[0] as any).id;
+          // Check if ticket stage record already exists for next stage
+          const existingNext = await dynamicDB.execute(sqlTag`
+            SELECT id FROM workflow_ticket_stages WHERE ticket_id = ${ticketId} AND stage_id = ${nextStageId}
+          `);
+          if ((existingNext.rows ?? existingNext).length === 0) {
+            await dynamicDB.execute(sqlTag`
+              INSERT INTO workflow_ticket_stages (ticket_id, stage_id, status, created_at, updated_at)
+              VALUES (${ticketId}, ${nextStageId}, 'pending', NOW(), NOW())
+            `);
+          } else {
+            await dynamicDB.execute(sqlTag`
+              UPDATE workflow_ticket_stages SET status = 'pending', updated_at = NOW()
+              WHERE ticket_id = ${ticketId} AND stage_id = ${nextStageId}
+            `);
+          }
+          // Advance ticket's current stage
+          await dynamicDB.execute(sqlTag`
+            UPDATE workflow_tickets SET
+              current_stage_id = ${nextStageId},
+              status = 'in_progress',
+              updated_at = NOW()
+            WHERE id = ${ticketId}
+          `);
+        } else {
+          // No more stages — ticket is complete
+          await dynamicDB.execute(sqlTag`
+            UPDATE workflow_tickets SET
+              status = 'approved',
+              completed_at = NOW(),
+              updated_at = NOW()
+            WHERE id = ${ticketId}
+          `);
+        }
+      } else {
+        // Rejected — mark ticket as declined
+        await dynamicDB.execute(sqlTag`
+          UPDATE workflow_tickets SET status = 'declined', updated_at = NOW() WHERE id = ${ticketId}
+        `);
+      }
+
+      // Add a note recording the action
+      const noteContent = `Stage "${ticketStage.stage_name ?? ticketStageId}" ${action}d by ${currentUser?.username ?? currentUser?.id ?? 'admin'}${notes ? `: ${notes}` : ""}.`;
+      await dynamicDB.execute(sqlTag`
+        INSERT INTO workflow_notes (ticket_id, content, note_type, is_internal, created_by, created_at, updated_at)
+        VALUES (${ticketId}, ${noteContent}, 'action', true, ${currentUser?.id ?? 'system'}, NOW(), NOW())
+      `);
+
+      res.json({ message: `Stage ${action}d successfully` });
+    } catch (error) {
+      console.error("Error performing stage action:", error);
+      res.status(500).json({ message: "Failed to perform stage action" });
     }
   });
 
