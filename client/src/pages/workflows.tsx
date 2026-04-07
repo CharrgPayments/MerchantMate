@@ -1239,11 +1239,33 @@ function TicketsView({ tickets, onSelect }: { tickets: any[]; onSelect: (t: any)
 
 // ─── Ticket Detail Panel ──────────────────────────────────────────────────────
 
+const ACTIONABLE_STATUSES = ["blocked", "pending", "in_progress"];
+
 function TicketDetailPanel({ ticket, onClose }: { ticket: any; onClose: () => void }) {
-  const { data: detail, isLoading } = useQuery<any>({
+  const { toast } = useToast();
+  const [actionState, setActionState] = useState<{ ticketStageId: number; stageName: string; action: "approve" | "reject" | "unblock" } | null>(null);
+  const [actionNotes, setActionNotes] = useState("");
+
+  const { data: detail, isLoading, refetch } = useQuery<any>({
     queryKey: ["/api/admin/workflow-tickets", ticket.id],
     queryFn: () => fetch(`/api/admin/workflow-tickets/${ticket.id}`, { credentials: "include" }).then(r => r.json()),
     staleTime: 0,
+  });
+
+  const actionMutation = useMutation({
+    mutationFn: ({ ticketStageId, action, notes }: { ticketStageId: number; action: string; notes: string }) =>
+      apiRequest("PATCH", `/api/admin/workflow-tickets/${ticket.id}/stages/${ticketStageId}`, { action, notes }),
+    onSuccess: (_, vars) => {
+      const labels: Record<string, string> = { approve: "approved", reject: "rejected", unblock: "unblocked and advanced" };
+      toast({ title: `Stage ${labels[vars.action] ?? vars.action}` });
+      setActionState(null);
+      setActionNotes("");
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/workflow-tickets"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
   });
 
   if (isLoading) return (
@@ -1255,6 +1277,11 @@ function TicketDetailPanel({ ticket, onClose }: { ticket: any; onClose: () => vo
   const stageProgress: any[] = detail?.stageProgress ?? [];
   const issues: any[] = detail?.issues ?? [];
   const notes: any[] = detail?.notes ?? [];
+
+  const openAction = (sp: any, action: "approve" | "reject" | "unblock") => {
+    setActionNotes("");
+    setActionState({ ticketStageId: sp.id, stageName: sp.stage_name, action });
+  };
 
   return (
     <div className="h-full flex flex-col">
@@ -1296,14 +1323,63 @@ function TicketDetailPanel({ ticket, onClose }: { ticket: any; onClose: () => vo
               <Separator />
               <div>
                 <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Stage Progress</h4>
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   {stageProgress.map((sp: any) => {
                     const cfg = STAGE_STATUS_CONFIG[sp.status] ?? STAGE_STATUS_CONFIG.pending;
+                    const isActionable = ACTIONABLE_STATUSES.includes(sp.status);
+                    const needsReview = sp.requires_review;
                     return (
-                      <div key={sp.id} className="flex items-center gap-2 text-sm">
-                        <span className={`p-1 rounded-full ${cfg.color}`}>{cfg.icon}</span>
-                        <span className="flex-1 text-gray-700">{sp.stage_name}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${cfg.color}`}>{sp.status}</span>
+                      <div key={sp.id} className={`rounded-lg border ${isActionable ? "border-amber-200 bg-amber-50" : "border-gray-100 bg-white"} p-2.5`}>
+                        <div className="flex items-center gap-2">
+                          <span className={`p-0.5 rounded-full ${cfg.color}`}>{cfg.icon}</span>
+                          <span className="flex-1 text-sm font-medium text-gray-800">{sp.stage_name}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cfg.color}`}>{sp.status}</span>
+                        </div>
+                        {sp.error_message && (
+                          <p className="text-xs text-red-500 mt-1 pl-6">{sp.error_message}</p>
+                        )}
+                        {sp.review_notes && (
+                          <p className="text-xs text-gray-500 mt-1 pl-6 italic">"{sp.review_notes}"</p>
+                        )}
+                        {isActionable && (
+                          <div className="flex items-center gap-2 mt-2 pl-6">
+                            {sp.status === "blocked" ? (
+                              <Button
+                                size="sm"
+                                className="h-6 text-xs bg-blue-600 hover:bg-blue-700"
+                                onClick={() => openAction(sp, "unblock")}
+                              >
+                                <ArrowRight className="h-3 w-3 mr-1" /> Unblock & Advance
+                              </Button>
+                            ) : needsReview ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  className="h-6 text-xs bg-green-600 hover:bg-green-700"
+                                  onClick={() => openAction(sp, "approve")}
+                                >
+                                  <CheckCircle2 className="h-3 w-3 mr-1" /> Approve
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-6 text-xs text-red-600 border-red-300 hover:bg-red-50"
+                                  onClick={() => openAction(sp, "reject")}
+                                >
+                                  <XCircle className="h-3 w-3 mr-1" /> Reject
+                                </Button>
+                              </>
+                            ) : (
+                              <Button
+                                size="sm"
+                                className="h-6 text-xs bg-green-600 hover:bg-green-700"
+                                onClick={() => openAction(sp, "approve")}
+                              >
+                                <CheckCircle2 className="h-3 w-3 mr-1" /> Mark Complete & Advance
+                              </Button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1355,6 +1431,57 @@ function TicketDetailPanel({ ticket, onClose }: { ticket: any; onClose: () => vo
           )}
         </div>
       </ScrollArea>
+
+      {/* Stage Action Confirmation Dialog */}
+      <Dialog open={!!actionState} onOpenChange={() => { setActionState(null); setActionNotes(""); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {actionState?.action === "approve" && "Approve Stage"}
+              {actionState?.action === "reject" && "Reject Stage"}
+              {actionState?.action === "unblock" && "Unblock & Advance Stage"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600">
+              {actionState?.action === "reject"
+                ? <>Rejecting <strong>{actionState?.stageName}</strong> will mark this ticket as declined.</>
+                : <>Completing <strong>{actionState?.stageName}</strong> will advance the ticket to the next stage.</>
+              }
+            </p>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Notes <span className="text-gray-400">(optional)</span></Label>
+              <Textarea
+                value={actionNotes}
+                onChange={(e) => setActionNotes(e.target.value)}
+                placeholder="Add a note about this decision…"
+                rows={3}
+                className="text-sm"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => { setActionState(null); setActionNotes(""); }}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className={actionState?.action === "reject" ? "bg-red-600 hover:bg-red-700" : "bg-green-600 hover:bg-green-700"}
+              disabled={actionMutation.isPending}
+              onClick={() => actionState && actionMutation.mutate({
+                ticketStageId: actionState.ticketStageId,
+                action: actionState.action,
+                notes: actionNotes,
+              })}
+            >
+              {actionMutation.isPending && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+              {actionState?.action === "approve" && "Approve"}
+              {actionState?.action === "reject" && "Reject"}
+              {actionState?.action === "unblock" && "Unblock & Advance"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
