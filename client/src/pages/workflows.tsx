@@ -27,7 +27,7 @@ import {
   Zap, ChevronRight, Loader2, CheckCircle2, Circle, Clock, AlertCircle,
   Bot, User, Globe, Settings2, FileText, Hash, Calendar, ArrowRight,
   XCircle, AlertTriangle, PlayCircle, PauseCircle, RefreshCw,
-  Plus, Pencil, Trash2,
+  Plus, Pencil, Trash2, Eye, EyeOff, Code, Server,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -296,6 +296,514 @@ function StageFormDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const METHOD_COLORS: Record<string, string> = {
+  GET:    "bg-green-100 text-green-800 border-green-200",
+  POST:   "bg-blue-100 text-blue-800 border-blue-200",
+  PUT:    "bg-yellow-100 text-yellow-800 border-yellow-200",
+  PATCH:  "bg-orange-100 text-orange-800 border-orange-200",
+  DELETE: "bg-red-100 text-red-800 border-red-200",
+};
+const ENV_COLORS: Record<string, string> = {
+  development: "bg-purple-100 text-purple-800 border-purple-200",
+  test:        "bg-blue-100 text-blue-800 border-blue-200",
+  production:  "bg-green-100 text-green-800 border-green-200",
+};
+const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+const ENVIRONMENTS = ["development", "test", "production"];
+
+function prettyJson(value: any): string {
+  if (!value) return "";
+  if (typeof value === "string") {
+    try { return JSON.stringify(JSON.parse(value), null, 2); } catch { return value; }
+  }
+  return JSON.stringify(value, null, 2);
+}
+function parseJsonField(raw: string): any {
+  if (!raw?.trim()) return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+// ─── Endpoint Dialog ──────────────────────────────────────────────────────────
+
+function EndpointDialog({ open, onClose, workflowId, endpoint, onSaved }: {
+  open: boolean; onClose: () => void; workflowId: number; endpoint?: any; onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const isEdit = !!endpoint;
+  const [form, setForm] = useState({
+    name:           endpoint?.name ?? "",
+    url:            endpoint?.url ?? "",
+    method:         endpoint?.method ?? "POST",
+    auth_type:      endpoint?.auth_type ?? "none",
+    bearer_token:   endpoint?.auth_config?.token ?? "",
+    request_schema: endpoint?.headers?.requestSchema ? prettyJson(endpoint.headers.requestSchema) : "",
+    response_schema:endpoint?.headers?.responseSchema ? prettyJson(endpoint.headers.responseSchema) : "",
+    default_headers:endpoint?.headers?.defaultHeaders ? prettyJson(endpoint.headers.defaultHeaders) : "",
+    is_active:      endpoint?.is_active ?? true,
+  });
+  const [showToken, setShowToken] = useState(false);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const body = {
+        name: form.name,
+        url: form.url,
+        method: form.method,
+        auth_type: form.auth_type,
+        auth_config: form.auth_type === "bearer" ? { token: form.bearer_token } : null,
+        headers: {
+          requestSchema:  parseJsonField(form.request_schema),
+          responseSchema: parseJsonField(form.response_schema),
+          defaultHeaders: parseJsonField(form.default_headers),
+        },
+        is_active: form.is_active,
+      };
+      if (isEdit) return apiRequest("PUT", `/api/admin/workflows/${workflowId}/endpoints/${endpoint.id}`, body);
+      return apiRequest("POST", `/api/admin/workflows/${workflowId}/endpoints`, body);
+    },
+    onSuccess: () => {
+      toast({ title: isEdit ? "Endpoint updated" : "Endpoint added" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows", workflowId, "endpoints"] });
+      onSaved();
+      onClose();
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{isEdit ? "Edit Endpoint" : "Add Endpoint"}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-1">
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label>Method <span className="text-red-500">*</span></Label>
+              <Select value={form.method} onValueChange={v => setForm(f => ({ ...f, method: v }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {HTTP_METHODS.map(m => (
+                    <SelectItem key={m} value={m}>
+                      <span className="font-mono text-xs font-bold">{m}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>Name <span className="text-red-500">*</span></Label>
+              <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Submit Application" />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>URL <span className="text-red-500">*</span></Label>
+            <Input value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))}
+              placeholder="https://api.example.com/merchants/{merchantId}" className="font-mono text-sm" />
+            <p className="text-xs text-gray-400">Use {"{paramName}"} for path variables. Base URL is set per environment.</p>
+          </div>
+
+          <Separator />
+
+          <div className="space-y-1.5">
+            <Label>Authentication</Label>
+            <Select value={form.auth_type} onValueChange={v => setForm(f => ({ ...f, auth_type: v }))}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No Authentication</SelectItem>
+                <SelectItem value="bearer">Bearer Token</SelectItem>
+                <SelectItem value="api_key">API Key</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {form.auth_type === "bearer" && (
+            <div className="space-y-1.5">
+              <Label>Bearer Token</Label>
+              <div className="flex gap-2">
+                <Input
+                  type={showToken ? "text" : "password"}
+                  value={form.bearer_token}
+                  onChange={e => setForm(f => ({ ...f, bearer_token: e.target.value }))}
+                  placeholder="eyJhbGci..."
+                  className="font-mono text-sm flex-1"
+                />
+                <Button type="button" variant="outline" size="sm" onClick={() => setShowToken(!showToken)} className="px-3">
+                  {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-gray-400">Sent as: <code className="bg-gray-100 px-1 rounded">Authorization: Bearer &lt;token&gt;</code></p>
+            </div>
+          )}
+
+          <Separator />
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1.5"><Code className="w-3.5 h-3.5" /> Request Schema (JSON)</Label>
+              <Textarea
+                value={form.request_schema}
+                onChange={e => setForm(f => ({ ...f, request_schema: e.target.value }))}
+                placeholder={'{\n  "merchantId": "string"\n}'}
+                className="font-mono text-xs h-32"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1.5"><Code className="w-3.5 h-3.5" /> Response Schema (JSON)</Label>
+              <Textarea
+                value={form.response_schema}
+                onChange={e => setForm(f => ({ ...f, response_schema: e.target.value }))}
+                placeholder={'{\n  "id": "string",\n  "status": "string"\n}'}
+                className="font-mono text-xs h-32"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Default Headers (JSON)</Label>
+            <Textarea
+              value={form.default_headers}
+              onChange={e => setForm(f => ({ ...f, default_headers: e.target.value }))}
+              placeholder={'{\n  "Content-Type": "application/json"\n}'}
+              className="font-mono text-xs h-20"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Switch checked={form.is_active} onCheckedChange={v => setForm(f => ({ ...f, is_active: v }))} />
+            <Label>Active</Label>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !form.name || !form.url}>
+            {mutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {isEdit ? "Save Changes" : "Add Endpoint"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Endpoint Card ────────────────────────────────────────────────────────────
+
+function EndpointCard({ endpoint, workflowId, onEdit, onDelete }: {
+  endpoint: any; workflowId: number; onEdit: (ep: any) => void; onDelete: (ep: any) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const headers = endpoint.headers ?? {};
+  const authConfig = endpoint.auth_config ?? {};
+
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <div
+        className="flex items-center gap-3 p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <Badge className={`font-mono text-xs border px-2 py-0.5 shrink-0 ${METHOD_COLORS[endpoint.method] || "bg-gray-100 text-gray-700"}`}>
+          {endpoint.method}
+        </Badge>
+        <code className="text-sm font-mono text-gray-700 flex-1 truncate">{endpoint.url}</code>
+        <span className="text-sm text-gray-500 hidden sm:block shrink-0">{endpoint.name}</span>
+        <div className="flex items-center gap-1 ml-auto shrink-0" onClick={e => e.stopPropagation()}>
+          <Button variant="ghost" size="sm" onClick={() => onEdit(endpoint)} className="h-7 w-7 p-0">
+            <Pencil className="w-3.5 h-3.5" />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => onDelete(endpoint)} className="h-7 w-7 p-0 text-red-600 hover:text-red-700">
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+          <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? "rotate-90" : ""}`} />
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="p-4 space-y-4 border-t bg-white">
+          {endpoint.auth_type && endpoint.auth_type !== "none" && (
+            <div className="flex items-center gap-2 text-sm">
+              <Badge variant="outline" className="text-xs">
+                {endpoint.auth_type === "bearer" ? "Bearer Auth" : endpoint.auth_type}
+              </Badge>
+              {endpoint.auth_type === "bearer" && authConfig.token && (
+                <code className="text-xs text-gray-500 font-mono">Authorization: Bearer ••••••</code>
+              )}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {headers.requestSchema && (
+              <div>
+                <Label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 block">Request Schema</Label>
+                <pre className="text-xs bg-gray-950 text-green-400 p-3 rounded overflow-auto max-h-48">{prettyJson(headers.requestSchema)}</pre>
+              </div>
+            )}
+            {headers.responseSchema && (
+              <div>
+                <Label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 block">Response Schema</Label>
+                <pre className="text-xs bg-gray-950 text-blue-400 p-3 rounded overflow-auto max-h-48">{prettyJson(headers.responseSchema)}</pre>
+              </div>
+            )}
+          </div>
+
+          {headers.defaultHeaders && (
+            <div>
+              <Label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 block">Default Headers</Label>
+              <pre className="text-xs bg-gray-950 text-gray-400 p-3 rounded overflow-auto max-h-32">{prettyJson(headers.defaultHeaders)}</pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Endpoints Tab ────────────────────────────────────────────────────────────
+
+function EndpointsTab({ workflowId }: { workflowId: number }) {
+  const { toast } = useToast();
+  const [showDialog, setShowDialog] = useState(false);
+  const [editingEndpoint, setEditingEndpoint] = useState<any>(null);
+  const [deletingEndpoint, setDeletingEndpoint] = useState<any>(null);
+
+  const { data: endpoints = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/workflows", workflowId, "endpoints"],
+    queryFn: () => fetch(`/api/admin/workflows/${workflowId}/endpoints`, { credentials: "include" }).then(r => r.json()),
+    staleTime: 0,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (ep: any) => apiRequest("DELETE", `/api/admin/workflows/${workflowId}/endpoints/${ep.id}`),
+    onSuccess: () => {
+      toast({ title: "Endpoint deleted" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows", workflowId, "endpoints"] });
+      setDeletingEndpoint(null);
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>;
+
+  return (
+    <>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-gray-500">Define HTTP endpoints for this workflow. Base URL is configured per environment.</p>
+        <Button size="sm" onClick={() => setShowDialog(true)}>
+          <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Endpoint
+        </Button>
+      </div>
+
+      {endpoints.length === 0 ? (
+        <div className="text-center py-12 border-2 border-dashed rounded-lg">
+          <Globe className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+          <p className="text-sm text-gray-400">No endpoints defined yet</p>
+          <Button variant="ghost" size="sm" className="mt-2" onClick={() => setShowDialog(true)}>Add your first endpoint</Button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {(endpoints as any[]).map((ep: any) => (
+            <EndpointCard
+              key={ep.id}
+              endpoint={ep}
+              workflowId={workflowId}
+              onEdit={ep => { setEditingEndpoint(ep); setShowDialog(true); }}
+              onDelete={setDeletingEndpoint}
+            />
+          ))}
+        </div>
+      )}
+
+      {showDialog && (
+        <EndpointDialog
+          open={showDialog}
+          onClose={() => { setShowDialog(false); setEditingEndpoint(null); }}
+          workflowId={workflowId}
+          endpoint={editingEndpoint}
+          onSaved={() => {}}
+        />
+      )}
+
+      <AlertDialog open={!!deletingEndpoint} onOpenChange={() => setDeletingEndpoint(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Endpoint</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete <strong>{deletingEndpoint?.method} {deletingEndpoint?.url}</strong>? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => deleteMutation.mutate(deletingEndpoint)}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+// ─── Environment Config Row ───────────────────────────────────────────────────
+
+function EnvConfigRow({ env, workflowId, config, onSaved }: {
+  env: string; workflowId: number; config?: any; onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const [editing, setEditing] = useState(false);
+  const [showToken, setShowToken] = useState(false);
+  const [form, setForm] = useState({
+    base_url:           config?.config?.base_url ?? "",
+    bearer_token:       config?.config?.bearer_token ?? "",
+    additional_headers: config?.config?.additional_headers ? prettyJson(config.config.additional_headers) : "",
+    is_active:          config?.is_active !== false,
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: () => apiRequest("PUT", `/api/admin/workflows/${workflowId}/env-configs/${env}`, {
+      config: {
+        base_url: form.base_url,
+        bearer_token: form.bearer_token || undefined,
+        additional_headers: parseJsonField(form.additional_headers),
+      },
+      is_active: form.is_active,
+    }),
+    onSuccess: () => {
+      toast({ title: `${env} config saved` });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows", workflowId, "env-configs"] });
+      onSaved();
+      setEditing(false);
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", `/api/admin/workflows/${workflowId}/env-configs/${env}`),
+    onSuccess: () => {
+      toast({ title: `${env} config removed` });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows", workflowId, "env-configs"] });
+      onSaved();
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <div className={`border rounded-lg overflow-hidden ${config?.is_active === false ? "opacity-60" : ""}`}>
+      <div className="flex items-center gap-3 p-3 bg-gray-50">
+        <Badge className={`text-xs border px-2 py-0.5 capitalize shrink-0 ${ENV_COLORS[env] || "bg-gray-100 text-gray-700"}`}>
+          <Server className="w-3 h-3 mr-1 inline" />{env}
+        </Badge>
+        {config ? (
+          <>
+            <code className="text-sm font-mono text-gray-700 flex-1 truncate">{config.config?.base_url || "—"}</code>
+            <Badge variant={config.is_active ? "default" : "secondary"} className="text-xs shrink-0">
+              {config.is_active ? "Active" : "Inactive"}
+            </Badge>
+          </>
+        ) : (
+          <span className="text-sm text-gray-400 flex-1 italic">Not configured</span>
+        )}
+        <div className="flex items-center gap-1 shrink-0">
+          <Button variant="ghost" size="sm" onClick={() => setEditing(!editing)} className="h-7 px-2 text-xs">
+            <Pencil className="w-3.5 h-3.5 mr-1" />{config ? "Edit" : "Configure"}
+          </Button>
+          {config && (
+            <Button variant="ghost" size="sm" onClick={() => deleteMutation.mutate()} className="h-7 w-7 p-0 text-red-600 hover:text-red-700">
+              <Trash2 className="w-3.5 h-3.5" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {editing && (
+        <div className="p-4 border-t space-y-4">
+          <div className="space-y-1.5">
+            <Label className="text-sm">Base URL</Label>
+            <Input
+              value={form.base_url}
+              onChange={e => setForm(f => ({ ...f, base_url: e.target.value }))}
+              placeholder={`https://api.${env === "production" ? "" : env + "."}example.com`}
+              className="font-mono text-sm"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-sm">Bearer Token</Label>
+            <div className="flex gap-2">
+              <Input
+                type={showToken ? "text" : "password"}
+                value={form.bearer_token}
+                onChange={e => setForm(f => ({ ...f, bearer_token: e.target.value }))}
+                placeholder="Enter Bearer token…"
+                className="font-mono text-sm flex-1"
+              />
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowToken(!showToken)} className="px-3">
+                {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </Button>
+            </div>
+            <p className="text-xs text-gray-400">Sent as: <code className="bg-gray-100 px-1 rounded">Authorization: Bearer &lt;token&gt;</code></p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-sm">Additional Headers (JSON)</Label>
+            <Textarea
+              value={form.additional_headers}
+              onChange={e => setForm(f => ({ ...f, additional_headers: e.target.value }))}
+              placeholder={'{\n  "X-Client-Id": "crm-v1"\n}'}
+              className="font-mono text-xs h-20"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch checked={form.is_active} onCheckedChange={v => setForm(f => ({ ...f, is_active: v }))} />
+            <Label className="text-sm">Active</Label>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" size="sm" onClick={() => setEditing(false)}>Cancel</Button>
+            <Button size="sm" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !form.base_url}>
+              {saveMutation.isPending && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}Save Config
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Environments Tab ─────────────────────────────────────────────────────────
+
+function EnvironmentsTab({ workflowId }: { workflowId: number }) {
+  const { data: configs = [], isLoading, refetch } = useQuery<any[]>({
+    queryKey: ["/api/admin/workflows", workflowId, "env-configs"],
+    queryFn: () => fetch(`/api/admin/workflows/${workflowId}/env-configs`, { credentials: "include" }).then(r => r.json()),
+    staleTime: 0,
+  });
+
+  if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>;
+
+  const configByEnv: Record<string, any> = {};
+  (configs as any[]).forEach((c: any) => { configByEnv[c.environment] = c; });
+
+  return (
+    <>
+      <p className="text-sm text-gray-500 mb-4">
+        Configure the base URL and Bearer token for each deployment environment. Tokens are stored securely.
+      </p>
+      <div className="space-y-3">
+        {ENVIRONMENTS.map(env => (
+          <EnvConfigRow
+            key={env}
+            env={env}
+            workflowId={workflowId}
+            config={configByEnv[env]}
+            onSaved={() => refetch()}
+          />
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -873,17 +1381,11 @@ export default function Workflows() {
                     </TabsContent>
 
                     <TabsContent value="endpoints" className="mt-0">
-                      <div className="py-12 text-center text-gray-400">
-                        <Globe className="h-10 w-10 mx-auto mb-2 text-gray-200" />
-                        <p className="text-sm">No endpoints configured</p>
-                      </div>
+                      <EndpointsTab workflowId={selectedWorkflow.id} />
                     </TabsContent>
 
                     <TabsContent value="environments" className="mt-0">
-                      <div className="py-12 text-center text-gray-400">
-                        <Settings2 className="h-10 w-10 mx-auto mb-2 text-gray-200" />
-                        <p className="text-sm">No environment configs</p>
-                      </div>
+                      <EnvironmentsTab workflowId={selectedWorkflow.id} />
                     </TabsContent>
 
                   </div>
