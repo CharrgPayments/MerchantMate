@@ -8104,7 +8104,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ORDER BY is_system DESC, label ASC
       `);
       res.json(result.rows ?? result);
-    } catch (error) {
+    } catch (error: any) {
+      // Table may not exist yet in this environment (changes are promoted dev → test → production)
+      if (error?.code === '42P01') {
+        return res.json([]);
+      }
       console.error("Error fetching role definitions:", error);
       res.status(500).json({ message: "Failed to fetch role definitions" });
     }
