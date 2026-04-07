@@ -1,4 +1,5 @@
 import { pgTable, text, serial, integer, boolean, timestamp, decimal, varchar, jsonb, index, unique, real, numeric } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -783,6 +784,118 @@ export type CampaignWithDetails = Campaign & {
   createdByUser?: User;
 };
 
+// Acquirers table - payment processors that require different application forms
+export const acquirers = pgTable("acquirers", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  displayName: text("display_name").notNull(),
+  code: text("code").notNull().unique(),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Acquirer Application Templates - store dynamic form configurations for each acquirer
+export const acquirerApplicationTemplates = pgTable("acquirer_application_templates", {
+  id: serial("id").primaryKey(),
+  acquirerId: integer("acquirer_id").notNull().references(() => acquirers.id, { onDelete: "cascade" }),
+  templateName: text("template_name").notNull(),
+  version: text("version").notNull().default("1.0"),
+  isActive: boolean("is_active").notNull().default(true),
+  fieldConfiguration: jsonb("field_configuration").notNull(),
+  pdfMappingConfiguration: jsonb("pdf_mapping_configuration"),
+  requiredFields: text("required_fields").array().notNull().default(sql`ARRAY[]::text[]`),
+  conditionalFields: jsonb("conditional_fields"),
+  addressGroups: jsonb("address_groups").default(sql`'[]'::jsonb`),
+  signatureGroups: jsonb("signature_groups").default(sql`'[]'::jsonb`),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueAcquirerTemplate: unique().on(table.acquirerId, table.templateName, table.version),
+}));
+
+// Prospect Applications - store acquirer-specific application data
+export const prospectApplications = pgTable("prospect_applications", {
+  id: serial("id").primaryKey(),
+  prospectId: integer("prospect_id").notNull().references(() => merchantProspects.id, { onDelete: "cascade" }),
+  acquirerId: integer("acquirer_id").notNull().references(() => acquirers.id),
+  templateId: integer("template_id").notNull().references(() => acquirerApplicationTemplates.id),
+  templateVersion: text("template_version").notNull(),
+  status: text("status").notNull().default("draft"),
+  applicationData: jsonb("application_data").notNull().default('{}'),
+  submittedAt: timestamp("submitted_at"),
+  approvedAt: timestamp("approved_at"),
+  rejectedAt: timestamp("rejected_at"),
+  rejectionReason: text("rejection_reason"),
+  generatedPdfPath: text("generated_pdf_path"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueProspectAcquirer: unique().on(table.prospectId, table.acquirerId),
+}));
+
+// Campaign Application Templates junction table
+export const campaignApplicationTemplates = pgTable("campaign_application_templates", {
+  id: serial("id").primaryKey(),
+  campaignId: integer("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  templateId: integer("template_id").notNull().references(() => acquirerApplicationTemplates.id, { onDelete: "cascade" }),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueCampaignTemplate: unique().on(table.campaignId, table.templateId),
+}));
+
+// Acquirer management insert schemas
+export const insertAcquirerSchema = createInsertSchema(acquirers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertAcquirerApplicationTemplateSchema = createInsertSchema(acquirerApplicationTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertProspectApplicationSchema = createInsertSchema(prospectApplications).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertCampaignApplicationTemplateSchema = createInsertSchema(campaignApplicationTemplates).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Acquirer management types
+export type Acquirer = typeof acquirers.$inferSelect;
+export type InsertAcquirer = z.infer<typeof insertAcquirerSchema>;
+export type AcquirerApplicationTemplate = typeof acquirerApplicationTemplates.$inferSelect;
+export type InsertAcquirerApplicationTemplate = z.infer<typeof insertAcquirerApplicationTemplateSchema>;
+export type ProspectApplication = typeof prospectApplications.$inferSelect;
+export type InsertProspectApplication = z.infer<typeof insertProspectApplicationSchema>;
+export type CampaignApplicationTemplate = typeof campaignApplicationTemplates.$inferSelect;
+export type InsertCampaignApplicationTemplate = z.infer<typeof insertCampaignApplicationTemplateSchema>;
+
+// Extended types for acquirer management
+export type AcquirerWithTemplates = Acquirer & {
+  templates: AcquirerApplicationTemplate[];
+};
+
+export type CampaignWithAcquirer = Campaign & {
+  acquirer: Acquirer;
+};
+
+export type ProspectApplicationWithDetails = ProspectApplication & {
+  prospect: MerchantProspect;
+  acquirer: Acquirer;
+  template: AcquirerApplicationTemplate;
+};
+
 // SOC2 Compliance - Comprehensive Audit Trail System
 export const auditLogs = pgTable("audit_logs", {
   id: serial("id").primaryKey(),
@@ -1037,4 +1150,83 @@ export type InsertWorkflowEnvironmentConfig = z.infer<typeof insertWorkflowEnvir
 export type WorkflowDefinitionWithDetails = WorkflowDefinition & {
   endpoints?: WorkflowEndpoint[];
   environmentConfigs?: WorkflowEnvironmentConfig[];
+};
+
+// ─── MCC Codes & Policies ─────────────────────────────────────────────────────
+
+export const mccCodes = pgTable("mcc_codes", {
+  id: serial("id").primaryKey(),
+  code: varchar("code", { length: 4 }).notNull().unique(),
+  description: text("description").notNull(),
+  category: text("category").notNull(),
+  riskLevel: text("risk_level").notNull().default("low"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const mccPolicies = pgTable("mcc_policies", {
+  id: serial("id").primaryKey(),
+  mccCodeId: integer("mcc_code_id").notNull().references(() => mccCodes.id, { onDelete: "cascade" }),
+  acquirerId: integer("acquirer_id").references(() => acquirers.id),
+  policyType: text("policy_type").notNull(),
+  riskLevelOverride: text("risk_level_override"),
+  notes: text("notes"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertMccCodeSchema = createInsertSchema(mccCodes).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertMccPolicySchema = createInsertSchema(mccPolicies).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type MccCode = typeof mccCodes.$inferSelect;
+export type InsertMccCode = z.infer<typeof insertMccCodeSchema>;
+export type MccPolicy = typeof mccPolicies.$inferSelect;
+export type InsertMccPolicy = z.infer<typeof insertMccPolicySchema>;
+
+// ─── Disclosure Library ───────────────────────────────────────────────────────
+
+export const disclosureDefinitions = pgTable("disclosure_definitions", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  displayName: text("display_name").notNull(),
+  description: text("description"),
+  category: text("category").notNull().default("general"),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }),
+  isActive: boolean("is_active").notNull().default(true),
+  requiresSignature: boolean("requires_signature").notNull().default(false),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const disclosureVersions = pgTable("disclosure_versions", {
+  id: serial("id").primaryKey(),
+  definitionId: integer("definition_id").notNull().references(() => disclosureDefinitions.id, { onDelete: "cascade" }),
+  version: text("version").notNull(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  contentHash: text("content_hash"),
+  requiresSignature: boolean("requires_signature").notNull().default(false),
+  effectiveDate: timestamp("effective_date"),
+  retiredDate: timestamp("retired_date"),
+  isCurrentVersion: boolean("is_current_version").notNull().default(false),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  metadata: jsonb("metadata"),
+});
+
+export const insertDisclosureDefinitionSchema = createInsertSchema(disclosureDefinitions).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertDisclosureVersionSchema = createInsertSchema(disclosureVersions).omit({ id: true, createdAt: true });
+
+export type DisclosureDefinition = typeof disclosureDefinitions.$inferSelect;
+export type InsertDisclosureDefinition = z.infer<typeof insertDisclosureDefinitionSchema>;
+export type DisclosureVersion = typeof disclosureVersions.$inferSelect;
+export type InsertDisclosureVersion = z.infer<typeof insertDisclosureVersionSchema>;
+
+export type DisclosureDefinitionWithVersions = DisclosureDefinition & {
+  versions?: DisclosureVersion[];
+  currentVersion?: DisclosureVersion | null;
 };

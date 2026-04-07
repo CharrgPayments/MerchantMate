@@ -44,6 +44,17 @@ import EmailManagement from "@/pages/email-management";
 import ApiDocumentation from "@/pages/api-documentation";
 import TestingUtilities from "@/pages/testing-utilities";
 import Workflows from "@/pages/workflows";
+import ApplicationTemplates from "@/pages/application-templates";
+import CampaignView from "@/pages/campaign-view";
+import Acquirers from "@/pages/acquirers";
+import MccCodes from "@/pages/mcc-codes";
+import MccPolicies from "@/pages/mcc-policies";
+import DisclosureLibrary from "@/pages/disclosure-library";
+import FormDemo from "@/pages/form-demo";
+import ActionTemplates from "@/pages/action-templates";
+import CommunicationsManagement from "@/pages/communications-management";
+import AlertsPage from "@/pages/AlertsPage";
+import ProfilePage from "@/pages/profile";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import Auth from "@/pages/auth";
@@ -146,6 +157,11 @@ function AuthenticatedApp() {
           title: "PDF Forms",
           subtitle: "Upload and manage merchant application forms"
         };
+      case "/application-templates":
+        return {
+          title: "Application Templates",
+          subtitle: "Manage merchant application templates by acquirer"
+        };
       case "/pdf-form-wizard":
         return {
           title: "Form Wizard",
@@ -160,6 +176,51 @@ function AuthenticatedApp() {
         return {
           title: "Equipment Management",
           subtitle: "Manage payment equipment and processing devices"
+        };
+      case "/acquirers":
+        return {
+          title: "Acquirers",
+          subtitle: "Manage acquirer configurations and application templates"
+        };
+      case "/mcc-codes":
+        return {
+          title: "MCC Codes",
+          subtitle: "Manage merchant category codes and risk classifications"
+        };
+      case "/mcc-policies":
+        return {
+          title: "MCC Policies",
+          subtitle: "Manage acquirer-specific MCC policies and restrictions"
+        };
+      case "/disclosure-library":
+        return {
+          title: "Disclosure Library",
+          subtitle: "Manage disclosure definitions and versioned content"
+        };
+      case "/action-templates":
+        return {
+          title: "Action Templates",
+          subtitle: "Manage email, SMS, and webhook action templates"
+        };
+      case "/communications":
+        return {
+          title: "Communications",
+          subtitle: "Unified hub for managing multi-channel communications: email, SMS, webhooks, and notifications"
+        };
+      case "/form-demo":
+        return {
+          title: "Form Demo",
+          subtitle: "Test the dynamic form renderer with real acquirer templates"
+        };
+      case "/alerts":
+        return {
+          title: "Alerts",
+          subtitle: "System alerts and notifications"
+        };
+      case "/profile":
+        return {
+          title: "Profile",
+          subtitle: "Manage your account and preferences"
         };
       case "/api-documentation":
         return {
@@ -352,6 +413,20 @@ function AuthenticatedApp() {
                   />
                   <main className="flex-1 overflow-auto bg-gray-50">
                     <PdfForms />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/application-templates">
+            {() => {
+              if (!canAccessSecurityDashboard(user)) return <NotFound />;
+              const pageInfo = getPageInfo("/application-templates");
+              return (
+                <>
+                  <Header title={pageInfo.title} onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50 p-6">
+                    <ApplicationTemplates />
                   </main>
                 </>
               );
@@ -565,6 +640,147 @@ function AuthenticatedApp() {
                     <div className="container mx-auto p-6">
                       <TestingUtilities />
                     </div>
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/acquirers">
+            {() => {
+              if (!canAccessAgentManagement(user)) return <NotFound />;
+              const pageInfo = getPageInfo("/acquirers");
+              return (
+                <>
+                  <Header title={pageInfo.title} onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <Acquirers />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/mcc-codes">
+            {() => {
+              if (!canAccessAgentManagement(user)) return <NotFound />;
+              const pageInfo = getPageInfo("/mcc-codes");
+              return (
+                <>
+                  <Header title={pageInfo.title} onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <MccCodes />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/mcc-policies">
+            {() => {
+              if (!canAccessAgentManagement(user)) return <NotFound />;
+              const pageInfo = getPageInfo("/mcc-policies");
+              return (
+                <>
+                  <Header title={pageInfo.title} onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <MccPolicies />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/disclosure-library">
+            {() => {
+              if (!canAccessAgentManagement(user)) return <NotFound />;
+              const pageInfo = getPageInfo("/disclosure-library");
+              return (
+                <>
+                  <Header title={pageInfo.title} onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <DisclosureLibrary />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/action-templates">
+            {() => {
+              const userRoles = (user as any)?.roles || [];
+              if (!user || (!userRoles.includes('admin') && !userRoles.includes('super_admin'))) return <NotFound />;
+              const pageInfo = getPageInfo("/action-templates");
+              return (
+                <>
+                  <Header title={pageInfo.title} onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <ActionTemplates />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/communications">
+            {() => {
+              const userRoles = (user as any)?.roles || [];
+              if (!user || (!userRoles.includes('admin') && !userRoles.includes('super_admin'))) return <NotFound />;
+              const pageInfo = getPageInfo("/communications");
+              return (
+                <>
+                  <Header title={pageInfo.title} onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <CommunicationsManagement />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/form-demo">
+            {() => {
+              if (!canAccessAgentManagement(user)) return <NotFound />;
+              const pageInfo = getPageInfo("/form-demo");
+              return (
+                <>
+                  <Header title={pageInfo.title} onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <FormDemo />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/alerts">
+            {() => {
+              const pageInfo = getPageInfo("/alerts");
+              return (
+                <>
+                  <Header title={pageInfo.title} onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <AlertsPage />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/profile">
+            {() => {
+              const pageInfo = getPageInfo("/profile");
+              return (
+                <>
+                  <Header title={pageInfo.title} onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <div className="container mx-auto p-6">
+                      <ProfilePage />
+                    </div>
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/campaign-view/:id">
+            {() => {
+              if (!canAccessAgentManagement(user)) return <NotFound />;
+              return (
+                <>
+                  <Header title="Campaign Details" onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <CampaignView />
                   </main>
                 </>
               );

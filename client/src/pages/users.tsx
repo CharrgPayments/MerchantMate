@@ -173,12 +173,14 @@ export default function UsersPage() {
     },
   });
 
+  const getUserRole = (user: User): string => (user as any).role || user.roles?.[0] || "merchant";
+
   const filteredUsers = users.filter((user: User) =>
     user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.role.toLowerCase().includes(searchTerm.toLowerCase())
+    getUserRole(user).toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const getRoleBadgeVariant = (role: string) => {
@@ -333,8 +335,8 @@ export default function UsersPage() {
                     <TableCell>{user.email}</TableCell>
                     <TableCell>{user.username}</TableCell>
                     <TableCell>
-                      <Badge variant={getRoleBadgeVariant(user.role)}>
-                        {user.role.replace('_', ' ').toUpperCase()}
+                      <Badge variant={getRoleBadgeVariant(getUserRole(user))}>
+                        {getUserRole(user).replace('_', ' ').toUpperCase()}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -370,7 +372,7 @@ export default function UsersPage() {
                           <Key className="h-4 w-4" />
                         </Button>
                         
-                        {user.role !== "super_admin" && (
+                        {getUserRole(user) !== "super_admin" && (
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
                               <Button
@@ -574,7 +576,7 @@ export default function UsersPage() {
       lastName: user.lastName || "",
       email: user.email,
       username: user.username,
-      role: user.role as any,
+      role: getUserRole(user) as any,
       status: user.status as any,
     });
     setEditDialogOpen(true);

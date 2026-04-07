@@ -2,7 +2,7 @@ import type { Express, Request as ExpressRequest, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuthRoutes } from "./authRoutes";
-import { insertMerchantSchema, insertAgentSchema, insertTransactionSchema, insertLocationSchema, insertAddressSchema, insertPdfFormSchema, insertApiKeySchema } from "@shared/schema";
+import { insertMerchantSchema, insertAgentSchema, insertTransactionSchema, insertLocationSchema, insertAddressSchema, insertPdfFormSchema, insertApiKeySchema, insertAcquirerSchema, insertAcquirerApplicationTemplateSchema } from "@shared/schema";
 import { authenticateApiKey, requireApiPermission, logApiRequest, generateApiKey } from "./apiAuth";
 import { setupAuth, isAuthenticated, requireRole, requirePermission } from "./replitAuth";
 import { auditService } from "./auditService";
@@ -5060,17 +5060,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       console.log(`Fetching campaigns - Database environment: ${req.dbEnv}`);
       
-      // Use the dynamic database connection
       const dbToUse = req.dynamicDB;
       if (!dbToUse) {
         return res.status(500).json({ error: "Database connection not available" });
       }
       
-      const { campaigns } = await import("@shared/schema");
-      const allCampaigns = await dbToUse.select().from(campaigns);
+      const { campaigns, pricingTypes } = await import("@shared/schema");
+      const { eq: eqOp } = await import("drizzle-orm");
+
+      // Fetch campaigns with pricingType joined
+      const rows = await dbToUse.select({
+        id: campaigns.id,
+        name: campaigns.name,
+        description: campaigns.description,
+        acquirer: campaigns.acquirer,
+        pricingTypeId: campaigns.pricingTypeId,
+        currency: campaigns.currency,
+        isActive: campaigns.isActive,
+        isDefault: campaigns.isDefault,
+        createdBy: campaigns.createdBy,
+        createdAt: campaigns.createdAt,
+        updatedAt: campaigns.updatedAt,
+        pricingTypeName: pricingTypes.name,
+      })
+      .from(campaigns)
+      .leftJoin(pricingTypes, eqOp(campaigns.pricingTypeId, pricingTypes.id));
+
+      const result = rows.map(row => ({
+        ...row,
+        pricingType: row.pricingTypeId
+          ? { id: row.pricingTypeId, name: row.pricingTypeName || 'Unknown' }
+          : null,
+      }));
       
-      console.log(`Found ${allCampaigns.length} campaigns in ${req.dbEnv} database`);
-      res.json(allCampaigns);
+      console.log(`Found ${result.length} campaigns in ${req.dbEnv} database`);
+      res.json(result);
     } catch (error) {
       console.error('Error fetching campaigns:', error);
       res.status(500).json({ error: 'Failed to fetch campaigns' });
@@ -6554,6 +6578,717 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to delete environment config" });
     }
   });
+
+  // ─── Application Templates (Acquirers + Templates) ───────────────────────
+  app.get("/api/admin/acquirers", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const result = await dynamicDB.execute(sqlTag`SELECT id, name, display_name, code, description, is_active, created_at FROM acquirers ORDER BY name`);
+      res.json(result.rows ?? result);
+    } catch (error) {
+      console.error("Error fetching acquirers:", error);
+      res.status(500).json({ message: "Failed to fetch acquirers" });
+    }
+  });
+
+  app.get("/api/admin/acquirers/:id/templates", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const result = await dynamicDB.execute(sqlTag`
+        SELECT t.id, t.template_name, t.version, t.is_active, t.created_at, t.updated_at,
+               a.name AS acquirer_name
+        FROM acquirer_application_templates t
+        JOIN acquirers a ON a.id = t.acquirer_id
+        WHERE t.acquirer_id = ${parseInt(req.params.id)}
+        ORDER BY t.template_name
+      `);
+      res.json(result.rows ?? result);
+    } catch (error) {
+      console.error("Error fetching templates:", error);
+      res.status(500).json({ message: "Failed to fetch templates" });
+    }
+  });
+
+  app.get("/api/admin/application-templates", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const result = await dynamicDB.execute(sqlTag`
+        SELECT t.id, t.template_name, t.version, t.is_active, t.created_at, t.updated_at,
+               a.id AS acquirer_id, a.name AS acquirer_name, a.code AS acquirer_code
+        FROM acquirer_application_templates t
+        JOIN acquirers a ON a.id = t.acquirer_id
+        ORDER BY a.name, t.template_name
+      `);
+      res.json(result.rows ?? result);
+    } catch (error) {
+      console.error("Error fetching application templates:", error);
+      res.status(500).json({ message: "Failed to fetch application templates" });
+    }
+  });
+
+  app.get("/api/admin/application-templates/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const result = await dynamicDB.execute(sqlTag`
+        SELECT t.*, a.name AS acquirer_name, a.code AS acquirer_code
+        FROM acquirer_application_templates t
+        JOIN acquirers a ON a.id = t.acquirer_id
+        WHERE t.id = ${parseInt(req.params.id)}
+      `);
+      const rows = result.rows ?? result;
+      if (!rows.length) return res.status(404).json({ message: "Template not found" });
+      res.json(rows[0]);
+    } catch (error) {
+      console.error("Error fetching template:", error);
+      res.status(500).json({ message: "Failed to fetch template" });
+    }
+  });
+
+  app.patch("/api/admin/application-templates/:id/toggle", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      await dynamicDB.execute(sqlTag`
+        UPDATE acquirer_application_templates SET is_active = NOT is_active, updated_at = NOW() WHERE id = ${parseInt(req.params.id)}
+      `);
+      res.json({ message: "Template status updated" });
+    } catch (error) {
+      console.error("Error toggling template:", error);
+      res.status(500).json({ message: "Failed to update template" });
+    }
+  });
+
+
+  // ============================================================
+  // Acquirer Management API endpoints
+  // ============================================================
+
+  app.get('/api/acquirers', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { acquirers } = await import("@shared/schema");
+      const allAcquirers = await dbToUse.select().from(acquirers).orderBy(acquirers.name);
+      res.json(allAcquirers);
+    } catch (error) {
+      console.error('Error fetching acquirers:', error);
+      res.status(500).json({ error: 'Failed to fetch acquirers' });
+    }
+  });
+
+  app.post('/api/acquirers', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const validated = insertAcquirerSchema.parse(req.body);
+      const { acquirers } = await import("@shared/schema");
+      const [newAcquirer] = await dbToUse.insert(acquirers).values(validated).returning();
+      res.status(201).json(newAcquirer);
+    } catch (error) {
+      console.error('Error creating acquirer:', error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input data', details: error.errors });
+      res.status(500).json({ error: 'Failed to create acquirer' });
+    }
+  });
+
+  app.get('/api/acquirers/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const acquirerId = parseInt(req.params.id);
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { acquirers, acquirerApplicationTemplates } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [acquirer] = await dbToUse.select().from(acquirers).where(eq(acquirers.id, acquirerId)).limit(1);
+      if (!acquirer) return res.status(404).json({ error: "Acquirer not found" });
+      const templates = await dbToUse.select()
+        .from(acquirerApplicationTemplates)
+        .where(eq(acquirerApplicationTemplates.acquirerId, acquirerId))
+        .orderBy(acquirerApplicationTemplates.templateName);
+      res.json({ ...acquirer, templates });
+    } catch (error) {
+      console.error('Error fetching acquirer:', error);
+      res.status(500).json({ error: 'Failed to fetch acquirer' });
+    }
+  });
+
+  app.put('/api/acquirers/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const acquirerId = parseInt(req.params.id);
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const updateData = insertAcquirerSchema.parse(req.body);
+      const { acquirers } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [updatedAcquirer] = await dbToUse.update(acquirers)
+        .set({ ...updateData, updatedAt: new Date() })
+        .where(eq(acquirers.id, acquirerId))
+        .returning();
+      if (!updatedAcquirer) return res.status(404).json({ error: "Acquirer not found" });
+      res.json(updatedAcquirer);
+    } catch (error) {
+      console.error('Error updating acquirer:', error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input data', details: error.errors });
+      res.status(500).json({ error: 'Failed to update acquirer' });
+    }
+  });
+
+  // Application counts endpoint (must be before /:id route)
+  app.get('/api/acquirer-application-templates/application-counts', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const result = await dbToUse.execute(sqlTag`
+        SELECT template_id, COUNT(*) as count
+        FROM prospect_applications
+        GROUP BY template_id
+      `);
+      const rows = (result as any).rows ?? result;
+      const counts: Record<number, number> = {};
+      for (const row of rows) {
+        counts[Number(row.template_id)] = Number(row.count);
+      }
+      res.json(counts);
+    } catch (error) {
+      console.error('Error fetching application counts:', error);
+      res.status(500).json({ error: 'Failed to fetch application counts' });
+    }
+  });
+
+  app.get('/api/acquirer-application-templates', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { acquirerApplicationTemplates, acquirers } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const templates = await dbToUse.select({
+        id: acquirerApplicationTemplates.id,
+        acquirerId: acquirerApplicationTemplates.acquirerId,
+        templateName: acquirerApplicationTemplates.templateName,
+        version: acquirerApplicationTemplates.version,
+        isActive: acquirerApplicationTemplates.isActive,
+        fieldConfiguration: acquirerApplicationTemplates.fieldConfiguration,
+        pdfMappingConfiguration: acquirerApplicationTemplates.pdfMappingConfiguration,
+        requiredFields: acquirerApplicationTemplates.requiredFields,
+        conditionalFields: acquirerApplicationTemplates.conditionalFields,
+        createdAt: acquirerApplicationTemplates.createdAt,
+        updatedAt: acquirerApplicationTemplates.updatedAt,
+        acquirer: {
+          id: acquirers.id,
+          name: acquirers.name,
+          displayName: acquirers.displayName,
+          code: acquirers.code
+        }
+      })
+      .from(acquirerApplicationTemplates)
+      .leftJoin(acquirers, eq(acquirerApplicationTemplates.acquirerId, acquirers.id))
+      .orderBy(acquirerApplicationTemplates.templateName);
+      res.json(templates);
+    } catch (error) {
+      console.error('Error fetching acquirer application templates:', error);
+      res.status(500).json({ error: 'Failed to fetch acquirer application templates' });
+    }
+  });
+
+  // PDF upload for template parsing
+  app.post('/api/acquirer-application-templates/upload', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), upload.single('pdf'), async (req: RequestWithDB, res: Response) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: 'No PDF file uploaded' });
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+
+      // Parse PDF to extract field configuration
+      const parseResult = await pdfFormParser.parsePDFForm(req.file.path);
+
+      // If acquirerId provided, save as template
+      if (req.body.acquirerId && req.body.templateName) {
+        const acquirerId = parseInt(req.body.acquirerId);
+        const { acquirerApplicationTemplates } = await import("@shared/schema");
+        const fieldConfiguration = {
+          sections: parseResult.sections.map((section: any) => ({
+            id: `section_${section.title.toLowerCase().replace(/\s+/g, '_')}`,
+            title: section.title,
+            description: section.description || '',
+            fields: section.fields.map((field: any) => ({
+              id: field.fieldName,
+              type: field.fieldType,
+              label: field.fieldLabel,
+              required: field.isRequired || false,
+              placeholder: field.placeholder || '',
+              description: field.description || '',
+              options: field.options || undefined,
+              pattern: field.pattern || undefined,
+              min: field.min || undefined,
+              max: field.max || undefined,
+              sensitive: field.sensitive || false,
+              pdfFieldId: field.pdfFieldId,
+              pdfFieldIds: field.pdfFieldIds
+            }))
+          }))
+        };
+        const [newTemplate] = await dbToUse.insert(acquirerApplicationTemplates).values({
+          acquirerId,
+          templateName: req.body.templateName,
+          version: req.body.version || '1.0',
+          isActive: true,
+          fieldConfiguration,
+          pdfMappingConfiguration: parseResult.rawFields || {},
+          requiredFields: [],
+          conditionalFields: []
+        }).returning();
+        return res.status(201).json({ template: newTemplate, parseResult });
+      }
+
+      // Otherwise just return parsed fields
+      res.json({ parseResult });
+    } catch (error) {
+      console.error('Error processing PDF upload:', error);
+      res.status(500).json({ error: 'Failed to process PDF' });
+    }
+  });
+
+  app.post('/api/acquirer-application-templates', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { acquirerApplicationTemplates } = await import("@shared/schema");
+      const validated = insertAcquirerApplicationTemplateSchema.parse(req.body);
+      const [newTemplate] = await dbToUse.insert(acquirerApplicationTemplates).values(validated).returning();
+      res.status(201).json(newTemplate);
+    } catch (error) {
+      console.error('Error creating acquirer application template:', error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input data', details: error.errors });
+      res.status(500).json({ error: 'Failed to create acquirer application template' });
+    }
+  });
+
+  app.get('/api/acquirer-application-templates/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const templateId = parseInt(req.params.id);
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { acquirerApplicationTemplates, acquirers } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [template] = await dbToUse.select()
+        .from(acquirerApplicationTemplates)
+        .where(eq(acquirerApplicationTemplates.id, templateId))
+        .limit(1);
+      if (!template) return res.status(404).json({ error: "Template not found" });
+      res.json(template);
+    } catch (error) {
+      console.error('Error fetching acquirer application template:', error);
+      res.status(500).json({ error: 'Failed to fetch acquirer application template' });
+    }
+  });
+
+  app.put('/api/acquirer-application-templates/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const templateId = parseInt(req.params.id);
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { acquirerApplicationTemplates } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [updatedTemplate] = await dbToUse.update(acquirerApplicationTemplates)
+        .set({ ...req.body, updatedAt: new Date() })
+        .where(eq(acquirerApplicationTemplates.id, templateId))
+        .returning();
+      if (!updatedTemplate) return res.status(404).json({ error: "Template not found" });
+      res.json(updatedTemplate);
+    } catch (error) {
+      console.error('Error updating acquirer application template:', error);
+      res.status(500).json({ error: 'Failed to update acquirer application template' });
+    }
+  });
+
+  app.delete('/api/acquirer-application-templates/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const templateId = parseInt(req.params.id);
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { acquirerApplicationTemplates } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      await dbToUse.delete(acquirerApplicationTemplates).where(eq(acquirerApplicationTemplates.id, templateId));
+      res.json({ message: "Template deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting acquirer application template:', error);
+      res.status(500).json({ error: 'Failed to delete acquirer application template' });
+    }
+  });
+
+
+  // ============================================================
+  // MCC Codes API
+  // ============================================================
+
+  app.get('/api/mcc-codes/categories', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { mccCodes } = await import("@shared/schema");
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const result = await dbToUse.execute(sqlTag`SELECT DISTINCT category FROM mcc_codes WHERE is_active = true ORDER BY category`);
+      const rows = (result as any).rows ?? result;
+      res.json(rows.map((r: any) => r.category));
+    } catch (error) {
+      console.error('Error fetching MCC categories:', error);
+      res.status(500).json({ error: 'Failed to fetch MCC categories' });
+    }
+  });
+
+  app.get('/api/mcc-codes', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { mccCodes } = await import("@shared/schema");
+      const { ilike, or, eq } = await import("drizzle-orm");
+      const { search, category } = req.query;
+      let query = dbToUse.select().from(mccCodes);
+      if (search) {
+        const searchStr = `%${search}%`;
+        query = query.where(or(ilike(mccCodes.code, searchStr), ilike(mccCodes.description, searchStr))) as any;
+      } else if (category) {
+        query = query.where(eq(mccCodes.category, category as string)) as any;
+      }
+      const results = await (query as any).orderBy(mccCodes.code);
+      res.json(results);
+    } catch (error) {
+      console.error('Error fetching MCC codes:', error);
+      res.status(500).json({ error: 'Failed to fetch MCC codes' });
+    }
+  });
+
+  app.get('/api/mcc-codes/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { mccCodes } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [code] = await dbToUse.select().from(mccCodes).where(eq(mccCodes.id, parseInt(req.params.id))).limit(1);
+      if (!code) return res.status(404).json({ error: 'MCC code not found' });
+      res.json(code);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch MCC code' });
+    }
+  });
+
+  app.post('/api/mcc-codes', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { mccCodes, insertMccCodeSchema } = await import("@shared/schema");
+      const validated = insertMccCodeSchema.parse(req.body);
+      const [newCode] = await dbToUse.insert(mccCodes).values(validated).returning();
+      res.status(201).json(newCode);
+    } catch (error) {
+      console.error('Error creating MCC code:', error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input', details: error.errors });
+      res.status(500).json({ error: 'Failed to create MCC code' });
+    }
+  });
+
+  app.patch('/api/mcc-codes/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { mccCodes } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [updated] = await dbToUse.update(mccCodes)
+        .set({ ...req.body, updatedAt: new Date() })
+        .where(eq(mccCodes.id, parseInt(req.params.id)))
+        .returning();
+      if (!updated) return res.status(404).json({ error: 'MCC code not found' });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to update MCC code' });
+    }
+  });
+
+  app.delete('/api/mcc-codes/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { mccCodes } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      await dbToUse.delete(mccCodes).where(eq(mccCodes.id, parseInt(req.params.id)));
+      res.json({ message: 'MCC code deleted' });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to delete MCC code' });
+    }
+  });
+
+  // Public MCC search (used by autocomplete in forms)
+  app.get('/api/mcc/search', async (req: RequestWithDB, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB || getRequestDB(req);
+      const { mccCodes } = await import("@shared/schema");
+      const { ilike, or, eq } = await import("drizzle-orm");
+      const q = req.query.q as string || '';
+      if (!q || q.length < 2) return res.json({ suggestions: [] });
+      const searchStr = `%${q}%`;
+      const results = await dbToUse.select().from(mccCodes)
+        .where(or(ilike(mccCodes.code, searchStr), ilike(mccCodes.description, searchStr), ilike(mccCodes.category, searchStr)))
+        .where(eq(mccCodes.isActive, true))
+        .limit(10);
+      res.json({ suggestions: results.map(r => ({ mcc: r.code, description: r.description, category: r.category, irs_description: r.description })) });
+    } catch (error) {
+      res.status(500).json({ suggestions: [] });
+    }
+  });
+
+  // ============================================================
+  // MCC Policies API
+  // ============================================================
+
+  app.get('/api/mcc-policies', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { mccPolicies, mccCodes, acquirers } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const policies = await dbToUse.select({
+        id: mccPolicies.id,
+        mccCodeId: mccPolicies.mccCodeId,
+        acquirerId: mccPolicies.acquirerId,
+        policyType: mccPolicies.policyType,
+        riskLevelOverride: mccPolicies.riskLevelOverride,
+        notes: mccPolicies.notes,
+        isActive: mccPolicies.isActive,
+        createdAt: mccPolicies.createdAt,
+        updatedAt: mccPolicies.updatedAt,
+        mccCode: { id: mccCodes.id, code: mccCodes.code, description: mccCodes.description, category: mccCodes.category },
+        acquirer: { id: acquirers.id, name: acquirers.name, code: acquirers.code }
+      })
+      .from(mccPolicies)
+      .leftJoin(mccCodes, eq(mccPolicies.mccCodeId, mccCodes.id))
+      .leftJoin(acquirers, eq(mccPolicies.acquirerId, acquirers.id))
+      .orderBy(mccPolicies.id);
+      res.json(policies);
+    } catch (error) {
+      console.error('Error fetching MCC policies:', error);
+      res.status(500).json({ error: 'Failed to fetch MCC policies' });
+    }
+  });
+
+  app.post('/api/mcc-policies', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { mccPolicies, insertMccPolicySchema } = await import("@shared/schema");
+      const session = req.session as any;
+      const validated = insertMccPolicySchema.parse({ ...req.body, createdBy: session?.userId });
+      const [newPolicy] = await dbToUse.insert(mccPolicies).values(validated).returning();
+      res.status(201).json(newPolicy);
+    } catch (error) {
+      console.error('Error creating MCC policy:', error);
+      if (error instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input', details: error.errors });
+      res.status(500).json({ error: 'Failed to create MCC policy' });
+    }
+  });
+
+  app.patch('/api/mcc-policies/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { mccPolicies } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [updated] = await dbToUse.update(mccPolicies)
+        .set({ ...req.body, updatedAt: new Date() })
+        .where(eq(mccPolicies.id, parseInt(req.params.id)))
+        .returning();
+      if (!updated) return res.status(404).json({ error: 'MCC policy not found' });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to update MCC policy' });
+    }
+  });
+
+  app.delete('/api/mcc-policies/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { mccPolicies } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      await dbToUse.delete(mccPolicies).where(eq(mccPolicies.id, parseInt(req.params.id)));
+      res.json({ message: 'MCC policy deleted' });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to delete MCC policy' });
+    }
+  });
+
+  // ============================================================
+  // Disclosure Library API
+  // ============================================================
+
+  app.get('/api/disclosures', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
+      const { disclosureDefinitions, disclosureVersions } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const defs = await dbToUse.select().from(disclosureDefinitions).orderBy(disclosureDefinitions.displayName);
+      const defsWithVersions = await Promise.all(defs.map(async (def) => {
+        const versions = await dbToUse.select().from(disclosureVersions).where(eq(disclosureVersions.definitionId, def.id)).orderBy(disclosureVersions.version);
+        const currentVersion = versions.find(v => v.isCurrentVersion) || versions[versions.length - 1] || null;
+        return { ...def, versions, currentVersion };
+      }));
+      res.json({ success: true, disclosures: defsWithVersions });
+    } catch (error) {
+      console.error('Error fetching disclosures:', error);
+      res.status(500).json({ success: false, message: 'Failed to retrieve disclosures' });
+    }
+  });
+
+  app.get('/api/disclosures/:id/signature-report', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
+      const { disclosureVersions } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const versions = await dbToUse.select().from(disclosureVersions).where(eq(disclosureVersions.definitionId, parseInt(req.params.id)));
+      res.json({ success: true, report: { totalVersions: versions.length, versions } });
+    } catch (error) {
+      res.status(500).json({ success: false, message: 'Failed to get signature report' });
+    }
+  });
+
+  app.get('/api/disclosures/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
+      const { disclosureDefinitions, disclosureVersions } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [def] = await dbToUse.select().from(disclosureDefinitions).where(eq(disclosureDefinitions.id, parseInt(req.params.id))).limit(1);
+      if (!def) return res.status(404).json({ success: false, message: 'Disclosure not found' });
+      const versions = await dbToUse.select().from(disclosureVersions).where(eq(disclosureVersions.definitionId, def.id)).orderBy(disclosureVersions.version);
+      const currentVersion = versions.find(v => v.isCurrentVersion) || versions[versions.length - 1] || null;
+      res.json({ success: true, disclosure: { ...def, versions, currentVersion } });
+    } catch (error) {
+      res.status(500).json({ success: false, message: 'Failed to retrieve disclosure' });
+    }
+  });
+
+  app.post('/api/disclosures', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
+      const { disclosureDefinitions } = await import("@shared/schema");
+      const session = req.session as any;
+      const { slug, displayName, description, category, requiresSignature, companyId } = req.body;
+      if (!slug || !displayName) return res.status(400).json({ success: false, message: 'Slug and display name are required' });
+      const [newDef] = await dbToUse.insert(disclosureDefinitions).values({
+        slug, displayName, description: description || null, category: category || 'general',
+        requiresSignature: requiresSignature || false, companyId: companyId || null,
+        createdBy: session?.userId || null, isActive: true
+      }).returning();
+      res.status(201).json({ success: true, disclosure: { ...newDef, versions: [], currentVersion: null } });
+    } catch (error) {
+      console.error('Error creating disclosure:', error);
+      res.status(500).json({ success: false, message: 'Failed to create disclosure' });
+    }
+  });
+
+  app.patch('/api/disclosures/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
+      const { disclosureDefinitions } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [updated] = await dbToUse.update(disclosureDefinitions)
+        .set({ ...req.body, updatedAt: new Date() })
+        .where(eq(disclosureDefinitions.id, parseInt(req.params.id)))
+        .returning();
+      if (!updated) return res.status(404).json({ success: false, message: 'Disclosure not found' });
+      res.json({ success: true, disclosure: updated });
+    } catch (error) {
+      res.status(500).json({ success: false, message: 'Failed to update disclosure' });
+    }
+  });
+
+  app.delete('/api/disclosures/:id', dbEnvironmentMiddleware, requireRole(['super_admin']), async (req: any, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
+      const { disclosureDefinitions } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      await dbToUse.delete(disclosureDefinitions).where(eq(disclosureDefinitions.id, parseInt(req.params.id)));
+      res.json({ success: true, message: 'Disclosure deleted' });
+    } catch (error) {
+      res.status(500).json({ success: false, message: 'Failed to delete disclosure' });
+    }
+  });
+
+  app.post('/api/disclosures/:definitionId/versions', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
+      const { disclosureVersions } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const definitionId = parseInt(req.params.definitionId);
+      const session = req.session as any;
+      const { version, title, content, requiresSignature, effectiveDate } = req.body;
+      if (!version || !title || !content) return res.status(400).json({ success: false, message: 'Version, title, and content are required' });
+      // Set all existing versions to not current
+      await dbToUse.update(disclosureVersions).set({ isCurrentVersion: false }).where(eq(disclosureVersions.definitionId, definitionId));
+      const [newVersion] = await dbToUse.insert(disclosureVersions).values({
+        definitionId, version, title, content,
+        requiresSignature: requiresSignature || false,
+        effectiveDate: effectiveDate ? new Date(effectiveDate) : new Date(),
+        isCurrentVersion: true, createdBy: session?.userId || null,
+        contentHash: Buffer.from(content).toString('base64').slice(0, 32)
+      }).returning();
+      res.status(201).json({ success: true, version: newVersion });
+    } catch (error) {
+      console.error('Error creating disclosure version:', error);
+      res.status(500).json({ success: false, message: 'Failed to create disclosure version' });
+    }
+  });
+
+  app.patch('/api/disclosure-versions/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
+      const { disclosureVersions } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [updated] = await dbToUse.update(disclosureVersions)
+        .set(req.body)
+        .where(eq(disclosureVersions.id, parseInt(req.params.id)))
+        .returning();
+      if (!updated) return res.status(404).json({ success: false, message: 'Version not found' });
+      res.json({ success: true, version: updated });
+    } catch (error) {
+      res.status(500).json({ success: false, message: 'Failed to update version' });
+    }
+  });
+
+  app.post('/api/disclosure-versions/:id/copy', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res: Response) => {
+    try {
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
+      const { disclosureVersions } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const session = req.session as any;
+      const [original] = await dbToUse.select().from(disclosureVersions).where(eq(disclosureVersions.id, parseInt(req.params.id))).limit(1);
+      if (!original) return res.status(404).json({ success: false, message: 'Version not found' });
+      const newVersionLabel = req.body.version || `${original.version}-copy`;
+      // Unset current version flag on all versions in this definition
+      await dbToUse.update(disclosureVersions).set({ isCurrentVersion: false }).where(eq(disclosureVersions.definitionId, original.definitionId));
+      const [copy] = await dbToUse.insert(disclosureVersions).values({
+        definitionId: original.definitionId, version: newVersionLabel,
+        title: req.body.title || `${original.title} (Copy)`, content: original.content,
+        requiresSignature: original.requiresSignature, effectiveDate: new Date(),
+        isCurrentVersion: true, createdBy: session?.userId || null,
+        contentHash: original.contentHash
+      }).returning();
+      res.status(201).json({ success: true, version: copy });
+    } catch (error) {
+      res.status(500).json({ success: false, message: 'Failed to copy version' });
+    }
+  });
+
 
   const httpServer = createServer(app);
   return httpServer;
