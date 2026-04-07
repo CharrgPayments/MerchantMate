@@ -1,4 +1,5 @@
 import { pgTable, text, serial, integer, boolean, timestamp, decimal, varchar, jsonb, index, unique, real, numeric } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -212,7 +213,7 @@ export const users = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
-  role: text("role").notNull().default("merchant"), // merchant, agent, admin, corporate, super_admin
+  roles: text("roles").array().notNull().default(["merchant"]), // merchant, agent, admin, corporate, super_admin
   status: text("status").notNull().default("active"), // active, suspended, inactive
   permissions: jsonb("permissions").default("{}"),
   lastLoginAt: timestamp("last_login_at"),
@@ -224,6 +225,9 @@ export const users = pgTable("users", {
   passwordResetExpires: timestamp("password_reset_expires"),
   emailVerified: boolean("email_verified").default(false),
   emailVerificationToken: varchar("email_verification_token"),
+  phone: varchar("phone"),
+  communicationPreference: varchar("communication_preference").default("email"), // email, sms, both
+  mustChangePassword: boolean("must_change_password").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -317,7 +321,7 @@ export type PasswordReset = z.infer<typeof passwordResetSchema>;
 export type TwoFactorVerify = z.infer<typeof twoFactorVerifySchema>;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type UpsertUser = typeof users.$inferInsert;
-export type User = typeof users.$inferSelect;
+export type User = typeof users.$inferSelect & { role?: string };
 export type LoginAttempt = typeof loginAttempts.$inferSelect;
 export type TwoFactorCode = typeof twoFactorCodes.$inferSelect;
 
@@ -780,6 +784,118 @@ export type CampaignWithDetails = Campaign & {
   createdByUser?: User;
 };
 
+// Acquirers table - payment processors that require different application forms
+export const acquirers = pgTable("acquirers", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  displayName: text("display_name").notNull(),
+  code: text("code").notNull().unique(),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Acquirer Application Templates - store dynamic form configurations for each acquirer
+export const acquirerApplicationTemplates = pgTable("acquirer_application_templates", {
+  id: serial("id").primaryKey(),
+  acquirerId: integer("acquirer_id").notNull().references(() => acquirers.id, { onDelete: "cascade" }),
+  templateName: text("template_name").notNull(),
+  version: text("version").notNull().default("1.0"),
+  isActive: boolean("is_active").notNull().default(true),
+  fieldConfiguration: jsonb("field_configuration").notNull(),
+  pdfMappingConfiguration: jsonb("pdf_mapping_configuration"),
+  requiredFields: text("required_fields").array().notNull().default(sql`ARRAY[]::text[]`),
+  conditionalFields: jsonb("conditional_fields"),
+  addressGroups: jsonb("address_groups").default(sql`'[]'::jsonb`),
+  signatureGroups: jsonb("signature_groups").default(sql`'[]'::jsonb`),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueAcquirerTemplate: unique().on(table.acquirerId, table.templateName, table.version),
+}));
+
+// Prospect Applications - store acquirer-specific application data
+export const prospectApplications = pgTable("prospect_applications", {
+  id: serial("id").primaryKey(),
+  prospectId: integer("prospect_id").notNull().references(() => merchantProspects.id, { onDelete: "cascade" }),
+  acquirerId: integer("acquirer_id").notNull().references(() => acquirers.id),
+  templateId: integer("template_id").notNull().references(() => acquirerApplicationTemplates.id),
+  templateVersion: text("template_version").notNull(),
+  status: text("status").notNull().default("draft"),
+  applicationData: jsonb("application_data").notNull().default('{}'),
+  submittedAt: timestamp("submitted_at"),
+  approvedAt: timestamp("approved_at"),
+  rejectedAt: timestamp("rejected_at"),
+  rejectionReason: text("rejection_reason"),
+  generatedPdfPath: text("generated_pdf_path"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueProspectAcquirer: unique().on(table.prospectId, table.acquirerId),
+}));
+
+// Campaign Application Templates junction table
+export const campaignApplicationTemplates = pgTable("campaign_application_templates", {
+  id: serial("id").primaryKey(),
+  campaignId: integer("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  templateId: integer("template_id").notNull().references(() => acquirerApplicationTemplates.id, { onDelete: "cascade" }),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueCampaignTemplate: unique().on(table.campaignId, table.templateId),
+}));
+
+// Acquirer management insert schemas
+export const insertAcquirerSchema = createInsertSchema(acquirers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertAcquirerApplicationTemplateSchema = createInsertSchema(acquirerApplicationTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertProspectApplicationSchema = createInsertSchema(prospectApplications).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertCampaignApplicationTemplateSchema = createInsertSchema(campaignApplicationTemplates).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Acquirer management types
+export type Acquirer = typeof acquirers.$inferSelect;
+export type InsertAcquirer = z.infer<typeof insertAcquirerSchema>;
+export type AcquirerApplicationTemplate = typeof acquirerApplicationTemplates.$inferSelect;
+export type InsertAcquirerApplicationTemplate = z.infer<typeof insertAcquirerApplicationTemplateSchema>;
+export type ProspectApplication = typeof prospectApplications.$inferSelect;
+export type InsertProspectApplication = z.infer<typeof insertProspectApplicationSchema>;
+export type CampaignApplicationTemplate = typeof campaignApplicationTemplates.$inferSelect;
+export type InsertCampaignApplicationTemplate = z.infer<typeof insertCampaignApplicationTemplateSchema>;
+
+// Extended types for acquirer management
+export type AcquirerWithTemplates = Acquirer & {
+  templates: AcquirerApplicationTemplate[];
+};
+
+export type CampaignWithAcquirer = Campaign & {
+  acquirer: Acquirer;
+};
+
+export type ProspectApplicationWithDetails = ProspectApplication & {
+  prospect: MerchantProspect;
+  acquirer: Acquirer;
+  template: AcquirerApplicationTemplate;
+};
+
 // SOC2 Compliance - Comprehensive Audit Trail System
 export const auditLogs = pgTable("audit_logs", {
   id: serial("id").primaryKey(),
@@ -974,3 +1090,220 @@ export type EmailActivity = typeof emailActivity.$inferSelect;
 export type InsertEmailActivity = z.infer<typeof insertEmailActivitySchema>;
 export type EmailTrigger = typeof emailTriggers.$inferSelect;
 export type InsertEmailTrigger = z.infer<typeof insertEmailTriggerSchema>;
+
+// ─── Workflow Definitions ─────────────────────────────────────────────────────
+
+// Core workflow automation templates
+export const workflowDefinitions = pgTable("workflow_definitions", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  trigger: varchar("trigger", { length: 50 }).notNull().default("manual"), // manual, webhook, schedule, event
+  triggerConfig: jsonb("trigger_config").default("{}"),
+  steps: jsonb("steps").default("[]"), // array of step definitions
+  status: varchar("status", { length: 20 }).notNull().default("draft"), // draft, active, inactive
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  allowedRoles: text("allowed_roles").array().default(['admin']),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// External API endpoint configurations used by workflow steps
+export const workflowEndpoints = pgTable("workflow_endpoints", {
+  id: serial("id").primaryKey(),
+  workflowId: integer("workflow_id").references(() => workflowDefinitions.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  url: varchar("url", { length: 2048 }).notNull(),
+  method: varchar("method", { length: 10 }).notNull().default("POST"), // GET, POST, PUT, DELETE, PATCH
+  headers: jsonb("headers").default("{}"),
+  authType: varchar("auth_type", { length: 20 }).default("none"), // none, api_key, bearer, basic
+  authConfig: jsonb("auth_config").default("{}"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Per-environment configuration overrides for workflows
+export const workflowEnvironmentConfigs = pgTable("workflow_environment_configs", {
+  id: serial("id").primaryKey(),
+  workflowId: integer("workflow_id").notNull().references(() => workflowDefinitions.id, { onDelete: "cascade" }),
+  environment: varchar("environment", { length: 20 }).notNull(), // production, development, test
+  config: jsonb("config").default("{}"), // environment-specific config overrides
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Workflow Zod schemas and types
+export const insertWorkflowDefinitionSchema = createInsertSchema(workflowDefinitions).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWorkflowEndpointSchema = createInsertSchema(workflowEndpoints).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWorkflowEnvironmentConfigSchema = createInsertSchema(workflowEnvironmentConfigs).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type WorkflowDefinition = typeof workflowDefinitions.$inferSelect;
+export type InsertWorkflowDefinition = z.infer<typeof insertWorkflowDefinitionSchema>;
+export type WorkflowEndpoint = typeof workflowEndpoints.$inferSelect;
+export type InsertWorkflowEndpoint = z.infer<typeof insertWorkflowEndpointSchema>;
+export type WorkflowEnvironmentConfig = typeof workflowEnvironmentConfigs.$inferSelect;
+export type InsertWorkflowEnvironmentConfig = z.infer<typeof insertWorkflowEnvironmentConfigSchema>;
+
+export type WorkflowDefinitionWithDetails = WorkflowDefinition & {
+  endpoints?: WorkflowEndpoint[];
+  environmentConfigs?: WorkflowEnvironmentConfig[];
+};
+
+// ─── MCC Codes & Policies ─────────────────────────────────────────────────────
+
+export const mccCodes = pgTable("mcc_codes", {
+  id: serial("id").primaryKey(),
+  code: varchar("code", { length: 4 }).notNull().unique(),
+  description: text("description").notNull(),
+  category: text("category").notNull(),
+  riskLevel: text("risk_level").notNull().default("low"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const mccPolicies = pgTable("mcc_policies", {
+  id: serial("id").primaryKey(),
+  mccCodeId: integer("mcc_code_id").notNull().references(() => mccCodes.id, { onDelete: "cascade" }),
+  acquirerId: integer("acquirer_id").references(() => acquirers.id),
+  policyType: text("policy_type").notNull(),
+  riskLevelOverride: text("risk_level_override"),
+  notes: text("notes"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertMccCodeSchema = createInsertSchema(mccCodes).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertMccPolicySchema = createInsertSchema(mccPolicies).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type MccCode = typeof mccCodes.$inferSelect;
+export type InsertMccCode = z.infer<typeof insertMccCodeSchema>;
+export type MccPolicy = typeof mccPolicies.$inferSelect;
+export type InsertMccPolicy = z.infer<typeof insertMccPolicySchema>;
+
+// ─── Disclosure Library ───────────────────────────────────────────────────────
+
+export const disclosureDefinitions = pgTable("disclosure_definitions", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  displayName: text("display_name").notNull(),
+  description: text("description"),
+  category: text("category").notNull().default("general"),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }),
+  isActive: boolean("is_active").notNull().default(true),
+  requiresSignature: boolean("requires_signature").notNull().default(false),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const disclosureVersions = pgTable("disclosure_versions", {
+  id: serial("id").primaryKey(),
+  definitionId: integer("definition_id").notNull().references(() => disclosureDefinitions.id, { onDelete: "cascade" }),
+  version: text("version").notNull(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  contentHash: text("content_hash"),
+  requiresSignature: boolean("requires_signature").notNull().default(false),
+  effectiveDate: timestamp("effective_date"),
+  retiredDate: timestamp("retired_date"),
+  isCurrentVersion: boolean("is_current_version").notNull().default(false),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  metadata: jsonb("metadata"),
+});
+
+export const insertDisclosureDefinitionSchema = createInsertSchema(disclosureDefinitions).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertDisclosureVersionSchema = createInsertSchema(disclosureVersions).omit({ id: true, createdAt: true });
+
+export type DisclosureDefinition = typeof disclosureDefinitions.$inferSelect;
+export type InsertDisclosureDefinition = z.infer<typeof insertDisclosureDefinitionSchema>;
+export type DisclosureVersion = typeof disclosureVersions.$inferSelect;
+export type InsertDisclosureVersion = z.infer<typeof insertDisclosureVersionSchema>;
+
+export type DisclosureDefinitionWithVersions = DisclosureDefinition & {
+  versions?: DisclosureVersion[];
+  currentVersion?: DisclosureVersion | null;
+};
+
+// ─── Action Templates & Trigger System ────────────────────────────────────────
+
+export const actionTemplates = pgTable("action_templates", {
+  id: serial("id").primaryKey(),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  actionType: varchar("action_type").notNull(),
+  category: varchar("category").notNull(),
+  config: jsonb("config").notNull(),
+  variables: jsonb("variables"),
+  isActive: boolean("is_active").default(true),
+  version: integer("version").default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const triggerCatalog = pgTable("trigger_catalog", {
+  id: serial("id").primaryKey(),
+  triggerKey: varchar("trigger_key").notNull(),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  category: varchar("category").notNull(),
+  contextSchema: jsonb("context_schema"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const triggerActions = pgTable("trigger_actions", {
+  id: serial("id").primaryKey(),
+  triggerId: integer("trigger_id").notNull().references(() => triggerCatalog.id),
+  actionTemplateId: integer("action_template_id").notNull().references(() => actionTemplates.id),
+  sequenceOrder: integer("sequence_order").default(1),
+  conditions: jsonb("conditions"),
+  requiresEmailPreference: boolean("requires_email_preference").default(false),
+  requiresSmsPreference: boolean("requires_sms_preference").default(false),
+  delaySeconds: integer("delay_seconds").default(0),
+  retryOnFailure: boolean("retry_on_failure").default(true),
+  maxRetries: integer("max_retries").default(3),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const actionActivity = pgTable("action_activity", {
+  id: serial("id").primaryKey(),
+  triggerActionId: integer("trigger_action_id"),
+  triggerId: integer("trigger_id"),
+  actionTemplateId: integer("action_template_id"),
+  actionType: varchar("action_type").notNull(),
+  recipient: varchar("recipient").notNull(),
+  recipientName: varchar("recipient_name"),
+  status: varchar("status").notNull(),
+  statusMessage: text("status_message"),
+  triggerSource: varchar("trigger_source"),
+  triggeredBy: varchar("triggered_by"),
+  contextData: jsonb("context_data"),
+  responseData: jsonb("response_data"),
+  executedAt: timestamp("executed_at").defaultNow(),
+  deliveredAt: timestamp("delivered_at"),
+  failedAt: timestamp("failed_at"),
+  retryCount: integer("retry_count").default(0),
+});
+
+export const insertActionTemplateSchema = createInsertSchema(actionTemplates).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertTriggerCatalogSchema = createInsertSchema(triggerCatalog).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertTriggerActionSchema = createInsertSchema(triggerActions).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertActionActivitySchema = createInsertSchema(actionActivity).omit({ id: true, executedAt: true });
+
+export type ActionTemplate = typeof actionTemplates.$inferSelect;
+export type InsertActionTemplate = z.infer<typeof insertActionTemplateSchema>;
+export type TriggerCatalog = typeof triggerCatalog.$inferSelect;
+export type InsertTriggerCatalog = z.infer<typeof insertTriggerCatalogSchema>;
+export type TriggerAction = typeof triggerActions.$inferSelect;
+export type InsertTriggerAction = z.infer<typeof insertTriggerActionSchema>;
+export type ActionActivityRecord = typeof actionActivity.$inferSelect;

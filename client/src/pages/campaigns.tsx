@@ -1496,7 +1496,7 @@ export default function CampaignsPage() {
                         <TableCell className="max-w-xs truncate">
                           {campaign.description || '—'}
                         </TableCell>
-                        <TableCell>{campaign.pricingType.name}</TableCell>
+                        <TableCell>{campaign.pricingType?.name || '—'}</TableCell>
                         <TableCell>{campaign.acquirer}</TableCell>
                         <TableCell>
                           <div className="flex gap-2">

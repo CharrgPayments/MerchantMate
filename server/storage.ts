@@ -1,4 +1,4 @@
-import { merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, equipmentItems, campaignEquipment, apiKeys, apiRequestLogs, emailTemplates, emailActivity, emailTriggers, type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type InsertProspectSignature, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger } from "@shared/schema";
+import { merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, equipmentItems, campaignEquipment, apiKeys, apiRequestLogs, emailTemplates, emailActivity, emailTriggers, workflowDefinitions, workflowEndpoints, workflowEnvironmentConfigs, type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type InsertProspectSignature, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowEndpoint, type InsertWorkflowEndpoint, type WorkflowEnvironmentConfig, type InsertWorkflowEnvironmentConfig, type WorkflowDefinitionWithDetails } from "@shared/schema";
 import { db } from "./db";
 import { eq, or, and, gte, sql, desc, inArray, like, ilike, not } from "drizzle-orm";
 
@@ -358,9 +358,45 @@ export interface IStorage {
     errorRequests: number;
     averageResponseTime: number;
   }>;
+
+  // Workflow Definitions
+  getAllWorkflowDefinitions(): Promise<WorkflowDefinition[]>;
+  getWorkflowDefinition(id: number): Promise<WorkflowDefinitionWithDetails | undefined>;
+  createWorkflowDefinition(data: InsertWorkflowDefinition): Promise<WorkflowDefinition>;
+  updateWorkflowDefinition(id: number, data: Partial<InsertWorkflowDefinition>): Promise<WorkflowDefinition | undefined>;
+  deleteWorkflowDefinition(id: number): Promise<boolean>;
+  // Workflow Endpoints
+  getWorkflowEndpoints(workflowId: number): Promise<WorkflowEndpoint[]>;
+  createWorkflowEndpoint(data: InsertWorkflowEndpoint): Promise<WorkflowEndpoint>;
+  updateWorkflowEndpoint(id: number, data: Partial<InsertWorkflowEndpoint>): Promise<WorkflowEndpoint | undefined>;
+  deleteWorkflowEndpoint(id: number): Promise<boolean>;
+  // Workflow Environment Configs
+  getWorkflowEnvironmentConfigs(workflowId: number): Promise<WorkflowEnvironmentConfig[]>;
+  upsertWorkflowEnvironmentConfig(workflowId: number, environment: string, config: any): Promise<WorkflowEnvironmentConfig>;
+  deleteWorkflowEnvironmentConfig(workflowId: number, environment: string): Promise<void>;
+}
+
+// Extended user input type that accepts legacy `role` string alongside new `roles` array
+type UserInputWithLegacyRole = Partial<UpsertUser> & { role?: string };
+
+// Normalize a legacy `role` string to a `roles` array, returning a clean UpsertUser-shaped object
+function normalizeLegacyRole(input: UserInputWithLegacyRole): Partial<UpsertUser> {
+  const { role, ...rest } = input;
+  if (role !== undefined && rest.roles === undefined) {
+    return { ...rest, roles: [role] };
+  }
+  return rest as Partial<UpsertUser>;
 }
 
 export class DatabaseStorage implements IStorage {
+  // Add backward-compat `role` field from `roles` array
+  private withRole<T extends { roles?: string[] | null }>(user: T): T & { role?: string } {
+    return { ...user, role: user.roles?.[0] ?? "merchant" };
+  }
+  private withRoles<T extends { roles?: string[] | null }>(userList: T[]): (T & { role?: string })[] {
+    return userList.map(u => this.withRole(u));
+  }
+
   // Fee Groups implementation
   async getAllFeeGroups(): Promise<FeeGroupWithItems[]> {
     const groups = await db.select().from(feeGroups).orderBy(feeGroups.displayOrder);
@@ -1537,79 +1573,83 @@ export class DatabaseStorage implements IStorage {
     console.log('Storage.getUser - Looking for user with ID:', id);
     const [user] = await db.select().from(users).where(eq(users.id, id));
     console.log('Storage.getUser - Found:', user ? `${user.username} (${user.id})` : 'null');
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.email, email));
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.username, username));
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async getUserByUsernameOrEmail(username: string, email: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(
       or(eq(users.username, username), eq(users.email, email))
     );
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async getUserByResetToken(token: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.passwordResetToken, token));
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async getUserByEmailVerificationToken(token: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.emailVerificationToken, token));
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
-  async createUser(userData: Partial<UpsertUser>): Promise<User> {
+  async createUser(userData: UserInputWithLegacyRole): Promise<User> {
+    const normalized = normalizeLegacyRole(userData);
     const [user] = await db
       .insert(users)
-      .values(userData as UpsertUser)
+      .values(normalized as UpsertUser)
       .returning();
-    return user;
+    return this.withRole(user);
   }
 
   async getAllUsers(): Promise<User[]> {
-    return await db.select().from(users);
+    const userList = await db.select().from(users);
+    return this.withRoles(userList);
   }
 
-  async upsertUser(userData: UpsertUser): Promise<User> {
+  async upsertUser(userData: UpsertUser & { role?: string }): Promise<User> {
+    const normalized = normalizeLegacyRole(userData);
     const [user] = await db
       .insert(users)
-      .values(userData)
+      .values(normalized as UpsertUser)
       .onConflictDoUpdate({
         target: users.id,
         set: {
-          ...userData,
+          ...normalized,
           updatedAt: new Date(),
         },
       })
       .returning();
-    return user;
+    return this.withRole(user);
   }
 
-  async updateUser(id: string, updates: Partial<UpsertUser>): Promise<User | undefined> {
+  async updateUser(id: string, updates: UserInputWithLegacyRole): Promise<User | undefined> {
+    const normalized = normalizeLegacyRole(updates);
     const [user] = await db
       .update(users)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...normalized, updatedAt: new Date() })
       .where(eq(users.id, id))
       .returning();
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async updateUserRole(id: string, role: string): Promise<User | undefined> {
     const [user] = await db
       .update(users)
-      .set({ role, updatedAt: new Date() })
+      .set({ roles: [role], updatedAt: new Date() })
       .where(eq(users.id, id))
       .returning();
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async updateUserStatus(id: string, status: string): Promise<User | undefined> {
@@ -2129,7 +2169,7 @@ export class DatabaseStorage implements IStorage {
       passwordHash,
       firstName: agentData.firstName,
       lastName: agentData.lastName,
-      role: 'agent' as const,
+      roles: ['agent'],
       status: 'active' as const,
       emailVerified: true, // Auto-verify for system-created accounts
     };
@@ -2166,7 +2206,7 @@ export class DatabaseStorage implements IStorage {
       passwordHash,
       firstName,
       lastName,
-      role: 'merchant' as const,
+      roles: ['merchant'],
       status: 'active' as const,
       emailVerified: true, // Auto-verify for system-created accounts
     };
@@ -2199,6 +2239,81 @@ export class DatabaseStorage implements IStorage {
 
   async getAgentMerchants(agentId: number): Promise<MerchantWithAgent[]> {
     return this.getMerchantsByAgent(agentId);
+  }
+
+  // ─── Workflow Definitions ───────────────────────────────────────────────────
+
+  async getAllWorkflowDefinitions(): Promise<WorkflowDefinition[]> {
+    return db.select().from(workflowDefinitions).orderBy(desc(workflowDefinitions.createdAt));
+  }
+
+  async getWorkflowDefinition(id: number): Promise<WorkflowDefinitionWithDetails | undefined> {
+    const [wf] = await db.select().from(workflowDefinitions).where(eq(workflowDefinitions.id, id));
+    if (!wf) return undefined;
+    const endpoints = await db.select().from(workflowEndpoints).where(eq(workflowEndpoints.workflowId, id));
+    const environmentConfigs = await db.select().from(workflowEnvironmentConfigs).where(eq(workflowEnvironmentConfigs.workflowId, id));
+    return { ...wf, endpoints, environmentConfigs };
+  }
+
+  async createWorkflowDefinition(data: InsertWorkflowDefinition): Promise<WorkflowDefinition> {
+    const [wf] = await db.insert(workflowDefinitions).values({ ...data, updatedAt: new Date() }).returning();
+    return wf;
+  }
+
+  async updateWorkflowDefinition(id: number, data: Partial<InsertWorkflowDefinition>): Promise<WorkflowDefinition | undefined> {
+    const [wf] = await db.update(workflowDefinitions).set({ ...data, updatedAt: new Date() }).where(eq(workflowDefinitions.id, id)).returning();
+    return wf || undefined;
+  }
+
+  async deleteWorkflowDefinition(id: number): Promise<boolean> {
+    const result = await db.delete(workflowDefinitions).where(eq(workflowDefinitions.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async getWorkflowEndpoints(workflowId: number): Promise<WorkflowEndpoint[]> {
+    return db.select().from(workflowEndpoints).where(eq(workflowEndpoints.workflowId, workflowId));
+  }
+
+  async createWorkflowEndpoint(data: InsertWorkflowEndpoint): Promise<WorkflowEndpoint> {
+    const [ep] = await db.insert(workflowEndpoints).values({ ...data, updatedAt: new Date() }).returning();
+    return ep;
+  }
+
+  async updateWorkflowEndpoint(id: number, data: Partial<InsertWorkflowEndpoint>): Promise<WorkflowEndpoint | undefined> {
+    const [ep] = await db.update(workflowEndpoints).set({ ...data, updatedAt: new Date() }).where(eq(workflowEndpoints.id, id)).returning();
+    return ep || undefined;
+  }
+
+  async deleteWorkflowEndpoint(id: number): Promise<boolean> {
+    const result = await db.delete(workflowEndpoints).where(eq(workflowEndpoints.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async getWorkflowEnvironmentConfigs(workflowId: number): Promise<WorkflowEnvironmentConfig[]> {
+    return db.select().from(workflowEnvironmentConfigs).where(eq(workflowEnvironmentConfigs.workflowId, workflowId));
+  }
+
+  async upsertWorkflowEnvironmentConfig(workflowId: number, environment: string, config: any): Promise<WorkflowEnvironmentConfig> {
+    const existing = await db.select().from(workflowEnvironmentConfigs)
+      .where(and(eq(workflowEnvironmentConfigs.workflowId, workflowId), eq(workflowEnvironmentConfigs.environment, environment)));
+    if (existing.length > 0) {
+      const [updated] = await db.update(workflowEnvironmentConfigs)
+        .set({ config, updatedAt: new Date() })
+        .where(eq(workflowEnvironmentConfigs.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(workflowEnvironmentConfigs).values({ workflowId, environment, config }).returning();
+    return created;
+  }
+
+  async deleteWorkflowEnvironmentConfig(workflowId: number, environment: string): Promise<void> {
+    await db.delete(workflowEnvironmentConfigs).where(
+      and(
+        eq(workflowEnvironmentConfigs.workflowId, workflowId),
+        eq(workflowEnvironmentConfigs.environment, environment)
+      )
+    );
   }
 }
 

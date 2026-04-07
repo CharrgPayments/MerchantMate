@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { CreditCard, BarChart3, Store, Users, Receipt, FileText, LogOut, User, MapPin, Shield, Upload, UserPlus, DollarSign, ChevronLeft, ChevronRight, Monitor, ChevronDown, ChevronUp, Book, TestTube, Mail } from "lucide-react";
+import { CreditCard, BarChart3, Store, Users, Receipt, FileText, LogOut, User, MapPin, Shield, Upload, UserPlus, DollarSign, ChevronLeft, ChevronRight, Monitor, ChevronDown, ChevronUp, Book, TestTube, Mail, Crown, Building2, Zap, ScrollText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { canAccessAnalytics, canAccessMerchants, canAccessAgents, canAccessTransactions } from "@/lib/authUtils";
@@ -14,13 +14,25 @@ const baseNavigation = [
   { name: "Locations", href: "/locations", icon: MapPin, requiresRole: ['merchant'] },
   { name: "Agents", href: "/agents", icon: Users, requiresRole: ['admin', 'corporate', 'super_admin'] },
   { name: "Prospects", href: "/prospects", icon: UserPlus, requiresRole: ['admin', 'corporate', 'super_admin'] },
-  { 
-    name: "Campaigns", 
-    href: "/campaigns", 
-    icon: DollarSign, 
+  {
+    name: "Campaigns",
+    href: "/campaigns",
+    icon: DollarSign,
     requiresRole: ['admin', 'super_admin'],
     subItems: [
       { name: "Equipment", href: "/equipment", icon: Monitor, requiresRole: ['admin', 'super_admin'] }
+    ]
+  },
+  {
+    name: "Acquirers",
+    href: "/acquirers",
+    icon: Building2,
+    requiresRole: ['admin', 'super_admin'],
+    subItems: [
+      { name: "Application Templates", href: "/application-templates", icon: FileText, requiresRole: ['admin', 'super_admin'] },
+      { name: "Disclosure Library", href: "/disclosure-library", icon: ScrollText, requiresRole: ['admin', 'super_admin'] },
+      { name: "MCC Codes", href: "/mcc-codes", icon: CreditCard, requiresRole: ['admin', 'super_admin'] },
+      { name: "MCC Policies", href: "/mcc-policies", icon: Shield, requiresRole: ['admin', 'super_admin'] },
     ]
   },
   { name: "Transactions", href: "/transactions", icon: Receipt, requiresRole: ['merchant', 'agent', 'admin', 'corporate', 'super_admin'] },
@@ -28,7 +40,8 @@ const baseNavigation = [
   { name: "Users", href: "/users", icon: User, requiresRole: ['admin', 'corporate', 'super_admin'] },
   { name: "Reports", href: "/reports", icon: FileText, requiresRole: ['admin', 'corporate', 'super_admin'] },
   { name: "Security", href: "/security", icon: Shield, requiresRole: ['admin', 'super_admin'] },
-  { name: "Email Management", href: "/email-management", icon: Mail, requiresRole: ['admin', 'super_admin'] },
+  { name: "Communications", href: "/communications", icon: Mail, requiresRole: ['admin', 'super_admin'] },
+  { name: "Workflows", href: "/workflows", icon: Zap, requiresRole: ['admin', 'super_admin'] },
   { name: "API Documentation", href: "/api-documentation", icon: Book, requiresRole: ['admin', 'super_admin'] },
   { name: "Testing Utilities", href: "/testing-utilities", icon: TestTube, requiresRole: ['super_admin'] },
 ];
@@ -39,13 +52,10 @@ export function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
 
-  // Fetch PDF forms that should appear in navigation
   const { data: pdfForms = [] } = useQuery({
     queryKey: ['/api/pdf-forms'],
     queryFn: async () => {
-      const response = await fetch('/api/pdf-forms', {
-        credentials: 'include'
-      });
+      const response = await fetch('/api/pdf-forms', { credentials: 'include' });
       if (!response.ok) return [];
       return response.json();
     },
@@ -53,8 +63,8 @@ export function Sidebar() {
   });
 
   const toggleExpanded = (itemName: string) => {
-    setExpandedItems(prev => 
-      prev.includes(itemName) 
+    setExpandedItems(prev =>
+      prev.includes(itemName)
         ? prev.filter(name => name !== itemName)
         : [...prev, itemName]
     );
@@ -62,24 +72,25 @@ export function Sidebar() {
 
   const getFilteredNavigation = () => {
     if (!user) return [];
-    
-    const userRole = (user as any)?.role;
-    
-    // Filter base navigation with sub-items
-    const filteredBase = baseNavigation.filter(item => {
-      return item.requiresRole.includes(userRole);
-    }).map(item => ({
+
+    const userRoles: string[] = (user as any)?.roles || [(user as any)?.role] || [];
+
+    const hasRequiredRole = (requiredRoles: string[]) =>
+      userRoles.some((r: string) => requiredRoles.includes(r));
+
+    const filteredBase = baseNavigation.filter(item =>
+      hasRequiredRole(item.requiresRole)
+    ).map(item => ({
       ...item,
-      subItems: (item as any).subItems?.filter((subItem: any) => 
-        subItem.requiresRole.includes(userRole)
+      subItems: (item as any).subItems?.filter((sub: any) =>
+        hasRequiredRole(sub.requiresRole)
       ) || []
     }));
 
-    // Add dynamic PDF form navigation items - automatically creates dedicated pages
     const dynamicNavItems = pdfForms
-      .filter((form: any) => 
-        form.showInNavigation && 
-        form.allowedRoles.includes(userRole)
+      .filter((form: any) =>
+        form.showInNavigation &&
+        userRoles.some((r: string) => form.allowedRoles.includes(r))
       )
       .map((form: any) => ({
         name: form.navigationTitle || form.name,
@@ -95,7 +106,7 @@ export function Sidebar() {
   return (
     <div className={cn("corecrm-sidebar min-h-screen flex flex-col transition-all duration-300", isCollapsed ? "w-16" : "w-64")}>
       {/* Logo */}
-      <div className={cn("border-b border-gray-200 relative", isCollapsed ? "p-4" : "p-6")}>
+      <div className={cn("border-b border-gray-200 relative flex-shrink-0", isCollapsed ? "p-4" : "p-6")}>
         <div className="flex items-center space-x-3">
           <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
             <CreditCard className="w-6 h-6 text-white" />
@@ -107,8 +118,6 @@ export function Sidebar() {
             </div>
           )}
         </div>
-        
-        {/* Collapse Toggle Button */}
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
           className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-white border border-gray-200 rounded-full flex items-center justify-center hover:bg-gray-50 transition-colors shadow-sm"
@@ -122,21 +131,20 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className={cn("flex-1 space-y-2", isCollapsed ? "p-2" : "p-4")}>
+      <nav className={cn("flex-1 overflow-y-auto space-y-1", isCollapsed ? "p-2" : "p-4")}>
         {getFilteredNavigation().map((item: any) => {
           const isActive = location === item.href;
           const hasSubItems = item.subItems && item.subItems.length > 0;
           const isExpanded = expandedItems.includes(item.name);
           const Icon = item.icon;
-          
+
           return (
             <div key={item.name} className="relative group">
-              {/* Main Navigation Item */}
               <div className="flex items-center">
-                <Link 
-                  href={item.href} 
+                <Link
+                  href={item.href}
                   className={cn(
-                    "corecrm-nav-item flex-1", 
+                    "corecrm-nav-item flex-1",
                     isActive && "active",
                     isCollapsed ? "justify-center px-3 py-3" : "px-4 py-2",
                     hasSubItems && !isCollapsed && "pr-2"
@@ -145,8 +153,7 @@ export function Sidebar() {
                   <Icon className="w-5 h-5" />
                   {!isCollapsed && <span className="font-medium">{item.name}</span>}
                 </Link>
-                
-                {/* Expand/Collapse Button */}
+
                 {hasSubItems && !isCollapsed && (
                   <button
                     onClick={() => toggleExpanded(item.name)}
@@ -160,22 +167,20 @@ export function Sidebar() {
                   </button>
                 )}
               </div>
-              
-              {/* Sub-items */}
+
               {hasSubItems && !isCollapsed && isExpanded && (
                 <div className="ml-4 mt-1 space-y-1 border-l border-gray-200 pl-4">
                   {item.subItems.map((subItem: any) => {
                     const isSubActive = location === subItem.href;
                     const SubIcon = subItem.icon;
-                    
                     return (
                       <Link
                         key={subItem.name}
                         href={subItem.href}
                         className={cn(
                           "flex items-center space-x-3 px-3 py-2 text-sm rounded-lg transition-colors",
-                          isSubActive 
-                            ? "bg-primary text-primary-foreground font-medium" 
+                          isSubActive
+                            ? "bg-primary text-primary-foreground font-medium"
                             : "text-gray-700 hover:bg-gray-100"
                         )}
                       >
@@ -186,8 +191,7 @@ export function Sidebar() {
                   })}
                 </div>
               )}
-              
-              {/* Tooltip for collapsed state */}
+
               {isCollapsed && (
                 <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap">
                   {item.name}
@@ -205,38 +209,39 @@ export function Sidebar() {
 
       {/* User Profile & Logout */}
       {user && (
-        <div className={cn("border-t border-gray-200", isCollapsed ? "p-2" : "p-4")}>
+        <div className={cn("border-t border-gray-200 flex-shrink-0", isCollapsed ? "p-2" : "p-4")}>
           {!isCollapsed && (
             <div className="flex items-center space-x-3 mb-3">
               <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
                 <User className="w-4 h-4 text-gray-600" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">
-                  {(user as any)?.firstName} {(user as any)?.lastName}
-                </p>
+                <div className="flex items-center space-x-2">
+                  <p className="text-sm font-medium text-gray-900 truncate">
+                    {(user as any)?.firstName} {(user as any)?.lastName}
+                  </p>
+                  {(user as any)?.roles?.includes('super_admin') && (
+                    <Crown className="w-4 h-4 text-yellow-500" title="Super Administrator" />
+                  )}
+                </div>
                 <p className="text-xs text-gray-500 capitalize">
-                  {(user as any)?.role?.replace('_', ' ')}
+                  {((user as any)?.roles?.[0] || (user as any)?.role || '')?.replace('_', ' ')}
                 </p>
               </div>
             </div>
           )}
-          
+
           <div className="relative group">
-            <Button 
-              variant="outline" 
-              size="sm" 
+            <Button
+              variant="outline"
+              size="sm"
               onClick={logout}
-              className={cn(
-                "transition-colors",
-                isCollapsed ? "w-10 h-10 p-0" : "w-full"
-              )}
+              className={cn("transition-colors", isCollapsed ? "w-10 h-10 p-0" : "w-full")}
             >
               <LogOut className="w-4 h-4" />
               {!isCollapsed && <span className="ml-2">Sign Out</span>}
             </Button>
-            
-            {/* Tooltip for collapsed logout button */}
+
             {isCollapsed && (
               <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap">
                 Sign Out
