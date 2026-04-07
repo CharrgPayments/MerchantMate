@@ -5,12 +5,11 @@ server/public
 vite.config.ts.*
 *.tar.gz
 
-# Environment files (contain secrets)
+# Environment files (contain secrets — .env.example is intentionally committed)
 .env.local
 .env.production
 .env.development
 .env
-.env.example
 
 # Secret and sensitive files
 *secret*
