@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -294,8 +295,14 @@ export default function Workflows() {
   const [selectedTicket, setSelectedTicket]     = useState<any>(null);
   const [activeTab, setActiveTab]               = useState("stages");
 
+  useEffect(() => {
+    queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows"] });
+  }, []);
+
   const { data: workflows = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/workflows"],
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const { data: stages = [], isLoading: stagesLoading } = useQuery<any[]>({
