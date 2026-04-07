@@ -9,9 +9,7 @@ import connectPg from "connect-pg-simple";
 import { storage } from "./storage";
 import { v4 as uuidv4 } from "uuid";
 
-if (!process.env.REPLIT_DOMAINS && process.env.NODE_ENV !== 'development') {
-  throw new Error("Environment variable REPLIT_DOMAINS not provided");
-} else if (!process.env.REPLIT_DOMAINS) {
+if (!process.env.REPLIT_DOMAINS) {
   console.warn("Warning: REPLIT_DOMAINS not set. Replit OAuth disabled — using local dev auth bypass.");
 }
 
