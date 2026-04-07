@@ -307,8 +307,8 @@ export default function Merchants() {
                                 )}
                               </Button>
                             )}
-                            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                              <span className="text-blue-600 font-medium text-sm">
+                            <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                              <span className="text-green-600 font-medium text-sm">
                                 {merchant.businessName.charAt(0)}
                               </span>
                             </div>

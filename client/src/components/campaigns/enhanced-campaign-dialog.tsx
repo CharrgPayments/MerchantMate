@@ -58,11 +58,27 @@ interface EquipmentItem {
   isActive: boolean;
 }
 
+interface ApplicationTemplate {
+  id: number;
+  templateName: string;
+  version: string;
+  acquirerId: number;
+  isActive: boolean;
+}
+
 interface Campaign {
   id: number;
   name: string;
   description?: string;
-  acquirer: string;
+  acquirerId: number;
+  acquirer: {
+    id: number;
+    name: string;
+    displayName: string;
+    code: string;
+    description?: string;
+    isActive: boolean;
+  };
   pricingType: {
     id: number;
     name: string;
@@ -94,7 +110,7 @@ export function EnhancedCampaignDialog({
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    acquirer: '',
+    acquirerId: null as number | null,
     equipment: '',
     currency: 'USD',
     pricingTypeId: null as number | null,
@@ -102,6 +118,7 @@ export function EnhancedCampaignDialog({
   
   const [feeValues, setFeeValues] = useState<Record<number, string>>({});
   const [selectedEquipment, setSelectedEquipment] = useState<number[]>([]);
+  const [selectedTemplates, setSelectedTemplates] = useState<number[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const defaultsSetRef = useRef(false);
 
@@ -113,6 +130,18 @@ export function EnhancedCampaignDialog({
         credentials: 'include'
       });
       if (!response.ok) throw new Error('Failed to fetch pricing types');
+      return response.json();
+    },
+  });
+
+  // Get acquirers for dropdown
+  const { data: acquirers = [], isLoading: acquirersLoading } = useQuery({
+    queryKey: ['/api/acquirers'],
+    queryFn: async () => {
+      const response = await fetch('/api/acquirers', {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch acquirers');
       return response.json();
     },
   });
@@ -141,6 +170,36 @@ export function EnhancedCampaignDialog({
       if (!response.ok) throw new Error('Failed to fetch equipment items');
       return response.json();
     },
+  });
+
+  // Get application templates for selected acquirer
+  const { data: applicationTemplates = [], isLoading: templatesLoading } = useQuery({
+    queryKey: ['/api/acquirer-application-templates', formData.acquirerId],
+    queryFn: async () => {
+      if (!formData.acquirerId) return [];
+      const response = await fetch('/api/acquirer-application-templates', {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch templates');
+      const allTemplates = await response.json();
+      // Filter by acquirer
+      return allTemplates.filter((t: ApplicationTemplate) => t.acquirerId === formData.acquirerId && t.isActive);
+    },
+    enabled: !!formData.acquirerId,
+  });
+
+  // Fetch existing campaign templates when editing
+  const { data: campaignTemplates = [] } = useQuery<{ id: number; templateId: number }[]>({
+    queryKey: ['/api/campaigns', editCampaignId, 'templates'],
+    queryFn: async () => {
+      if (!editCampaignId) return [];
+      const response = await fetch(`/api/campaigns/${editCampaignId}/templates`, {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch campaign templates');
+      return response.json();
+    },
+    enabled: !!editCampaignId && open,
   });
 
   // Create campaign mutation
@@ -219,13 +278,14 @@ export function EnhancedCampaignDialog({
     setFormData({
       name: '',
       description: '',
-      acquirer: '',
+      acquirerId: null,
       equipment: '',
       currency: 'USD',
       pricingTypeId: null,
     });
     setFeeValues({});
     setSelectedEquipment([]);
+    setSelectedTemplates([]);
     setErrors({});
     defaultsSetRef.current = false;
   };
@@ -236,6 +296,16 @@ export function EnhancedCampaignDialog({
         return [...prev, equipmentId];
       } else {
         return prev.filter(id => id !== equipmentId);
+      }
+    });
+  };
+
+  const handleTemplateChange = (templateId: number, checked: boolean) => {
+    setSelectedTemplates(prev => {
+      if (checked) {
+        return [...prev, templateId];
+      } else {
+        return prev.filter(id => id !== templateId);
       }
     });
   };
@@ -265,7 +335,7 @@ export function EnhancedCampaignDialog({
       newErrors.pricingType = 'Pricing type is required';
     }
     
-    if (!formData.acquirer) {
+    if (!formData.acquirerId) {
       newErrors.acquirer = 'Acquirer is required';
     }
 
@@ -276,11 +346,21 @@ export function EnhancedCampaignDialog({
   const handleSubmit = () => {
     if (!validateForm()) return;
 
+    // Transform feeValues object to array format expected by backend
+    const feeValuesArray = Object.entries(feeValues)
+      .filter(([_, value]) => value && value.trim() !== '') // Only include non-empty values
+      .map(([feeItemId, value]) => ({
+        feeItemId: parseInt(feeItemId),
+        value: value.trim(),
+        valueType: "percentage" // Default to percentage, can be enhanced later
+      }));
+
     const campaignData = {
       ...formData,
       pricingTypeId: formData.pricingTypeId,
-      feeValues,
-      selectedEquipment,
+      feeValues: feeValuesArray,
+      equipmentIds: selectedEquipment, // Backend expects 'equipmentIds', not 'selectedEquipment'
+      templateIds: selectedTemplates, // Backend expects 'templateIds'
     };
 
     if (editCampaignId) {
@@ -296,7 +376,7 @@ export function EnhancedCampaignDialog({
       setFormData({
         name: editCampaignData.name,
         description: editCampaignData.description || '',
-        acquirer: editCampaignData.acquirer,
+        acquirerId: editCampaignData.acquirer?.id || editCampaignData.acquirerId || null,
         equipment: '',
         currency: 'USD',
         pricingTypeId: editCampaignData.pricingType?.id || null,
@@ -310,11 +390,25 @@ export function EnhancedCampaignDialog({
         });
         setFeeValues(feeValueMap);
       }
+      
+      // Set selected equipment if available
+      if (editCampaignData.equipmentAssociations) {
+        const equipmentIds = editCampaignData.equipmentAssociations.map(assoc => assoc.equipmentItem.id);
+        setSelectedEquipment(equipmentIds);
+      }
     } else if (!editCampaignData && open) {
       // Reset form when opening for creation
       resetForm();
     }
   }, [editCampaignData, open]);
+
+  // Separate effect to load campaign templates when editing
+  useEffect(() => {
+    if (editCampaignId && campaignTemplates && open) {
+      const templateIds = campaignTemplates.map(ct => ct.templateId);
+      setSelectedTemplates(templateIds);
+    }
+  }, [campaignTemplates, editCampaignId, open]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -339,37 +433,18 @@ export function EnhancedCampaignDialog({
                 <CardTitle className="text-base">Campaign Information</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="name">Campaign Name *</Label>
-                    <Input
-                      id="name"
-                      placeholder="Enter campaign name"
-                      value={formData.name}
-                      onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                      className={errors.name ? 'border-destructive' : ''}
-                    />
-                    {errors.name && (
-                      <p className="text-sm text-destructive mt-1">{errors.name}</p>
-                    )}
-                  </div>
-                  
-                  <div>
-                    <Label htmlFor="acquirer">Acquirer *</Label>
-                    <Select value={formData.acquirer} onValueChange={(value) => setFormData(prev => ({ ...prev, acquirer: value }))}>
-                      <SelectTrigger className={errors.acquirer ? 'border-destructive' : ''}>
-                        <SelectValue placeholder="Select acquirer" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Esquire">Esquire</SelectItem>
-                        <SelectItem value="Merrick">Merrick</SelectItem>
-                        <SelectItem value="Wells Fargo">Wells Fargo</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {errors.acquirer && (
-                      <p className="text-sm text-destructive mt-1">{errors.acquirer}</p>
-                    )}
-                  </div>
+                <div>
+                  <Label htmlFor="name">Campaign Name *</Label>
+                  <Input
+                    id="name"
+                    placeholder="Enter campaign name"
+                    value={formData.name}
+                    onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                    className={errors.name ? 'border-destructive' : ''}
+                  />
+                  {errors.name && (
+                    <p className="text-sm text-destructive mt-1">{errors.name}</p>
+                  )}
                 </div>
 
                 <div>
@@ -399,6 +474,25 @@ export function EnhancedCampaignDialog({
                   </p>
                 </div>
                 
+                <div>
+                  <Label htmlFor="acquirer">Acquirer *</Label>
+                  <Select value={formData.acquirerId?.toString() || ''} onValueChange={(value) => setFormData(prev => ({ ...prev, acquirerId: parseInt(value) }))}>
+                    <SelectTrigger className={errors.acquirer ? 'border-destructive' : ''}>
+                      <SelectValue placeholder="Select acquirer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {acquirers.map((acquirer) => (
+                        <SelectItem key={acquirer.id} value={acquirer.id.toString()}>
+                          {acquirer.displayName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.acquirer && (
+                    <p className="text-sm text-destructive mt-1">{errors.acquirer}</p>
+                  )}
+                </div>
+
                 <div>
                   <Label htmlFor="pricingType">Pricing Type *</Label>
                   <Select value={formData.pricingTypeId?.toString() || ''} onValueChange={handlePricingTypeChange}>
@@ -474,6 +568,45 @@ export function EnhancedCampaignDialog({
                               </div>
                             ))}
                           </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Application Template Selection */}
+            {formData.acquirerId && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Application Templates</CardTitle>
+                  <CardDescription>
+                    Select application templates for this campaign (e.g., for amendments and different use cases).
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {templatesLoading ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      Loading templates...
+                    </div>
+                  ) : applicationTemplates.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      No templates available for this acquirer. Please create templates first.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {applicationTemplates.map((template: ApplicationTemplate) => (
+                        <div key={template.id} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`template-${template.id}`}
+                            checked={selectedTemplates.includes(template.id)}
+                            onCheckedChange={(checked) => handleTemplateChange(template.id, checked as boolean)}
+                            data-testid={`checkbox-template-${template.id}`}
+                          />
+                          <Label htmlFor={`template-${template.id}`} className="text-sm cursor-pointer">
+                            {template.templateName} <Badge variant="outline" className="ml-1 text-xs">v{template.version}</Badge>
+                          </Label>
                         </div>
                       ))}
                     </div>

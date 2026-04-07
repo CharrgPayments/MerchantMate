@@ -11,7 +11,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { WIDGET_DEFINITIONS } from "./WidgetRegistry";
-import { getAvailableWidgets, canUserAccessWidget } from "@shared/widget-schema";
+import { getAvailableWidgetsForUser, canUserAccessWidget } from "@shared/widget-schema";
 import type { WidgetType, WidgetSize } from "@shared/widget-schema";
 import type { InsertUserDashboardPreference } from "@shared/schema";
 
@@ -31,8 +31,8 @@ export function WidgetCatalog({ onWidgetAdd }: WidgetCatalogProps) {
   const [selectedWidget, setSelectedWidget] = useState<string>("");
   const [selectedSize, setSelectedSize] = useState<WidgetSize>("medium");
 
-  // Get available widgets for user's role
-  const availableWidgets = user ? getAvailableWidgets(user.role) : [];
+  // Get available widgets for user's roles
+  const availableWidgets = user ? getAvailableWidgetsForUser(user.roles) : [];
   
   // Get user's current widgets to show which are already added
   const { data: userWidgets = [] } = useQuery({

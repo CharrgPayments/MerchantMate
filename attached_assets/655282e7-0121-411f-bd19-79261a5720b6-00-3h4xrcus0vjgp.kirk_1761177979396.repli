@@ -1,0 +1,159 @@
+client:495 [vite] connecting...
+client:618 [vite] connected.
+queryClient.ts:32  GET https://655282e7-0121-411f-bd19-79261a5720b6-00-3h4xrcus0vjgp.kirk.replit.dev/api/auth/user 401 (Unauthorized)
+(anonymous) @ queryClient.ts:32
+fetchFn @ @tanstack_react-query.js?v=ee610514:840
+run @ @tanstack_react-query.js?v=ee610514:494
+start @ @tanstack_react-query.js?v=ee610514:536
+fetch @ @tanstack_react-query.js?v=ee610514:926
+executeFetch_fn @ @tanstack_react-query.js?v=ee610514:2211
+onSubscribe @ @tanstack_react-query.js?v=ee610514:1898
+subscribe @ @tanstack_react-query.js?v=ee610514:24
+(anonymous) @ @tanstack_react-query.js?v=ee610514:3022
+subscribeToStore @ chunk-RPCDYKBN.js?v=ee610514:11984
+commitHookEffectListMount @ chunk-RPCDYKBN.js?v=ee610514:16915
+commitPassiveMountOnFiber @ chunk-RPCDYKBN.js?v=ee610514:18156
+commitPassiveMountEffects_complete @ chunk-RPCDYKBN.js?v=ee610514:18129
+commitPassiveMountEffects_begin @ chunk-RPCDYKBN.js?v=ee610514:18119
+commitPassiveMountEffects @ chunk-RPCDYKBN.js?v=ee610514:18109
+flushPassiveEffectsImpl @ chunk-RPCDYKBN.js?v=ee610514:19490
+flushPassiveEffects @ chunk-RPCDYKBN.js?v=ee610514:19447
+performSyncWorkOnRoot @ chunk-RPCDYKBN.js?v=ee610514:18868
+flushSyncCallbacks @ chunk-RPCDYKBN.js?v=ee610514:9119
+commitRootImpl @ chunk-RPCDYKBN.js?v=ee610514:19432
+commitRoot @ chunk-RPCDYKBN.js?v=ee610514:19277
+finishConcurrentRender @ chunk-RPCDYKBN.js?v=ee610514:18805
+performConcurrentWorkOnRoot @ chunk-RPCDYKBN.js?v=ee610514:18718
+workLoop @ chunk-RPCDYKBN.js?v=ee610514:197
+flushWork @ chunk-RPCDYKBN.js?v=ee610514:176
+performWorkUntilDeadline @ chunk-RPCDYKBN.js?v=ee610514:384
+enhanced-pdf-wizard.tsx?t=1761177577314:112 Component mounted, checking for cached data...
+enhanced-pdf-wizard.tsx?t=1761177577314:113 localStorage keys: ['replitDevBannerClosed-655282e7-0121-411f-bd19-79261a5720b6-00-3h4xrcus0vjgp.kirk.replit.dev']
+enhanced-pdf-wizard.tsx?t=1761177577314:114 sessionStorage keys: []
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {}
+enhanced-pdf-wizard.tsx?t=1761177577314:60 No owners array found
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: false, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(0)}
+enhanced-pdf-wizard.tsx?t=1761177577314:466 Loading owners with signatures for prospect 7
+enhanced-pdf-wizard.tsx?t=1761177577314:533 Setting initial prospect data: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com'}
+enhanced-pdf-wizard.tsx?t=1761177577314:539 Loading existing form data: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com'}
+enhanced-pdf-wizard.tsx?t=1761177577314:562 Marking sections as visited based on existing data: []
+enhanced-pdf-wizard.tsx?t=1761177577314:580 Auto-advancing to step: 1 {merchantInfoComplete: undefined, businessTypeComplete: undefined, savedStep: 1}
+enhanced-pdf-wizard.tsx?t=1761177577314:589 Setting starting step: 1
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: false, hasValidationIssues: true, showWarning: false, isActive: false, visitedSections: Array(0)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com'}
+enhanced-pdf-wizard.tsx?t=1761177577314:501 No owners found in database
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: false, hasValidationIssues: true, showWarning: false, isActive: false, visitedSections: Array(0)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2'}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '29'}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '295'}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955'}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955 '}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955 M'}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955 Mi'}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955 Mia'}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955 Mian'}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955 Mia'}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955 Mi'}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955 M'}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955 Ma'}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955 Mai'}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955 Main'}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955 Main '}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955 Main S'}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955 Main St'}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955 Main Ste'}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx?t=1761177577314:525 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955 South Main Street'}assignedAgent: "Rudy Thurston (globalsupport@charrg.com)"companyEmail: "rthurston@paymentworld.com"merchant_businessAddress: "2955 South Main Street"[[Prototype]]: Object
+enhanced-pdf-wizard.tsx?t=1761177577314:445 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx?t=1761177577314:3802 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+client:223 [vite] hot updated: /src/pages/enhanced-pdf-wizard.tsx
+client:223 [vite] hot updated: /src/index.css?v=mJXmJwCCeYeAPwAiOaxC4
+enhanced-pdf-wizard.tsx:558 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx:3039 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx:139 Component mounted, checking for cached data...
+enhanced-pdf-wizard.tsx:140 localStorage keys: ['replitDevBannerClosed-655282e7-0121-411f-bd19-79261a5720b6-00-3h4xrcus0vjgp.kirk.replit.dev']
+enhanced-pdf-wizard.tsx:141 sessionStorage keys: []
+enhanced-pdf-wizard.tsx:584 Loading owners with signatures for prospect 7
+enhanced-pdf-wizard.tsx:656 Form data updated: {assignedAgent: 'Rudy Thurston (globalsupport@charrg.com)', companyEmail: 'rthurston@paymentworld.com', merchant_businessAddress: '2955 South Main Street'}
+enhanced-pdf-wizard.tsx:558 Section 0 (Merchant Information) validation: {hasErrors: true}
+enhanced-pdf-wizard.tsx:3039 Section 0 (Merchant Information) status: {isVisited: true, hasValidationIssues: true, showWarning: false, isActive: true, visitedSections: Array(1)}
+enhanced-pdf-wizard.tsx:74 No owners array found
+enhanced-pdf-wizard.tsx:626 No owners found in database

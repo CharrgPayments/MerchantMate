@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,8 +23,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Plus, Search, Edit, Trash2, Mail, Calendar, User, Send, Download, ChevronDown, ChevronRight, Users } from "lucide-react";
-import { insertMerchantProspectSchema, type MerchantProspectWithAgent, type Agent } from "@shared/schema";
+import { Plus, Search, Edit, Trash2, Mail, Calendar, User, Send, Download, ChevronDown, ChevronRight, Users, FileText, ExternalLink, Play, CheckCircle, XCircle } from "lucide-react";
+import { insertMerchantProspectSchema, type MerchantProspectWithAgent, type Agent, type ProspectApplicationWithDetails, type Acquirer, type AcquirerApplicationTemplate } from "@shared/schema";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -51,17 +52,61 @@ export default function Prospects() {
   const [editingProspect, setEditingProspect] = useState<MerchantProspectWithAgent | undefined>();
   const [resendingEmail, setResendingEmail] = useState<number | null>(null);
   const [expandedAgents, setExpandedAgents] = useState<Set<number>>(new Set());
+  const [selectedProspectForApplications, setSelectedProspectForApplications] = useState<MerchantProspectWithAgent | null>(null);
+  const [isApplicationsDialogOpen, setIsApplicationsDialogOpen] = useState(false);
 
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
+  
+  // Get user roles for permission checking
+  const userRoles = user?.roles || [];
 
   const { data: prospects = [], isLoading } = useQuery({
     queryKey: ["/api/prospects", searchQuery],
     queryFn: async () => {
-      const response = await fetch(`/api/prospects${searchQuery ? `?search=${searchQuery}` : ''}`);
+      const response = await fetch(`/api/prospects${searchQuery ? `?search=${searchQuery}` : ''}`, {
+        credentials: 'include'
+      });
       if (!response.ok) throw new Error('Failed to fetch prospects');
       return response.json() as Promise<MerchantProspectWithAgent[]>;
+    },
+    staleTime: 0,
+    gcTime: 0
+  });
+
+  // Fetch prospect applications for all prospects
+  const { data: prospectApplications = [], isLoading: applicationsLoading } = useQuery({
+    queryKey: ["/api/prospect-applications"],
+    queryFn: async () => {
+      const response = await fetch("/api/prospect-applications");
+      if (!response.ok) throw new Error('Failed to fetch prospect applications');
+      return response.json() as Promise<ProspectApplicationWithDetails[]>;
+    },
+    staleTime: 0,
+    gcTime: 0
+  });
+
+  // Fetch acquirers for application creation
+  const { data: acquirers = [] } = useQuery({
+    queryKey: ["/api/acquirers"],
+    queryFn: async () => {
+      const response = await fetch("/api/acquirers");
+      if (!response.ok) throw new Error('Failed to fetch acquirers');
+      return response.json() as Promise<Acquirer[]>;
+    },
+  });
+
+  // Fetch current database environment for link generation
+  const { data: dbEnvironment } = useQuery({
+    queryKey: ['/api/environment'],
+    queryFn: async () => {
+      const response = await fetch('/api/environment', {
+        credentials: 'include'
+      });
+      if (!response.ok) return { environment: 'production' };
+      return response.json();
     },
   });
 
@@ -110,18 +155,71 @@ export default function Prospects() {
     },
   });
 
-  const handleDownloadPDF = async (prospect: MerchantProspectWithAgent) => {
-    try {
-      const response = await fetch(`/api/prospects/${prospect.id}/download-pdf`);
+  // Helper function to get applications for a specific prospect
+  const getProspectApplications = (prospectId: number) => {
+    return prospectApplications.filter(app => app.prospectId === prospectId);
+  };
+
+  // Create new application mutation
+  const createApplicationMutation = useMutation({
+    mutationFn: async ({ prospectId, acquirerId, templateId }: { prospectId: number; acquirerId: number; templateId: number }) => {
+      const response = await fetch("/api/prospect-applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prospectId,
+          acquirerId,
+          templateId,
+          templateVersion: "1.0",
+          status: "draft",
+          applicationData: {}
+        }),
+      });
+      
       if (!response.ok) {
-        throw new Error('Failed to generate PDF');
+        const error = await response.json().catch(() => ({ error: 'Failed to create application' }));
+        throw new Error(error.error || 'Failed to create application');
+      }
+      
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prospect-applications"] });
+      toast({
+        title: "Success",
+        description: "Application created successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create application",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const handleDownloadPDF = async (application: ProspectApplicationWithDetails) => {
+    try {
+      if (!application.generatedPdfPath) {
+        toast({
+          title: "PDF Not Available",
+          description: "This application has not been submitted yet or PDF generation failed",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      const response = await fetch(`/api/prospect-applications/${application.id}/download-pdf`);
+      if (!response.ok) {
+        throw new Error('Failed to download PDF');
       }
       
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${prospect.firstName}_${prospect.lastName}_Application_${new Date().toLocaleDateString().replace(/\//g, '_')}.pdf`;
+      link.download = `${application.prospect.firstName}_${application.prospect.lastName}_${application.acquirer.name}_Application.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -149,7 +247,7 @@ export default function Prospects() {
 
   // Group prospects by agent for admin users
   const agentProspectSummaries: AgentProspectSummary[] = (() => {
-    if (user?.role !== 'super_admin' && user?.role !== 'admin' && user?.role !== 'corporate') {
+    if (!userRoles.some(role => ['super_admin', 'admin', 'corporate'].includes(role))) {
       return [];
     }
 
@@ -244,8 +342,25 @@ export default function Prospects() {
     return styles[status as keyof typeof styles] || "bg-gray-100 text-gray-800";
   };
 
+  const getApplicationStatusBadge = (status: string) => {
+    const styles = {
+      draft: "bg-gray-100 text-gray-800",
+      in_progress: "bg-blue-100 text-blue-800",
+      submitted: "bg-purple-100 text-purple-800",
+      approved: "bg-green-100 text-green-800",
+      rejected: "bg-red-100 text-red-800",
+    };
+    return styles[status as keyof typeof styles] || "bg-gray-100 text-gray-800";
+  };
+
   const copyProspectLink = (prospect: MerchantProspectWithAgent) => {
-    const link = `${window.location.origin}/prospect-validation?token=${prospect.validationToken}`;
+    let link = `${window.location.origin}/prospect-validation?token=${prospect.validationToken}`;
+    
+    // Add database environment parameter for non-production environments
+    if (dbEnvironment && dbEnvironment.environment !== 'production') {
+      link += `&db=${dbEnvironment.environment}`;
+    }
+    
     navigator.clipboard.writeText(link);
     toast({
       title: "Link Copied",
@@ -297,7 +412,7 @@ export default function Prospects() {
           </div>
 
           {/* Agent-based hierarchical view for admin users */}
-          {(user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'corporate') ? (
+          {userRoles.some(role => ['super_admin', 'admin', 'corporate'].includes(role)) ? (
             <div className="space-y-4">
               {isLoading ? (
                 Array.from({ length: 3 }).map((_, i) => (
@@ -386,8 +501,8 @@ export default function Prospects() {
                                   <TableRow key={prospect.id}>
                                     <TableCell>
                                       <div className="flex items-center space-x-3">
-                                        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                                          <User className="w-4 h-4 text-blue-600" />
+                                        <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
+                                          <User className="w-4 h-4 text-yellow-600" />
                                         </div>
                                         <div className="font-medium text-gray-900">
                                           {prospect.firstName} {prospect.lastName}
@@ -418,22 +533,25 @@ export default function Prospects() {
                                     </TableCell>
                                     <TableCell>
                                       <div className="flex items-center space-x-2">
-                                        {(prospect.status === 'submitted' || prospect.status === 'applied') && (
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => handleDownloadPDF(prospect)}
-                                            title="Download application PDF"
-                                          >
-                                            <Download className="w-4 h-4" />
-                                          </Button>
-                                        )}
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => {
+                                            setSelectedProspectForApplications(prospect);
+                                            setIsApplicationsDialogOpen(true);
+                                          }}
+                                          title="View applications"
+                                          data-testid={`button-view-applications-${prospect.id}`}
+                                        >
+                                          <FileText className="w-4 h-4" />
+                                        </Button>
                                         <Button
                                           variant="ghost"
                                           size="sm"
                                           onClick={() => handleResendInvitation(prospect)}
                                           disabled={resendingEmail === prospect.id || resendInvitationMutation.isPending}
                                           title="Resend invitation email"
+                                          data-testid={`button-resend-invitation-${prospect.id}`}
                                         >
                                           <Send className="w-4 h-4" />
                                         </Button>
@@ -442,6 +560,7 @@ export default function Prospects() {
                                           size="sm"
                                           onClick={() => copyProspectLink(prospect)}
                                           title="Copy validation link"
+                                          data-testid={`button-copy-link-${prospect.id}`}
                                         >
                                           <Mail className="w-4 h-4" />
                                         </Button>
@@ -451,6 +570,7 @@ export default function Prospects() {
                                           onClick={() => handleEdit(prospect)}
                                           disabled={prospect.status !== 'pending'}
                                           title={prospect.status !== 'pending' ? 'Can only edit prospects with pending status' : 'Edit prospect'}
+                                          data-testid={`button-edit-prospect-${prospect.id}`}
                                         >
                                           <Edit className="w-4 h-4" />
                                         </Button>
@@ -461,6 +581,7 @@ export default function Prospects() {
                                             onClick={() => handleDelete(prospect)}
                                             disabled={deleteMutation.isPending}
                                             title="Delete prospect"
+                                            data-testid={`button-delete-prospect-${prospect.id}`}
                                           >
                                             <Trash2 className="w-4 h-4" />
                                           </Button>
@@ -523,8 +644,8 @@ export default function Prospects() {
                       <TableRow key={prospect.id}>
                         <TableCell>
                           <div className="flex items-center space-x-3">
-                            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                              <User className="w-4 h-4 text-blue-600" />
+                            <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
+                              <User className="w-4 h-4 text-yellow-600" />
                             </div>
                             <div className="font-medium text-gray-900">
                               {prospect.firstName} {prospect.lastName}
@@ -558,22 +679,25 @@ export default function Prospects() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-2">
-                            {(prospect.status === 'submitted' || prospect.status === 'applied') && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleDownloadPDF(prospect)}
-                                title="Download application PDF"
-                              >
-                                <Download className="w-4 h-4" />
-                              </Button>
-                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedProspectForApplications(prospect);
+                                setIsApplicationsDialogOpen(true);
+                              }}
+                              title="View applications"
+                              data-testid={`button-view-applications-${prospect.id}`}
+                            >
+                              <FileText className="w-4 h-4" />
+                            </Button>
                             <Button
                               variant="ghost"
                               size="sm"
                               onClick={() => handleResendInvitation(prospect)}
                               disabled={resendingEmail === prospect.id || resendInvitationMutation.isPending}
                               title="Resend invitation email"
+                              data-testid={`button-resend-invitation-${prospect.id}`}
                             >
                               <Send className="w-4 h-4" />
                             </Button>
@@ -582,6 +706,7 @@ export default function Prospects() {
                               size="sm"
                               onClick={() => copyProspectLink(prospect)}
                               title="Copy validation link"
+                              data-testid={`button-copy-link-${prospect.id}`}
                             >
                               <Mail className="w-4 h-4" />
                             </Button>
@@ -591,6 +716,7 @@ export default function Prospects() {
                               onClick={() => handleEdit(prospect)}
                               disabled={prospect.status !== 'pending'}
                               title={prospect.status !== 'pending' ? 'Can only edit prospects with pending status' : 'Edit prospect'}
+                              data-testid={`button-edit-prospect-${prospect.id}`}
                             >
                               <Edit className="w-4 h-4" />
                             </Button>
@@ -601,6 +727,7 @@ export default function Prospects() {
                                 onClick={() => handleDelete(prospect)}
                                 disabled={deleteMutation.isPending}
                                 title="Delete prospect"
+                                data-testid={`button-delete-prospect-${prospect.id}`}
                               >
                                 <Trash2 className="w-4 h-4" />
                               </Button>
@@ -621,6 +748,19 @@ export default function Prospects() {
         isOpen={isModalOpen}
         onClose={handleCloseModal}
         prospect={editingProspect}
+      />
+
+      <ApplicationsManagementDialog
+        isOpen={isApplicationsDialogOpen}
+        onClose={() => {
+          setIsApplicationsDialogOpen(false);
+          setSelectedProspectForApplications(null);
+        }}
+        prospect={selectedProspectForApplications}
+        applications={selectedProspectForApplications ? getProspectApplications(selectedProspectForApplications.id) : []}
+        acquirers={acquirers}
+        onCreateApplication={createApplicationMutation.mutate}
+        isCreatingApplication={createApplicationMutation.isPending}
       />
     </div>
   );
@@ -647,7 +787,8 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
   const { user } = useAuth();
 
   // Agent role detection and display logic
-  const isAgent = user?.role === 'agent';
+  const userRoles = user?.roles || [];
+  const isAgent = userRoles.includes('agent');
   const agentDefaultId = isAgent ? 2 : 1; // Use agent ID 2 for Mike Chen
   const agentDisplayValue = isAgent && user ? `${user.firstName} ${user.lastName} (${user.email})` : '';
 
@@ -676,7 +817,7 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
         agentId: prospect.agentId,
         status: prospect.status,
         notes: prospect.notes || "",
-        campaignId: 0, // Default to 0 when editing existing prospects
+        campaignId: (prospect as any).campaignId || 0,
       });
     } else {
       form.reset({
@@ -718,6 +859,7 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
       const response = await fetch("/api/prospects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: 'include',
         body: JSON.stringify(data),
       });
       
@@ -910,11 +1052,16 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {campaigns.map((campaign: any) => (
-                        <SelectItem key={campaign.id} value={campaign.id.toString()}>
-                          {campaign.name} - {campaign.acquirer}
-                        </SelectItem>
-                      ))}
+                      {campaigns
+                        .filter((campaign: any) => campaign.isActive)
+                        .map((campaign: any) => {
+                          const templateNames = campaign.templates?.map((t: any) => t.template.templateName).join(', ') || 'No template';
+                          return (
+                            <SelectItem key={campaign.id} value={campaign.id.toString()}>
+                              {campaign.name} {templateNames !== 'No template' && `(${templateNames})`}
+                            </SelectItem>
+                          );
+                        })}
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -922,31 +1069,6 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="status"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Status</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select status" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="pending">Pending</SelectItem>
-                      <SelectItem value="contacted">Contacted</SelectItem>
-                      <SelectItem value="in_progress">In Progress</SelectItem>
-                      <SelectItem value="applied">Applied</SelectItem>
-                      <SelectItem value="approved">Approved</SelectItem>
-                      <SelectItem value="rejected">Rejected</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
 
             <FormField
               control={form.control}
@@ -979,6 +1101,492 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
             </DialogFooter>
           </form>
         </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Applications Management Dialog Component
+interface ApplicationsManagementDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+  prospect: MerchantProspectWithAgent | null;
+  applications: ProspectApplicationWithDetails[];
+  acquirers: Acquirer[];
+  onCreateApplication: (params: { prospectId: number; acquirerId: number; templateId: number }) => void;
+  isCreatingApplication: boolean;
+}
+
+function ApplicationsManagementDialog({ 
+  isOpen, 
+  onClose, 
+  prospect, 
+  applications, 
+  acquirers,
+  onCreateApplication,
+  isCreatingApplication
+}: ApplicationsManagementDialogProps) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [selectedAcquirer, setSelectedAcquirer] = useState<number | null>(null);
+
+  // Application status badge helper function
+  const getApplicationStatusBadge = (status: string) => {
+    const styles = {
+      draft: "bg-gray-100 text-gray-800",
+      in_progress: "bg-blue-100 text-blue-800",
+      submitted: "bg-purple-100 text-purple-800",
+      approved: "bg-green-100 text-green-800",
+      rejected: "bg-red-100 text-red-800",
+    };
+    return styles[status as keyof typeof styles] || "bg-gray-100 text-gray-800";
+  };
+
+  // Workflow action mutations
+  const startApplicationMutation = useMutation({
+    mutationFn: async (applicationId: number) => {
+      const response = await fetch(`/api/prospect-applications/${applicationId}/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to start application');
+      }
+      return response.json();
+    },
+    onSuccess: (updatedApplication) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prospect-applications"] });
+      
+      // Find the prospect ID from the application to navigate to the form
+      const application = prospectApplications.find(app => app.id === updatedApplication.id);
+      if (application) {
+        setLocation(`/enhanced-pdf-wizard/${application.prospectId}`);
+      }
+      
+      toast({
+        title: "Success",
+        description: "Application started successfully - redirecting to form",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to start application",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const submitApplicationMutation = useMutation({
+    mutationFn: async (applicationId: number) => {
+      const response = await fetch(`/api/prospect-applications/${applicationId}/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to submit application');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prospect-applications"] });
+      toast({
+        title: "Success",
+        description: "Application submitted successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to submit application",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const approveApplicationMutation = useMutation({
+    mutationFn: async (applicationId: number) => {
+      const response = await fetch(`/api/prospect-applications/${applicationId}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to approve application');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prospect-applications"] });
+      toast({
+        title: "Success",
+        description: "Application approved successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to approve application",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const rejectApplicationMutation = useMutation({
+    mutationFn: async ({ applicationId, rejectionReason }: { applicationId: number; rejectionReason?: string }) => {
+      const response = await fetch(`/api/prospect-applications/${applicationId}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rejectionReason })
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to reject application');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prospect-applications"] });
+      toast({
+        title: "Success",
+        description: "Application rejected successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to reject application",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const generatePdfMutation = useMutation({
+    mutationFn: async (applicationId: number) => {
+      const response = await fetch(`/api/prospect-applications/${applicationId}/generate-pdf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to generate PDF');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prospect-applications"] });
+      toast({
+        title: "Success",
+        description: "PDF generated successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to generate PDF",
+        variant: "destructive",
+      });
+    }
+  });
+
+  // Get workflow actions for current application status
+  const getWorkflowActions = (application: ProspectApplicationWithDetails) => {
+    const actions = [];
+    
+    switch (application.status) {
+      case 'draft':
+        actions.push({
+          label: 'Start Application',
+          action: () => startApplicationMutation.mutate(application.id),
+          variant: 'outline' as const,
+          icon: 'Play',
+          testId: `button-start-application-${application.id}`
+        });
+        break;
+      
+      case 'in_progress':
+        actions.push({
+          label: 'Submit Application',
+          action: () => submitApplicationMutation.mutate(application.id),
+          variant: 'outline' as const,
+          icon: 'Send',
+          testId: `button-submit-application-${application.id}`
+        });
+        break;
+      
+      case 'submitted':
+        actions.push({
+          label: 'Approve',
+          action: () => approveApplicationMutation.mutate(application.id),
+          variant: 'outline' as const,
+          icon: 'CheckCircle',
+          testId: `button-approve-application-${application.id}`
+        });
+        actions.push({
+          label: 'Reject',
+          action: () => {
+            const reason = prompt('Rejection reason (optional):');
+            rejectApplicationMutation.mutate({ applicationId: application.id, rejectionReason: reason || undefined });
+          },
+          variant: 'outline' as const,
+          icon: 'XCircle',
+          testId: `button-reject-application-${application.id}`
+        });
+        break;
+      
+      case 'approved':
+      case 'rejected':
+        // No actions available for final states
+        break;
+    }
+    
+    return actions;
+  };
+
+  // Download PDF handler for applications
+  const handleDownloadPDF = async (application: ProspectApplicationWithDetails) => {
+    try {
+      if (!application.generatedPdfPath) {
+        toast({
+          title: "PDF Not Available",
+          description: "This application has not been submitted yet or PDF generation failed",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      const response = await fetch(`/api/prospect-applications/${application.id}/download-pdf`);
+      if (!response.ok) {
+        throw new Error('Failed to download PDF');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${application.prospect.firstName}_${application.prospect.lastName}_${application.acquirer.name}_Application.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      toast({
+        title: "Success",
+        description: "Application PDF downloaded successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to download PDF",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Fetch application templates for the selected acquirer
+  const { data: templates = [] } = useQuery({
+    queryKey: ["/api/acquirer-application-templates", selectedAcquirer],
+    queryFn: async () => {
+      if (!selectedAcquirer) return [];
+      const response = await fetch(`/api/acquirer-application-templates?acquirerId=${selectedAcquirer}`);
+      if (!response.ok) throw new Error('Failed to fetch templates');
+      return response.json() as Promise<AcquirerApplicationTemplate[]>;
+    },
+    enabled: !!selectedAcquirer,
+  });
+
+  const handleCreateApplication = async (templateId: number) => {
+    if (!prospect || !selectedAcquirer) return;
+    
+    // Check if application already exists for this acquirer
+    const existingApp = applications.find(app => app.acquirerId === selectedAcquirer);
+    if (existingApp) {
+      toast({
+        title: "Application Exists",
+        description: `An application for ${existingApp.acquirer.name} already exists`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    onCreateApplication({
+      prospectId: prospect.id,
+      acquirerId: selectedAcquirer,
+      templateId
+    });
+  };
+
+  if (!prospect) return null;
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Applications for {prospect.firstName} {prospect.lastName}</DialogTitle>
+          <DialogDescription>
+            Manage acquirer applications for this prospect
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-6">
+          {/* Existing Applications */}
+          <div>
+            <h3 className="text-lg font-medium mb-3">Current Applications</h3>
+            {applications.length === 0 ? (
+              <p className="text-gray-500 py-4">No applications created yet</p>
+            ) : (
+              <div className="space-y-3">
+                {applications.map((application) => (
+                  <Card key={application.id} className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                          <FileText className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <div>
+                          <h4 className="font-medium">{application.acquirer.name}</h4>
+                          <p className="text-sm text-gray-500">{application.template.templateName}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-3">
+                        <Badge className={`text-xs ${getApplicationStatusBadge(application.status)}`}>
+                          {application.status.charAt(0).toUpperCase() + application.status.slice(1)}
+                        </Badge>
+                        <div className="flex items-center space-x-1">
+                          {/* Workflow Action Buttons */}
+                          {getWorkflowActions(application).map((action, index) => {
+                            const IconComponent = action.icon === 'Play' ? Play : 
+                                               action.icon === 'Send' ? Send :
+                                               action.icon === 'CheckCircle' ? CheckCircle :
+                                               action.icon === 'XCircle' ? XCircle : Edit;
+                            
+                            return (
+                              <Button
+                                key={index}
+                                variant={action.variant}
+                                size="sm"
+                                onClick={action.action}
+                                title={action.label}
+                                data-testid={action.testId}
+                                disabled={startApplicationMutation.isPending || 
+                                         submitApplicationMutation.isPending || 
+                                         approveApplicationMutation.isPending || 
+                                         rejectApplicationMutation.isPending ||
+                                         generatePdfMutation.isPending}
+                              >
+                                <IconComponent className="w-4 h-4" />
+                              </Button>
+                            );
+                          })}
+                          
+                          {/* PDF Generation Button - Show for applications without PDF */}
+                          {!application.generatedPdfPath && application.status !== 'draft' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => generatePdfMutation.mutate(application.id)}
+                              title="Generate PDF"
+                              data-testid={`button-generate-pdf-${application.id}`}
+                              disabled={generatePdfMutation.isPending}
+                            >
+                              <FileText className="w-4 h-4" />
+                            </Button>
+                          )}
+                          
+                          {/* PDF Download Button - Show for applications with PDF */}
+                          {application.generatedPdfPath && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDownloadPDF(application)}
+                              title="Download PDF"
+                              data-testid={`button-download-pdf-${application.id}`}
+                            >
+                              <Download className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Create New Application */}
+          <div>
+            <h3 className="text-lg font-medium mb-3">Create New Application</h3>
+            <Card className="p-4">
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Select Acquirer</label>
+                  <Select 
+                    value={selectedAcquirer?.toString() || ""} 
+                    onValueChange={(value) => setSelectedAcquirer(parseInt(value))}
+                  >
+                    <SelectTrigger className="mt-1" data-testid="select-acquirer">
+                      <SelectValue placeholder="Choose an acquirer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {acquirers.map((acquirer) => {
+                        const hasApplication = applications.some(app => app.acquirerId === acquirer.id);
+                        return (
+                          <SelectItem 
+                            key={acquirer.id} 
+                            value={acquirer.id.toString()}
+                            disabled={hasApplication}
+                          >
+                            {acquirer.displayName || acquirer.name} {hasApplication && "(Already has application)"}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {selectedAcquirer && templates.length > 0 && (
+                  <div>
+                    <label className="text-sm font-medium">Select Template</label>
+                    <div className="mt-2 space-y-2">
+                      {templates.map((template) => (
+                        <Card key={template.id} className="p-3 cursor-pointer hover:bg-gray-50">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <h4 className="font-medium">{template.templateName}</h4>
+                              <p className="text-sm text-gray-500">Version {template.version}</p>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleCreateApplication(template.id)}
+                              disabled={isCreatingApplication}
+                              data-testid={`button-create-application-${template.id}`}
+                            >
+                              {isCreatingApplication ? "Creating..." : "Create Application"}
+                            </Button>
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedAcquirer && templates.length === 0 && (
+                  <p className="text-gray-500 py-2">No templates available for this acquirer</p>
+                )}
+              </div>
+            </Card>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

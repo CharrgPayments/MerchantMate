@@ -4,18 +4,31 @@
  * Migration Manager - Bulletproof Database Schema Management
  * 
  * This system ensures proper development → test → production workflow:
- * 1. Changes are made in development
- * 2. Migrations are generated and tested
- * 3. Changes are pushed to test for validation
- * 4. After certification, changes are promoted to production
+ * 1. Make schema changes in shared/schema.ts
+ * 2. Generate migration from development schema
+ * 3. Apply to test for validation
+ * 4. After certification, promote to production
  * 
- * Usage:
+ * QUICK START - Development Workflow:
+ *   1. Edit shared/schema.ts with your changes
+ *   2. tsx scripts/migration-manager.ts generate        # Generate migration SQL
+ *   3. tsx scripts/migration-manager.ts apply test      # Test in Test environment
+ *   4. tsx scripts/migration-manager.ts validate        # Verify consistency
+ *   5. tsx scripts/migration-manager.ts apply prod      # Deploy to Production
+ * 
+ * AUTOMATED SYNC - For Admin Users:
+ *   tsx scripts/sync-environments.ts dev-to-test       # Promote Dev → Test
+ *   tsx scripts/sync-environments.ts test-to-prod      # Promote Test → Production
+ *   Note: sync-environments.ts uses this script under the hood
+ * 
+ * All Commands:
  *   tsx scripts/migration-manager.ts generate    # Generate migration from development schema
- *   tsx scripts/migration-manager.ts apply dev  # Apply migrations to development
- *   tsx scripts/migration-manager.ts apply test # Apply migrations to test
- *   tsx scripts/migration-manager.ts apply prod # Apply migrations to production
- *   tsx scripts/migration-manager.ts status     # Show migration status across environments
- *   tsx scripts/migration-manager.ts validate   # Validate schema consistency
+ *   tsx scripts/migration-manager.ts apply dev   # Apply migrations to development
+ *   tsx scripts/migration-manager.ts apply test  # Apply migrations to test
+ *   tsx scripts/migration-manager.ts apply prod  # Apply migrations to production
+ *   tsx scripts/migration-manager.ts status      # Show migration status across environments
+ *   tsx scripts/migration-manager.ts validate    # Validate schema consistency
+ *   tsx scripts/migration-manager.ts backup prod # Create schema backup (automatic before apply)
  */
 
 import { exec } from 'child_process';
@@ -161,21 +174,37 @@ class MigrationManager {
     
     try {
       // Use Drizzle generate to create proper migration files
+      // We need to handle potential interactive prompts by providing input
       const command = `DATABASE_URL="${devUrl}" npx drizzle-kit generate --name=${migrationName}`;
-      const { stdout, stderr } = await execAsync(command);
       
-      if (stderr && !stderr.includes('Warning')) {
-        throw new Error(stderr);
-      }
+      console.log('🔄 Running drizzle-kit generate...');
+      console.log('ℹ️ If prompted about column changes, please respond appropriately');
+      console.log('💡 Tip: Use "create column" for new columns, "rename column" for renamed ones');
       
-      console.log('✅ Migration generated successfully');
-      console.log(`📄 Migration ID: ${migrationId}`);
-      console.log(`📁 Check migrations directory for generated files`);
+      // Use spawn instead of exec to handle interactive prompts
+      const { spawn } = await import('child_process');
       
-      if (stdout.includes('No schema changes')) {
-        console.log('ℹ️ No schema changes detected');
-        return;
-      }
+      return new Promise((resolve, reject) => {
+        const child = spawn('npx', ['drizzle-kit', 'generate', `--name=${migrationName}`], {
+          env: { ...process.env, DATABASE_URL: devUrl },
+          stdio: 'inherit' // This allows interactive input/output
+        });
+        
+        child.on('close', (code) => {
+          if (code === 0) {
+            console.log('✅ Migration generated successfully');
+            console.log(`📄 Migration ID: ${migrationId}`);
+            console.log(`📁 Check migrations directory for generated files`);
+            resolve();
+          } else {
+            reject(new Error(`drizzle-kit generate exited with code ${code}`));
+          }
+        });
+        
+        child.on('error', (error) => {
+          reject(error);
+        });
+      });
       
     } catch (error: any) {
       console.error('❌ Failed to generate migration:', error.message);

@@ -1,0 +1,85 @@
+11:20:40 PM [express] GET /api/agents 500 in 241ms :: {"message":"Failed to fetch agents"}
+Session database: using dev database from session
+Storage.getUser - Looking for user with ID: admin-prod-001
+Storage.getUser - Found: admin (admin-prod-001)
+Agents endpoint - Database environment: dev
+Error fetching agents: error: column "user_id" does not exist
+    at file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:1345:74
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async NeonPreparedQuery.execute (/home/runner/workspace/node_modules/src/neon-serverless/session.ts:102:18)
+    at async <anonymous> (/home/runner/workspace/server/routes.ts:2869:27) {
+  length: 107,
+  severity: 'ERROR',
+  code: '42703',
+  detail: undefined,
+  hint: undefined,
+  position: '14',
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'parse_relation.c',
+  line: '3716',
+  routine: 'errorMissingColumn'
+}
+11:20:43 PM [express] GET /api/agents 500 in 439ms :: {"message":"Failed to fetch agents"}
+Session database: using dev database from session
+Storage.getUser - Looking for user with ID: admin-prod-001
+Storage.getUser - Found: admin (admin-prod-001)
+Agents endpoint - Database environment: dev
+Error fetching agents: error: column "user_id" does not exist
+    at file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:1345:74
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async NeonPreparedQuery.execute (/home/runner/workspace/node_modules/src/neon-serverless/session.ts:102:18)
+    at async <anonymous> (/home/runner/workspace/server/routes.ts:2869:27) {
+  length: 107,
+  severity: 'ERROR',
+  code: '42703',
+  detail: undefined,
+  hint: undefined,
+  position: '14',
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'parse_relation.c',
+  line: '3716',
+  routine: 'errorMissingColumn'
+}
+11:20:47 PM [express] GET /api/agents 500 in 436ms :: {"message":"Failed to fetch agents"}
+Session database: using dev database from session
+Storage.getUser - Looking for user with ID: admin-prod-001
+Storage.getUser - Found: admin (admin-prod-001)
+Creating agent - Database environment: dev
+Error creating agent: error: column "user_id" of relation "agents" does not exist
+    at file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:1345:74
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async NeonPreparedQuery.execute (/home/runner/workspace/node_modules/src/neon-serverless/session.ts:102:18)
+    at async <anonymous> (/home/runner/workspace/server/routes.ts:2915:23) {
+  length: 126,
+  severity: 'ERROR',
+  code: '42703',
+  detail: undefined,
+  hint: undefined,
+  position: '29',
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'parse_target.c',
+  line: '1065',
+  routine: 'checkInsertTargets'
+}
+11:20:51 PM [express] POST /api/agents 500 in 639ms :: {"message":"Failed to create agent"}

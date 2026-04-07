@@ -16,6 +16,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 import { z } from "zod";
 import { getUserTimezone } from "@/lib/timezone";
+import { validatePasswordStrength } from "@shared/schema";
 
 // Form schemas
 const loginSchema = z.object({
@@ -33,8 +34,14 @@ const forgotPasswordSchema = z.object({
 
 const resetPasswordSchema = z.object({
   token: z.string().min(1, "Reset token required"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  password: z.string().min(12, "Password must be at least 12 characters"),
   confirmPassword: z.string(),
+}).refine((data) => {
+  const validation = validatePasswordStrength(data.password);
+  return validation.valid;
+}, {
+  message: "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character",
+  path: ["password"],
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
@@ -53,14 +60,12 @@ export default function Auth() {
   const [, setLocation] = useLocation();
   const { refetch } = useAuth();
 
-  // Check if we're in development environment
-  const isNonProduction = import.meta.env.DEV || 
-    window.location.hostname === 'localhost' ||
-    window.location.hostname.includes('.dev') ||
-    window.location.hostname.includes('test') ||
-    window.location.port !== '';
+  // Check if we're in development environment (show environment selector)
+  // Hide selector on production domain (crm.charrg.com), show on .replit.app and development
+  const isProduction = window.location.hostname === 'crm.charrg.com';
+  const isNonProduction = !isProduction;
 
-  const [selectedDatabase, setSelectedDatabase] = useState("dev");
+  const [selectedDatabase, setSelectedDatabase] = useState(isProduction ? "production" : "development");
 
 
 
@@ -71,7 +76,7 @@ export default function Auth() {
       usernameOrEmail: "",
       password: "",
       twoFactorCode: "",
-      database: "dev",
+      database: isProduction ? "production" : "development",
     },
   });
 
@@ -104,11 +109,8 @@ export default function Auth() {
         timezone: getUserTimezone()
       };
       
-      // Build URL with database parameter in non-production environments
+      // Global environment system handles database selection automatically
       let url = "/api/auth/login";
-      if (isNonProduction && data.database) {
-        url += `?db=${data.database}`;
-      }
       
       const response = await fetch(url, {
         method: "POST",
@@ -226,6 +228,7 @@ export default function Auth() {
   useState(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get("token");
+    
     if (token) {
       setResetToken(token);
       setActiveTab("reset");

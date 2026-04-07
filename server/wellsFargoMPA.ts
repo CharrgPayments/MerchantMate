@@ -3,7 +3,7 @@
 
 export interface EnhancedFormField {
   fieldName: string;
-  fieldType: 'text' | 'number' | 'date' | 'select' | 'checkbox' | 'textarea' | 'phone' | 'email' | 'url';
+  fieldType: 'text' | 'number' | 'date' | 'select' | 'checkbox' | 'textarea' | 'phone' | 'email' | 'url' | 'mcc-select' | 'zipcode';
   fieldLabel: string;
   isRequired: boolean;
   options?: string[];
@@ -262,11 +262,22 @@ export function getWellsFargoMPAForm(): EnhancedFormSection[] {
           ]
         },
         {
+          fieldName: 'businessDescription',
+          fieldType: 'text',
+          fieldLabel: 'Business Description / Industry',
+          isRequired: true,
+          position: 23,
+          section: 'Business Type & Tax Information',
+          validation: JSON.stringify({ minLength: 3, maxLength: 200 }),
+          placeholder: 'Describe your business (e.g., restaurant, retail store, gas station)',
+          helpText: 'Brief description of your business activity for merchant category code classification'
+        },
+        {
           fieldName: 'stateFiled',
           fieldType: 'select',
           fieldLabel: 'State Filed',
           isRequired: true,
-          position: 23,
+          position: 24,
           section: 'Business Type & Tax Information',
           options: ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'],
           helpText: 'State where business is incorporated/registered'
@@ -276,7 +287,7 @@ export function getWellsFargoMPAForm(): EnhancedFormSection[] {
           fieldType: 'date',
           fieldLabel: 'Business Start Date',
           isRequired: true,
-          position: 24,
+          position: 25,
           section: 'Business Type & Tax Information',
           validation: JSON.stringify({ max: new Date().toISOString().split('T')[0] })
         },
@@ -285,7 +296,7 @@ export function getWellsFargoMPAForm(): EnhancedFormSection[] {
           fieldType: 'select',
           fieldLabel: 'Has this business or any associated principal been terminated as a Visa/MasterCard/Amex/Discover network merchant?',
           isRequired: true,
-          position: 25,
+          position: 26,
           section: 'Business Type & Tax Information',
           options: ['No', 'Yes']
         },
@@ -294,7 +305,7 @@ export function getWellsFargoMPAForm(): EnhancedFormSection[] {
           fieldType: 'select',
           fieldLabel: 'Has merchant or any associated principal filed bankruptcy or been subject to involuntary bankruptcy?',
           isRequired: true,
-          position: 26,
+          position: 27,
           section: 'Business Type & Tax Information',
           options: ['No', 'Yes']
         },
@@ -303,7 +314,7 @@ export function getWellsFargoMPAForm(): EnhancedFormSection[] {
           fieldType: 'date',
           fieldLabel: 'Bankruptcy Date (if applicable)',
           isRequired: false,
-          position: 27,
+          position: 28,
           section: 'Business Type & Tax Information'
         },
         {
@@ -311,7 +322,7 @@ export function getWellsFargoMPAForm(): EnhancedFormSection[] {
           fieldType: 'select',
           fieldLabel: 'Do you currently accept Visa/MC/Amex/Discover Network?',
           isRequired: true,
-          position: 28,
+          position: 29,
           section: 'Business Type & Tax Information',
           options: ['No', 'Yes'],
           helpText: 'If Yes, you must submit 3 most current monthly statements'
@@ -321,7 +332,7 @@ export function getWellsFargoMPAForm(): EnhancedFormSection[] {
           fieldType: 'text',
           fieldLabel: 'Previous Card Processor',
           isRequired: false,
-          position: 29,
+          position: 30,
           section: 'Business Type & Tax Information',
           placeholder: 'Name of current/previous processor'
         },
@@ -330,7 +341,7 @@ export function getWellsFargoMPAForm(): EnhancedFormSection[] {
           fieldType: 'select',
           fieldLabel: 'Reason to Change',
           isRequired: false,
-          position: 30,
+          position: 31,
           section: 'Business Type & Tax Information',
           options: ['', 'Rates', 'Service', 'Other']
         },
@@ -339,7 +350,7 @@ export function getWellsFargoMPAForm(): EnhancedFormSection[] {
           fieldType: 'date',
           fieldLabel: 'Termination Date (if applicable)',
           isRequired: false,
-          position: 31,
+          position: 32,
           section: 'Business Type & Tax Information'
         }
       ]
