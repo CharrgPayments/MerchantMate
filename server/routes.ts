@@ -6717,17 +6717,122 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dynamicDB = getRequestDB(req);
       const id = parseInt(req.params.id);
       const result = await dynamicDB.execute(sqlTag`
-        SELECT id, workflow_definition_id, code, name, description, order_index,
-               stage_type, handler_key, is_required, requires_review, auto_advance,
-               issue_blocks_severity, timeout_minutes, is_active, created_at
-        FROM workflow_stages
-        WHERE workflow_definition_id = ${id}
-        ORDER BY order_index
+        SELECT ws.id, ws.workflow_definition_id, ws.code, ws.name, ws.description, ws.order_index,
+               ws.stage_type, ws.handler_key, ws.is_required, ws.requires_review, ws.auto_advance,
+               ws.issue_blocks_severity, ws.timeout_minutes, ws.is_active, ws.created_at,
+               sac.id AS api_config_id, sac.endpoint_url, sac.http_method,
+               sac.auth_type, sac.request_mapping, sac.response_mapping,
+               sac.timeout_seconds, sac.max_retries, sac.retry_delay_seconds,
+               sac.test_mode, sac.is_active AS api_config_active
+        FROM workflow_stages ws
+        LEFT JOIN stage_api_configs sac ON sac.stage_id = ws.id AND sac.is_active = true
+        WHERE ws.workflow_definition_id = ${id}
+        ORDER BY ws.order_index
       `);
       res.json(result.rows ?? result);
     } catch (error) {
       console.error("Error fetching workflow stages:", error);
       res.status(500).json({ message: "Failed to fetch workflow stages" });
+    }
+  });
+
+  // Get stage API config
+  app.get("/api/admin/workflows/:id/stages/:stageId/api-config", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const stageId = parseInt(req.params.stageId);
+      const result = await dynamicDB.execute(sqlTag`
+        SELECT sac.*, we.name AS endpoint_name, we.url AS endpoint_base_url
+        FROM stage_api_configs sac
+        LEFT JOIN workflow_endpoints we ON we.id = sac.integration_id
+        WHERE sac.stage_id = ${stageId}
+        ORDER BY sac.id LIMIT 1
+      `);
+      const rows = result.rows ?? result;
+      res.json(rows[0] ?? null);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch stage API config" });
+    }
+  });
+
+  // Upsert stage API config (link endpoint to stage)
+  app.put("/api/admin/workflows/:id/stages/:stageId/api-config", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const stageId = parseInt(req.params.stageId);
+      const currentUser = (req as any).currentUser;
+      const {
+        integration_id, endpoint_url, http_method = "POST",
+        auth_type, auth_secret_key,
+        request_mapping, response_mapping,
+        timeout_seconds, max_retries = 3, retry_delay_seconds = 5,
+        fallback_on_error, fallback_on_timeout,
+        test_mode = false, mock_response, is_active = true,
+      } = req.body;
+      // Check if exists
+      const existing = await dynamicDB.execute(sqlTag`SELECT id FROM stage_api_configs WHERE stage_id = ${stageId} LIMIT 1`);
+      const existingRows = existing.rows ?? existing;
+      let result;
+      if (existingRows.length > 0) {
+        result = await dynamicDB.execute(sqlTag`
+          UPDATE stage_api_configs SET
+            integration_id = ${integration_id ?? null},
+            endpoint_url = ${endpoint_url ?? null},
+            http_method = ${http_method},
+            auth_type = ${auth_type ?? null},
+            auth_secret_key = ${auth_secret_key ?? null},
+            request_mapping = ${request_mapping ? JSON.stringify(request_mapping) : null}::jsonb,
+            response_mapping = ${response_mapping ? JSON.stringify(response_mapping) : null}::jsonb,
+            timeout_seconds = ${timeout_seconds ?? null},
+            max_retries = ${max_retries},
+            retry_delay_seconds = ${retry_delay_seconds},
+            fallback_on_error = ${fallback_on_error ?? null},
+            fallback_on_timeout = ${fallback_on_timeout ?? null},
+            test_mode = ${test_mode},
+            mock_response = ${mock_response ? JSON.stringify(mock_response) : null}::jsonb,
+            is_active = ${is_active},
+            updated_at = NOW()
+          WHERE stage_id = ${stageId}
+          RETURNING *
+        `);
+      } else {
+        result = await dynamicDB.execute(sqlTag`
+          INSERT INTO stage_api_configs (
+            stage_id, integration_id, endpoint_url, http_method,
+            auth_type, auth_secret_key, request_mapping, response_mapping,
+            timeout_seconds, max_retries, retry_delay_seconds,
+            fallback_on_error, fallback_on_timeout, test_mode, mock_response,
+            is_active, created_by, created_at, updated_at
+          ) VALUES (
+            ${stageId}, ${integration_id ?? null}, ${endpoint_url ?? null}, ${http_method},
+            ${auth_type ?? null}, ${auth_secret_key ?? null},
+            ${request_mapping ? JSON.stringify(request_mapping) : null}::jsonb,
+            ${response_mapping ? JSON.stringify(response_mapping) : null}::jsonb,
+            ${timeout_seconds ?? null}, ${max_retries}, ${retry_delay_seconds},
+            ${fallback_on_error ?? null}, ${fallback_on_timeout ?? null},
+            ${test_mode}, ${mock_response ? JSON.stringify(mock_response) : null}::jsonb,
+            ${is_active}, ${currentUser?.id ?? 'system'}, NOW(), NOW()
+          ) RETURNING *
+        `);
+      }
+      res.json((result.rows ?? result)[0]);
+    } catch (error) {
+      console.error("Error saving stage API config:", error);
+      res.status(500).json({ message: "Failed to save stage API config" });
+    }
+  });
+
+  // Delete stage API config
+  app.delete("/api/admin/workflows/:id/stages/:stageId/api-config", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      await dynamicDB.execute(sqlTag`DELETE FROM stage_api_configs WHERE stage_id = ${parseInt(req.params.stageId)}`);
+      res.json({ message: "API config removed" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete stage API config" });
     }
   });
 

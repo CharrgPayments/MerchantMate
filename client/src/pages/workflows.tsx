@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Zap, ChevronRight, Loader2, CheckCircle2, Circle, Clock, AlertCircle,
+  Zap, ChevronRight, ChevronDown, Loader2, CheckCircle2, Circle, Clock, AlertCircle,
   Bot, User, Globe, Settings2, FileText, Hash, Calendar, ArrowRight,
   XCircle, AlertTriangle, PlayCircle, PauseCircle, RefreshCw,
   Plus, Pencil, Trash2, Eye, EyeOff, Code, Server,
@@ -175,10 +175,20 @@ function WorkflowFormDialog({
 // ─── Stage Form Dialog ────────────────────────────────────────────────────────
 
 function StageFormDialog({
-  open, onClose, workflowId, stage, onSaved,
-}: { open: boolean; onClose: () => void; workflowId: number; stage?: any; onSaved: () => void }) {
+  open, onClose, workflowId, stage, endpoints, onSaved,
+}: { open: boolean; onClose: () => void; workflowId: number; stage?: any; endpoints: any[]; onSaved: () => void }) {
   const { toast } = useToast();
   const isEdit = !!stage;
+  const [showApiSection, setShowApiSection] = useState(false);
+
+  // Load existing api config when editing
+  const { data: existingApiConfig } = useQuery<any>({
+    queryKey: ["/api/admin/workflows", workflowId, "stages", stage?.id, "api-config"],
+    queryFn: () => fetch(`/api/admin/workflows/${workflowId}/stages/${stage.id}/api-config`, { credentials: "include" }).then(r => r.json()),
+    enabled: isEdit && !!stage?.id && open,
+    staleTime: 0,
+    gcTime: 0,
+  });
 
   const form = useForm({
     defaultValues: {
@@ -192,20 +202,83 @@ function StageFormDialog({
       auto_advance: stage?.auto_advance ?? false,
       timeout_minutes: stage?.timeout_minutes ?? "",
       is_active: stage?.is_active ?? true,
+      // API config fields
+      api_selected_endpoint_id: "",
+      api_endpoint_url: "",
+      api_http_method: "POST",
+      api_request_mapping: "",
+      api_response_mapping: "",
+      api_timeout_seconds: "",
+      api_max_retries: "3",
+      api_retry_delay_seconds: "5",
+      api_test_mode: false,
+      api_mock_response: "",
     },
   });
 
+  // Pre-populate api config fields when existing config loads
+  useEffect(() => {
+    if (existingApiConfig) {
+      setShowApiSection(true);
+      // Find matching endpoint by URL
+      const matchedEp = endpoints.find(ep => ep.url === existingApiConfig.endpoint_url);
+      form.setValue("api_selected_endpoint_id", matchedEp ? String(matchedEp.id) : "__custom__");
+      form.setValue("api_endpoint_url", existingApiConfig.endpoint_url ?? "");
+      form.setValue("api_http_method", existingApiConfig.http_method ?? "POST");
+      form.setValue("api_request_mapping", existingApiConfig.request_mapping
+        ? JSON.stringify(existingApiConfig.request_mapping, null, 2) : "");
+      form.setValue("api_response_mapping", existingApiConfig.response_mapping
+        ? JSON.stringify(existingApiConfig.response_mapping, null, 2) : "");
+      form.setValue("api_timeout_seconds", existingApiConfig.timeout_seconds ?? "");
+      form.setValue("api_max_retries", existingApiConfig.max_retries ?? 3);
+      form.setValue("api_retry_delay_seconds", existingApiConfig.retry_delay_seconds ?? 5);
+      form.setValue("api_test_mode", existingApiConfig.test_mode ?? false);
+      form.setValue("api_mock_response", existingApiConfig.mock_response
+        ? JSON.stringify(existingApiConfig.mock_response, null, 2) : "");
+    }
+  }, [existingApiConfig]);
+
   const mutation = useMutation({
     mutationFn: async (data: any) => {
-      const body = {
-        ...data,
-        handler_key: data.handler_key || null,
+      const stageBody = {
+        code: data.code, name: data.name, description: data.description,
+        stage_type: data.stage_type, handler_key: data.handler_key || null,
+        is_required: data.is_required, requires_review: data.requires_review,
+        auto_advance: data.auto_advance, is_active: data.is_active,
         timeout_minutes: data.timeout_minutes ? parseInt(data.timeout_minutes) : null,
       };
+      let savedStage: any;
       if (isEdit) {
-        return apiRequest("PUT", `/api/admin/workflows/${workflowId}/stages/${stage.id}`, body);
+        savedStage = await apiRequest("PUT", `/api/admin/workflows/${workflowId}/stages/${stage.id}`, stageBody);
+      } else {
+        savedStage = await apiRequest("POST", `/api/admin/workflows/${workflowId}/stages`, stageBody);
       }
-      return apiRequest("POST", `/api/admin/workflows/${workflowId}/stages`, body);
+      // Save api config if endpoint is configured
+      const stageId = savedStage?.id ?? stage?.id;
+      if (stageId && data.api_endpoint_url) {
+        let reqMap: any = undefined;
+        let resMap: any = undefined;
+        let mockRes: any = undefined;
+        try { reqMap = data.api_request_mapping ? JSON.parse(data.api_request_mapping) : undefined; } catch {}
+        try { resMap = data.api_response_mapping ? JSON.parse(data.api_response_mapping) : undefined; } catch {}
+        try { mockRes = data.api_mock_response ? JSON.parse(data.api_mock_response) : undefined; } catch {}
+        await apiRequest("PUT", `/api/admin/workflows/${workflowId}/stages/${stageId}/api-config`, {
+          endpoint_url: data.api_endpoint_url,
+          http_method: data.api_http_method,
+          request_mapping: reqMap,
+          response_mapping: resMap,
+          timeout_seconds: data.api_timeout_seconds ? parseInt(data.api_timeout_seconds) : null,
+          max_retries: parseInt(data.api_max_retries) || 3,
+          retry_delay_seconds: parseInt(data.api_retry_delay_seconds) || 5,
+          test_mode: data.api_test_mode,
+          mock_response: mockRes,
+          is_active: true,
+        });
+      } else if (stageId && !data.api_endpoint_url && existingApiConfig) {
+        // Remove existing api config if endpoint was cleared
+        await apiRequest("DELETE", `/api/admin/workflows/${workflowId}/stages/${stageId}/api-config`);
+      }
+      return savedStage;
     },
     onSuccess: () => {
       toast({ title: isEdit ? "Stage updated" : "Stage added" });
@@ -220,10 +293,29 @@ function StageFormDialog({
 
   const onSubmit = form.handleSubmit((data) => mutation.mutate(data));
   const stageType = form.watch("stage_type");
+  const selectedEpId = form.watch("api_selected_endpoint_id");
+  const testMode = form.watch("api_test_mode");
+
+  // When endpoint is selected from dropdown, auto-fill URL and method
+  const handleEndpointSelect = (value: string) => {
+    form.setValue("api_selected_endpoint_id", value);
+    if (value === "__custom__" || value === "__none__") {
+      if (value === "__none__") {
+        form.setValue("api_endpoint_url", "");
+        form.setValue("api_http_method", "POST");
+      }
+      return;
+    }
+    const ep = endpoints.find(e => String(e.id) === value);
+    if (ep) {
+      form.setValue("api_endpoint_url", ep.url ?? "");
+      form.setValue("api_http_method", ep.method ?? "POST");
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit Stage" : "Add Stage"}</DialogTitle>
         </DialogHeader>
@@ -286,6 +378,153 @@ function StageFormDialog({
               <span className="text-sm">Active</span>
             </label>
           </div>
+
+          {/* API Endpoint Configuration */}
+          <div className="border rounded-lg overflow-hidden">
+            <button
+              type="button"
+              className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+              onClick={() => setShowApiSection(v => !v)}
+            >
+              <div className="flex items-center gap-2">
+                <Globe className="h-4 w-4 text-blue-500" />
+                <span className="font-medium text-sm">API Endpoint</span>
+                {form.watch("api_endpoint_url") && (
+                  <Badge variant="secondary" className="text-xs font-mono truncate max-w-[180px]">
+                    {form.watch("api_http_method")} {form.watch("api_endpoint_url")}
+                  </Badge>
+                )}
+              </div>
+              <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${showApiSection ? "rotate-180" : ""}`} />
+            </button>
+
+            {showApiSection && (
+              <div className="p-4 space-y-4 border-t">
+                {/* Endpoint selector */}
+                <div className="space-y-1.5">
+                  <Label>Select Workflow Endpoint</Label>
+                  <Select value={selectedEpId} onValueChange={handleEndpointSelect}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose an endpoint…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">
+                        <span className="text-gray-400 italic">No endpoint</span>
+                      </SelectItem>
+                      {endpoints.length > 0 && (
+                        <>
+                          {endpoints.map((ep: any) => (
+                            <SelectItem key={ep.id} value={String(ep.id)}>
+                              <span className="flex items-center gap-2">
+                                <span className={`text-xs font-bold px-1 rounded ${METHOD_COLORS[ep.method] ?? "bg-gray-100 text-gray-700"}`}>
+                                  {ep.method}
+                                </span>
+                                <span className="font-medium">{ep.name}</span>
+                                <span className="text-gray-400 font-mono text-xs truncate max-w-[160px]">{ep.url}</span>
+                              </span>
+                            </SelectItem>
+                          ))}
+                          <SelectItem value="__custom__">
+                            <span className="text-gray-500 italic">Custom URL…</span>
+                          </SelectItem>
+                        </>
+                      )}
+                      {endpoints.length === 0 && (
+                        <SelectItem value="__custom__">
+                          <span className="text-gray-500 italic">Custom URL (no endpoints configured yet)</span>
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {endpoints.length === 0 && (
+                    <p className="text-xs text-amber-600">No endpoints defined for this workflow yet. Add endpoints in the Endpoints tab first, or enter a custom URL below.</p>
+                  )}
+                </div>
+
+                {/* URL + Method */}
+                <div className="grid grid-cols-[auto_1fr] gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Method</Label>
+                    <Select value={form.watch("api_http_method")} onValueChange={(v) => form.setValue("api_http_method", v)}>
+                      <SelectTrigger className="w-28">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {["GET","POST","PUT","PATCH","DELETE"].map(m => (
+                          <SelectItem key={m} value={m}>
+                            <span className={`font-bold text-xs px-1 rounded ${METHOD_COLORS[m] ?? ""}`}>{m}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Endpoint URL</Label>
+                    <Input {...form.register("api_endpoint_url")} placeholder="https://api.example.com/v1/screen" className="font-mono text-sm" />
+                  </div>
+                </div>
+
+                {/* Request / Response Mapping */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Request Mapping <span className="text-gray-400 font-normal">(JSON)</span></Label>
+                    <Textarea
+                      {...form.register("api_request_mapping")}
+                      placeholder={'{\n  "merchant_id": "{{merchant.id}}"\n}'}
+                      rows={4}
+                      className="font-mono text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Response Mapping <span className="text-gray-400 font-normal">(JSON)</span></Label>
+                    <Textarea
+                      {...form.register("api_response_mapping")}
+                      placeholder={'{\n  "status": "$.result.status"\n}'}
+                      rows={4}
+                      className="font-mono text-xs"
+                    />
+                  </div>
+                </div>
+
+                {/* Retry settings */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Timeout (seconds)</Label>
+                    <Input {...form.register("api_timeout_seconds")} type="number" placeholder="30" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Max Retries</Label>
+                    <Input {...form.register("api_max_retries")} type="number" placeholder="3" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Retry Delay (seconds)</Label>
+                    <Input {...form.register("api_retry_delay_seconds")} type="number" placeholder="5" />
+                  </div>
+                </div>
+
+                {/* Test mode */}
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <Switch checked={testMode} onCheckedChange={(v) => form.setValue("api_test_mode", v)} />
+                    <span className="text-sm font-medium">Test Mode</span>
+                    <span className="text-xs text-gray-400">Use mock response instead of calling the real endpoint</span>
+                  </label>
+                  {testMode && (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Mock Response <span className="text-gray-400 font-normal">(JSON)</span></Label>
+                      <Textarea
+                        {...form.register("api_mock_response")}
+                        placeholder={'{\n  "status": "approved",\n  "score": 95\n}'}
+                        rows={3}
+                        className="font-mono text-xs"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
             <Button type="submit" disabled={mutation.isPending}>
@@ -810,8 +1049,8 @@ function EnvironmentsTab({ workflowId }: { workflowId: number }) {
 // ─── Pipeline View ────────────────────────────────────────────────────────────
 
 function PipelineView({
-  stages, workflowId, onStageChanged,
-}: { stages: any[]; workflowId: number; onStageChanged: () => void }) {
+  stages, workflowId, endpoints, onStageChanged,
+}: { stages: any[]; workflowId: number; endpoints: any[]; onStageChanged: () => void }) {
   const { toast } = useToast();
   const [editingStage, setEditingStage] = useState<any>(null);
   const [deletingStage, setDeletingStage] = useState<any>(null);
@@ -859,6 +1098,12 @@ function PipelineView({
                     <span className="font-medium text-sm text-gray-900">{stage.name}</span>
                     {stage.is_required && (
                       <Badge variant="outline" className="text-xs py-0 h-4">Required</Badge>
+                    )}
+                    {stage.endpoint_url && (
+                      <Badge className="text-xs py-0 h-4 bg-blue-50 text-blue-600 border border-blue-200 gap-1">
+                        <Globe className="h-2.5 w-2.5" />
+                        {stage.http_method} API
+                      </Badge>
                     )}
                     {!stage.is_active && (
                       <Badge variant="secondary" className="text-xs py-0 h-4 text-gray-400">Inactive</Badge>
@@ -910,6 +1155,7 @@ function PipelineView({
           onClose={() => setEditingStage(null)}
           workflowId={workflowId}
           stage={editingStage}
+          endpoints={endpoints}
           onSaved={onStageChanged}
         />
       )}
@@ -1365,6 +1611,7 @@ export default function Workflows() {
                         <PipelineView
                           stages={stages}
                           workflowId={selectedWorkflow.id}
+                          endpoints={wfDetail?.endpoints ?? []}
                           onStageChanged={() => queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows", selectedWorkflow.id, "stages"] })}
                         />
                       )}
@@ -1420,7 +1667,11 @@ export default function Workflows() {
           open={showAddStage}
           onClose={() => setShowAddStage(false)}
           workflowId={selectedWorkflow.id}
-          onSaved={() => {}}
+          endpoints={wfDetail?.endpoints ?? []}
+          onSaved={() => {
+            queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows", selectedWorkflow.id, "stages"] });
+            setShowAddStage(false);
+          }}
         />
       )}
 
