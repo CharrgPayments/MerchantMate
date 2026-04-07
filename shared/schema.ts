@@ -1,27 +1,55 @@
-import { pgTable, text, serial, integer, boolean, timestamp, decimal, varchar, jsonb, index, unique, real, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, decimal, varchar, jsonb, index, unique, uniqueIndex, real, numeric } from "drizzle-orm/pg-core";
+import { sql, eq } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Trigger Events - Single source of truth for all system trigger events
+export const TRIGGER_EVENTS = [
+  'user_registered',
+  'agent_registered',
+  'application_submitted',
+  'password_reset_requested',
+  'account_activated',
+  'merchant_approved',
+  'signature_requested',
+  'prospect_created',
+  'prospect_validation',
+  'email_verification_requested',
+  'two_factor_requested',
+] as const;
+
+export const triggerEventSchema = z.enum(TRIGGER_EVENTS);
+export type TriggerEvent = z.infer<typeof triggerEventSchema>;
+
 export const merchants = pgTable("merchants", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }).unique(),
-  businessName: text("business_name").notNull(),
-  businessType: text("business_type").notNull(),
-  email: text("email").notNull().unique(),
-  phone: text("phone").notNull(),
+  businessName: text("business_name"), // DBA or trade name
+  businessType: text("business_type"), // LLC, Corporation, Sole Proprietor, etc.
+  email: text("email"), // Business email
+  phone: text("phone"), // Business phone
   agentId: integer("agent_id"),
   processingFee: decimal("processing_fee", { precision: 5, scale: 2 }).default("2.50").notNull(),
   status: text("status").notNull().default("active"), // active, pending, suspended
   monthlyVolume: decimal("monthly_volume", { precision: 12, scale: 2 }).default("0").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "restrict" }).unique(),
+  dbaName: text("dba_name"), // Doing Business As name
+  legalName: text("legal_name"), // Legal business name
+  ein: text("ein"), // Employer Identification Number
+  website: text("website"), // Business website URL
+  industry: text("industry"), // Business industry/category
+  updatedAt: timestamp("updated_at", { withTimezone: true }), // Last update timestamp
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }), // Every merchant must have a company
+  notes: text("notes"),
 });
 
 export const locations = pgTable("locations", {
   id: serial("id").primaryKey(),
-  merchantId: integer("merchant_id").notNull().references(() => merchants.id, { onDelete: "cascade" }),
+  merchantId: integer("merchant_id").references(() => merchants.id, { onDelete: "cascade" }), // Made nullable for company locations
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }), // Support company locations
   mid: varchar("mid", { length: 50 }).unique(), // Merchant ID for tracking transactions to locations
   name: text("name").notNull(),
-  type: text("type").notNull().default("store"), // store, warehouse, office, headquarters
+  type: text("type").notNull().default("store"), // store, warehouse, office, headquarters, company_office
   phone: text("phone"),
   email: text("email"),
   status: text("status").notNull().default("active"), // active, inactive, temporarily_closed
@@ -31,7 +59,7 @@ export const locations = pgTable("locations", {
 
 export const addresses = pgTable("addresses", {
   id: serial("id").primaryKey(),
-  locationId: integer("location_id").notNull().references(() => locations.id, { onDelete: "cascade" }),
+  locationId: integer("location_id").references(() => locations.id, { onDelete: "cascade" }), // Made nullable for company addresses
   type: text("type").notNull().default("primary"), // primary, billing, shipping, mailing
   street1: text("street1").notNull(),
   street2: text("street2"),
@@ -48,16 +76,31 @@ export const addresses = pgTable("addresses", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Junction table for company-address relationships
+export const companyAddresses = pgTable("company_addresses", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  addressId: integer("address_id").notNull().references(() => addresses.id, { onDelete: "cascade" }),
+  type: text("type").notNull().default("primary"), // primary, billing, shipping, mailing
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  // Ensure unique company-address-type combinations
+  unique("unique_company_address_type").on(table.companyId, table.addressId, table.type),
+  // Index for faster lookups
+  index("company_addresses_company_idx").on(table.companyId),
+  index("company_addresses_address_idx").on(table.addressId),
+]);
+
+// Company-centric architecture: agents reference companies for email/phone
 export const agents = pgTable("agents", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }).unique(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "restrict" }).unique(),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
-  email: text("email").notNull().unique(),
-  phone: text("phone").notNull(),
   territory: text("territory"),
   commissionRate: decimal("commission_rate", { precision: 5, scale: 2 }).default("5.00"),
-  status: text("status").notNull().default("active"), // active, inactive
+  status: text("status").notNull().default("active"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -73,6 +116,9 @@ export const merchantProspects = pgTable("merchant_prospects", {
   applicationStartedAt: timestamp("application_started_at"),
   formData: text("form_data"), // JSON string of form data for resuming applications
   currentStep: integer("current_step").default(0), // Current step in the application form
+  agentSignature: text("agent_signature"), // Agent's signature data (canvas data URL or typed text)
+  agentSignatureType: text("agent_signature_type"), // 'canvas' or 'typed'
+  agentSignedAt: timestamp("agent_signed_at"), // When the agent signed
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -89,6 +135,13 @@ export const transactions = pgTable("transactions", {
   processingFee: decimal("processing_fee", { precision: 12, scale: 2 }),
   netAmount: decimal("net_amount", { precision: 12, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow(),
+  commissionRate: decimal("commission_rate", { precision: 5, scale: 4 }).default("0.025"), // Agent commission rate
+  commissionAmount: decimal("commission_amount", { precision: 12, scale: 2 }).default("0"), // Calculated commission
+  transactionDate: timestamp("transaction_date", { withTimezone: true }).defaultNow(), // Transaction processing date
+  referenceNumber: text("reference_number"), // External reference number
+  locationId: integer("location_id"), // Associated location
+  transactionType: text("transaction_type").notNull().default("payment"), // payment, refund, chargeback
+  processedAt: timestamp("processed_at", { withTimezone: true }), // When transaction was processed
 });
 
 // Junction table for agent-merchant associations
@@ -167,6 +220,11 @@ export const insertAddressSchema = createInsertSchema(addresses).omit({
   geocodedAt: true,
 });
 
+export const insertCompanyAddressSchema = createInsertSchema(companyAddresses).omit({
+  id: true,
+  createdAt: true,
+});
+
 export type InsertMerchant = z.infer<typeof insertMerchantSchema>;
 export type Merchant = typeof merchants.$inferSelect;
 
@@ -184,6 +242,9 @@ export type Location = typeof locations.$inferSelect;
 
 export type InsertAddress = z.infer<typeof insertAddressSchema>;
 export type Address = typeof addresses.$inferSelect;
+
+export type InsertCompanyAddress = z.infer<typeof insertCompanyAddressSchema>;
+export type CompanyAddress = typeof companyAddresses.$inferSelect;
 
 // Extended types for API responses
 export type MerchantWithAgent = Merchant & {
@@ -203,6 +264,22 @@ export type MerchantWithLocations = Merchant & {
   agent?: Agent;
 };
 
+// Company relationship types
+export type MerchantWithCompany = Merchant & {
+  company?: Company;
+  agent?: Agent;
+};
+
+export type AgentWithCompany = Agent & {
+  company?: Company;
+};
+
+export type MerchantWithCompanyAndLocations = Merchant & {
+  company?: Company;
+  locations?: LocationWithAddresses[];
+  agent?: Agent;
+};
+
 // User management tables
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().notNull(),
@@ -211,26 +288,66 @@ export const users = pgTable("users", {
   passwordHash: varchar("password_hash").notNull(),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
+  phone: varchar("phone"), // Optional phone number to avoid data loss on existing users
   profileImageUrl: varchar("profile_image_url"),
-  // DB column is "roles" (array) — schema synced to match actual database
-  roles: text("roles").array().notNull().default(["merchant"]), // merchant, agent, admin, corporate, super_admin
+  communicationPreference: text("communication_preference").default("email"), // email, sms, or both
+  roles: text("roles").array().notNull().default(sql`ARRAY['merchant']`), // Array of roles: merchant, agent, admin, corporate, super_admin
   status: text("status").notNull().default("active"), // active, suspended, inactive
   permissions: jsonb("permissions").default("{}"),
   lastLoginAt: timestamp("last_login_at"),
   lastLoginIp: varchar("last_login_ip"),
-  timezone: varchar("timezone").default("UTC"),
+  timezone: varchar("timezone").default("UTC"), // User's preferred timezone e.g., "America/New_York"
   twoFactorEnabled: boolean("two_factor_enabled").default(false),
   twoFactorSecret: varchar("two_factor_secret"),
   passwordResetToken: varchar("password_reset_token"),
   passwordResetExpires: timestamp("password_reset_expires"),
   emailVerified: boolean("email_verified").default(false),
   emailVerificationToken: varchar("email_verification_token"),
-  phone: text("phone"),
-  communicationPreference: text("communication_preference"),
-  mustChangePassword: boolean("must_change_password").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// Companies/Organizations table for business entity management
+export const companies = pgTable("companies", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(), // Company name must be unique
+  businessType: text("business_type"), // corporation, llc, partnership, sole_proprietorship, non_profit
+  email: text("email"),
+  phone: text("phone"),
+  website: text("website"),
+  taxId: varchar("tax_id"), // EIN or Tax ID number
+  address: jsonb("address"), // Store address as JSON object
+  industry: text("industry"),
+  description: text("description"),
+  logoUrl: text("logo_url"),
+  status: text("status").notNull().default("active"), // active, inactive, suspended
+  settings: jsonb("settings").default("{}"), // Company-specific settings
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Junction table for user-company relationships (many-to-many)
+export const userCompanyAssociations = pgTable("user_company_associations", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  companyId: integer("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  companyRole: text("company_role").notNull(), // owner, admin, employee, contractor, etc.
+  permissions: jsonb("permissions").default("{}"), // Role-specific permissions within the company
+  title: text("title"), // Job title within the company
+  department: text("department"),
+  isActive: boolean("is_active").notNull().default(true),
+  isPrimary: boolean("is_primary").notNull().default(false), // Is this the user's primary company?
+  startDate: timestamp("start_date"),
+  endDate: timestamp("end_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  // Ensure unique user-company combinations
+  unique("unique_user_company").on(table.userId, table.companyId),
+  // Index for faster lookups
+  index("user_company_user_idx").on(table.userId),
+  index("user_company_company_idx").on(table.companyId),
+]);
 
 // Login attempts table for security tracking
 export const loginAttempts = pgTable("login_attempts", {
@@ -266,15 +383,49 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
+// Password strength validation function
+export const validatePasswordStrength = (password: string): { valid: boolean; errors: string[] } => {
+  const errors: string[] = [];
+  
+  if (password.length < 12) {
+    errors.push("Password must be at least 12 characters");
+  }
+  if (!/[A-Z]/.test(password)) {
+    errors.push("Password must contain at least one uppercase letter");
+  }
+  if (!/[a-z]/.test(password)) {
+    errors.push("Password must contain at least one lowercase letter");
+  }
+  if (!/[0-9]/.test(password)) {
+    errors.push("Password must contain at least one number");
+  }
+  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+    errors.push("Password must contain at least one special character");
+  }
+  
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+};
+
 // Schema for user registration
 export const registerUserSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters"),
   email: z.string().email("Invalid email address"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  password: z.string().min(12, "Password must be at least 12 characters"),
   confirmPassword: z.string(),
   firstName: z.string().min(1, "First name required"),
   lastName: z.string().min(1, "Last name required"),
-  role: z.string().default("merchant"),
+  phone: z.string().min(10, "Phone number must be at least 10 digits").regex(/^\+?[\d\s\-\(\)]+$/, "Invalid phone number format"),
+  communicationPreference: z.enum(["email", "sms", "both"]).default("email"),
+  roles: z.array(z.enum(["merchant", "agent", "admin", "corporate", "super_admin"])).default(["merchant"]),
+}).refine((data) => {
+  const validation = validatePasswordStrength(data.password);
+  return validation.valid;
+}, {
+  message: "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character",
+  path: ["password"],
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
@@ -296,8 +447,14 @@ export const passwordResetRequestSchema = z.object({
 // Schema for password reset
 export const passwordResetSchema = z.object({
   token: z.string().min(1, "Reset token required"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  password: z.string().min(12, "Password must be at least 12 characters"),
   confirmPassword: z.string(),
+}).refine((data) => {
+  const validation = validatePasswordStrength(data.password);
+  return validation.valid;
+}, {
+  message: "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character",
+  path: ["password"],
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
@@ -321,9 +478,42 @@ export type PasswordReset = z.infer<typeof passwordResetSchema>;
 export type TwoFactorVerify = z.infer<typeof twoFactorVerifySchema>;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type UpsertUser = typeof users.$inferInsert;
-export type User = typeof users.$inferSelect & { role?: string };
+export type User = typeof users.$inferSelect;
 export type LoginAttempt = typeof loginAttempts.$inferSelect;
 export type TwoFactorCode = typeof twoFactorCodes.$inferSelect;
+
+// Company and user-company association schemas
+export const insertCompanySchema = createInsertSchema(companies).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertUserCompanyAssociationSchema = createInsertSchema(userCompanyAssociations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// Company and association types
+export type Company = typeof companies.$inferSelect;
+export type InsertCompany = z.infer<typeof insertCompanySchema>;
+export type UserCompanyAssociation = typeof userCompanyAssociations.$inferSelect;
+export type InsertUserCompanyAssociation = z.infer<typeof insertUserCompanyAssociationSchema>;
+
+// Extended user types with company information
+export type UserWithCompanies = User & {
+  companies?: (UserCompanyAssociation & {
+    company: Company;
+  })[];
+  primaryCompany?: Company;
+};
+
+export type CompanyWithUsers = Company & {
+  users?: (UserCompanyAssociation & {
+    user: User;
+  })[];
+};
 
 // Widget preferences table
 export const userDashboardPreferences = pgTable("user_dashboard_preferences", {
@@ -368,14 +558,51 @@ export const prospectSignatures = pgTable("prospect_signatures", {
   submittedAt: timestamp("submitted_at").defaultNow(),
 });
 
+// Generic signature captures table for all signature types (owner, agent, guarantor, witness, etc.)
+export const signatureCaptures = pgTable("signature_captures", {
+  id: serial("id").primaryKey(),
+  applicationId: integer("application_id").references(() => prospectApplications.id, { onDelete: 'cascade' }),
+  prospectId: integer("prospect_id").references(() => merchantProspects.id, { onDelete: 'cascade' }),
+  roleKey: text("role_key").notNull(), // e.g., 'owner1', 'owner2', 'agent', 'guarantor', 'witness'
+  signerType: text("signer_type").notNull(), // 'owner', 'agent', 'guarantor', 'witness', 'acknowledgement'
+  signerName: text("signer_name"),
+  signerEmail: text("signer_email"),
+  signature: text("signature"), // Base64 signature data (canvas or typed)
+  signatureType: text("signature_type"), // 'canvas' or 'typed'
+  initials: text("initials"), // Signer's initials
+  dateSigned: timestamp("date_signed"),
+  timestampSigned: timestamp("timestamp_signed"),
+  timestampRequested: timestamp("timestamp_requested"),
+  timestampExpires: timestamp("timestamp_expires"),
+  requestToken: text("request_token").unique(),
+  status: text("status").notNull().default("pending"), // 'pending', 'requested', 'signed', 'expired'
+  notes: text("notes"),
+  ownershipPercentage: decimal("ownership_percentage", { precision: 5, scale: 2 }), // For owner signatures
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  applicationIdIdx: index("signature_captures_application_id_idx").on(table.applicationId),
+  prospectIdIdx: index("signature_captures_prospect_id_idx").on(table.prospectId),
+  requestTokenIdx: index("signature_captures_request_token_idx").on(table.requestToken),
+  statusIdx: index("signature_captures_status_idx").on(table.status),
+}));
+
 export const insertProspectOwnerSchema = createInsertSchema(prospectOwners);
 
 export const insertProspectSignatureSchema = createInsertSchema(prospectSignatures);
+
+export const insertSignatureCaptureSchema = createInsertSchema(signatureCaptures).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
 
 export type InsertProspectOwner = z.infer<typeof insertProspectOwnerSchema>;
 export type ProspectOwner = typeof prospectOwners.$inferSelect;
 export type InsertProspectSignature = z.infer<typeof insertProspectSignatureSchema>;
 export type ProspectSignature = typeof prospectSignatures.$inferSelect;
+export type InsertSignatureCapture = z.infer<typeof insertSignatureCaptureSchema>;
+export type SignatureCapture = typeof signatureCaptures.$inferSelect;
 
 // API Key schemas
 export const insertApiKeySchema = createInsertSchema(apiKeys).omit({
@@ -424,6 +651,7 @@ export const pdfFormFields = pgTable("pdf_form_fields", {
   validation: text("validation"), // JSON string for validation rules
   position: integer("position").notNull(), // field order
   section: text("section"), // section grouping for fields
+  pdfFieldId: text("pdf_field_id"), // Immutable PDF field identifier (XFA/AcroForm name) for field binding
   createdAt: timestamp("created_at").defaultNow()
 });
 
@@ -550,9 +778,10 @@ export const feeItemGroups = pgTable("fee_item_groups", {
 // Fee Items table - individual fees (now standalone, can belong to multiple fee groups)
 export const feeItems = pgTable("fee_items", {
   id: serial("id").primaryKey(),
+  feeItemGroupId: integer("fee_item_group_id").references(() => feeItemGroups.id, { onDelete: "cascade" }), // Optional grouping
   name: text("name").notNull().unique(), // e.g., "Visa", "MasterCard", "American Express"
   description: text("description"),
-  valueType: text("value_type").notNull(), // "amount", "percentage", "placeholder"
+  valueType: text("value_type").notNull(), // "percentage", "fixed", "basis_points", "numeric"
   defaultValue: text("default_value"), // Default value for this fee item
   additionalInfo: text("additional_info"), // Info shown when clicking "i" icon
   displayOrder: integer("display_order").notNull().default(0),
@@ -612,7 +841,61 @@ export const equipmentItems = pgTable("equipment_items", {
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  model: text("model"), // Additional model information
+  price: decimal("price", { precision: 10, scale: 2 }), // Equipment price
+  status: text("status").default("available"), // Equipment availability status
 });
+
+// Acquirers table - payment processors that require different application forms
+export const acquirers = pgTable("acquirers", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(), // "Wells Fargo", "Merrick Bank", "Esquire Bank"
+  displayName: text("display_name").notNull(), // User-friendly display name
+  code: text("code").notNull().unique(), // Short code for internal use: "WF", "MB", "EB"
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Acquirer Application Templates - store dynamic form configurations for each acquirer
+export const acquirerApplicationTemplates = pgTable("acquirer_application_templates", {
+  id: serial("id").primaryKey(),
+  acquirerId: integer("acquirer_id").notNull().references(() => acquirers.id, { onDelete: "cascade" }),
+  templateName: text("template_name").notNull(), // "Standard Application", "Expedited Application"
+  version: text("version").notNull().default("1.0"), // Template versioning
+  isActive: boolean("is_active").notNull().default(true),
+  fieldConfiguration: jsonb("field_configuration").notNull(), // JSON defining form fields, validation, sections
+  pdfMappingConfiguration: jsonb("pdf_mapping_configuration"), // JSON mapping form fields to PDF positions
+  requiredFields: text("required_fields").array().notNull().default(sql`ARRAY[]::text[]`), // Array of required field names
+  conditionalFields: jsonb("conditional_fields"), // JSON defining field visibility conditions
+  addressGroups: jsonb("address_groups").default(sql`'[]'::jsonb`), // JSON defining address field groups: [{ type: 'business'|'mailing'|'shipping', sectionName: string, fieldMappings: { street1: 'merchant_businessAddress', street2: 'merchant_businessAddress2', city: 'merchant_businessCity', state: 'merchant_businessState', postalCode: 'merchant_businessZipCode', country: 'merchant_businessCountry' } }]
+  signatureGroups: jsonb("signature_groups").default(sql`'[]'::jsonb`), // JSON defining signature field groups: [{ roleKey: 'owner1', displayLabel: 'Owner #1', signerType: 'owner', isRequired: true, orderPriority: 1, sectionName: string, fieldMappings: { signerName: 'merchantInfo_signature_owner1.signerName', signature: 'merchantInfo_signature_owner1.signature', initials: 'merchantInfo_signature_owner1.initials', email: 'merchantInfo_signature_owner1.email', dateSigned: 'merchantInfo_signature_owner1.dateSigned' }, pdfMappings: { signature: { page: 3, x: 100, y: 200, width: 200, height: 50 }, printedName: {...}, initials: {...}, email: {...}, dateSigned: {...} } }]
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueAcquirerTemplate: unique().on(table.acquirerId, table.templateName, table.version),
+}));
+
+// Prospect Applications - store acquirer-specific application data
+export const prospectApplications = pgTable("prospect_applications", {
+  id: serial("id").primaryKey(),
+  prospectId: integer("prospect_id").notNull().references(() => merchantProspects.id, { onDelete: "cascade" }),
+  acquirerId: integer("acquirer_id").notNull().references(() => acquirers.id),
+  templateId: integer("template_id").notNull().references(() => acquirerApplicationTemplates.id),
+  templateVersion: text("template_version").notNull(), // Track which template version was used
+  status: text("status").notNull().default("draft"), // draft, in_progress, submitted, approved, rejected
+  applicationData: jsonb("application_data").notNull().default('{}'), // Dynamic form data based on template
+  submittedAt: timestamp("submitted_at"),
+  approvedAt: timestamp("approved_at"),
+  rejectedAt: timestamp("rejected_at"),
+  rejectionReason: text("rejection_reason"),
+  generatedPdfPath: text("generated_pdf_path"), // Path to generated application PDF
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueProspectAcquirer: unique().on(table.prospectId, table.acquirerId),
+}));
 
 // Campaign Equipment junction table - links campaigns to multiple equipment items
 export const campaignEquipment = pgTable("campaign_equipment", {
@@ -626,13 +909,26 @@ export const campaignEquipment = pgTable("campaign_equipment", {
   uniqueCampaignEquipment: unique().on(table.campaignId, table.equipmentItemId),
 }));
 
+// Campaign Application Templates junction table - links campaigns to multiple application templates
+export const campaignApplicationTemplates = pgTable("campaign_application_templates", {
+  id: serial("id").primaryKey(),
+  campaignId: integer("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  templateId: integer("template_id").notNull().references(() => acquirerApplicationTemplates.id, { onDelete: "cascade" }),
+  isPrimary: boolean("is_primary").notNull().default(false), // Mark one template as primary for initial applications
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueCampaignTemplate: unique().on(table.campaignId, table.templateId),
+}));
+
 // Campaigns table - pricing plans that can be assigned to merchant applications
 export const campaigns = pgTable("campaigns", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(), // Campaign name (not required to be unique)
   description: text("description"),
   pricingTypeId: integer("pricing_type_id").references(() => pricingTypes.id),
-  acquirer: text("acquirer").notNull(), // "Esquire", "Merrick", etc.
+  acquirerId: integer("acquirer_id").notNull().references(() => acquirers.id), // Reference to acquirers table
+  acquirer: text("acquirer"), // Deprecated - kept for backward compatibility, use acquirerId instead
   currency: text("currency").notNull().default("USD"),
   equipment: text("equipment"), // Deprecated - use campaignEquipment junction table instead
   isActive: boolean("is_active").notNull().default(true),
@@ -646,13 +942,14 @@ export const campaigns = pgTable("campaigns", {
 export const campaignFeeValues = pgTable("campaign_fee_values", {
   id: serial("id").primaryKey(),
   campaignId: integer("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
-  feeItemId: integer("fee_item_id").notNull().references(() => feeItems.id, { onDelete: "cascade" }),
+  feeItemId: integer("fee_item_id").notNull().references(() => feeItems.id, { onDelete: "cascade" }), // Backward compatibility
+  feeGroupFeeItemId: integer("fee_group_fee_item_id").references(() => feeGroupFeeItems.id, { onDelete: "cascade" }), // New relationship structure
   value: text("value").notNull(), // The actual fee value (amount, percentage, or placeholder text)
   valueType: text("value_type").notNull().default("percentage"), // Type of value: 'percentage', 'amount', 'placeholder'
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
-  uniqueCampaignFeeItem: unique().on(table.campaignId, table.feeItemId),
+  uniqueCampaignFeeItem: unique().on(table.campaignId, table.feeItemId), // Use original unique constraint
 }));
 
 // Campaign Assignment table - links campaigns to merchant applications/prospects
@@ -729,11 +1026,38 @@ export const insertCampaignEquipmentSchema = createInsertSchema(campaignEquipmen
   createdAt: true,
 });
 
+export const insertCampaignApplicationTemplateSchema = createInsertSchema(campaignApplicationTemplates).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Acquirer management insert schemas
+export const insertAcquirerSchema = createInsertSchema(acquirers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertAcquirerApplicationTemplateSchema = createInsertSchema(acquirerApplicationTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertProspectApplicationSchema = createInsertSchema(prospectApplications).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Equipment management types
 export type EquipmentItem = typeof equipmentItems.$inferSelect;
 export type InsertEquipmentItem = z.infer<typeof insertEquipmentItemSchema>;
 export type CampaignEquipment = typeof campaignEquipment.$inferSelect;
 export type InsertCampaignEquipment = z.infer<typeof insertCampaignEquipmentSchema>;
+
+export type CampaignApplicationTemplate = typeof campaignApplicationTemplates.$inferSelect;
+export type InsertCampaignApplicationTemplate = z.infer<typeof insertCampaignApplicationTemplateSchema>;
 
 // Campaign management types
 export type FeeGroup = typeof feeGroups.$inferSelect;
@@ -754,6 +1078,29 @@ export type CampaignFeeValue = typeof campaignFeeValues.$inferSelect;
 export type InsertCampaignFeeValue = z.infer<typeof insertCampaignFeeValueSchema>;
 export type CampaignAssignment = typeof campaignAssignments.$inferSelect;
 export type InsertCampaignAssignment = z.infer<typeof insertCampaignAssignmentSchema>;
+
+// Acquirer management types
+export type Acquirer = typeof acquirers.$inferSelect;
+export type InsertAcquirer = z.infer<typeof insertAcquirerSchema>;
+export type AcquirerApplicationTemplate = typeof acquirerApplicationTemplates.$inferSelect;
+export type InsertAcquirerApplicationTemplate = z.infer<typeof insertAcquirerApplicationTemplateSchema>;
+export type ProspectApplication = typeof prospectApplications.$inferSelect;
+export type InsertProspectApplication = z.infer<typeof insertProspectApplicationSchema>;
+
+// Extended types for acquirer management
+export type AcquirerWithTemplates = Acquirer & {
+  templates: AcquirerApplicationTemplate[];
+};
+
+export type CampaignWithAcquirer = Campaign & {
+  acquirer: Acquirer;
+};
+
+export type ProspectApplicationWithDetails = ProspectApplication & {
+  prospect: MerchantProspect;
+  acquirer: Acquirer;
+  template: AcquirerApplicationTemplate;
+};
 
 // Extended types for campaign management with hierarchical structure
 export type FeeItemWithGroup = FeeItem & {
@@ -824,6 +1171,23 @@ export const auditLogs = pgTable("audit_logs", {
   notes: text("notes"), // Human-readable description
   
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  
+  // Extended audit fields
+  resourceType: text("resource_type"), // Type classification for the resource
+  details: jsonb("details"), // Additional structured details
+  timestamp: timestamp("timestamp").defaultNow(), // Alternative timestamp field
+  severity: text("severity").default("info"), // info, warning, error, critical
+  category: text("category"), // Categorization for filtering
+  outcome: text("outcome"), // success, failure, partial
+  errorMessage: text("error_message"), // Error details if applicable
+  requestId: varchar("request_id"), // Unique request identifier
+  correlationId: varchar("correlation_id"), // For tracking related requests
+  metadata: jsonb("metadata"), // Additional flexible metadata
+  geolocation: jsonb("geolocation"), // Geographic information
+  deviceInfo: jsonb("device_info"), // Device details
+  retentionPolicy: text("retention_policy"), // Data retention classification
+  encryptionKeyId: varchar("encryption_key_id"), // Reference to encryption key
+  updatedAt: timestamp("updated_at").defaultNow(), // Last update timestamp
 }, (table) => ({
   userIdIdx: index("audit_logs_user_id_idx").on(table.userId),
   actionIdx: index("audit_logs_action_idx").on(table.action),
@@ -919,6 +1283,24 @@ export type SecurityEventWithAuditLog = SecurityEvent & {
 };
 
 // Email Management Tables
+
+// Email Wrappers - Reusable email wrapper templates
+export const emailWrappers = pgTable('email_wrappers', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 100 }).notNull().unique(),
+  description: text('description'),
+  type: varchar('type', { length: 50 }).notNull(), // welcome, security, agentNotification, notification, custom
+  headerGradient: text('header_gradient'), // CSS gradient for header
+  headerSubtitle: text('header_subtitle'), // Optional subtitle for header
+  ctaButtonText: text('cta_button_text'), // Call-to-action button text
+  ctaButtonUrl: text('cta_button_url'), // Call-to-action button URL (can use template variables)
+  ctaButtonColor: text('cta_button_color'), // Call-to-action button color (default: #3b82f6)
+  customFooter: text('custom_footer'), // Custom footer HTML
+  isActive: boolean('is_active').default(true),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
 export const emailTemplates = pgTable('email_templates', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 100 }).notNull().unique(),
@@ -929,6 +1311,16 @@ export const emailTemplates = pgTable('email_templates', {
   variables: jsonb('variables'), // JSON array of available variables
   category: varchar('category', { length: 50 }).notNull(), // prospect, authentication, notification, etc.
   isActive: boolean('is_active').default(true),
+  // Email Wrapper Configuration (kept for backward compatibility)
+  useWrapper: boolean('use_wrapper').default(true), // Whether to apply email wrapper
+  wrapperType: varchar('wrapper_type', { length: 50 }).default('notification'), // welcome, security, agentNotification, notification, custom
+  // wrapperId: integer('wrapper_id'), // Temporarily removed to debug issue
+  headerGradient: text('header_gradient'), // Custom gradient if wrapperType is 'custom'
+  headerSubtitle: text('header_subtitle'), // Optional subtitle for header
+  ctaButtonText: text('cta_button_text'), // Call-to-action button text
+  ctaButtonUrl: text('cta_button_url'), // Call-to-action button URL
+  ctaButtonColor: text('cta_button_color'), // Call-to-action button color (default: #3b82f6)
+  customFooter: text('custom_footer'), // Custom footer HTML
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
@@ -968,10 +1360,15 @@ export const emailTriggers = pgTable('email_triggers', {
 });
 
 // Email Management Zod schemas and types
+export const insertEmailWrapperSchema = createInsertSchema(emailWrappers).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertEmailTemplateSchema = createInsertSchema(emailTemplates);
 export const insertEmailActivitySchema = createInsertSchema(emailActivity);
-export const insertEmailTriggerSchema = createInsertSchema(emailTriggers);
+export const insertEmailTriggerSchema = createInsertSchema(emailTriggers).extend({
+  triggerEvent: triggerEventSchema, // Enforce valid trigger events
+});
 
+export type EmailWrapper = typeof emailWrappers.$inferSelect;
+export type InsertEmailWrapper = z.infer<typeof insertEmailWrapperSchema>;
 export type EmailTemplate = typeof emailTemplates.$inferSelect;
 export type InsertEmailTemplate = z.infer<typeof insertEmailTemplateSchema>;
 export type EmailActivity = typeof emailActivity.$inferSelect;
@@ -979,56 +1376,169 @@ export type InsertEmailActivity = z.infer<typeof insertEmailActivitySchema>;
 export type EmailTrigger = typeof emailTriggers.$inferSelect;
 export type InsertEmailTrigger = z.infer<typeof insertEmailTriggerSchema>;
 
-// ============================================================================
-// WORKFLOW DEFINITIONS
-// ============================================================================
-
-export const workflowDefinitions = pgTable('workflow_definitions', {
+// Generic Trigger/Action Catalog System
+// Trigger Catalog - Central registry of all system events that can trigger actions
+export const triggerCatalog = pgTable('trigger_catalog', {
   id: serial('id').primaryKey(),
-  name: varchar('name', { length: 255 }).notNull(),
+  triggerKey: varchar('trigger_key', { length: 100 }).notNull().unique(), // user_registered, application_submitted, etc.
+  name: varchar('name', { length: 200 }).notNull(),
   description: text('description'),
-  category: varchar('category', { length: 100 }).default('merchant'), // merchant, transaction, reporting, general
-  isActive: boolean('is_active').default(true),
-  createdBy: varchar('created_by', { length: 255 }),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow(),
-});
-
-export const workflowEndpoints = pgTable('workflow_endpoints', {
-  id: serial('id').primaryKey(),
-  workflowId: integer('workflow_id').notNull().references(() => workflowDefinitions.id, { onDelete: 'cascade' }),
-  name: varchar('name', { length: 255 }).notNull(),
-  description: text('description'),
-  method: varchar('method', { length: 10 }).notNull().default('GET'), // GET, POST, PUT, DELETE, PATCH
-  path: varchar('path', { length: 500 }).notNull(), // URL path, e.g. /merchants/{id}
-  requestSchema: jsonb('request_schema'), // JSON schema for request body/params
-  responseSchema: jsonb('response_schema'), // JSON schema for expected response
-  defaultHeaders: jsonb('default_headers'), // Static headers besides Bearer token
-  queryParams: jsonb('query_params'), // Query parameter definitions
-  sortOrder: integer('sort_order').default(0),
-  createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow(),
-});
-
-export const workflowEnvironmentConfigs = pgTable('workflow_environment_configs', {
-  id: serial('id').primaryKey(),
-  workflowId: integer('workflow_id').notNull().references(() => workflowDefinitions.id, { onDelete: 'cascade' }),
-  environment: varchar('environment', { length: 50 }).notNull(), // development, test, production
-  baseUrl: varchar('base_url', { length: 500 }).notNull(),
-  bearerToken: text('bearer_token'),
-  additionalHeaders: jsonb('additional_headers'),
+  category: varchar('category', { length: 50 }).notNull(), // user, application, merchant, agent, system
+  contextSchema: jsonb('context_schema'), // JSON schema defining expected context data
   isActive: boolean('is_active').default(true),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
-export const insertWorkflowDefinitionSchema = createInsertSchema(workflowDefinitions).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertWorkflowEndpointSchema = createInsertSchema(workflowEndpoints).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertWorkflowEnvironmentConfigSchema = createInsertSchema(workflowEnvironmentConfigs).omit({ id: true, createdAt: true, updatedAt: true });
+// Action Templates - Generic templates for all action types (email, sms, webhook, notification)
+export const actionTemplates = pgTable('action_templates', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 200 }).notNull(),
+  description: text('description'),
+  actionType: varchar('action_type', { length: 50 }).notNull(), // email, sms, webhook, notification, slack, teams
+  category: varchar('category', { length: 50 }).notNull(), // authentication, application, notification, alert
+  config: jsonb('config').notNull(), // Type-specific configuration (subject, body, url, headers, etc.)
+  variables: jsonb('variables'), // Available variables for template
+  isActive: boolean('is_active').default(true),
+  version: integer('version').default(1),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+  actionTypeIdx: index("action_templates_action_type_idx").on(table.actionType),
+  categoryIdx: index("action_templates_category_idx").on(table.category),
+  nameIdx: index("action_templates_name_idx").on(table.name),
+}));
 
-export type WorkflowDefinition = typeof workflowDefinitions.$inferSelect;
-export type InsertWorkflowDefinition = z.infer<typeof insertWorkflowDefinitionSchema>;
-export type WorkflowEndpoint = typeof workflowEndpoints.$inferSelect;
-export type InsertWorkflowEndpoint = z.infer<typeof insertWorkflowEndpointSchema>;
-export type WorkflowEnvironmentConfig = typeof workflowEnvironmentConfigs.$inferSelect;
-export type InsertWorkflowEnvironmentConfig = z.infer<typeof insertWorkflowEnvironmentConfigSchema>;
+// Trigger Actions - Junction table linking triggers to actions with execution rules
+export const triggerActions = pgTable('trigger_actions', {
+  id: serial('id').primaryKey(),
+  triggerId: integer('trigger_id').references(() => triggerCatalog.id, { onDelete: 'cascade' }).notNull(),
+  actionTemplateId: integer('action_template_id').references(() => actionTemplates.id, { onDelete: 'cascade' }).notNull(),
+  sequenceOrder: integer('sequence_order').default(1), // Execution order for chained actions
+  conditions: jsonb('conditions'), // Conditional logic for action execution
+  requiresEmailPreference: boolean('requires_email_preference').default(false), // Check user.communicationPreference includes 'email'
+  requiresSmsPreference: boolean('requires_sms_preference').default(false), // Check user.communicationPreference includes 'sms'
+  delaySeconds: integer('delay_seconds').default(0), // Delay before execution
+  retryOnFailure: boolean('retry_on_failure').default(true),
+  maxRetries: integer('max_retries').default(3),
+  isActive: boolean('is_active').default(true),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+  triggerIdIdx: index("trigger_actions_trigger_id_idx").on(table.triggerId),
+  actionTemplateIdIdx: index("trigger_actions_action_template_id_idx").on(table.actionTemplateId),
+  sequenceOrderIdx: index("trigger_actions_sequence_order_idx").on(table.sequenceOrder),
+  triggerSequenceUniqueIdx: uniqueIndex("trigger_actions_trigger_sequence_idx").on(table.triggerId, table.sequenceOrder).where(sql`is_active = true`),
+}));
+
+// Action Activity - Audit log for all action executions
+export const actionActivity = pgTable('action_activity', {
+  id: serial('id').primaryKey(),
+  triggerActionId: integer('trigger_action_id').references(() => triggerActions.id),
+  triggerId: integer('trigger_id').references(() => triggerCatalog.id),
+  actionTemplateId: integer('action_template_id').references(() => actionTemplates.id),
+  actionType: varchar('action_type', { length: 50 }).notNull(),
+  recipient: varchar('recipient', { length: 255 }).notNull(), // Email, phone, webhook URL, user ID
+  recipientName: varchar('recipient_name', { length: 255 }),
+  status: varchar('status', { length: 20 }).notNull(), // pending, sent, failed, delivered, bounced, opened, clicked
+  statusMessage: text('status_message'),
+  triggerSource: varchar('trigger_source', { length: 100 }), // api, manual, scheduled, workflow
+  triggeredBy: varchar('triggered_by', { length: 255 }), // User ID or system
+  contextData: jsonb('context_data'), // Context data passed to the action
+  responseData: jsonb('response_data'), // Response from action execution (API response, delivery receipt, etc.)
+  executedAt: timestamp('executed_at').defaultNow(),
+  deliveredAt: timestamp('delivered_at'),
+  failedAt: timestamp('failed_at'),
+  retryCount: integer('retry_count').default(0),
+}, (table) => ({
+  triggerActionIdIdx: index("action_activity_trigger_action_id_idx").on(table.triggerActionId),
+  actionTypeIdx: index("action_activity_action_type_idx").on(table.actionType),
+  recipientIdx: index("action_activity_recipient_idx").on(table.recipient),
+  statusIdx: index("action_activity_status_idx").on(table.status),
+  executedAtIdx: index("action_activity_executed_at_idx").on(table.executedAt),
+}));
+
+// User Alerts - In-app notifications/alerts for users
+export const userAlerts = pgTable('user_alerts', {
+  id: serial('id').primaryKey(),
+  userId: varchar('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  message: text('message').notNull(),
+  type: varchar('type', { length: 20 }).notNull().default('info'), // info, success, warning, error
+  isRead: boolean('is_read').notNull().default(false),
+  readAt: timestamp('read_at'),
+  actionUrl: text('action_url'), // Optional URL to related resource
+  actionActivityId: integer('action_activity_id').references(() => actionActivity.id, { onDelete: 'cascade' }), // Link to trigger action that created this alert
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index("user_alerts_user_id_idx").on(table.userId),
+  isReadIdx: index("user_alerts_is_read_idx").on(table.isRead),
+  createdAtIdx: index("user_alerts_created_at_idx").on(table.createdAt),
+  userReadIdx: index("user_alerts_user_read_idx").on(table.userId, table.isRead),
+}));
+
+// Trigger/Action Catalog Zod schemas and types
+export const insertTriggerCatalogSchema = createInsertSchema(triggerCatalog);
+export const insertActionTemplateSchema = createInsertSchema(actionTemplates);
+export const insertTriggerActionSchema = createInsertSchema(triggerActions);
+export const insertActionActivitySchema = createInsertSchema(actionActivity);
+export const insertUserAlertSchema = createInsertSchema(userAlerts).omit({ id: true, createdAt: true });
+
+export type TriggerCatalog = typeof triggerCatalog.$inferSelect;
+export type InsertTriggerCatalog = z.infer<typeof insertTriggerCatalogSchema>;
+export type ActionTemplate = typeof actionTemplates.$inferSelect;
+export type InsertActionTemplate = z.infer<typeof insertActionTemplateSchema>;
+export type TriggerAction = typeof triggerActions.$inferSelect;
+export type InsertTriggerAction = z.infer<typeof insertTriggerActionSchema>;
+export type ActionActivity = typeof actionActivity.$inferSelect;
+export type InsertActionActivity = z.infer<typeof insertActionActivitySchema>;
+export type UserAlert = typeof userAlerts.$inferSelect;
+export type InsertUserAlert = z.infer<typeof insertUserAlertSchema>;
+
+// Action Configuration Types (for type-safe config field)
+export const emailActionConfigSchema = z.object({
+  subject: z.string(),
+  htmlContent: z.string(),
+  textContent: z.string().optional(),
+  fromEmail: z.string().email().optional(),
+  fromName: z.string().optional(),
+  replyTo: z.string().email().optional(),
+});
+
+export const smsActionConfigSchema = z.object({
+  message: z.string().max(1600), // SMS character limit
+  from: z.string().optional(), // Sender ID or phone number
+});
+
+export const webhookActionConfigSchema = z.object({
+  url: z.string().url(),
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
+  headers: z.record(z.string()).optional(),
+  body: z.any().optional(),
+  authentication: z.object({
+    type: z.enum(['none', 'bearer', 'basic', 'api_key']),
+    credentials: z.record(z.string()).optional(),
+  }).optional(),
+});
+
+export const notificationActionConfigSchema = z.object({
+  message: z.string(),
+  type: z.enum(['info', 'success', 'warning', 'error']).default('info'),
+  actionUrl: z.string().optional(),
+});
+
+export const slackActionConfigSchema = z.object({
+  channel: z.string(),
+  message: z.string(),
+  username: z.string().optional(),
+  iconEmoji: z.string().optional(),
+  blocks: z.any().optional(), // Slack Block Kit JSON
+});
+
+export type EmailActionConfig = z.infer<typeof emailActionConfigSchema>;
+export type SmsActionConfig = z.infer<typeof smsActionConfigSchema>;
+export type WebhookActionConfig = z.infer<typeof webhookActionConfigSchema>;
+export type NotificationActionConfig = z.infer<typeof notificationActionConfigSchema>;
+export type SlackActionConfig = z.infer<typeof slackActionConfigSchema>;
+
+// Export Drizzle utilities
+export { sql, eq };

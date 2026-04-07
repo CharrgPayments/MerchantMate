@@ -2,7 +2,7 @@ import { BaseWidget } from "./BaseWidget";
 import { WidgetProps } from "./widget-types";
 import { useAuth } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
-import { User, Mail, Shield, Calendar } from "lucide-react";
+import { User, Mail, Shield, Calendar, Crown } from "lucide-react";
 
 export function ProfileSummaryWidget(props: WidgetProps) {
   const { user } = useAuth();
@@ -32,9 +32,15 @@ export function ProfileSummaryWidget(props: WidgetProps) {
             <User className="h-5 w-5 text-blue-600" />
           </div>
           <div className="flex-1">
-            <h3 className="font-semibold text-gray-900">{user?.email?.split('@')[0] || 'User'}</h3>
-            <Badge className={getRoleBadgeColor(user?.role || 'user')}>
-              {formatRole(user?.role || 'user')}
+            <div className="flex items-center space-x-2">
+              <h3 className="font-semibold text-gray-900">{user?.email?.split('@')[0] || 'User'}</h3>
+              {/* Super Admin Crown Badge */}
+              {(user as any)?.roles?.includes('super_admin') && (
+                <Crown className="w-4 h-4 text-yellow-500" title="Super Administrator" />
+              )}
+            </div>
+            <Badge className={getRoleBadgeColor((user as any)?.roles?.[0] || 'user')}>
+              {formatRole((user as any)?.roles?.[0] || 'user')}
             </Badge>
           </div>
         </div>

@@ -73,6 +73,42 @@
   --chart-5: hsl(340, 75%, 55%);
 }
 
+/* Scrollbar styling for modal content */
+.modal-scroll {
+  overflow-y: scroll !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(203 213 225) transparent;
+}
+
+.modal-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.modal-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.modal-scroll::-webkit-scrollbar-thumb {
+  background: rgb(203 213 225);
+  border-radius: 4px;
+}
+
+.modal-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgb(148 163 184);
+}
+
+.dark .modal-scroll {
+  scrollbar-color: rgb(100 116 139) transparent;
+}
+
+.dark .modal-scroll::-webkit-scrollbar-thumb {
+  background: rgb(100 116 139);
+}
+
+.dark .modal-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgb(148 163 184);
+}
+
 @layer base {
   * {
     @apply border-border;
@@ -157,4 +193,55 @@
 
 .corecrm-table tbody tr {
   @apply hover:bg-gray-50 transition-colors duration-150;
+}
+
+/* WYSIWYG Editor Styles */
+.wysiwyg-editor .ql-container {
+  min-height: 300px;
+  font-family: inherit;
+}
+
+.wysiwyg-editor .ql-editor {
+  min-height: 300px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.wysiwyg-editor .ql-toolbar {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  background-color: hsl(var(--muted));
+  border-color: hsl(var(--border));
+}
+
+.wysiwyg-editor .ql-container {
+  border-bottom-left-radius: 0.5rem;
+  border-bottom-right-radius: 0.5rem;
+  border-color: hsl(var(--border));
+}
+
+.dark .wysiwyg-editor .ql-toolbar {
+  background-color: hsl(var(--muted));
+  border-color: hsl(var(--border));
+}
+
+.dark .wysiwyg-editor .ql-container {
+  border-color: hsl(var(--border));
+  background-color: hsl(var(--background));
+}
+
+.dark .wysiwyg-editor .ql-editor {
+  color: hsl(var(--foreground));
+}
+
+.dark .wysiwyg-editor .ql-stroke {
+  stroke: hsl(var(--foreground));
+}
+
+.dark .wysiwyg-editor .ql-fill {
+  fill: hsl(var(--foreground));
+}
+
+.dark .wysiwyg-editor .ql-picker-label {
+  color: hsl(var(--foreground));
 }

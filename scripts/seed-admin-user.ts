@@ -24,10 +24,10 @@ async function seedAdminUser(databaseUrl: string, environment: string) {
     await pool.query(`
       INSERT INTO users (
         id, email, username, password_hash, first_name, last_name, 
-        role, status, email_verified, created_at, updated_at
+        roles, status, email_verified, created_at, updated_at
       ) VALUES (
         'admin-prod-001', 'admin@corecrm.com', 'admin', $1, 
-        'System', 'Administrator', 'super_admin', 'active', 
+        'System', 'Administrator', '{super_admin}', 'active', 
         true, NOW(), NOW()
       )
     `, [hashedPassword]);

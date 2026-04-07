@@ -129,12 +129,13 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
 
 // Permission checking functions
 export function hasPermission(user: User | null, permission: Permission): boolean {
-  if (!user || !user.role) return false;
+  if (!user || !user.roles || !Array.isArray(user.roles)) return false;
   
-  const userRole = user.role as Role;
-  const rolePermissions = ROLE_PERMISSIONS[userRole] || [];
-  
-  return rolePermissions.includes(permission);
+  // Check if any of the user's roles has this permission
+  return user.roles.some((userRole: string) => {
+    const rolePermissions = ROLE_PERMISSIONS[userRole as Role] || [];
+    return rolePermissions.includes(permission);
+  });
 }
 
 export function hasAnyPermission(user: User | null, permissions: Permission[]): boolean {
@@ -147,13 +148,13 @@ export function hasAllPermissions(user: User | null, permissions: Permission[]):
 
 // Role checking functions
 export function hasRole(user: User | null, role: Role): boolean {
-  if (!user || !user.role) return false;
-  return user.role === role;
+  if (!user || !user.roles || !Array.isArray(user.roles)) return false;
+  return user.roles.includes(role);
 }
 
 export function hasAnyRole(user: User | null, roles: Role[]): boolean {
-  if (!user || !user.role) return false;
-  return roles.includes(user.role as Role);
+  if (!user || !user.roles || !Array.isArray(user.roles)) return false;
+  return user.roles.some((userRole: string) => roles.includes(userRole as Role));
 }
 
 // Higher-level access control functions

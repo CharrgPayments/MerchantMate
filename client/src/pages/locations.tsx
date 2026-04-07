@@ -13,6 +13,19 @@ import { useToast } from "@/hooks/use-toast";
 import { MapPin, Plus, Phone, Mail, DollarSign, TrendingUp } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { insertLocationSchema, insertAddressSchema, type InsertLocation, type InsertAddress, type LocationWithAddresses } from "@shared/schema";
+import { formatPhoneNumber, unformatPhoneNumber } from "@/lib/utils";
+import { z } from "zod";
+
+// Extend location schema with phone validation
+const locationFormSchema = insertLocationSchema.superRefine((data, ctx) => {
+  if (data.phone && unformatPhoneNumber(data.phone).length !== 10) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Phone number must be exactly 10 digits",
+      path: ["phone"],
+    });
+  }
+});
 
 // Revenue metrics component
 function LocationRevenue({ locationId }: { locationId: number }) {
@@ -106,7 +119,7 @@ export default function LocationsPage() {
   });
 
   const locationForm = useForm<InsertLocation>({
-    resolver: zodResolver(insertLocationSchema),
+    resolver: zodResolver(locationFormSchema),
     defaultValues: {
       merchantId,
       name: "",
@@ -259,7 +272,11 @@ export default function LocationsPage() {
                           <FormItem>
                             <FormLabel>Phone</FormLabel>
                             <FormControl>
-                              <Input placeholder="555-0123" {...field} value={field.value || ""} />
+                              <Input 
+                                placeholder="(555) 555-5555" 
+                                value={field.value || ""}
+                                onChange={(e) => field.onChange(formatPhoneNumber(e.target.value))}
+                              />
                             </FormControl>
                             <FormMessage />
                           </FormItem>

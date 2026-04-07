@@ -17,6 +17,7 @@ import {
 } from "@/lib/rbac";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
+import { DatabaseConnectionDialog } from "@/components/database-connection-dialog";
 import Dashboard from "@/pages/dashboard";
 import Merchants from "@/pages/merchants";
 import Locations from "@/pages/locations";
@@ -39,11 +40,17 @@ import ApplicationView from "@/pages/application-view";
 import ApplicationPrint from "@/pages/application-print";
 import AgentDashboard from "@/pages/agent-dashboard";
 import Campaigns from "@/pages/campaigns";
+import CampaignView from "@/pages/campaign-view";
 import Equipment from "@/pages/equipment";
-import EmailManagement from "@/pages/email-management";
+import Acquirers from "@/pages/acquirers";
+import ApplicationTemplates from "@/pages/application-templates";
+import FormDemo from "@/pages/form-demo";
+import ActionTemplates from "@/pages/action-templates";
+import CommunicationsManagement from "@/pages/communications-management";
 import ApiDocumentation from "@/pages/api-documentation";
-import Workflows from "@/pages/workflows";
 import TestingUtilities from "@/pages/testing-utilities";
+import AlertsPage from "@/pages/AlertsPage";
+import ProfilePage from "@/pages/profile";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import Auth from "@/pages/auth";
@@ -133,8 +140,18 @@ function AuthenticatedApp() {
         };
       case "/email-management":
         return {
-          title: "Email Management",
-          subtitle: "Manage email templates and track communication activity"
+          title: "Communication Management",
+          subtitle: "Manage email templates, notifications, and track multi-channel communication"
+        };
+      case "/action-templates":
+        return {
+          title: "Action Templates",
+          subtitle: "Manage reusable action templates for triggers and workflows"
+        };
+      case "/communications":
+        return {
+          title: "Communications Management",
+          subtitle: "Unified hub for managing multi-channel communications: email, SMS, webhooks, and notifications"
         };
       case "/pdf-forms":
         return {
@@ -156,10 +173,35 @@ function AuthenticatedApp() {
           title: "Equipment Management",
           subtitle: "Manage payment equipment and processing devices"
         };
+      case "/acquirers":
+        return {
+          title: "Acquirer Management",
+          subtitle: "Manage payment processors and their application requirements"
+        };
+      case "/application-templates":
+        return {
+          title: "Application Templates",
+          subtitle: "Manage dynamic form templates for acquirer applications"
+        };
+      case "/form-demo":
+        return {
+          title: "Dynamic Form Demo",
+          subtitle: "Test the dynamic form renderer with real acquirer templates"
+        };
       case "/api-documentation":
         return {
           title: "API Documentation",
           subtitle: "Comprehensive API reference for external integrations"
+        };
+      case "/alerts":
+        return {
+          title: "Notifications",
+          subtitle: "Manage your alerts and notifications"
+        };
+      case "/profile":
+        return {
+          title: "Profile Settings",
+          subtitle: "Manage your account information and preferences"
         };
       default:
         return {
@@ -319,10 +361,11 @@ function AuthenticatedApp() {
               );
             }}
           </Route>
-          <Route path="/email-management">
+          <Route path="/action-templates">
             {() => {
-              if (!user || (user.role !== 'admin' && user.role !== 'super_admin')) return <NotFound />;
-              const pageInfo = getPageInfo("/email-management");
+              const userRoles = (user as any)?.roles || [];
+              if (!user || (!userRoles.includes('admin') && !userRoles.includes('super_admin'))) return <NotFound />;
+              const pageInfo = getPageInfo("/action-templates");
               return (
                 <>
                   <Header 
@@ -330,7 +373,25 @@ function AuthenticatedApp() {
                     onSearch={setGlobalSearch}
                   />
                   <main className="flex-1 overflow-auto bg-gray-50">
-                    <EmailManagement />
+                    <ActionTemplates />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/communications">
+            {() => {
+              const userRoles = (user as any)?.roles || [];
+              if (!user || (!userRoles.includes('admin') && !userRoles.includes('super_admin'))) return <NotFound />;
+              const pageInfo = getPageInfo("/communications");
+              return (
+                <>
+                  <Header 
+                    title={pageInfo.title} 
+                    onSearch={setGlobalSearch}
+                  />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <CommunicationsManagement />
                   </main>
                 </>
               );
@@ -472,7 +533,7 @@ function AuthenticatedApp() {
                     onSearch={setGlobalSearch}
                   />
                   <main className="flex-1 overflow-auto bg-gray-50">
-                    <Campaigns />
+                    <CampaignView />
                   </main>
                 </>
               );
@@ -512,14 +573,52 @@ function AuthenticatedApp() {
               );
             }}
           </Route>
-          <Route path="/workflows">
+          <Route path="/acquirers">
             {() => {
-              if (!canAccessSecurityDashboard(user)) return <NotFound />;
+              if (!canAccessAgentManagement(user)) return <NotFound />;
+              const pageInfo = getPageInfo("/acquirers");
               return (
                 <>
-                  <Header title="Workflows" onSearch={setGlobalSearch} />
+                  <Header 
+                    title={pageInfo.title} 
+                    onSearch={setGlobalSearch}
+                  />
                   <main className="flex-1 overflow-auto bg-gray-50">
-                    <Workflows />
+                    <Acquirers />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/application-templates">
+            {() => {
+              if (!canAccessAgentManagement(user)) return <NotFound />;
+              const pageInfo = getPageInfo("/application-templates");
+              return (
+                <>
+                  <Header 
+                    title={pageInfo.title} 
+                    onSearch={setGlobalSearch}
+                  />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <ApplicationTemplates />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/form-demo">
+            {() => {
+              if (!canAccessAgentManagement(user)) return <NotFound />;
+              const pageInfo = getPageInfo("/form-demo");
+              return (
+                <>
+                  <Header 
+                    title={pageInfo.title} 
+                    onSearch={setGlobalSearch}
+                  />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <FormDemo />
                   </main>
                 </>
               );
@@ -555,6 +654,41 @@ function AuthenticatedApp() {
                   <main className="flex-1 overflow-auto bg-gray-50">
                     <div className="container mx-auto p-6">
                       <TestingUtilities />
+                    </div>
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/alerts">
+            {() => {
+              const pageInfo = getPageInfo("/alerts");
+              return (
+                <>
+                  <Header 
+                    title={pageInfo.title} 
+                    onSearch={setGlobalSearch}
+                  />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <AlertsPage />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+
+          <Route path="/profile">
+            {() => {
+              const pageInfo = getPageInfo("/profile");
+              return (
+                <>
+                  <Header 
+                    title={pageInfo.title} 
+                    onSearch={setGlobalSearch}
+                  />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <div className="container mx-auto p-6">
+                      <ProfilePage />
                     </div>
                   </main>
                 </>
@@ -641,10 +775,81 @@ function AppContent() {
 }
 
 function App() {
+  const [showDbDialog, setShowDbDialog] = useState(false);
+
+  // Check for database connection issues on mount
+  useEffect(() => {
+    const checkConnection = async () => {
+      try {
+        const response = await fetch('/api/database-connection-status');
+        const data = await response.json();
+        
+        // Show dialog if current environment's database is not configured
+        if (data.success && data.availableEnvironments) {
+          const currentEnv = data.availableEnvironments.find(
+            (env: any) => env.environment === data.currentEnvironment
+          );
+          
+          // Only show if not production and current environment is not available
+          if (data.canSwitch && currentEnv && !currentEnv.available) {
+            setShowDbDialog(true);
+          }
+        }
+      } catch (error) {
+        // Connection check failed - might be expected on first load
+        console.log('Database connection check skipped:', error);
+      }
+    };
+
+    checkConnection();
+  }, []);
+
+  // Add global error handler for database connection errors
+  useEffect(() => {
+    const originalFetch = window.fetch;
+    window.fetch = async (...args) => {
+      try {
+        const response = await originalFetch(...args);
+        
+        // Check for database-related errors in response
+        if (!response.ok && response.status === 500) {
+          const clone = response.clone();
+          try {
+            const data = await clone.json();
+            if (data.message && (
+              data.message.includes('database') ||
+              data.message.includes('connection') ||
+              data.message.includes('schema')
+            )) {
+              setShowDbDialog(true);
+            }
+          } catch (e) {
+            // Not JSON response, ignore
+          }
+        }
+        
+        return response;
+      } catch (error) {
+        throw error;
+      }
+    };
+
+    return () => {
+      window.fetch = originalFetch;
+    };
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <AppContent />
+        <DatabaseConnectionDialog
+          open={showDbDialog}
+          onClose={() => setShowDbDialog(false)}
+          onEnvironmentChange={(env) => {
+            console.log('Environment changed to:', env);
+          }}
+        />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>

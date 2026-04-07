@@ -1,11 +1,246 @@
-import { Search, Bell, Clock, MapPin, Database, AlertTriangle } from "lucide-react";
+import { Search, Bell, Clock, MapPin, Database, AlertTriangle, Check, Trash2, Mail, ExternalLink, User, LogOut, Settings } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { formatDateInUserTimezone, getTimezoneAbbreviation } from "@/lib/timezone";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Link } from "wouter";
+
+interface Alert {
+  id: number;
+  userId: string;
+  message: string;
+  type: 'info' | 'warning' | 'error' | 'success';
+  isRead: boolean;
+  createdAt: string;
+  readAt?: string | null;
+  actionUrl?: string | null;
+  actionActivityId?: number | null;
+}
+
+function AlertsButton() {
+  const [open, setOpen] = useState(false);
+  const { user } = useAuth();
+
+  const { data: alertCount } = useQuery<{ count: number }>({
+    queryKey: ['/api/alerts/count'],
+    queryFn: async () => {
+      const res = await fetch('/api/alerts/count', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch alert count');
+      return res.json();
+    },
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
+  const { data: alertsData, isLoading } = useQuery<{ alerts: Alert[] }>({
+    queryKey: ['/api/alerts'],
+    queryFn: async () => {
+      const res = await fetch('/api/alerts', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch alerts');
+      return res.json();
+    },
+    enabled: open, // Only fetch when dropdown is open
+  });
+
+  const markAsReadMutation = useMutation({
+    mutationFn: async (alertId: number) => {
+      return apiRequest('PATCH', `/api/alerts/${alertId}/read`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/alerts/count'] });
+    }
+  });
+
+  const markAllAsReadMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('POST', '/api/alerts/read-all');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/alerts/count'] });
+    }
+  });
+
+  const deleteAlertMutation = useMutation({
+    mutationFn: async (alertId: number) => {
+      return apiRequest('DELETE', `/api/alerts/${alertId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/alerts/count'] });
+    }
+  });
+
+  const unreadCount = alertCount?.count || 0;
+  const hasUnread = unreadCount > 0;
+  const alerts = alertsData?.alerts || [];
+
+  const getAlertTypeStyles = (type: Alert['type']) => {
+    switch (type) {
+      case 'error':
+        return 'bg-red-50 border-red-200 text-red-900';
+      case 'warning':
+        return 'bg-yellow-50 border-yellow-200 text-yellow-900';
+      case 'success':
+        return 'bg-green-50 border-green-200 text-green-900';
+      default:
+        return 'bg-blue-50 border-blue-200 text-blue-900';
+    }
+  };
+
+  const handleAlertClick = (alert: Alert) => {
+    if (!alert.isRead) {
+      markAsReadMutation.mutate(alert.id);
+    }
+  };
+
+  const formatAlertDate = (dateStr: string) => {
+    const timezone = user?.timezone || undefined;
+    return formatDateInUserTimezone(dateStr, "MMM dd, yyyy 'at' hh:mm a", timezone);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className="relative"
+          data-testid="button-alerts"
+        >
+          <Bell 
+            className="w-5 h-5" 
+            style={{ 
+              stroke: hasUnread ? '#dc2626' : '#10b981', // Red if unread, green if all read
+              strokeWidth: hasUnread ? 2.5 : 2
+            }} 
+          />
+          {hasUnread && (
+            <Badge 
+              className="absolute -top-1 -right-1 h-5 min-w-5 flex items-center justify-center px-1 bg-red-500 text-white text-xs"
+              data-testid="badge-alert-count"
+            >
+              {unreadCount}
+            </Badge>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-96 p-0" align="end" data-testid="popover-alerts">
+        <div className="flex items-center justify-between p-4 border-b">
+          <h3 className="font-semibold text-sm">Notifications</h3>
+          {hasUnread && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => markAllAsReadMutation.mutate()}
+              disabled={markAllAsReadMutation.isPending}
+              data-testid="button-mark-all-read"
+            >
+              <Check className="w-4 h-4 mr-1" />
+              Mark all read
+            </Button>
+          )}
+        </div>
+        
+        <ScrollArea className="h-96">
+          {isLoading ? (
+            <div className="p-4 text-center text-sm text-gray-500">Loading alerts...</div>
+          ) : alerts.length === 0 ? (
+            <div className="p-8 text-center">
+              <Mail className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+              <p className="text-sm text-gray-500">No notifications</p>
+            </div>
+          ) : (
+            <div className="divide-y">
+              {alerts.map((alert) => (
+                <div
+                  key={alert.id}
+                  className={`p-4 ${!alert.isRead ? 'bg-gray-50' : ''} hover:bg-gray-100 transition-colors cursor-pointer`}
+                  onClick={() => handleAlertClick(alert)}
+                  data-testid={`alert-item-${alert.id}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <div className={`inline-block px-2 py-1 rounded text-xs font-medium mb-2 ${getAlertTypeStyles(alert.type)}`}>
+                        {alert.type.toUpperCase()}
+                      </div>
+                      <p className="text-sm mb-2">{alert.message}</p>
+                      <p className="text-xs text-gray-500">
+                        {formatAlertDate(alert.createdAt)}
+                      </p>
+                      {alert.actionUrl && (
+                        <Link href={alert.actionUrl}>
+                          <Button 
+                            variant="link" 
+                            size="sm" 
+                            className="p-0 h-auto mt-2 text-blue-600"
+                            onClick={(e) => e.stopPropagation()}
+                            data-testid={`button-alert-action-${alert.id}`}
+                          >
+                            <ExternalLink className="w-3 h-3 mr-1" />
+                            View details
+                          </Button>
+                        </Link>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {!alert.isRead && (
+                        <div className="w-2 h-2 bg-blue-600 rounded-full" data-testid={`badge-unread-${alert.id}`}></div>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteAlertMutation.mutate(alert.id);
+                        }}
+                        disabled={deleteAlertMutation.isPending}
+                        data-testid={`button-delete-alert-${alert.id}`}
+                      >
+                        <Trash2 className="w-4 h-4 text-gray-500" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </ScrollArea>
+
+        <Separator />
+        
+        <div className="p-2">
+          <Link href="/alerts">
+            <Button 
+              variant="ghost" 
+              className="w-full justify-center text-sm" 
+              onClick={() => setOpen(false)}
+              data-testid="button-view-all-alerts"
+            >
+              View all notifications
+            </Button>
+          </Link>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 interface HeaderProps {
   title: string;
@@ -14,70 +249,35 @@ interface HeaderProps {
 
 export function Header({ title, onSearch }: HeaderProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [currentDbParam, setCurrentDbParam] = useState<string | null>(null);
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const queryClient = useQueryClient();
   
-  // Watch for URL changes and database environment changes
+  // Global environment system - listen for environment changes
   useEffect(() => {
-    const updateDbParam = () => {
-      const urlParams = new URLSearchParams(window.location.search);
-      let dbParam = urlParams.get('db');
-      
-      // If no URL parameter, check localStorage for persistent environment
-      if (!dbParam) {
-        const storedEnv = localStorage.getItem('selectedDbEnvironment');
-        if (storedEnv && ['test', 'dev'].includes(storedEnv)) {
-          dbParam = storedEnv;
-        }
-      }
-      
-      if (dbParam !== currentDbParam) {
-        setCurrentDbParam(dbParam);
-        // Invalidate the database environment query to force refetch
-        queryClient.invalidateQueries({ queryKey: ['/api/admin/db-environment'] });
-      }
+    const handleEnvChange = (event: CustomEvent) => {
+      // Invalidate all queries when environment changes globally
+      queryClient.invalidateQueries();
     };
     
-    // Listen for custom database environment change events
-    const handleDbEnvChange = (event: CustomEvent) => {
-      const newEnv = event.detail.environment;
-      const dbParam = newEnv === 'default' ? null : newEnv;
-      setCurrentDbParam(dbParam);
-      // Invalidate the database environment query to force refetch
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/db-environment'] });
-    };
-    
-    // Initial check
-    updateDbParam();
-    
-    // Listen for custom events from Testing Utilities
-    window.addEventListener('dbEnvironmentChanged', handleDbEnvChange as EventListener);
-    
-    // Check URL parameters periodically as backup (reduced frequency)
-    const intervalId = setInterval(updateDbParam, 30000);
+    // Listen for global environment change events
+    window.addEventListener('globalEnvironmentChanged', handleEnvChange as EventListener);
     
     return () => {
-      window.removeEventListener('dbEnvironmentChanged', handleDbEnvChange as EventListener);
-      clearInterval(intervalId);
+      window.removeEventListener('globalEnvironmentChanged', handleEnvChange as EventListener);
     };
-  }, [currentDbParam, queryClient]);
+  }, [queryClient]);
   
-  // Fetch current database environment
+  // Fetch global environment status
   const { data: dbEnvironment } = useQuery({
-    queryKey: ['/api/admin/db-environment'],
+    queryKey: ['/api/environment'],
     queryFn: async () => {
-      const url = currentDbParam 
-        ? `/api/admin/db-environment?db=${currentDbParam}`
-        : '/api/admin/db-environment';
-        
-      const response = await fetch(url, {
+      const response = await fetch('/api/environment', {
         credentials: 'include'
       });
-      if (!response.ok) return { environment: 'production', version: '1.0' };
+      if (!response.ok) return { environment: 'production', globalEnvironment: 'production', isProduction: true };
       return response.json();
     },
-    staleTime: 60000, // Cache for 1 minute
+    staleTime: 30000, // Cache for 30 seconds
     gcTime: 300000, // Keep in cache for 5 minutes
     refetchInterval: false, // Disable automatic refetching
     refetchOnWindowFocus: false, // Disable refetch on window focus
@@ -184,10 +384,39 @@ export function Header({ title, onSearch }: HeaderProps) {
           </div>
 
           {/* Notifications */}
-          <Button variant="ghost" size="icon" className="relative">
-            <Bell className="w-5 h-5" />
-            <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"></span>
-          </Button>
+          <AlertsButton />
+
+          {/* User Menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" data-testid="button-user-menu">
+                <User className="w-5 h-5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>
+                <div>
+                  <p className="font-medium">{user?.firstName} {user?.lastName}</p>
+                  <p className="text-xs text-muted-foreground">{user?.email}</p>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/profile" className="flex items-center cursor-pointer">
+                  <Settings className="mr-2 h-4 w-4" />
+                  <span>Profile Settings</span>
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem 
+                onClick={logout}
+                className="cursor-pointer text-red-600 focus:text-red-600"
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Sign Out</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </header>

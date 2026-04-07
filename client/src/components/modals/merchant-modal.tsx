@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { merchantsApi, agentsApi } from "@/lib/api";
 import type { Merchant, InsertMerchant } from "@shared/schema";
+import { formatPhoneNumber, unformatPhoneNumber } from "@/lib/utils";
 
 const merchantSchema = z.object({
   businessName: z.string().min(1, "Business name is required"),
@@ -41,6 +42,9 @@ const merchantSchema = z.object({
   processingFee: z.string().default("2.50"),
   status: z.enum(["active", "pending", "suspended"]).default("active"),
   monthlyVolume: z.string().default("0"),
+}).refine((data) => unformatPhoneNumber(data.phone).length === 10, {
+  message: "Phone number must be exactly 10 digits",
+  path: ["phone"],
 });
 
 type MerchantFormData = z.infer<typeof merchantSchema>;
@@ -212,7 +216,11 @@ export function MerchantModal({ isOpen, onClose, merchant }: MerchantModalProps)
                   <FormItem>
                     <FormLabel>Phone Number *</FormLabel>
                     <FormControl>
-                      <Input placeholder="+1 (555) 000-0000" {...field} />
+                      <Input 
+                        placeholder="(555) 555-5555" 
+                        value={field.value || ""}
+                        onChange={(e) => field.onChange(formatPhoneNumber(e.target.value))}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

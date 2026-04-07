@@ -52,8 +52,8 @@ export default function PdfFormsPage() {
   const { user } = useAuth();
 
   // Check if user has admin access
-  const userRole = (user as any)?.role;
-  const hasAdminAccess = userRole === 'admin' || userRole === 'super_admin';
+  const userRoles = (user as any)?.roles || [];
+  const hasAdminAccess = userRoles.includes('admin') || userRoles.includes('super_admin');
 
   // If user doesn't have admin access, show access denied
   if (!hasAdminAccess) {

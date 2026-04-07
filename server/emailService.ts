@@ -1,4 +1,6 @@
 import { MailService } from '@sendgrid/mail';
+import { db } from './db';
+import { emailActivity } from '@shared/schema';
 
 if (!process.env.SENDGRID_API_KEY) {
   throw new Error("SENDGRID_API_KEY environment variable must be set");
@@ -17,6 +19,7 @@ interface ProspectEmailData {
   email: string;
   validationToken: string;
   agentName: string;
+  dbEnv?: string;
 }
 
 interface SignatureRequestData {
@@ -27,6 +30,7 @@ interface SignatureRequestData {
   signatureToken: string;
   requesterName: string;
   agentName: string;
+  dbEnv?: string;
 }
 
 interface ApplicationSubmissionData {
@@ -37,17 +41,55 @@ interface ApplicationSubmissionData {
   agentEmail: string;
   submissionDate: string;
   applicationToken: string;
+  dbEnv?: string;
+}
+
+interface PasswordResetEmailData {
+  email: string;
+  resetToken: string;
+  dbEnv?: string;
 }
 
 export class EmailService {
   private getBaseUrl(): string {
-    // Use the current domain or localhost for development
-    return process.env.BASE_URL || 'http://localhost:5000';
+    // Use the deployed domain or localhost for development
+    // Prefer APP_URL but fall back to BASE_URL for backward compatibility
+    return process.env.APP_URL || process.env.BASE_URL || 'http://localhost:5000';
+  }
+
+  private async logEmailActivity(
+    templateName: string,
+    recipientEmail: string,
+    subject: string,
+    status: 'sent' | 'failed',
+    errorMessage?: string,
+    triggerSource?: string,
+    metadata?: any
+  ): Promise<void> {
+    try {
+      await db.insert(emailActivity).values({
+        templateName,
+        recipientEmail,
+        subject,
+        status,
+        errorMessage: errorMessage || null,
+        triggerSource: triggerSource || 'api',
+        triggeredBy: 'system',
+        metadata: metadata || null,
+        sentAt: new Date(),
+      });
+    } catch (error) {
+      console.error('Failed to log email activity:', error);
+      // Don't throw error to prevent app crash - just log it
+    }
   }
 
   async sendProspectValidationEmail(data: ProspectEmailData): Promise<boolean> {
     try {
-      const validationUrl = `${this.getBaseUrl()}/prospect-validation?token=${data.validationToken}`;
+      let validationUrl = `${this.getBaseUrl()}/prospect-validation?token=${data.validationToken}`;
+      if (data.dbEnv && data.dbEnv !== 'production') {
+        validationUrl += `&db=${data.dbEnv}`;
+      }
       
       const htmlContent = `
         <!DOCTYPE html>
@@ -150,7 +192,10 @@ This is an automated message. Please do not reply to this email.
 
   async sendSignatureRequestEmail(data: SignatureRequestData): Promise<boolean> {
     try {
-      const signatureUrl = `${this.getBaseUrl()}/signature-request?token=${data.signatureToken}`;
+      let signatureUrl = `${this.getBaseUrl()}/signature-request?token=${data.signatureToken}`;
+      if (data.dbEnv && data.dbEnv !== 'production') {
+        signatureUrl += `&db=${data.dbEnv}`;
+      }
       
       const htmlContent = `
         <!DOCTYPE html>
@@ -199,7 +244,7 @@ This is an automated message. Please do not reply to this email.
                 If you have questions about this application, contact your agent ${data.agentName} directly.
               </div>
               
-              <p><strong>Security Note:</strong> This link is personalized and secure. It will expire in 30 days for your protection.</p>
+              <p><strong>Security Note:</strong> This link is personalized and secure. It will expire in 7 days for your protection.</p>
               
               <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
               
@@ -232,7 +277,7 @@ Agent: ${data.agentName}
 Please click the link below to provide your digital signature:
 ${signatureUrl}
 
-This link is secure and personalized for you. It will expire in 30 days for your protection.
+This link is secure and personalized for you. It will expire in 7 days for your protection.
 
 By signing, you acknowledge your ownership percentage and authorize the application on behalf of ${data.companyName}.
 
@@ -248,12 +293,49 @@ This email was sent to ${data.ownerEmail}
         html: htmlContent,
       });
 
+      // Log email activity
+      await this.logEmailActivity(
+        'signature_request',
+        data.ownerEmail,
+        `Signature Required: ${data.companyName} Merchant Application`,
+        'sent',
+        undefined,
+        'signature_workflow',
+        {
+          companyName: data.companyName,
+          ownerName: data.ownerName,
+          ownershipPercentage: data.ownershipPercentage,
+          requesterName: data.requesterName,
+          agentName: data.agentName,
+          signatureToken: data.signatureToken
+        }
+      );
+
+      console.log(`Signature request email sent successfully to ${data.ownerEmail}`);
       return true;
     } catch (error: any) {
       console.error('Error sending signature request email:', error);
       if (error.response?.body?.errors) {
         console.error('SendGrid error details:', JSON.stringify(error.response.body.errors, null, 2));
       }
+      
+      // Log failed email activity
+      await this.logEmailActivity(
+        'signature_request',
+        data.ownerEmail,
+        `Signature Required: ${data.companyName} Merchant Application`,
+        'failed',
+        error.message || 'Unknown error',
+        'signature_workflow',
+        {
+          companyName: data.companyName,
+          ownerName: data.ownerName,
+          ownershipPercentage: data.ownershipPercentage,
+          requesterName: data.requesterName,
+          agentName: data.agentName
+        }
+      );
+      
       return false;
     }
   }
@@ -261,12 +343,15 @@ This email was sent to ${data.ownerEmail}
   async sendApplicationSubmissionNotification(data: ApplicationSubmissionData, pdfAttachment?: Buffer): Promise<boolean> {
     try {
       const baseUrl = this.getBaseUrl();
-      const statusUrl = `${baseUrl}/application-status/${data.applicationToken}`;
+      let statusUrl = `${baseUrl}/application-status/${data.applicationToken}`;
+      if (data.dbEnv && data.dbEnv !== 'production') {
+        statusUrl += `?db=${data.dbEnv}`;
+      }
       
       // Email to merchant with PDF attachment
       const merchantMsg = {
         to: data.applicantEmail,
-        from: process.env.SENDGRID_FROM_EMAIL || 'noreply@corecrm.com',
+        from: process.env.SENDGRID_FROM_EMAIL!,
         subject: `Application Submitted Successfully - ${data.companyName}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -330,7 +415,7 @@ This email was sent to ${data.ownerEmail}
       // Email to agent notification
       const agentMsg = {
         to: data.agentEmail,
-        from: process.env.SENDGRID_FROM_EMAIL || 'noreply@corecrm.com',
+        from: process.env.SENDGRID_FROM_EMAIL!,
         subject: `New Application Submitted - ${data.companyName}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -386,6 +471,125 @@ This email was sent to ${data.ownerEmail}
       return true;
     } catch (error) {
       console.error('SendGrid application submission notification error:', error);
+      return false;
+    }
+  }
+
+  async sendPasswordResetEmail(data: PasswordResetEmailData): Promise<boolean> {
+    try {
+      let resetUrl = `${this.getBaseUrl()}/auth/reset-password?token=${data.resetToken}`;
+      if (data.dbEnv && data.dbEnv !== 'production') {
+        resetUrl += `&db=${data.dbEnv}`;
+      }
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Password Reset - CoreCRM</title>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background-color: #2563eb; color: white; padding: 20px; text-align: center; }
+            .content { padding: 30px 20px; background-color: #f9f9f9; }
+            .button { display: inline-block; background-color: #dc2626; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
+            .footer { background-color: #333; color: #ccc; padding: 20px; text-align: center; font-size: 12px; }
+            .warning { background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Password Reset Request</h1>
+              <p>CoreCRM Account Security</p>
+            </div>
+            
+            <div class="content">
+              <h2>Reset Your Password</h2>
+              
+              <p>You requested a password reset for your CoreCRM account.</p>
+              
+              <p>Click the button below to reset your password:</p>
+              
+              <div style="text-align: center;">
+                <a href="${resetUrl}" class="button">Reset Password</a>
+              </div>
+              
+              <div class="warning">
+                <strong>Important:</strong> This link will expire in 1 hour for your security.
+              </div>
+              
+              <p>If you didn't request this reset, please ignore this email and your password will remain unchanged.</p>
+              
+              ${data.dbEnv && data.dbEnv !== 'production' ? `<p><em>Note: This reset is for the ${data.dbEnv} database environment.</em></p>` : ''}
+            </div>
+            
+            <div class="footer">
+              <p>CoreCRM - Secure Payment Management Platform</p>
+              <p>This email was sent to ${data.email}</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      const textContent = `
+Password Reset Request - CoreCRM
+
+You requested a password reset for your CoreCRM account.
+
+Click the link below to reset your password:
+${resetUrl}
+
+This link will expire in 1 hour for your security.
+
+If you didn't request this reset, please ignore this email and your password will remain unchanged.
+
+${data.dbEnv && data.dbEnv !== 'production' ? `Note: This reset is for the ${data.dbEnv} database environment.` : ''}
+
+CoreCRM - Secure Payment Management Platform
+This email was sent to ${data.email}
+      `;
+
+      await mailService.send({
+        to: data.email,
+        from: process.env.SENDGRID_FROM_EMAIL!,
+        subject: 'CoreCRM Password Reset Request',
+        text: textContent,
+        html: htmlContent,
+      });
+
+      // Log email activity to database
+      await this.logEmailActivity(
+        'password_reset',
+        data.email,
+        'CoreCRM Password Reset Request',
+        'sent',
+        undefined,
+        'password_reset_request',
+        {
+          resetToken: data.resetToken,
+          dbEnv: data.dbEnv,
+          resetUrl: resetUrl
+        }
+      );
+
+      console.log(`Password reset email sent successfully to ${data.email}`);
+      return true;
+    } catch (error) {
+      console.error('Failed to send password reset email:', error);
+      
+      // Log failed email activity
+      await this.logEmailActivity(
+        'password_reset',
+        data.email,
+        'CoreCRM Password Reset Request',
+        'failed',
+        error instanceof Error ? error.message : 'Unknown error',
+        'password_reset_request'
+      );
+      
       return false;
     }
   }

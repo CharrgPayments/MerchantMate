@@ -207,16 +207,46 @@ export const DEFAULT_DASHBOARD_LAYOUTS = {
 
 // Utility functions
 export function getAvailableWidgets(role: string): WidgetType[] {
-  return ROLE_WIDGET_PERMISSIONS[role as keyof typeof ROLE_WIDGET_PERMISSIONS] || [];
+  const widgets = ROLE_WIDGET_PERMISSIONS[role as keyof typeof ROLE_WIDGET_PERMISSIONS] || [];
+  return [...widgets]; // Convert readonly array to mutable array
 }
 
-export function canUserAccessWidget(role: string, widgetType: WidgetType): boolean {
-  const availableWidgets = getAvailableWidgets(role);
-  return availableWidgets.includes(widgetType);
+export function getAvailableWidgetsForUser(roles: string[]): WidgetType[] {
+  const allWidgets = new Set<WidgetType>();
+  for (const role of roles) {
+    const roleWidgets = ROLE_WIDGET_PERMISSIONS[role as keyof typeof ROLE_WIDGET_PERMISSIONS] || [];
+    roleWidgets.forEach(widget => allWidgets.add(widget));
+  }
+  return Array.from(allWidgets);
 }
 
-export function getDefaultLayout(role: string) {
-  return DEFAULT_DASHBOARD_LAYOUTS[role as keyof typeof DEFAULT_DASHBOARD_LAYOUTS] || [];
+export function canUserAccessWidget(roles: string[] | string, widgetType: WidgetType): boolean {
+  // Support both single role (string) and multiple roles (array) for backward compatibility
+  const userRoles = Array.isArray(roles) ? roles : [roles];
+  for (const role of userRoles) {
+    const availableWidgets = getAvailableWidgets(role);
+    if (availableWidgets.includes(widgetType)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function getDefaultLayout(roles: string[] | string) {
+  // Support both single role (string) and multiple roles (array)
+  const userRoles = Array.isArray(roles) ? roles : [roles];
+  
+  // Use the highest privilege role for default layout
+  const roleHierarchy = ['super_admin', 'admin', 'corporate', 'agent', 'merchant'];
+  
+  for (const hierarchyRole of roleHierarchy) {
+    if (userRoles.includes(hierarchyRole)) {
+      return DEFAULT_DASHBOARD_LAYOUTS[hierarchyRole as keyof typeof DEFAULT_DASHBOARD_LAYOUTS] || [];
+    }
+  }
+  
+  // Fallback to merchant layout if no role matches
+  return DEFAULT_DASHBOARD_LAYOUTS.merchant || [];
 }
 
 export function validateWidgetConfig(widgetType: WidgetType, config: any) {

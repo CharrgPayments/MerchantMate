@@ -1,0 +1,30 @@
+CREATE TABLE "signature_captures" (
+        "id" serial PRIMARY KEY NOT NULL,
+        "application_id" integer,
+        "prospect_id" integer,
+        "role_key" text NOT NULL,
+        "signer_type" text NOT NULL,
+        "signer_name" text,
+        "signer_email" text,
+        "signature" text,
+        "signature_type" text,
+        "initials" text,
+        "date_signed" timestamp,
+        "timestamp_signed" timestamp,
+        "timestamp_requested" timestamp,
+        "timestamp_expires" timestamp,
+        "request_token" text,
+        "status" text DEFAULT 'pending' NOT NULL,
+        "notes" text,
+        "ownership_percentage" numeric(5, 2),
+        "created_at" timestamp DEFAULT now() NOT NULL,
+        "updated_at" timestamp DEFAULT now() NOT NULL,
+        CONSTRAINT "signature_captures_request_token_unique" UNIQUE("request_token")
+);--> statement-breakpoint
+ALTER TABLE "acquirer_application_templates" ADD COLUMN "signature_groups" jsonb DEFAULT '[]'::jsonb;--> statement-breakpoint
+ALTER TABLE "signature_captures" ADD CONSTRAINT "signature_captures_application_id_prospect_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."prospect_applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "signature_captures" ADD CONSTRAINT "signature_captures_prospect_id_merchant_prospects_id_fk" FOREIGN KEY ("prospect_id") REFERENCES "public"."merchant_prospects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "signature_captures_application_id_idx" ON "signature_captures" USING btree ("application_id");--> statement-breakpoint
+CREATE INDEX "signature_captures_prospect_id_idx" ON "signature_captures" USING btree ("prospect_id");--> statement-breakpoint
+CREATE INDEX "signature_captures_request_token_idx" ON "signature_captures" USING btree ("request_token");--> statement-breakpoint
+CREATE INDEX "signature_captures_status_idx" ON "signature_captures" USING btree ("status");

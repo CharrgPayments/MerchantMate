@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { eq, desc, and } from "drizzle-orm";
 import { userDashboardPreferences } from "@shared/schema";
-import { ROLE_WIDGET_PERMISSIONS, getDefaultLayout, canUserAccessWidget, validateWidgetConfig, type WidgetType } from "@shared/widget-schema";
+import { ROLE_WIDGET_PERMISSIONS, getDefaultLayout, canUserAccessWidget, validateWidgetConfig, getAvailableWidgetsForUser, type WidgetType } from "@shared/widget-schema";
 import { insertUserDashboardPreferenceSchema } from "@shared/schema";
 import { z } from "zod";
 import { dbEnvironmentMiddleware, type RequestWithDB } from "../dbMiddleware";
@@ -26,7 +26,7 @@ router.get("/widgets", async (req: RequestWithDB, res) => {
       });
     }
     
-    console.log(`Dashboard API - Getting widgets for user ${userId} with role ${user.role}`);
+    console.log(`Dashboard API - Getting widgets for user ${userId} with roles ${user.roles.join(', ')}`);
     
     // Get user's current widget preferences
     const widgets = await req.db.select()
@@ -36,8 +36,8 @@ router.get("/widgets", async (req: RequestWithDB, res) => {
     
     // If user has no widgets, initialize with default layout for their role
     if (widgets.length === 0) {
-      const defaultLayout = getDefaultLayout(user.role);
-      console.log(`Dashboard API - Initializing default layout for role ${user.role}:`, defaultLayout);
+      const defaultLayout = getDefaultLayout(user.roles);
+      console.log(`Dashboard API - Initializing default layout for roles ${user.roles.join(', ')}:`, defaultLayout);
       
       if (defaultLayout.length > 0) {
         // Insert default widgets
@@ -59,9 +59,9 @@ router.get("/widgets", async (req: RequestWithDB, res) => {
       }
     }
     
-    // Filter widgets to only those the user's role can access
+    // Filter widgets to only those the user's roles can access
     const allowedWidgets = widgets.filter(widget => 
-      canUserAccessWidget(user.role, widget.widget_id as WidgetType)
+      canUserAccessWidget(user.roles, widget.widget_id as WidgetType)
     );
     
     console.log(`Dashboard API - Returning ${allowedWidgets.length} widgets`);
@@ -103,7 +103,7 @@ router.post("/widgets", async (req: RequestWithDB, res) => {
     console.log(`Dashboard API - Adding widget ${validatedData.widgetId} for user ${userId}`);
     
     // Check if user's role can access this widget
-    if (!canUserAccessWidget(user.role, validatedData.widgetId as WidgetType)) {
+    if (!canUserAccessWidget(user.roles, validatedData.widgetId as WidgetType)) {
       return res.status(403).json({ 
         success: false, 
         message: "Widget not available for your role" 
@@ -295,13 +295,13 @@ router.delete("/widgets/:id", async (req: RequestWithDB, res) => {
 router.get("/available-widgets", async (req: RequestWithDB, res) => {
   try {
     const user = req.user!;
-    const availableWidgets = ROLE_WIDGET_PERMISSIONS[user.role as keyof typeof ROLE_WIDGET_PERMISSIONS] || [];
+    const availableWidgets = getAvailableWidgetsForUser(user.roles);
     
-    console.log(`Dashboard API - Available widgets for role ${user.role}:`, availableWidgets.length);
+    console.log(`Dashboard API - Available widgets for roles ${user.roles.join(', ')}:`, availableWidgets.length);
     
     res.json({
       success: true,
-      role: user.role,
+      roles: user.roles,
       widgets: availableWidgets,
     });
   } catch (error) {

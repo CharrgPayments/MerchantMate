@@ -117,7 +117,7 @@ const emailTriggersData = [
 
 async function seedEmailSystem() {
   console.log('📧 Seeding Complete Email System...');
-  console.log(`Development DB: ${DEV_DB_URL.split('@')[1].split('/')[0]}`);
+  console.log(`Development DB: ${DEV_DB_URL!.split('@')[1].split('/')[0]}`);
   
   try {
     // 1. Create email tables
