@@ -9,7 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Zap, ChevronRight, Loader2, CheckCircle2, Circle, Clock, AlertCircle,
   Bot, User, Globe, Settings2, FileText, Hash, Calendar, ArrowRight,
-  XCircle, AlertTriangle, PlayCircle, PauseCircle
+  XCircle, AlertTriangle, PlayCircle, PauseCircle, RefreshCw
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -295,14 +295,12 @@ export default function Workflows() {
   const [selectedTicket, setSelectedTicket]     = useState<any>(null);
   const [activeTab, setActiveTab]               = useState("stages");
 
-  useEffect(() => {
-    queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows"] });
-  }, []);
-
   const { data: workflows = [], isLoading } = useQuery<any[]>({
-    queryKey: ["/api/admin/workflows"],
+    queryKey: ["/api/admin/workflows-list"],
+    queryFn: () => fetch("/api/admin/workflows", { credentials: "include" }).then(r => r.json()),
     staleTime: 0,
-    refetchOnMount: "always",
+    gcTime: 0,
+    refetchOnMount: true,
   });
 
   const { data: stages = [], isLoading: stagesLoading } = useQuery<any[]>({
@@ -337,10 +335,19 @@ export default function Workflows() {
       {/* ── Left panel: workflow list ── */}
       <div className="w-72 border-r bg-white flex flex-col shrink-0">
         <div className="p-4 border-b">
-          <div className="flex items-center gap-2">
-            <Zap className="h-5 w-5 text-blue-600" />
-            <h2 className="font-semibold text-gray-900">Workflows</h2>
-            <Badge variant="secondary">{(workflows as any[]).length}</Badge>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Zap className="h-5 w-5 text-blue-600" />
+              <h2 className="font-semibold text-gray-900">Workflows</h2>
+              <Badge variant="secondary">{(workflows as any[]).length}</Badge>
+            </div>
+            <button
+              onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows-list"] })}
+              className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+            </button>
           </div>
           <p className="text-xs text-gray-400 mt-1">Automation workflow definitions</p>
         </div>
