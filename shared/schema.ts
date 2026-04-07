@@ -212,7 +212,7 @@ export const users = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
-  role: text("role").notNull().default("merchant"), // merchant, agent, admin, corporate, super_admin
+  roles: text("roles").array().notNull().default(["merchant"]), // merchant, agent, admin, corporate, super_admin
   status: text("status").notNull().default("active"), // active, suspended, inactive
   permissions: jsonb("permissions").default("{}"),
   lastLoginAt: timestamp("last_login_at"),
@@ -317,7 +317,7 @@ export type PasswordReset = z.infer<typeof passwordResetSchema>;
 export type TwoFactorVerify = z.infer<typeof twoFactorVerifySchema>;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type UpsertUser = typeof users.$inferInsert;
-export type User = typeof users.$inferSelect;
+export type User = typeof users.$inferSelect & { role?: string };
 export type LoginAttempt = typeof loginAttempts.$inferSelect;
 export type TwoFactorCode = typeof twoFactorCodes.$inferSelect;
 

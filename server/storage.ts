@@ -361,6 +361,14 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  // Add backward-compat `role` field from `roles` array
+  private withRole<T extends { roles?: string[] | null }>(user: T): T & { role?: string } {
+    return { ...user, role: user.roles?.[0] ?? "merchant" };
+  }
+  private withRoles<T extends { roles?: string[] | null }>(userList: T[]): (T & { role?: string })[] {
+    return userList.map(u => this.withRole(u));
+  }
+
   // Fee Groups implementation
   async getAllFeeGroups(): Promise<FeeGroupWithItems[]> {
     const groups = await db.select().from(feeGroups).orderBy(feeGroups.displayOrder);
@@ -1537,34 +1545,34 @@ export class DatabaseStorage implements IStorage {
     console.log('Storage.getUser - Looking for user with ID:', id);
     const [user] = await db.select().from(users).where(eq(users.id, id));
     console.log('Storage.getUser - Found:', user ? `${user.username} (${user.id})` : 'null');
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.email, email));
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.username, username));
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async getUserByUsernameOrEmail(username: string, email: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(
       or(eq(users.username, username), eq(users.email, email))
     );
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async getUserByResetToken(token: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.passwordResetToken, token));
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async getUserByEmailVerificationToken(token: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.emailVerificationToken, token));
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async createUser(userData: Partial<UpsertUser>): Promise<User> {
@@ -1572,11 +1580,12 @@ export class DatabaseStorage implements IStorage {
       .insert(users)
       .values(userData as UpsertUser)
       .returning();
-    return user;
+    return this.withRole(user);
   }
 
   async getAllUsers(): Promise<User[]> {
-    return await db.select().from(users);
+    const userList = await db.select().from(users);
+    return this.withRoles(userList);
   }
 
   async upsertUser(userData: UpsertUser): Promise<User> {
@@ -1591,7 +1600,7 @@ export class DatabaseStorage implements IStorage {
         },
       })
       .returning();
-    return user;
+    return this.withRole(user);
   }
 
   async updateUser(id: string, updates: Partial<UpsertUser>): Promise<User | undefined> {
@@ -1600,16 +1609,16 @@ export class DatabaseStorage implements IStorage {
       .set({ ...updates, updatedAt: new Date() })
       .where(eq(users.id, id))
       .returning();
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async updateUserRole(id: string, role: string): Promise<User | undefined> {
     const [user] = await db
       .update(users)
-      .set({ role, updatedAt: new Date() })
+      .set({ roles: [role], updatedAt: new Date() })
       .where(eq(users.id, id))
       .returning();
-    return user || undefined;
+    return user ? this.withRole(user) : undefined;
   }
 
   async updateUserStatus(id: string, status: string): Promise<User | undefined> {
@@ -2129,7 +2138,7 @@ export class DatabaseStorage implements IStorage {
       passwordHash,
       firstName: agentData.firstName,
       lastName: agentData.lastName,
-      role: 'agent' as const,
+      roles: ['agent'],
       status: 'active' as const,
       emailVerified: true, // Auto-verify for system-created accounts
     };
@@ -2166,7 +2175,7 @@ export class DatabaseStorage implements IStorage {
       passwordHash,
       firstName,
       lastName,
-      role: 'merchant' as const,
+      roles: ['merchant'],
       status: 'active' as const,
       emailVerified: true, // Auto-verify for system-created accounts
     };

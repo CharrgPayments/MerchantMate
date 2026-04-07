@@ -3613,7 +3613,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           passwordHash,
           firstName: validationResult.data.firstName,
           lastName: validationResult.data.lastName,
-          role: 'agent' as const,
+          roles: ['agent'],
           status: 'active' as const,
           emailVerified: true,
         };
