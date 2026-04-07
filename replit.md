@@ -1,5 +1,12 @@
 # Core CRM - Merchant Payment Processing System
 
+## Recent Changes (April 2026)
+- **Workflow Definitions system**: Added `workflow_definitions`, `workflow_endpoints`, and `workflow_environment_configs` tables. Full CRUD API at `/api/admin/workflows` with GET/POST/PUT/DELETE for workflows, endpoints, and environment configs. Frontend page `client/src/pages/workflows.tsx` with split-panel UI added; sidebar nav item added with `Zap` icon.
+- **User schema additions**: Added `phone`, `communicationPreference`, and `mustChangePassword` fields to the `users` table (both dev and prod databases updated via `ALTER TABLE`).
+- **Role array support**: `users.roles` is now `text[]`. A `withRole()` shim adds backward-compatible `role = roles[0]` on all user-returning methods. `normalizeLegacyRole()` typed helper converts legacy `role` string to `roles` array without `any` casts.
+- **Route access control**: `/workflows`, `/security`, `/audit-trail`, and related routes use `canAccessSecurityDashboard(user)` from `client/src/lib/rbac.ts` instead of hardcoded role string comparisons.
+- **Env-config full CRUD**: Added POST and DELETE handlers for workflow environment configs alongside the existing GET and PUT.
+
 ## Overview
 Core CRM is a comprehensive merchant payment processing management system that streamlines merchant onboarding, transaction management, location tracking, form processing, and analytics. It's designed with role-based access for various user types, including merchants, agents, administrators, and corporate users, aiming to provide a robust, scalable, and secure platform for payment processing businesses. The business vision is to empower businesses with efficient, transparent, and secure payment management, offering a competitive edge in the market.
 

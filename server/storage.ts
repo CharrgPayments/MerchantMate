@@ -375,6 +375,18 @@ export interface IStorage {
   upsertWorkflowEnvironmentConfig(workflowId: number, environment: string, config: any): Promise<WorkflowEnvironmentConfig>;
 }
 
+// Extended user input type that accepts legacy `role` string alongside new `roles` array
+type UserInputWithLegacyRole = Partial<UpsertUser> & { role?: string };
+
+// Normalize a legacy `role` string to a `roles` array, returning a clean UpsertUser-shaped object
+function normalizeLegacyRole(input: UserInputWithLegacyRole): Partial<UpsertUser> {
+  const { role, ...rest } = input;
+  if (role !== undefined && rest.roles === undefined) {
+    return { ...rest, roles: [role] };
+  }
+  return rest as Partial<UpsertUser>;
+}
+
 export class DatabaseStorage implements IStorage {
   // Add backward-compat `role` field from `roles` array
   private withRole<T extends { roles?: string[] | null }>(user: T): T & { role?: string } {
@@ -1590,13 +1602,8 @@ export class DatabaseStorage implements IStorage {
     return user ? this.withRole(user) : undefined;
   }
 
-  async createUser(userData: Partial<UpsertUser>): Promise<User> {
-    // Normalize legacy `role` string to `roles` array
-    const normalized: any = { ...userData };
-    if ((normalized as any).role && !normalized.roles) {
-      normalized.roles = [(normalized as any).role];
-      delete (normalized as any).role;
-    }
+  async createUser(userData: UserInputWithLegacyRole): Promise<User> {
+    const normalized = normalizeLegacyRole(userData);
     const [user] = await db
       .insert(users)
       .values(normalized as UpsertUser)
@@ -1609,13 +1616,8 @@ export class DatabaseStorage implements IStorage {
     return this.withRoles(userList);
   }
 
-  async upsertUser(userData: UpsertUser): Promise<User> {
-    // Normalize legacy `role` string to `roles` array
-    const normalized: any = { ...userData };
-    if ((normalized as any).role && !normalized.roles) {
-      normalized.roles = [(normalized as any).role];
-      delete (normalized as any).role;
-    }
+  async upsertUser(userData: UpsertUser & { role?: string }): Promise<User> {
+    const normalized = normalizeLegacyRole(userData);
     const [user] = await db
       .insert(users)
       .values(normalized as UpsertUser)
@@ -1630,13 +1632,8 @@ export class DatabaseStorage implements IStorage {
     return this.withRole(user);
   }
 
-  async updateUser(id: string, updates: Partial<UpsertUser>): Promise<User | undefined> {
-    // Normalize legacy `role` string to `roles` array
-    const normalized: any = { ...updates };
-    if ((normalized as any).role && !normalized.roles) {
-      normalized.roles = [(normalized as any).role];
-      delete (normalized as any).role;
-    }
+  async updateUser(id: string, updates: UserInputWithLegacyRole): Promise<User | undefined> {
+    const normalized = normalizeLegacyRole(updates);
     const [user] = await db
       .update(users)
       .set({ ...normalized, updatedAt: new Date() })

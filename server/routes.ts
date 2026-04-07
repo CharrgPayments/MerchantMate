@@ -6522,16 +6522,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/admin/workflows/:id/env-configs", requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const { environment, config } = req.body;
+      if (!environment) return res.status(400).json({ message: "environment is required" });
+      const result = await storage.upsertWorkflowEnvironmentConfig(parseInt(req.params.id), environment, config ?? {});
+      res.status(201).json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to create environment config" });
+    }
+  });
+
   app.put("/api/admin/workflows/:id/env-configs/:env", requireRole(['admin', 'super_admin']), async (req, res) => {
     try {
       const config = await storage.upsertWorkflowEnvironmentConfig(
         parseInt(req.params.id),
         req.params.env,
-        req.body.config
+        req.body.config ?? req.body
       );
       res.json(config);
     } catch (error) {
       res.status(500).json({ message: "Failed to save environment config" });
+    }
+  });
+
+  app.delete("/api/admin/workflows/:id/env-configs/:env", requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const { workflowEnvironmentConfigs: wec } = await import("@shared/schema");
+      const { and: andOp, eq: eqOp } = await import("drizzle-orm");
+      const { db: dbConn } = await import("./db");
+      await dbConn.delete(wec).where(
+        andOp(
+          eqOp(wec.workflowId, parseInt(req.params.id)),
+          eqOp(wec.environment, req.params.env)
+        )
+      );
+      res.json({ message: "Environment config deleted" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete environment config" });
     }
   });
 

@@ -519,7 +519,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/workflows">
             {() => {
-              if (!user || (user.role !== 'admin' && user.role !== 'super_admin')) return <NotFound />;
+              if (!canAccessSecurityDashboard(user)) return <NotFound />;
               const pageInfo = getPageInfo("/workflows");
               return (
                 <>
