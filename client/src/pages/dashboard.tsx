@@ -67,7 +67,7 @@ export default function DashboardPage() {
   // Update widget mutation
   const updateWidget = useMutation({
     mutationFn: ({ id, updates }: { id: number; updates: Partial<UserDashboardPreference> }) =>
-      apiRequest("PATCH", `/api/dashboard/widgets/${id}`, updates),
+      apiRequest("PUT", `/api/dashboard/widgets/${id}`, updates),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/widgets"] });
       toast({
