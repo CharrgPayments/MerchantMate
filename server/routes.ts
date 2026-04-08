@@ -8093,19 +8093,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const cfg = (template.config || {}) as Record<string, any>;
       if (!cfg.url) return res.status(400).json({ message: "Template has no URL configured" });
 
-      // Resolve route params using their default values
+      // Resolve {{$SECRET_NAME}} placeholders first so they don't interfere with route param detection
       let url: string = cfg.url;
-      const routeParams: Array<{ name: string; defaultValue?: string }> = cfg.routeParams || [];
-      for (const param of routeParams) {
-        if (param.defaultValue) {
-          url = url.replace(new RegExp(`\\{${param.name}\\}`, 'g'), param.defaultValue);
-        }
-      }
-      if (/\{[^{}]+\}/.test(url)) {
-        return res.status(400).json({ message: `URL has unresolved route parameters: ${url}. Set default values on the template.` });
-      }
-
-      // Resolve {{$SECRET_NAME}} placeholders before sending
       let headersRaw: string | undefined = cfg.headers;
       let bodyRaw: string | undefined = cfg.body;
       try {
@@ -8114,6 +8103,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (bodyRaw) bodyRaw = resolveSecrets(bodyRaw);
       } catch (secretErr: any) {
         return res.status(400).json({ message: secretErr.message });
+      }
+
+      // Resolve route params using their default values
+      const routeParams: Array<{ name: string; defaultValue?: string }> = cfg.routeParams || [];
+      for (const param of routeParams) {
+        if (param.defaultValue) {
+          url = url.replace(new RegExp(`\\{${param.name}\\}`, 'g'), param.defaultValue);
+        }
+      }
+      if (/\{[^{}]+\}/.test(url)) {
+        return res.status(400).json({ message: `URL has unresolved route parameters: ${url}. Set default values on the template.` });
       }
 
       let parsedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };

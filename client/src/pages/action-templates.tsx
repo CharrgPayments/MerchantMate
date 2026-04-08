@@ -500,24 +500,28 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
     return Array.from(vars);
   };
 
-  // Extract single-brace route parameters like {merchantId} from a URL string.
-  // Double-brace template vars like {{variable}} are NOT treated as route params.
+  // Strip {{...}} double-brace tokens (secrets + template vars) before scanning for single-brace route params
+  const stripDoubleBraceTokens = (url: string): string => url.replace(/\{\{[^{}]*\}\}/g, '');
+
   const extractRouteParamNames = (url: string): string[] => {
     const names: string[] = [];
+    // Work on a version of the URL with all {{...}} tokens removed so they don't yield false route params
+    const stripped = stripDoubleBraceTokens(url);
     const regex = /\{([^{}]+)\}/g;
     let m: RegExpExecArray | null;
-    while ((m = regex.exec(url)) !== null) {
+    while ((m = regex.exec(stripped)) !== null) {
       const inner = m[1].trim();
-      // skip anything that starts with { (would be {{...}})
       if (inner && !names.includes(inner)) names.push(inner);
     }
     return names;
   };
 
   // Replace {paramName} tokens in a URL with their configured default values.
+  // Double-brace tokens like {{$SECRET}} and {{variable}} are left untouched.
   const resolveUrlWithParams = (url: string, params: RouteParam[]): string => {
     if (!url || !params?.length) return url;
-    return url.replace(/\{([^{}]+)\}/g, (_match, name: string) => {
+    // Replace only single-brace {param} patterns, not {{...}}
+    return url.replace(/(?<!\{)\{(?!\{)([^{}]+)\}(?!\})/g, (_match, name: string) => {
       const p = params.find((rp) => rp.name === name.trim());
       return p?.defaultValue !== undefined && p.defaultValue !== '' ? p.defaultValue : `{${name}}`;
     });
