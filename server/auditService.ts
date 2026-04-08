@@ -399,27 +399,6 @@ export class AuditService {
     );
   }
 
-  /**
-   * Calculate risk level based on request method and path
-   */
-  private calculateRiskLevel(method: string, path: string, statusCode: number): 'low' | 'medium' | 'high' | 'critical' {
-    // High-risk operations - ALL delete operations are high risk
-    if (method === 'DELETE' || path.includes('delete') || path.includes('/delete')) return 'high';
-    if (path.includes('admin') || path.includes('users') || path.includes('agents')) return 'medium';
-    if (statusCode >= 400) return 'medium';
-    
-    return 'low';
-  }
-
-  /**
-   * Classify data type based on endpoint
-   */
-  private classifyDataType(path: string): 'public' | 'internal' | 'confidential' | 'restricted' {
-    if (path.includes('auth') || path.includes('user') || path.includes('security')) return 'confidential';
-    if (path.includes('admin') || path.includes('agents') || path.includes('merchants')) return 'restricted';
-    
-    return 'internal';
-  }
 }
 
 export const auditService = new AuditService();
