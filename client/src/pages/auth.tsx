@@ -159,7 +159,17 @@ export default function Auth() {
   // Forgot password mutation
   const forgotPasswordMutation = useMutation({
     mutationFn: async (data: ForgotPasswordForm) => {
-      const response = await apiRequest("POST", "/api/auth/forgot-password", data);
+      // Pass the selected database environment so the user is found in the right DB
+      let url = "/api/auth/forgot-password";
+      if (selectedDatabase && selectedDatabase !== 'production') {
+        url += `?db=${selectedDatabase}`;
+      }
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
       return response.json();
     },
     onSuccess: (data) => {
@@ -180,7 +190,19 @@ export default function Auth() {
   // Reset password mutation
   const resetPasswordMutation = useMutation({
     mutationFn: async (data: ResetPasswordForm) => {
-      const response = await apiRequest("POST", "/api/auth/reset-password", data);
+      // Pass the db environment from the reset link URL so the token is validated in the right DB
+      const urlParams = new URLSearchParams(window.location.search);
+      const dbParam = urlParams.get("db");
+      let url = "/api/auth/reset-password";
+      if (dbParam && dbParam !== 'production') {
+        url += `?db=${dbParam}`;
+      }
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
       return response.json();
     },
     onSuccess: (data) => {

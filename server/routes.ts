@@ -15,7 +15,7 @@ import { emailService } from "./emailService";
 import { v4 as uuidv4 } from "uuid";
 import { dbEnvironmentMiddleware, adminDbMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
 import { getDynamicDatabase } from "./db";
-import { users, agents, merchants, agentMerchants, actionTemplates, triggerCatalog, triggerActions, actionActivity } from "@shared/schema";
+import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity } from "@shared/schema";
 import crypto from "crypto";
 import { eq, or, ilike } from "drizzle-orm";
 
@@ -1645,49 +1645,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Merchant Prospect routes
-  app.get("/api/prospects", isAuthenticated, async (req, res) => {
+  app.get("/api/prospects", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
       const { search } = req.query;
       const userId = (req.session as any).userId;
+      const dynamicDB = getRequestDB(req);
       const user = await storage.getUser(userId);
       
       if (!user) {
         return res.status(401).json({ message: "User not found" });
       }
 
+      console.log(`Prospects endpoint - Database environment: ${req.dbEnv}`);
+
       let prospects;
       
       if (user.role === 'agent') {
         // Agents can only see their assigned prospects
-        let agent = await storage.getAgentByEmail(user.email);
-        
-        // If no agent found by email, use fallback for development/testing
-        if (!agent && userId === 'user_agent_1') {
-          // For development, fallback to agent ID 2 (Mike Chen)
-          agent = await storage.getAgent(2);
-          console.log('Using fallback agent for prospects:', agent?.firstName, agent?.lastName);
-        }
+        const [agent] = await dynamicDB.select().from(agents).where(eq(agents.email, user.email));
         
         if (!agent) {
           return res.status(403).json({ message: "Agent not found" });
         }
         
+        const allAgentProspects = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.agentId, agent.id));
         if (search) {
-          prospects = await storage.searchMerchantProspectsByAgent(agent.id, search as string);
+          const q = (search as string).toLowerCase();
+          prospects = allAgentProspects.filter(p =>
+            `${p.firstName} ${p.lastName}`.toLowerCase().includes(q) ||
+            p.email.toLowerCase().includes(q)
+          );
         } else {
-          prospects = await storage.getMerchantProspectsByAgent(agent.id);
+          prospects = allAgentProspects;
         }
       } else if (['admin', 'corporate', 'super_admin'].includes(user.role)) {
         // Admins can see all prospects
+        const allProspects = await dynamicDB.select().from(merchantProspects);
         if (search) {
-          prospects = await storage.searchMerchantProspects(search as string);
+          const q = (search as string).toLowerCase();
+          prospects = allProspects.filter(p =>
+            `${p.firstName} ${p.lastName}`.toLowerCase().includes(q) ||
+            p.email.toLowerCase().includes(q)
+          );
         } else {
-          prospects = await storage.getAllMerchantProspects();
+          prospects = allProspects;
         }
       } else {
         return res.status(403).json({ message: "Access denied" });
       }
-      
+
+      console.log(`Found ${prospects.length} prospects in ${req.dbEnv} database`);
       res.json(prospects);
     } catch (error) {
       console.error("Error fetching prospects:", error);
@@ -7958,18 +7965,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/action-templates/:id/test — test send a template
   app.post("/api/action-templates/:id/test", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
-      const db = req.db!;
-      const [template] = await db.select().from(actionTemplates).where(eq(actionTemplates.id, parseInt(req.params.id)));
-      if (!template) return res.status(404).json({ message: "Template not found" });
-      const { recipientEmail } = req.body;
-      if (template.actionType === 'email' && recipientEmail) {
-        const config = template.config as any;
-        await emailService.sendEmail({
-          to: recipientEmail,
-          subject: `[TEST] ${config.subject || template.name}`,
-          html: config.body || config.html || `<p>Test send of template: ${template.name}</p>`,
+      const { mode, config: inlineConfig, recipientEmail } = req.body;
+
+      // Handle webhook live proxy
+      if (mode === 'live') {
+        const cfg = inlineConfig || {};
+        const { url, method = 'GET', headers: headersStr, body: bodyStr } = cfg;
+        if (!url) return res.status(400).json({ message: "No URL configured for this webhook" });
+
+        let parsedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (headersStr) {
+          try { parsedHeaders = { ...parsedHeaders, ...JSON.parse(headersStr) }; } catch {}
+        }
+
+        const fetchOptions: RequestInit = { method, headers: parsedHeaders };
+        if (method !== 'GET' && method !== 'HEAD' && bodyStr) {
+          fetchOptions.body = bodyStr;
+        }
+
+        const startTime = Date.now();
+        const upstream = await fetch(url, fetchOptions);
+        const elapsed = Date.now() - startTime;
+
+        let data: any;
+        const contentType = upstream.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          data = await upstream.json();
+        } else {
+          const text = await upstream.text();
+          try { data = JSON.parse(text); } catch { data = { _raw: text }; }
+        }
+
+        return res.json({
+          success: upstream.ok,
+          status: upstream.status,
+          statusText: upstream.statusText,
+          elapsed,
+          data,
+          mode: 'live',
         });
       }
+
+      // Handle email test
+      const db = req.db!;
+      const idStr = req.params.id;
+      if (idStr !== 'preview' && !isNaN(parseInt(idStr))) {
+        const [template] = await db.select().from(actionTemplates).where(eq(actionTemplates.id, parseInt(idStr)));
+        if (!template) return res.status(404).json({ message: "Template not found" });
+        if (template.actionType === 'email' && recipientEmail) {
+          const cfg = template.config as any;
+          await emailService.sendEmail({
+            to: recipientEmail,
+            subject: `[TEST] ${cfg.subject || template.name}`,
+            html: cfg.body || cfg.html || `<p>Test send of template: ${template.name}</p>`,
+          });
+        }
+      }
+
       res.json({ success: true, message: "Test sent successfully" });
     } catch (error: any) {
       res.status(500).json({ message: "Failed to send test", error: error.message });

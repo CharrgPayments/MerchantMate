@@ -43,7 +43,14 @@ import {
   Edit,
   Trash2,
   Copy,
-  ExternalLink
+  ExternalLink,
+  ChevronDown,
+  ChevronUp,
+  Play,
+  Database,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -107,6 +114,9 @@ const webhookConfigSchema = z.object({
   method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
   headers: z.string().optional(),
   body: z.string().optional(),
+  responseSchema: z.string().optional(),
+  mockData: z.string().optional(),
+  isDataSource: z.boolean().optional(),
 });
 
 const notificationConfigSchema = z.object({
@@ -181,6 +191,10 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
   const [sampleData, setSampleData] = useState<Record<string, string>>({});
   const [showTestDialog, setShowTestDialog] = useState(false);
   const [testEmail, setTestEmail] = useState('');
+  const [showTestPanel, setShowTestPanel] = useState(false);
+  const [testResult, setTestResult] = useState<any>(null);
+  const [testLoading, setTestLoading] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
   
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -438,6 +452,58 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
     setShowPreview(true);
   };
 
+  const getFieldsFromData = (data: any, prefix = ''): { key: string; type: string; preview: string }[] => {
+    if (!data || typeof data !== 'object') return [];
+    const fields: { key: string; type: string; preview: string }[] = [];
+    for (const [k, v] of Object.entries(data)) {
+      const fullKey = prefix ? `${prefix}.${k}` : k;
+      if (Array.isArray(v)) {
+        fields.push({ key: fullKey, type: `array[${v.length}]`, preview: v.length > 0 ? JSON.stringify(v[0]).slice(0, 60) : '[]' });
+      } else if (v !== null && typeof v === 'object') {
+        fields.push({ key: fullKey, type: 'object', preview: `{${Object.keys(v as object).join(', ')}}` });
+      } else {
+        fields.push({ key: fullKey, type: typeof v, preview: String(v).slice(0, 60) });
+      }
+    }
+    return fields;
+  };
+
+  const runWebhookTest = async (mode: 'live' | 'mock') => {
+    setTestLoading(true);
+    setTestError(null);
+    setTestResult(null);
+    try {
+      if (mode === 'mock') {
+        if (!configFields.mockData) throw new Error('No mock data configured. Add Mock Response Data and save first.');
+        const parsed = JSON.parse(configFields.mockData);
+        setTestResult({ data: parsed, status: 200, mode: 'mock' });
+      } else {
+        if (!configFields.url) throw new Error('No URL configured.');
+        const response = await fetch(`/api/action-templates/${template?.id || 'preview'}/test`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            mode: 'live',
+            config: {
+              url: configFields.url,
+              method: configFields.method || 'GET',
+              headers: configFields.headers,
+              body: configFields.body,
+            },
+          }),
+        });
+        const json = await response.json();
+        if (!response.ok) throw new Error(json.message || `HTTP ${response.status}`);
+        setTestResult(json);
+      }
+    } catch (err: any) {
+      setTestError(err.message || 'Unknown error');
+    } finally {
+      setTestLoading(false);
+    }
+  };
+
   const renderConfigFields = () => {
     switch (actionType) {
       case 'email':
@@ -666,6 +732,52 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
                   data-testid="textarea-webhook-body"
                 />
               </FormControl>
+            </FormItem>
+
+            <FormItem>
+              <FormLabel>Expected Response Schema (optional)</FormLabel>
+              <FormControl>
+                <Textarea
+                  value={configFields.responseSchema || ''}
+                  onChange={(e) => setConfigFields({ ...configFields, responseSchema: e.target.value })}
+                  placeholder={'{\n  "merchants": [\n    { "id": 1, "name": "Acme Corp", "status": "active" }\n  ]\n}'}
+                  rows={5}
+                  data-testid="textarea-webhook-response-schema"
+                />
+              </FormControl>
+              <FormDescription className="text-xs">
+                Paste a sample JSON response from this endpoint so you can explore its fields and map them to dashboards.
+              </FormDescription>
+            </FormItem>
+
+            <FormItem>
+              <FormLabel>Mock Response Data (optional)</FormLabel>
+              <FormControl>
+                <Textarea
+                  value={configFields.mockData || ''}
+                  onChange={(e) => setConfigFields({ ...configFields, mockData: e.target.value })}
+                  placeholder={'{\n  "merchants": [\n    { "id": 1, "name": "Test Merchant" }\n  ]\n}'}
+                  rows={5}
+                  data-testid="textarea-webhook-mock-data"
+                />
+              </FormControl>
+              <FormDescription className="text-xs">
+                Sample data to use when testing UI integration without hitting the live endpoint.
+              </FormDescription>
+            </FormItem>
+
+            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+              <div className="space-y-0.5">
+                <FormLabel>Use as Data Source</FormLabel>
+                <FormDescription className="text-xs">
+                  Mark this template as a reusable data provider that can feed dashboards and tables.
+                </FormDescription>
+              </div>
+              <Switch
+                checked={!!configFields.isDataSource}
+                onCheckedChange={(checked) => setConfigFields({ ...configFields, isDataSource: checked })}
+                data-testid="switch-is-data-source"
+              />
             </FormItem>
           </>
         );
@@ -943,6 +1055,98 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
               )}
             />
 
+            {/* Test Request Panel — only for webhook templates */}
+            {actionType === 'webhook' && (
+              <div className="border rounded-lg overflow-hidden" data-testid="test-request-panel">
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between px-4 py-3 bg-muted/50 hover:bg-muted transition-colors text-sm font-medium"
+                  onClick={() => setShowTestPanel(!showTestPanel)}
+                  data-testid="button-toggle-test-panel"
+                >
+                  <div className="flex items-center gap-2">
+                    <Play className="h-4 w-4 text-muted-foreground" />
+                    Test Request
+                  </div>
+                  {showTestPanel ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </button>
+
+                {showTestPanel && (
+                  <div className="p-4 space-y-4">
+                    {/* Action Buttons */}
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => runWebhookTest('live')}
+                        disabled={testLoading || !configFields.url}
+                        data-testid="button-run-live-request"
+                      >
+                        {testLoading ? <Loader2 className="h-3 w-3 mr-2 animate-spin" /> : <Play className="h-3 w-3 mr-2" />}
+                        Run Live Request
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => runWebhookTest('mock')}
+                        disabled={testLoading || !configFields.mockData}
+                        data-testid="button-use-mock-data"
+                      >
+                        Use Mock Data
+                      </Button>
+                    </div>
+
+                    {/* Error State */}
+                    {testError && (
+                      <div className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-sm" data-testid="test-error">
+                        <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                        {testError}
+                      </div>
+                    )}
+
+                    {/* Result */}
+                    {testResult && !testError && (
+                      <div className="space-y-3" data-testid="test-result">
+                        <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                          <CheckCircle2 className="h-4 w-4" />
+                          {testResult.mode === 'mock' ? 'Mock data loaded' : `Response received (HTTP ${testResult.status})`}
+                        </div>
+
+                        {/* Raw JSON */}
+                        <div className="space-y-1">
+                          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Response</div>
+                          <pre className="text-xs bg-muted p-3 rounded-md overflow-auto max-h-40 whitespace-pre-wrap break-all" data-testid="test-response-json">
+                            {JSON.stringify(testResult.data, null, 2)}
+                          </pre>
+                        </div>
+
+                        {/* Field Explorer */}
+                        {testResult.data && typeof testResult.data === 'object' && (
+                          <div className="space-y-1" data-testid="field-explorer">
+                            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Field Explorer</div>
+                            <div className="rounded-md border divide-y text-xs max-h-48 overflow-auto">
+                              {getFieldsFromData(testResult.data).map((field) => (
+                                <div key={field.key} className="flex items-center justify-between px-3 py-2 hover:bg-muted/40">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <code className="font-mono font-semibold truncate">{field.key}</code>
+                                    <Badge variant="outline" className="text-[10px] shrink-0 py-0">
+                                      {field.type}
+                                    </Badge>
+                                  </div>
+                                  <span className="text-muted-foreground truncate max-w-[200px] ml-4">{field.preview}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             <DialogFooter>
               <Button
                 type="button"
@@ -961,6 +1165,17 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
                 >
                   <Send className="w-4 h-4 mr-2" />
                   Test Email
+                </Button>
+              )}
+              {actionType === 'webhook' && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowTestPanel(!showTestPanel)}
+                  data-testid="button-open-test-panel"
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  Test Request
                 </Button>
               )}
               <Button
@@ -1220,6 +1435,7 @@ export default function ActionTemplates() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedType, setSelectedType] = useState<ActionType | 'all'>('all');
   const [selectedCategory, setSelectedCategory] = useState<Category>('all');
+  const [showDataSourcesOnly, setShowDataSourcesOnly] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [selectedTemplate, setSelectedTemplate] = useState<ActionTemplate | null>(null);
@@ -1321,8 +1537,9 @@ export default function ActionTemplates() {
                          (template.description || '').toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = selectedType === 'all' || template.actionType === selectedType;
     const matchesCategory = selectedCategory === 'all' || template.category === selectedCategory;
+    const matchesDataSource = !showDataSourcesOnly || !!(template.config as any)?.isDataSource;
     
-    return matchesSearch && matchesType && matchesCategory;
+    return matchesSearch && matchesType && matchesCategory && matchesDataSource;
   });
 
   // Group templates by action type
@@ -1445,6 +1662,16 @@ export default function ActionTemplates() {
                 <SelectItem value="alert">Alert</SelectItem>
               </SelectContent>
             </Select>
+            <Button
+              type="button"
+              variant={showDataSourcesOnly ? "default" : "outline"}
+              className="gap-2 shrink-0"
+              onClick={() => setShowDataSourcesOnly(!showDataSourcesOnly)}
+              data-testid="button-filter-data-sources"
+            >
+              <Database className="h-4 w-4" />
+              Data Sources
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -1512,6 +1739,12 @@ export default function ActionTemplates() {
                               {template.category}
                             </Badge>
                             <Badge variant="outline">v{template.version}</Badge>
+                            {(template.config as any)?.isDataSource && (
+                              <Badge className="gap-1 bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200" data-testid={`badge-data-source-${template.id}`}>
+                                <Database className="h-3 w-3" />
+                                Data Source
+                              </Badge>
+                            )}
                             {isInUse && (
                               <Badge 
                                 variant="secondary" 
