@@ -495,6 +495,10 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
         });
         const json = await response.json();
         if (!response.ok) throw new Error(json.message || `HTTP ${response.status}`);
+        // Surface upstream non-2xx as an error so the UI shows the error state
+        if (!json.success) {
+          throw new Error(`Upstream returned HTTP ${json.status} ${json.statusText || ''}`.trim());
+        }
         setTestResult(json);
       }
     } catch (err: any) {

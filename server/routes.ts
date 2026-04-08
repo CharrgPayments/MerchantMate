@@ -7969,6 +7969,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Handle webhook live proxy
       if (mode === 'live') {
+        // When a real template ID is given, verify it is a webhook template
+        const proxyIdStr = req.params.id;
+        if (proxyIdStr !== 'preview' && !isNaN(parseInt(proxyIdStr))) {
+          const db = req.db!;
+          const [tmpl] = await db.select().from(actionTemplates).where(eq(actionTemplates.id, parseInt(proxyIdStr)));
+          if (tmpl && tmpl.actionType !== 'webhook') {
+            return res.status(400).json({ message: `Cannot run live request test on a '${tmpl.actionType}' template — only webhook templates support this mode.` });
+          }
+        }
+
         const cfg = inlineConfig || {};
         const { url, method = 'GET', headers: headersStr, body: bodyStr } = cfg;
         if (!url) return res.status(400).json({ message: "No URL configured for this webhook" });
