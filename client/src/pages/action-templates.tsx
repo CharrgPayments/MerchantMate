@@ -56,6 +56,8 @@ import {
   Eye,
   EyeOff,
   ClipboardCopy,
+  Tag,
+  Type,
 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -1020,6 +1022,13 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
                 Paste a sample JSON response from this endpoint so you can explore its fields and map them to dashboards.
               </FormDescription>
             </FormItem>
+
+            {/* Field Label Mappings — stored in configFields.fieldLabels as {apiKey: friendlyLabel} */}
+            <FieldLabelEditor
+              fieldLabels={(configFields.fieldLabels as Record<string, string>) || {}}
+              responseSchema={configFields.responseSchema || ''}
+              onChange={(labels) => setConfigFields({ ...configFields, fieldLabels: labels })}
+            />
 
             <FormItem>
               <FormLabel>Mock Response Data (optional)</FormLabel>
@@ -2203,6 +2212,155 @@ export default function ActionTemplates() {
         template={selectedTemplate}
         mode={modalMode}
       />
+    </div>
+  );
+}
+
+// ─── Field Label Editor (webhook template form) ─────────────────────────────
+
+interface FieldLabelEditorProps {
+  fieldLabels: Record<string, string>;
+  responseSchema: string;
+  onChange: (labels: Record<string, string>) => void;
+}
+
+function FieldLabelEditor({ fieldLabels, responseSchema, onChange }: FieldLabelEditorProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Parse field names out of the response schema JSON (handles arrays and objects)
+  const schemaFields = (() => {
+    try {
+      const parsed = JSON.parse(responseSchema);
+      const sample = Array.isArray(parsed) ? parsed[0] : parsed;
+      if (sample && typeof sample === 'object') return Object.keys(sample);
+    } catch {}
+    return [];
+  })();
+
+  const rows = Object.entries(fieldLabels);
+  const customCount = rows.filter(([, v]) => v.trim()).length;
+
+  const setLabel = (key: string, value: string) => {
+    const updated = { ...fieldLabels, [key]: value };
+    if (!value.trim()) delete updated[key];
+    onChange(updated);
+  };
+
+  const addRow = () => {
+    onChange({ ...fieldLabels, '': '' });
+  };
+
+  const removeRow = (key: string) => {
+    const updated = { ...fieldLabels };
+    delete updated[key];
+    onChange(updated);
+  };
+
+  const renameKey = (oldKey: string, newKey: string) => {
+    const updated: Record<string, string> = {};
+    for (const [k, v] of Object.entries(fieldLabels)) {
+      updated[k === oldKey ? newKey : k] = v;
+    }
+    onChange(updated);
+  };
+
+  const populateFromSchema = () => {
+    const current = { ...fieldLabels };
+    for (const field of schemaFields) {
+      if (!current[field]) current[field] = '';
+    }
+    onChange(current);
+    setExpanded(true);
+  };
+
+  return (
+    <div className="rounded-lg border overflow-hidden" data-testid="field-label-editor">
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        className="w-full flex items-center justify-between px-3 py-2.5 bg-muted/20 hover:bg-muted/40 transition-colors text-left"
+      >
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Tag className="h-3.5 w-3.5 text-muted-foreground" />
+          Field Display Labels
+          {customCount > 0 && (
+            <Badge variant="secondary" className="text-[10px]">{customCount} defined</Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {schemaFields.length > 0 && !expanded && (
+            <span
+              className="text-[10px] text-primary underline-offset-2 hover:underline"
+              onClick={(e) => { e.stopPropagation(); populateFromSchema(); }}
+            >
+              Populate from schema
+            </span>
+          )}
+          {expanded ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="border-t">
+          <div className="grid grid-cols-[1fr_1fr_28px] text-[11px] font-medium text-muted-foreground bg-muted/30 px-3 py-1.5 border-b">
+            <span>API Field Name</span>
+            <span>Display Label</span>
+            <span />
+          </div>
+
+          {rows.length === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-3">
+              No labels defined yet.{schemaFields.length > 0 ? ' Click "Populate from schema" to add all fields.' : ' Add rows below.'}
+            </p>
+          )}
+
+          <div className="divide-y max-h-60 overflow-y-auto">
+            {rows.map(([key, value]) => (
+              <div key={key} className="grid grid-cols-[1fr_1fr_28px] gap-1.5 items-center px-3 py-1.5">
+                <Input
+                  value={key}
+                  onChange={(e) => renameKey(key, e.target.value)}
+                  placeholder="apiFieldName"
+                  className="h-7 text-xs font-mono"
+                  data-testid={`field-label-key-${key}`}
+                />
+                <Input
+                  value={value}
+                  onChange={(e) => setLabel(key, e.target.value)}
+                  placeholder="Friendly Label"
+                  className="h-7 text-xs"
+                  data-testid={`field-label-value-${key}`}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => removeRow(key)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center justify-between px-3 py-2 border-t bg-muted/10">
+            <p className="text-[10px] text-muted-foreground">
+              Labels defined here become the default for all widgets and consumers using this template.
+            </p>
+            <div className="flex gap-2 shrink-0">
+              {schemaFields.length > 0 && (
+                <Button type="button" variant="ghost" size="sm" className="h-6 text-xs px-2" onClick={populateFromSchema}>
+                  From schema
+                </Button>
+              )}
+              <Button type="button" variant="outline" size="sm" className="h-6 text-xs px-2" onClick={addRow}>
+                <Plus className="h-3 w-3 mr-1" /> Add
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

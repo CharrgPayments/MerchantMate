@@ -92,9 +92,18 @@ export function humanizeField(key: string): string {
     .join(" ");
 }
 
-/** Return user-defined label for a field, falling back to auto-humanized name. */
-function displayLabel(field: string, fieldLabels: Record<string, string> = {}): string {
-  return fieldLabels[field]?.trim() || humanizeField(field);
+/**
+ * Resolve a display label with a 3-level priority cascade:
+ *   1. Widget-level override (fieldLabels)
+ *   2. Template-level label (templateFieldLabels — defined once on the template, shared everywhere)
+ *   3. Auto-humanized field name (fallback)
+ */
+function displayLabel(
+  field: string,
+  fieldLabels: Record<string, string> = {},
+  templateFieldLabels: Record<string, string> = {},
+): string {
+  return fieldLabels[field]?.trim() || templateFieldLabels[field]?.trim() || humanizeField(field);
 }
 
 // ─── Config type ────────────────────────────────────────────────────────────
@@ -112,7 +121,9 @@ interface ApiDataWidgetConfig {
   xField?: string;
   yField?: string;
   chartType?: "bar" | "line";
-  /** Custom display labels keyed by API field name */
+  /** Labels copied from the template definition at save time (lower priority than fieldLabels) */
+  templateFieldLabels?: Record<string, string>;
+  /** Per-widget label overrides (highest priority, overrides templateFieldLabels) */
   fieldLabels?: Record<string, string>;
 }
 
@@ -171,6 +182,7 @@ export function ApiDataWidget(props: WidgetProps) {
     : [];
   const availableFields = inferFields(displayData);
   const fieldLabels = config.fieldLabels || {};
+  const templateFieldLabels = config.templateFieldLabels || {};
 
   const handleSave = (newConfig: ApiDataWidgetConfig) => {
     onConfigChange(newConfig as Record<string, any>);
@@ -243,11 +255,12 @@ export function ApiDataWidget(props: WidgetProps) {
             columns={config.columns?.length ? config.columns : availableFields.slice(0, 5)}
             maxRows={config.maxRows || 10}
             valueField={config.valueField || availableFields[0] || ""}
-            valueLabel={config.valueLabel || displayLabel(config.valueField || availableFields[0] || "", fieldLabels)}
+            valueLabel={config.valueLabel || displayLabel(config.valueField || availableFields[0] || "", fieldLabels, templateFieldLabels)}
             xField={config.xField || availableFields[0] || ""}
             yField={config.yField || availableFields[1] || ""}
             chartType={config.chartType || "bar"}
             fieldLabels={fieldLabels}
+            templateFieldLabels={templateFieldLabels}
           />
         )}
       </BaseWidget>
@@ -278,11 +291,12 @@ interface DisplayProps {
   yField: string;
   chartType: "bar" | "line";
   fieldLabels: Record<string, string>;
+  templateFieldLabels: Record<string, string>;
 }
 
 function WidgetDisplay({
   displayType, dataArray, rawData, columns, maxRows,
-  valueField, valueLabel, xField, yField, chartType, fieldLabels,
+  valueField, valueLabel, xField, yField, chartType, fieldLabels, templateFieldLabels,
 }: DisplayProps) {
   if (displayType === "stat") {
     const val = Array.isArray(rawData) ? rawData[0]?.[valueField] : rawData?.[valueField];
@@ -299,8 +313,8 @@ function WidgetDisplay({
   if (displayType === "chart") {
     const chartData = dataArray.slice(0, 20);
     if (!chartData.length) return <EmptyState />;
-    const xLabel = displayLabel(xField, fieldLabels);
-    const yLabel = displayLabel(yField, fieldLabels);
+    const xLabel = displayLabel(xField, fieldLabels, templateFieldLabels);
+    const yLabel = displayLabel(yField, fieldLabels, templateFieldLabels);
     return (
       <ResponsiveContainer width="100%" height={150}>
         {chartType === "line" ? (
@@ -349,7 +363,7 @@ function WidgetDisplay({
           <TableRow>
             {columns.map((col) => (
               <TableHead key={col} className="py-1 px-2 text-[11px] font-medium whitespace-nowrap">
-                {displayLabel(col, fieldLabels)}
+                {displayLabel(col, fieldLabels, templateFieldLabels)}
               </TableHead>
             ))}
           </TableRow>
@@ -442,13 +456,19 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
     }
   })();
 
+  // Labels already defined on the template (read-only reference for the widget editor)
+  const templateFieldLabelsFromTpl: Record<string, string> =
+    (selectedTemplate?.config?.fieldLabels as Record<string, string> | undefined) || {};
+
   // The full set of fields that may need labels — union of schema fields + selected columns
   const labelableFields: string[] = (() => {
     const colList = columns
       ? columns.split(",").map((c) => c.trim()).filter(Boolean)
       : [];
     const base = schemaFields.length ? schemaFields : availableFields;
-    const union = [...new Set([...base, ...colList])];
+    // Also surface any fields from the template's existing label map
+    const fromTpl = Object.keys(templateFieldLabelsFromTpl);
+    const union = [...new Set([...base, ...colList, ...fromTpl])];
     return union;
   })();
 
@@ -458,11 +478,14 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
 
   const handleSave = () => {
     if (!templateId) return;
-    // Strip empty label overrides
+    // Strip empty widget-level overrides
     const cleanedLabels: Record<string, string> = {};
     for (const [k, v] of Object.entries(fieldLabels)) {
       if (v.trim()) cleanedLabels[k] = v.trim();
     }
+    // Snapshot the template's field labels so the widget can use them at render-time
+    // without needing to re-fetch the template
+    const tplLabels = (selectedTemplate?.config?.fieldLabels as Record<string, string> | undefined) || {};
     const newConfig: ApiDataWidgetConfig = {
       templateId: Number(templateId),
       templateName: selectedTemplate?.name || "",
@@ -476,6 +499,7 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
       xField: xField || undefined,
       yField: yField || undefined,
       chartType,
+      templateFieldLabels: Object.keys(tplLabels).length ? tplLabels : undefined,
       fieldLabels: Object.keys(cleanedLabels).length ? cleanedLabels : undefined,
     };
     onSave(newConfig);
@@ -667,26 +691,37 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
                     <span>Display Label</span>
                   </div>
                   <div className="divide-y max-h-52 overflow-y-auto">
-                    {labelableFields.map((field) => (
-                      <div key={field} className="grid grid-cols-[1fr_1fr] gap-2 items-center px-3 py-1.5">
-                        <div className="flex flex-col gap-0.5">
-                          <code className="text-[11px] font-mono text-muted-foreground truncate">{field}</code>
-                          <span className="text-[10px] text-muted-foreground/60 truncate">
-                            auto: {humanizeField(field)}
-                          </span>
+                    {labelableFields.map((field) => {
+                      const tplLabel = templateFieldLabelsFromTpl[field];
+                      const autoLabel = humanizeField(field);
+                      const effectiveDefault = tplLabel || autoLabel;
+                      return (
+                        <div key={field} className="grid grid-cols-[1fr_1fr] gap-2 items-center px-3 py-1.5">
+                          <div className="flex flex-col gap-0.5">
+                            <code className="text-[11px] font-mono text-muted-foreground truncate">{field}</code>
+                            {tplLabel ? (
+                              <span className="text-[10px] text-violet-600 dark:text-violet-400 truncate font-medium">
+                                template: {tplLabel}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-muted-foreground/60 truncate">
+                                auto: {autoLabel}
+                              </span>
+                            )}
+                          </div>
+                          <Input
+                            value={fieldLabels[field] || ""}
+                            onChange={(e) => setFieldLabel(field, e.target.value)}
+                            placeholder={effectiveDefault}
+                            className="h-7 text-xs"
+                          />
                         </div>
-                        <Input
-                          value={fieldLabels[field] || ""}
-                          onChange={(e) => setFieldLabel(field, e.target.value)}
-                          placeholder={humanizeField(field)}
-                          className="h-7 text-xs"
-                        />
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   <div className="px-3 py-1.5 border-t">
                     <p className="text-[10px] text-muted-foreground">
-                      Leave blank to use the auto-generated label. Fields are humanized automatically (e.g. <code className="font-mono">merchantId</code> → Merchant ID).
+                      Leave blank to inherit from the template label (shown in <span className="text-violet-600 dark:text-violet-400 font-medium">purple</span>) or auto-humanized name. Widget overrides take priority.
                     </p>
                   </div>
                 </div>
