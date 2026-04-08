@@ -590,8 +590,8 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
       } else {
         if (!configFields.url) throw new Error('No URL configured.');
         const resolvedUrl = resolveUrlWithParams(configFields.url, configFields.routeParams || []);
-        // Warn if any unresolved params remain
-        if (/\{[^{}]+\}/.test(resolvedUrl)) {
+        // Warn if any unresolved single-brace {param} remain — but ignore {{$SECRET}} and {{variable}} double-brace tokens
+        if (/\{[^{}]+\}/.test(stripDoubleBraceTokens(resolvedUrl))) {
           throw new Error(`URL still contains unresolved route parameters: ${resolvedUrl}. Provide default values for each parameter.`);
         }
         const response = await fetch(`/api/action-templates/${template?.id || 'preview'}/test`, {
