@@ -8093,6 +8093,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ─── Role Definitions CRUD ────────────────────────────────────────────────
+  app.get("/api/admin/role-definitions", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const result = await dynamicDB.execute(sqlTag`
+        SELECT id, code, label, description, color, is_system, permissions, capabilities, created_at, updated_at
+        FROM role_definitions
+        ORDER BY is_system DESC, label ASC
+      `);
+      res.json(result.rows ?? result);
+    } catch (error: any) {
+      // Table may not exist yet in this environment (changes are promoted dev → test → production)
+      if (error?.code === '42P01') {
+        return res.json([]);
+      }
+      console.error("Error fetching role definitions:", error);
+      res.status(500).json({ message: "Failed to fetch role definitions" });
+    }
+  });
+
+  app.post("/api/admin/role-definitions", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const { code, label, description, color, permissions, capabilities } = req.body;
+      if (!code || !label) return res.status(400).json({ message: "code and label are required" });
+      const result = await dynamicDB.execute(sqlTag`
+        INSERT INTO role_definitions (code, label, description, color, is_system, permissions, capabilities, created_at, updated_at)
+        VALUES (${code}, ${label}, ${description ?? ''}, ${color ?? 'secondary'}, false,
+                ${permissions ?? []}, ${capabilities ?? []}, NOW(), NOW())
+        RETURNING *
+      `);
+      const row = (result.rows ?? result)[0];
+      res.status(201).json(row);
+    } catch (error: any) {
+      if (error?.code === '23505') return res.status(409).json({ message: "A role with that code already exists" });
+      console.error("Error creating role definition:", error);
+      res.status(500).json({ message: "Failed to create role definition" });
+    }
+  });
+
+  app.put("/api/admin/role-definitions/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const id = parseInt(req.params.id);
+      const { label, description, color, permissions, capabilities } = req.body;
+      const result = await dynamicDB.execute(sqlTag`
+        UPDATE role_definitions
+        SET label = ${label}, description = ${description ?? ''}, color = ${color ?? 'secondary'},
+            permissions = ${permissions ?? []}, capabilities = ${capabilities ?? []}, updated_at = NOW()
+        WHERE id = ${id} AND is_system = false
+        RETURNING *
+      `);
+      const rows = result.rows ?? result;
+      if (!rows.length) return res.status(404).json({ message: "Role not found or is a system role" });
+      res.json(rows[0]);
+    } catch (error) {
+      console.error("Error updating role definition:", error);
+      res.status(500).json({ message: "Failed to update role definition" });
+    }
+  });
+
+  app.delete("/api/admin/role-definitions/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const id = parseInt(req.params.id);
+      const result = await dynamicDB.execute(sqlTag`
+        DELETE FROM role_definitions WHERE id = ${id} AND is_system = false RETURNING id
+      `);
+      const rows = result.rows ?? result;
+      if (!rows.length) return res.status(404).json({ message: "Role not found or is a system role" });
+      res.json({ message: "Role deleted" });
+    } catch (error) {
+      console.error("Error deleting role definition:", error);
+      res.status(500).json({ message: "Failed to delete role definition" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

@@ -608,11 +608,6 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updatePricingType(id: number, updates: Partial<InsertPricingType>): Promise<PricingType | undefined> {
-    const [updated] = await db.update(pricingTypes).set(updates).where(eq(pricingTypes.id, id)).returning();
-    return updated || undefined;
-  }
-
   async addFeeItemToPricingType(pricingTypeId: number, feeItemId: number, isRequired: boolean = false): Promise<PricingTypeFeeItem> {
     const [created] = await db.insert(pricingTypeFeeItems).values({
       pricingTypeId,
@@ -1399,11 +1394,6 @@ export class DatabaseStorage implements IStorage {
     return updated || undefined;
   }
 
-  async createCampaign(campaign: InsertCampaign): Promise<Campaign> {
-    const [created] = await db.insert(campaigns).values(campaign).returning();
-    return created;
-  }
-
   async getPdfForm(id: number): Promise<PdfForm | undefined> {
     const [form] = await db.select().from(pdfForms).where(eq(pdfForms.id, id));
     return form || undefined;
@@ -2034,14 +2024,6 @@ export class DatabaseStorage implements IStorage {
   async createCampaign(campaign: InsertCampaign, feeValues: any[], equipmentIds: number[]): Promise<Campaign> {
     const [created] = await db.insert(campaigns).values(campaign).returning();
     return created;
-  }
-
-  async getCampaignFeeValues(campaignId: number): Promise<any[]> {
-    return [];
-  }
-
-  async getCampaignEquipment(campaignId: number): Promise<any[]> {
-    return [];
   }
 
   async getAllApiKeys(): Promise<ApiKey[]> {
