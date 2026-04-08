@@ -45,10 +45,59 @@ import {
   BarChart3,
   TableIcon,
   Hash,
+  Tag,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { BaseWidget } from "./BaseWidget";
 import { type WidgetProps } from "./widget-types";
 import { useToast } from "@/hooks/use-toast";
+
+// ─── Field humanization ─────────────────────────────────────────────────────
+
+// Well-known abbreviations that should always be ALL-CAPS
+const KNOWN_ABBREVS = new Set([
+  "id", "url", "guid", "uuid", "api", "dba", "mid", "ssn", "ein", "zip",
+  "pos", "atm", "pin", "ach", "aba", "iso", "irs", "cvv", "mcc", "sic",
+  "mrn", "dob", "pci", "dss", "aml", "kyc", "crm", "erp",
+]);
+
+/**
+ * Convert any field key (camelCase, snake_case, PascalCase, SCREAMING_SNAKE)
+ * to a human-readable label.
+ *
+ * Examples:
+ *   merchantId        → "Merchant ID"
+ *   total_amount      → "Total Amount"
+ *   CreatedAt         → "Created At"
+ *   dba               → "DBA"
+ *   MerchantGUID      → "Merchant GUID"
+ *   isActive          → "Is Active"
+ */
+export function humanizeField(key: string): string {
+  // Split on transitions: ABC|Def, abc|Def, abc|123, 123|abc, snake, kebab
+  const tokens = key
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")   // ABCDef → ABC Def
+    .replace(/([a-z\d])([A-Z])/g, "$1 $2")         // camelCase → camel Case
+    .replace(/[_\-]+/g, " ")                        // snake / kebab → space
+    .trim()
+    .split(/\s+/);
+
+  return tokens
+    .map((word) => {
+      const lower = word.toLowerCase();
+      if (KNOWN_ABBREVS.has(lower)) return lower.toUpperCase();
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
+/** Return user-defined label for a field, falling back to auto-humanized name. */
+function displayLabel(field: string, fieldLabels: Record<string, string> = {}): string {
+  return fieldLabels[field]?.trim() || humanizeField(field);
+}
+
+// ─── Config type ────────────────────────────────────────────────────────────
 
 interface ApiDataWidgetConfig {
   templateId?: number;
@@ -63,20 +112,24 @@ interface ApiDataWidgetConfig {
   xField?: string;
   yField?: string;
   chartType?: "bar" | "line";
+  /** Custom display labels keyed by API field name */
+  fieldLabels?: Record<string, string>;
 }
 
-// Resolve a dot-notation path into a nested object
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
 function resolvePath(obj: any, path: string): any {
   if (!path) return obj;
   return path.split(".").reduce((acc, key) => (acc != null ? acc[key] : undefined), obj);
 }
 
-// Get top-level keys from an object or first element of an array
 function inferFields(data: any): string[] {
   if (Array.isArray(data) && data.length > 0) return Object.keys(data[0]);
   if (data && typeof data === "object") return Object.keys(data);
   return [];
 }
+
+// ─── Main widget component ──────────────────────────────────────────────────
 
 export function ApiDataWidget(props: WidgetProps) {
   const { definition, preference, onConfigChange, onSizeChange, onVisibilityChange } = props;
@@ -86,7 +139,6 @@ export function ApiDataWidget(props: WidgetProps) {
   const config: ApiDataWidgetConfig = (preference.configuration as ApiDataWidgetConfig) || {};
   const isConfigured = !!config.templateId;
 
-  // Fetch live data from the template endpoint
   const {
     data: result,
     isLoading,
@@ -118,6 +170,7 @@ export function ApiDataWidget(props: WidgetProps) {
     ? [displayData]
     : [];
   const availableFields = inferFields(displayData);
+  const fieldLabels = config.fieldLabels || {};
 
   const handleSave = (newConfig: ApiDataWidgetConfig) => {
     onConfigChange(newConfig as Record<string, any>);
@@ -136,7 +189,6 @@ export function ApiDataWidget(props: WidgetProps) {
         onConfigure={() => setShowConfig(true)}
         isLoading={isLoading && isConfigured}
       >
-        {/* Header extras: elapsed badge + refresh */}
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <Database className="h-3.5 w-3.5 text-violet-500" />
@@ -162,7 +214,6 @@ export function ApiDataWidget(props: WidgetProps) {
           )}
         </div>
 
-        {/* Body */}
         {!isConfigured ? (
           <div className="flex flex-col items-center justify-center py-6 gap-3 text-center">
             <Database className="h-7 w-7 text-muted-foreground/30" />
@@ -192,10 +243,11 @@ export function ApiDataWidget(props: WidgetProps) {
             columns={config.columns?.length ? config.columns : availableFields.slice(0, 5)}
             maxRows={config.maxRows || 10}
             valueField={config.valueField || availableFields[0] || ""}
-            valueLabel={config.valueLabel || config.title || "Value"}
+            valueLabel={config.valueLabel || displayLabel(config.valueField || availableFields[0] || "", fieldLabels)}
             xField={config.xField || availableFields[0] || ""}
             yField={config.yField || availableFields[1] || ""}
             chartType={config.chartType || "bar"}
+            fieldLabels={fieldLabels}
           />
         )}
       </BaseWidget>
@@ -212,7 +264,7 @@ export function ApiDataWidget(props: WidgetProps) {
   );
 }
 
-// ─── Display sub-components ────────────────────────────────────────────────
+// ─── Display sub-components ─────────────────────────────────────────────────
 
 interface DisplayProps {
   displayType: "stat" | "table" | "chart";
@@ -225,10 +277,12 @@ interface DisplayProps {
   xField: string;
   yField: string;
   chartType: "bar" | "line";
+  fieldLabels: Record<string, string>;
 }
 
 function WidgetDisplay({
-  displayType, dataArray, rawData, columns, maxRows, valueField, valueLabel, xField, yField, chartType,
+  displayType, dataArray, rawData, columns, maxRows,
+  valueField, valueLabel, xField, yField, chartType, fieldLabels,
 }: DisplayProps) {
   if (displayType === "stat") {
     const val = Array.isArray(rawData) ? rawData[0]?.[valueField] : rawData?.[valueField];
@@ -245,6 +299,8 @@ function WidgetDisplay({
   if (displayType === "chart") {
     const chartData = dataArray.slice(0, 20);
     if (!chartData.length) return <EmptyState />;
+    const xLabel = displayLabel(xField, fieldLabels);
+    const yLabel = displayLabel(yField, fieldLabels);
     return (
       <ResponsiveContainer width="100%" height={150}>
         {chartType === "line" ? (
@@ -252,16 +308,31 @@ function WidgetDisplay({
             <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
             <XAxis dataKey={xField} tick={{ fontSize: 10 }} />
             <YAxis tick={{ fontSize: 10 }} />
-            <Tooltip contentStyle={{ fontSize: 11 }} />
-            <Line type="monotone" dataKey={yField} stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+            <Tooltip
+              contentStyle={{ fontSize: 11 }}
+              formatter={(value: any) => [value, yLabel]}
+              labelFormatter={(label: any) => `${xLabel}: ${label}`}
+            />
+            <Line
+              type="monotone"
+              dataKey={yField}
+              name={yLabel}
+              stroke="hsl(var(--primary))"
+              strokeWidth={2}
+              dot={false}
+            />
           </LineChart>
         ) : (
           <BarChart data={chartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
             <XAxis dataKey={xField} tick={{ fontSize: 10 }} />
             <YAxis tick={{ fontSize: 10 }} />
-            <Tooltip contentStyle={{ fontSize: 11 }} />
-            <Bar dataKey={yField} fill="hsl(var(--primary))" radius={[3, 3, 0, 0]} />
+            <Tooltip
+              contentStyle={{ fontSize: 11 }}
+              formatter={(value: any) => [value, yLabel]}
+              labelFormatter={(label: any) => `${xLabel}: ${label}`}
+            />
+            <Bar dataKey={yField} name={yLabel} fill="hsl(var(--primary))" radius={[3, 3, 0, 0]} />
           </BarChart>
         )}
       </ResponsiveContainer>
@@ -278,7 +349,7 @@ function WidgetDisplay({
           <TableRow>
             {columns.map((col) => (
               <TableHead key={col} className="py-1 px-2 text-[11px] font-medium whitespace-nowrap">
-                {col}
+                {displayLabel(col, fieldLabels)}
               </TableHead>
             ))}
           </TableRow>
@@ -287,7 +358,11 @@ function WidgetDisplay({
           {rows.map((row, i) => (
             <TableRow key={i}>
               {columns.map((col) => (
-                <TableCell key={col} className="py-1 px-2 max-w-[110px] truncate" title={String(row[col] ?? "")}>
+                <TableCell
+                  key={col}
+                  className="py-1 px-2 max-w-[110px] truncate"
+                  title={String(row[col] ?? "")}
+                >
                   {row[col] != null ? String(row[col]) : <span className="text-muted-foreground">—</span>}
                 </TableCell>
               ))}
@@ -308,7 +383,7 @@ function EmptyState() {
   return <p className="text-sm text-muted-foreground text-center py-4">No data to display</p>;
 }
 
-// ─── Config Dialog ─────────────────────────────────────────────────────────
+// ─── Config Dialog ──────────────────────────────────────────────────────────
 
 interface ConfigDialogProps {
   currentConfig: ApiDataWidgetConfig;
@@ -333,8 +408,13 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
   const [xField, setXField] = useState(currentConfig.xField || "");
   const [yField, setYField] = useState(currentConfig.yField || "");
   const [chartType, setChartType] = useState<"bar" | "line">(currentConfig.chartType || "bar");
+  const [fieldLabels, setFieldLabels] = useState<Record<string, string>>(
+    currentConfig.fieldLabels || {}
+  );
+  const [showFieldLabels, setShowFieldLabels] = useState(
+    Object.keys(currentConfig.fieldLabels || {}).length > 0
+  );
 
-  // Fetch available data source templates
   const { data: allTemplates = [] } = useQuery<any[]>({
     queryKey: ["/api/action-templates"],
     queryFn: async () => {
@@ -362,8 +442,27 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
     }
   })();
 
+  // The full set of fields that may need labels — union of schema fields + selected columns
+  const labelableFields: string[] = (() => {
+    const colList = columns
+      ? columns.split(",").map((c) => c.trim()).filter(Boolean)
+      : [];
+    const base = schemaFields.length ? schemaFields : availableFields;
+    const union = [...new Set([...base, ...colList])];
+    return union;
+  })();
+
+  const setFieldLabel = (field: string, label: string) => {
+    setFieldLabels((prev) => ({ ...prev, [field]: label }));
+  };
+
   const handleSave = () => {
     if (!templateId) return;
+    // Strip empty label overrides
+    const cleanedLabels: Record<string, string> = {};
+    for (const [k, v] of Object.entries(fieldLabels)) {
+      if (v.trim()) cleanedLabels[k] = v.trim();
+    }
     const newConfig: ApiDataWidgetConfig = {
       templateId: Number(templateId),
       templateName: selectedTemplate?.name || "",
@@ -377,6 +476,7 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
       xField: xField || undefined,
       yField: yField || undefined,
       chartType,
+      fieldLabels: Object.keys(cleanedLabels).length ? cleanedLabels : undefined,
     };
     onSave(newConfig);
   };
@@ -394,7 +494,7 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
             <label className="text-sm font-medium">Data Source Template</label>
             {dataSourceTemplates.length === 0 ? (
               <p className="text-xs text-muted-foreground p-3 border rounded-md bg-muted/30">
-                No data source templates found. Create a Webhook template and enable "Use as Data Source" in its settings first.
+                No data source templates found. Create a Webhook template and enable "Use as Data Source" first.
               </p>
             ) : (
               <Select value={templateId} onValueChange={setTemplateId}>
@@ -470,7 +570,11 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium">Label</label>
-                <Input value={valueLabel} onChange={(e) => setValueLabel(e.target.value)} placeholder="e.g. Total Records" />
+                <Input
+                  value={valueLabel}
+                  onChange={(e) => setValueLabel(e.target.value)}
+                  placeholder={valueField ? humanizeField(valueField) : "e.g. Total Records"}
+                />
               </div>
             </div>
           )}
@@ -532,6 +636,63 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
               </div>
             </div>
           )}
+
+          {/* Field Label Overrides */}
+          {labelableFields.length > 0 && (
+            <div className="rounded-lg border bg-muted/20 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowFieldLabels((v) => !v)}
+                className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-muted/40 transition-colors"
+              >
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Tag className="h-3.5 w-3.5 text-muted-foreground" />
+                  Field Display Labels
+                  {Object.keys(fieldLabels).filter((k) => fieldLabels[k]?.trim()).length > 0 && (
+                    <Badge variant="secondary" className="text-[10px]">
+                      {Object.keys(fieldLabels).filter((k) => fieldLabels[k]?.trim()).length} custom
+                    </Badge>
+                  )}
+                </div>
+                {showFieldLabels
+                  ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
+                  : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                }
+              </button>
+
+              {showFieldLabels && (
+                <div className="border-t">
+                  <div className="grid grid-cols-[1fr_1fr] gap-0 text-[11px] font-medium text-muted-foreground bg-muted/50 px-3 py-1.5 border-b">
+                    <span>API Field</span>
+                    <span>Display Label</span>
+                  </div>
+                  <div className="divide-y max-h-52 overflow-y-auto">
+                    {labelableFields.map((field) => (
+                      <div key={field} className="grid grid-cols-[1fr_1fr] gap-2 items-center px-3 py-1.5">
+                        <div className="flex flex-col gap-0.5">
+                          <code className="text-[11px] font-mono text-muted-foreground truncate">{field}</code>
+                          <span className="text-[10px] text-muted-foreground/60 truncate">
+                            auto: {humanizeField(field)}
+                          </span>
+                        </div>
+                        <Input
+                          value={fieldLabels[field] || ""}
+                          onChange={(e) => setFieldLabel(field, e.target.value)}
+                          placeholder={humanizeField(field)}
+                          className="h-7 text-xs"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="px-3 py-1.5 border-t">
+                    <p className="text-[10px] text-muted-foreground">
+                      Leave blank to use the auto-generated label. Fields are humanized automatically (e.g. <code className="font-mono">merchantId</code> → Merchant ID).
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <DialogFooter>
@@ -561,7 +722,10 @@ function FieldSelect({ fields, value, onChange, placeholder }: {
       </SelectTrigger>
       <SelectContent>
         {fields.map((f) => (
-          <SelectItem key={f} value={f}>{f}</SelectItem>
+          <SelectItem key={f} value={f}>
+            {humanizeField(f)}
+            <span className="ml-1 text-muted-foreground text-[10px] font-mono">({f})</span>
+          </SelectItem>
         ))}
       </SelectContent>
     </Select>
