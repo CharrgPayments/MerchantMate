@@ -554,11 +554,9 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
           }),
         });
         const json = await response.json();
+        // Proxy route itself failed (auth, config error) — not the upstream
         if (!response.ok) throw new Error(json.message || `HTTP ${response.status}`);
-        // Surface upstream non-2xx as an error so the UI shows the error state
-        if (!json.success) {
-          throw new Error(`Upstream returned HTTP ${json.status} ${json.statusText || ''}`.trim());
-        }
+        // Always show the result — including 4xx/5xx — so users can see the response body and debug
         setTestResult(json);
       }
     } catch (err: any) {
@@ -1237,42 +1235,62 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
                     )}
 
                     {/* Result */}
-                    {testResult && !testError && (
-                      <div className="space-y-3" data-testid="test-result">
-                        <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
-                          <CheckCircle2 className="h-4 w-4" />
-                          {testResult.mode === 'mock' ? 'Mock data loaded' : `Response received (HTTP ${testResult.status})`}
-                        </div>
+                    {testResult && !testError && (() => {
+                      const isMock = testResult.mode === 'mock';
+                      const status = testResult.status as number | undefined;
+                      const isSuccess = isMock || (status !== undefined && status >= 200 && status < 300);
+                      const isRedirect = !isMock && status !== undefined && status >= 300 && status < 400;
 
-                        {/* Raw JSON */}
-                        <div className="space-y-1">
-                          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Response</div>
-                          <pre className="text-xs bg-muted p-3 rounded-md overflow-auto max-h-40 whitespace-pre-wrap break-all" data-testid="test-response-json">
-                            {JSON.stringify(testResult.data, null, 2)}
-                          </pre>
-                        </div>
+                      const statusColor = isSuccess
+                        ? 'text-green-600 dark:text-green-400'
+                        : isRedirect
+                          ? 'text-amber-600 dark:text-amber-400'
+                          : 'text-red-600 dark:text-red-400';
+                      const StatusIcon = isSuccess ? CheckCircle2 : AlertCircle;
 
-                        {/* Field Explorer */}
-                        {testResult.data && typeof testResult.data === 'object' && (
-                          <div className="space-y-1" data-testid="field-explorer">
-                            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Field Explorer</div>
-                            <div className="rounded-md border divide-y text-xs max-h-48 overflow-auto">
-                              {getFieldsFromData(testResult.data).map((field) => (
-                                <div key={field.key} className="flex items-center justify-between px-3 py-2 hover:bg-muted/40">
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <code className="font-mono font-semibold truncate">{field.key}</code>
-                                    <Badge variant="outline" className="text-[10px] shrink-0 py-0">
-                                      {field.type}
-                                    </Badge>
-                                  </div>
-                                  <span className="text-muted-foreground truncate max-w-[200px] ml-4">{field.preview}</span>
-                                </div>
-                              ))}
-                            </div>
+                      return (
+                        <div className="space-y-3" data-testid="test-result">
+                          {/* Status line */}
+                          <div className={`flex items-center gap-2 text-sm ${statusColor}`}>
+                            <StatusIcon className="h-4 w-4 shrink-0" />
+                            {isMock
+                              ? 'Mock data loaded'
+                              : `HTTP ${status} ${testResult.statusText || ''}`}
+                            {testResult.elapsed !== undefined && (
+                              <span className="text-muted-foreground text-xs font-normal ml-auto">{testResult.elapsed}ms</span>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    )}
+
+                          {/* Raw JSON */}
+                          <div className="space-y-1">
+                            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Response Body</div>
+                            <pre className="text-xs bg-muted p-3 rounded-md overflow-auto max-h-48 whitespace-pre-wrap break-all" data-testid="test-response-json">
+                              {JSON.stringify(testResult.data, null, 2)}
+                            </pre>
+                          </div>
+
+                          {/* Field Explorer — only for successful 2xx responses with object data */}
+                          {isSuccess && testResult.data && typeof testResult.data === 'object' && (
+                            <div className="space-y-1" data-testid="field-explorer">
+                              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Field Explorer</div>
+                              <div className="rounded-md border divide-y text-xs max-h-48 overflow-auto">
+                                {getFieldsFromData(testResult.data).map((field) => (
+                                  <div key={field.key} className="flex items-center justify-between px-3 py-2 hover:bg-muted/40">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <code className="font-mono font-semibold truncate">{field.key}</code>
+                                      <Badge variant="outline" className="text-[10px] shrink-0 py-0">
+                                        {field.type}
+                                      </Badge>
+                                    </div>
+                                    <span className="text-muted-foreground truncate max-w-[200px] ml-4">{field.preview}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
