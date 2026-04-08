@@ -2053,10 +2053,6 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(apiRequestLogs).orderBy(desc(apiRequestLogs.createdAt)).limit(100);
   }
 
-  async getAllAuditLogs(): Promise<any[]> {
-    return [];
-  }
-
   async getAllMerchantProspects() {
     return await db.select().from(merchantProspects);
   }
