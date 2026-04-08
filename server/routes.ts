@@ -15,7 +15,7 @@ import { emailService } from "./emailService";
 import { v4 as uuidv4 } from "uuid";
 import { dbEnvironmentMiddleware, adminDbMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
 import { getDynamicDatabase } from "./db";
-import { users, agents, merchants, agentMerchants, actionTemplates, triggerCatalog, triggerActions, actionActivity } from "@shared/schema";
+import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity } from "@shared/schema";
 import crypto from "crypto";
 import { eq, or, ilike } from "drizzle-orm";
 
@@ -1645,49 +1645,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Merchant Prospect routes
-  app.get("/api/prospects", isAuthenticated, async (req, res) => {
+  app.get("/api/prospects", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
       const { search } = req.query;
       const userId = (req.session as any).userId;
+      const dynamicDB = getRequestDB(req);
       const user = await storage.getUser(userId);
       
       if (!user) {
         return res.status(401).json({ message: "User not found" });
       }
 
+      console.log(`Prospects endpoint - Database environment: ${req.dbEnv}`);
+
       let prospects;
       
       if (user.role === 'agent') {
         // Agents can only see their assigned prospects
-        let agent = await storage.getAgentByEmail(user.email);
-        
-        // If no agent found by email, use fallback for development/testing
-        if (!agent && userId === 'user_agent_1') {
-          // For development, fallback to agent ID 2 (Mike Chen)
-          agent = await storage.getAgent(2);
-          console.log('Using fallback agent for prospects:', agent?.firstName, agent?.lastName);
-        }
+        const [agent] = await dynamicDB.select().from(agents).where(eq(agents.email, user.email));
         
         if (!agent) {
           return res.status(403).json({ message: "Agent not found" });
         }
         
+        const allAgentProspects = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.agentId, agent.id));
         if (search) {
-          prospects = await storage.searchMerchantProspectsByAgent(agent.id, search as string);
+          const q = (search as string).toLowerCase();
+          prospects = allAgentProspects.filter(p =>
+            `${p.firstName} ${p.lastName}`.toLowerCase().includes(q) ||
+            p.email.toLowerCase().includes(q)
+          );
         } else {
-          prospects = await storage.getMerchantProspectsByAgent(agent.id);
+          prospects = allAgentProspects;
         }
       } else if (['admin', 'corporate', 'super_admin'].includes(user.role)) {
         // Admins can see all prospects
+        const allProspects = await dynamicDB.select().from(merchantProspects);
         if (search) {
-          prospects = await storage.searchMerchantProspects(search as string);
+          const q = (search as string).toLowerCase();
+          prospects = allProspects.filter(p =>
+            `${p.firstName} ${p.lastName}`.toLowerCase().includes(q) ||
+            p.email.toLowerCase().includes(q)
+          );
         } else {
-          prospects = await storage.getAllMerchantProspects();
+          prospects = allProspects;
         }
       } else {
         return res.status(403).json({ message: "Access denied" });
       }
-      
+
+      console.log(`Found ${prospects.length} prospects in ${req.dbEnv} database`);
       res.json(prospects);
     } catch (error) {
       console.error("Error fetching prospects:", error);
