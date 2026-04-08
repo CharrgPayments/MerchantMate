@@ -109,6 +109,12 @@ const smsConfigSchema = z.object({
   toPhoneNumber: z.string().optional(),
 });
 
+const routeParamSchema = z.object({
+  name: z.string(),
+  defaultValue: z.string().optional(),
+  description: z.string().optional(),
+});
+
 const webhookConfigSchema = z.object({
   url: z.string().url("Must be a valid URL"),
   method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
@@ -117,7 +123,10 @@ const webhookConfigSchema = z.object({
   responseSchema: z.string().optional(),
   mockData: z.string().optional(),
   isDataSource: z.boolean().optional(),
+  routeParams: z.array(routeParamSchema).optional(),
 });
+
+type RouteParam = z.infer<typeof routeParamSchema>;
 
 const notificationConfigSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -440,6 +449,52 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
     return Array.from(vars);
   };
 
+  // Extract single-brace route parameters like {merchantId} from a URL string.
+  // Double-brace template vars like {{variable}} are NOT treated as route params.
+  const extractRouteParamNames = (url: string): string[] => {
+    const names: string[] = [];
+    const regex = /\{([^{}]+)\}/g;
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(url)) !== null) {
+      const inner = m[1].trim();
+      // skip anything that starts with { (would be {{...}})
+      if (inner && !names.includes(inner)) names.push(inner);
+    }
+    return names;
+  };
+
+  // Replace {paramName} tokens in a URL with their configured default values.
+  const resolveUrlWithParams = (url: string, params: RouteParam[]): string => {
+    if (!url || !params?.length) return url;
+    return url.replace(/\{([^{}]+)\}/g, (_match, name: string) => {
+      const p = params.find((rp) => rp.name === name.trim());
+      return p?.defaultValue !== undefined && p.defaultValue !== '' ? p.defaultValue : `{${name}}`;
+    });
+  };
+
+  // Keep routeParams in sync whenever the URL field changes.
+  useEffect(() => {
+    if (actionType !== 'webhook') return;
+    const url = configFields.url || '';
+    const detected = extractRouteParamNames(url);
+    const existing: RouteParam[] = configFields.routeParams || [];
+
+    // Merge: keep existing values for params that still exist; add new ones; drop removed ones
+    const merged: RouteParam[] = detected.map((name) => {
+      const prev = existing.find((p) => p.name === name);
+      return prev ?? { name, defaultValue: '', description: '' };
+    });
+
+    // Only update state if the param list actually changed to avoid infinite loops
+    const same =
+      merged.length === existing.length &&
+      merged.every((p, i) => p.name === existing[i]?.name);
+    if (!same) {
+      setConfigFields((prev: any) => ({ ...prev, routeParams: merged }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configFields.url, actionType]);
+
   const handlePreview = () => {
     const variables = extractVariables();
     const initialData: Record<string, string> = {};
@@ -479,6 +534,11 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
         setTestResult({ data: parsed, status: 200, mode: 'mock' });
       } else {
         if (!configFields.url) throw new Error('No URL configured.');
+        const resolvedUrl = resolveUrlWithParams(configFields.url, configFields.routeParams || []);
+        // Warn if any unresolved params remain
+        if (/\{[^{}]+\}/.test(resolvedUrl)) {
+          throw new Error(`URL still contains unresolved route parameters: ${resolvedUrl}. Provide default values for each parameter.`);
+        }
         const response = await fetch(`/api/action-templates/${template?.id || 'preview'}/test`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -486,7 +546,7 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
           body: JSON.stringify({
             mode: 'live',
             config: {
-              url: configFields.url,
+              url: resolvedUrl,
               method: configFields.method || 'GET',
               headers: configFields.headers,
               body: configFields.body,
@@ -682,6 +742,10 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
         );
       
       case 'webhook':
+        // eslint-disable-next-line no-case-declarations
+        const routeParams: RouteParam[] = configFields.routeParams || [];
+        // eslint-disable-next-line no-case-declarations
+        const resolvedPreviewUrl = resolveUrlWithParams(configFields.url || '', routeParams);
         return (
           <>
             <FormItem>
@@ -690,11 +754,74 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
                 <Input
                   value={configFields.url || ''}
                   onChange={(e) => setConfigFields({ ...configFields, url: e.target.value })}
-                  placeholder="https://api.example.com/webhook"
+                  placeholder="https://api.example.com/merchants/{merchantId}/transactions"
                   data-testid="input-webhook-url"
                 />
               </FormControl>
+              <FormDescription className="text-xs">
+                Use <code className="font-mono bg-muted px-1 rounded">{'{paramName}'}</code> in the URL for dynamic route parameters (e.g. <code className="font-mono bg-muted px-1 rounded">/merchants/{'{merchantId}'}</code>). Use <code className="font-mono bg-muted px-1 rounded">{'{{variable}}'}</code> for template variables.
+              </FormDescription>
             </FormItem>
+
+            {/* Route Parameters — auto-rendered when {param} tokens are detected */}
+            {routeParams.length > 0 && (
+              <div className="space-y-2" data-testid="route-params-section">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Route Parameters</span>
+                  <Badge variant="secondary" className="text-xs">{routeParams.length} detected</Badge>
+                </div>
+
+                {/* Param rows */}
+                <div className="rounded-md border divide-y text-sm" data-testid="route-params-table">
+                  {/* Header */}
+                  <div className="grid grid-cols-[140px_1fr_1fr] gap-2 px-3 py-2 bg-muted/50 text-xs font-medium text-muted-foreground">
+                    <span>Parameter</span>
+                    <span>Default Value</span>
+                    <span>Description</span>
+                  </div>
+                  {routeParams.map((param, idx) => (
+                    <div key={param.name} className="grid grid-cols-[140px_1fr_1fr] gap-2 px-3 py-2 items-center" data-testid={`route-param-row-${param.name}`}>
+                      <code className="font-mono text-xs font-semibold text-violet-600 dark:text-violet-400 truncate">
+                        {'{' + param.name + '}'}
+                      </code>
+                      <Input
+                        value={param.defaultValue || ''}
+                        onChange={(e) => {
+                          const updated = routeParams.map((p, i) => i === idx ? { ...p, defaultValue: e.target.value } : p);
+                          setConfigFields({ ...configFields, routeParams: updated });
+                        }}
+                        placeholder="Enter default value"
+                        className="h-7 text-xs"
+                        data-testid={`route-param-default-${param.name}`}
+                      />
+                      <Input
+                        value={param.description || ''}
+                        onChange={(e) => {
+                          const updated = routeParams.map((p, i) => i === idx ? { ...p, description: e.target.value } : p);
+                          setConfigFields({ ...configFields, routeParams: updated });
+                        }}
+                        placeholder="e.g. Merchant ID"
+                        className="h-7 text-xs"
+                        data-testid={`route-param-desc-${param.name}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Resolved URL preview */}
+                <div className="rounded-md bg-muted/50 border px-3 py-2 text-xs" data-testid="resolved-url-preview">
+                  <span className="text-muted-foreground font-medium mr-2">Resolved URL:</span>
+                  <span className="font-mono break-all">
+                    {resolvedPreviewUrl.split(/(\{[^{}]+\})/g).map((part, i) =>
+                      /^\{[^{}]+\}$/.test(part)
+                        ? <span key={i} className="text-destructive font-semibold">{part}</span>
+                        : <span key={i}>{part}</span>
+                    )}
+                  </span>
+                </div>
+              </div>
+            )}
+
             <FormItem>
               <FormLabel>Method</FormLabel>
               <Select
