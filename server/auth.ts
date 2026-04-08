@@ -13,6 +13,8 @@ import type {
   TwoFactorVerify,
   User 
 } from "@shared/schema";
+import { users } from "@shared/schema";
+import { eq, or } from "drizzle-orm";
 
 const SALT_ROUNDS = 12;
 const MAX_LOGIN_ATTEMPTS = 5;
@@ -481,9 +483,18 @@ export class AuthService {
   }
 
   // Request password reset
-  async requestPasswordReset(data: PasswordResetRequest): Promise<{ success: boolean; message: string }> {
+  async requestPasswordReset(data: PasswordResetRequest, dynamicDB?: any, dbEnv?: string): Promise<{ success: boolean; message: string }> {
     try {
-      const user = await storage.getUserByUsernameOrEmail(data.usernameOrEmail, data.usernameOrEmail);
+      let user: any;
+      if (dynamicDB) {
+        const results = await dynamicDB.select().from(users).where(
+          or(eq(users.username, data.usernameOrEmail), eq(users.email, data.usernameOrEmail))
+        );
+        user = results[0] ? { ...results[0], role: results[0].roles?.[0] ?? 'merchant' } : undefined;
+      } else {
+        user = await storage.getUserByUsernameOrEmail(data.usernameOrEmail, data.usernameOrEmail);
+      }
+
       if (!user) {
         // Don't reveal if user exists or not
         return {
@@ -497,10 +508,22 @@ export class AuthService {
       const resetExpires = new Date(Date.now() + PASSWORD_RESET_EXPIRES);
 
       // Save reset token
-      await storage.updateUser(user.id, {
-        passwordResetToken: resetToken,
-        passwordResetExpires: resetExpires,
-      });
+      if (dynamicDB) {
+        await dynamicDB.update(users).set({
+          passwordResetToken: resetToken,
+          passwordResetExpires: resetExpires,
+        }).where(eq(users.id, user.id));
+      } else {
+        await storage.updateUser(user.id, {
+          passwordResetToken: resetToken,
+          passwordResetExpires: resetExpires,
+        });
+      }
+
+      // Build reset link — include db env so the reset page can route back to the right DB
+      const baseUrl = process.env.APP_URL || "http://localhost:5000";
+      const dbParam = dbEnv && dbEnv !== 'production' ? `&db=${dbEnv}` : '';
+      const resetLink = `${baseUrl}/auth/reset-password?token=${resetToken}${dbParam}`;
 
       // Send reset email
       await this.sendEmail(
@@ -510,9 +533,7 @@ export class AuthService {
         <h2>Password Reset Request</h2>
         <p>You requested a password reset for your CoreCRM account.</p>
         <p>Click the link below to reset your password:</p>
-        <a href="${process.env.APP_URL || "http://localhost:5000"}/auth/reset-password?token=${resetToken}">
-          Reset Password
-        </a>
+        <a href="${resetLink}">Reset Password</a>
         <p>This link will expire in 1 hour.</p>
         <p>If you didn't request this reset, please ignore this email.</p>
         `
@@ -532,9 +553,18 @@ export class AuthService {
   }
 
   // Reset password
-  async resetPassword(data: PasswordReset): Promise<{ success: boolean; message: string }> {
+  async resetPassword(data: PasswordReset, dynamicDB?: any): Promise<{ success: boolean; message: string }> {
     try {
-      const user = await storage.getUserByResetToken(data.token);
+      let user: any;
+      if (dynamicDB) {
+        const results = await dynamicDB.select().from(users).where(
+          eq(users.passwordResetToken, data.token)
+        );
+        user = results[0];
+      } else {
+        user = await storage.getUserByResetToken(data.token);
+      }
+
       if (!user || !user.passwordResetExpires || user.passwordResetExpires < new Date()) {
         return {
           success: false,
@@ -546,11 +576,19 @@ export class AuthService {
       const passwordHash = await this.hashPassword(data.password);
 
       // Update user
-      await storage.updateUser(user.id, {
-        passwordHash,
-        passwordResetToken: null,
-        passwordResetExpires: null,
-      });
+      if (dynamicDB) {
+        await dynamicDB.update(users).set({
+          passwordHash,
+          passwordResetToken: null,
+          passwordResetExpires: null,
+        }).where(eq(users.id, user.id));
+      } else {
+        await storage.updateUser(user.id, {
+          passwordHash,
+          passwordResetToken: null,
+          passwordResetExpires: null,
+        });
+      }
 
       // Send confirmation email
       await this.sendEmail(
