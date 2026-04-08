@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -47,7 +46,8 @@ import {
   TableIcon,
   Hash,
 } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { BaseWidget } from "./BaseWidget";
+import { type WidgetProps } from "./widget-types";
 import { useToast } from "@/hooks/use-toast";
 
 interface ApiDataWidgetConfig {
@@ -65,12 +65,6 @@ interface ApiDataWidgetConfig {
   chartType?: "bar" | "line";
 }
 
-interface ApiDataWidgetProps {
-  widgetDbId: number;
-  config: ApiDataWidgetConfig;
-  editMode?: boolean;
-}
-
 // Resolve a dot-notation path into a nested object
 function resolvePath(obj: any, path: string): any {
   if (!path) return obj;
@@ -84,11 +78,12 @@ function inferFields(data: any): string[] {
   return [];
 }
 
-export function ApiDataWidget({ widgetDbId, config, editMode }: ApiDataWidgetProps) {
+export function ApiDataWidget(props: WidgetProps) {
+  const { definition, preference, onConfigChange, onSizeChange, onVisibilityChange } = props;
   const [showConfig, setShowConfig] = useState(false);
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
+  const config: ApiDataWidgetConfig = (preference.configuration as ApiDataWidgetConfig) || {};
   const isConfigured = !!config.templateId;
 
   // Fetch live data from the template endpoint
@@ -115,101 +110,101 @@ export function ApiDataWidget({ widgetDbId, config, editMode }: ApiDataWidgetPro
     gcTime: 0,
   });
 
-  // Resolve the data array/object to display
   const rawData = result?.data;
   const displayData = config.dataPath ? resolvePath(rawData, config.dataPath) : rawData;
-  const dataArray: any[] = Array.isArray(displayData) ? displayData : displayData != null ? [displayData] : [];
+  const dataArray: any[] = Array.isArray(displayData)
+    ? displayData
+    : displayData != null
+    ? [displayData]
+    : [];
   const availableFields = inferFields(displayData);
 
-  const title = config.title || config.templateName || "API Data";
+  const handleSave = (newConfig: ApiDataWidgetConfig) => {
+    onConfigChange(newConfig as Record<string, any>);
+    setShowConfig(false);
+    toast({ title: "Widget configured", description: "Data source widget updated successfully." });
+  };
 
   return (
     <>
-      <Card className="h-full flex flex-col">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 flex-shrink-0">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Database className="h-4 w-4 text-violet-500" />
-            {title}
+      <BaseWidget
+        definition={definition}
+        preference={preference}
+        onConfigChange={onConfigChange}
+        onSizeChange={onSizeChange}
+        onVisibilityChange={onVisibilityChange}
+        onConfigure={() => setShowConfig(true)}
+        isLoading={isLoading && isConfigured}
+      >
+        {/* Header extras: elapsed badge + refresh */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <Database className="h-3.5 w-3.5 text-violet-500" />
+            <span className="text-xs text-muted-foreground">
+              {config.title || config.templateName || "API Data"}
+            </span>
             {result && (
-              <Badge variant="outline" className="text-[10px] ml-1">
+              <Badge variant="outline" className="text-[10px]">
                 {result.elapsed}ms
               </Badge>
             )}
-          </CardTitle>
-          <div className="flex items-center gap-1">
-            {isConfigured && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0"
-                onClick={() => refetch()}
-                disabled={isLoading}
-              >
-                <RefreshCw className={`h-3 w-3 ${isLoading ? "animate-spin" : ""}`} />
-              </Button>
-            )}
-            {editMode && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0"
-                onClick={() => setShowConfig(true)}
-              >
-                <Settings className="h-3 w-3" />
-              </Button>
-            )}
           </div>
-        </CardHeader>
-
-        <CardContent className="flex-1 min-h-0 pt-0">
-          {!isConfigured ? (
-            <div className="flex flex-col items-center justify-center h-32 gap-3 text-center">
-              <Database className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-sm text-muted-foreground">
-                Connect a data source to display live data here.
-              </p>
-              <Button size="sm" variant="outline" onClick={() => setShowConfig(true)}>
-                <Settings className="h-3 w-3 mr-2" />
-                Configure Widget
-              </Button>
-            </div>
-          ) : isLoading ? (
-            <div className="flex items-center justify-center h-24 gap-2 text-muted-foreground text-sm">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading data…
-            </div>
-          ) : isError ? (
-            <div className="flex items-start gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-xs">
-              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-              <span>{(error as Error)?.message || "Failed to load data"}</span>
-            </div>
-          ) : !result?.success ? (
-            <div className="flex items-start gap-2 p-3 rounded-md bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 text-xs">
-              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-              <span>Upstream returned HTTP {result?.status}. Check template configuration.</span>
-            </div>
-          ) : (
-            <WidgetDisplay
-              displayType={config.displayType || "table"}
-              dataArray={dataArray}
-              rawData={displayData}
-              columns={config.columns?.length ? config.columns : availableFields.slice(0, 5)}
-              maxRows={config.maxRows || 10}
-              valueField={config.valueField || availableFields[0] || ""}
-              valueLabel={config.valueLabel || title}
-              xField={config.xField || availableFields[0] || ""}
-              yField={config.yField || availableFields[1] || ""}
-              chartType={config.chartType || "bar"}
-            />
+          {isConfigured && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-5 w-5 p-0"
+              onClick={() => refetch()}
+              disabled={isLoading}
+            >
+              <RefreshCw className={`h-3 w-3 ${isLoading ? "animate-spin" : ""}`} />
+            </Button>
           )}
-        </CardContent>
-      </Card>
+        </div>
+
+        {/* Body */}
+        {!isConfigured ? (
+          <div className="flex flex-col items-center justify-center py-6 gap-3 text-center">
+            <Database className="h-7 w-7 text-muted-foreground/30" />
+            <p className="text-xs text-muted-foreground">
+              Connect a data source to display live data.
+            </p>
+            <Button size="sm" variant="outline" onClick={() => setShowConfig(true)}>
+              <Settings className="h-3 w-3 mr-1" />
+              Configure
+            </Button>
+          </div>
+        ) : isError ? (
+          <div className="flex items-start gap-2 p-2 rounded-md bg-destructive/10 text-destructive text-xs">
+            <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>{(error as Error)?.message || "Failed to load data"}</span>
+          </div>
+        ) : !result?.success && result ? (
+          <div className="flex items-start gap-2 p-2 rounded-md bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 text-xs">
+            <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>Upstream returned HTTP {result.status}. Check template configuration.</span>
+          </div>
+        ) : (
+          <WidgetDisplay
+            displayType={config.displayType || "table"}
+            dataArray={dataArray}
+            rawData={displayData}
+            columns={config.columns?.length ? config.columns : availableFields.slice(0, 5)}
+            maxRows={config.maxRows || 10}
+            valueField={config.valueField || availableFields[0] || ""}
+            valueLabel={config.valueLabel || config.title || "Value"}
+            xField={config.xField || availableFields[0] || ""}
+            yField={config.yField || availableFields[1] || ""}
+            chartType={config.chartType || "bar"}
+          />
+        )}
+      </BaseWidget>
 
       {showConfig && (
         <ConfigDialog
-          widgetDbId={widgetDbId}
           currentConfig={config}
           availableFields={availableFields}
+          onSave={handleSave}
           onClose={() => setShowConfig(false)}
         />
       )}
@@ -232,7 +227,9 @@ interface DisplayProps {
   chartType: "bar" | "line";
 }
 
-function WidgetDisplay({ displayType, dataArray, rawData, columns, maxRows, valueField, valueLabel, xField, yField, chartType }: DisplayProps) {
+function WidgetDisplay({
+  displayType, dataArray, rawData, columns, maxRows, valueField, valueLabel, xField, yField, chartType,
+}: DisplayProps) {
   if (displayType === "stat") {
     const val = Array.isArray(rawData) ? rawData[0]?.[valueField] : rawData?.[valueField];
     return (
@@ -249,7 +246,7 @@ function WidgetDisplay({ displayType, dataArray, rawData, columns, maxRows, valu
     const chartData = dataArray.slice(0, 20);
     if (!chartData.length) return <EmptyState />;
     return (
-      <ResponsiveContainer width="100%" height={160}>
+      <ResponsiveContainer width="100%" height={150}>
         {chartType === "line" ? (
           <LineChart data={chartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
@@ -275,7 +272,7 @@ function WidgetDisplay({ displayType, dataArray, rawData, columns, maxRows, valu
   if (!dataArray.length) return <EmptyState />;
   const rows = dataArray.slice(0, maxRows);
   return (
-    <div className="overflow-auto max-h-56 rounded-md border text-xs">
+    <div className="overflow-auto max-h-48 rounded-md border text-xs">
       <Table>
         <TableHeader>
           <TableRow>
@@ -290,7 +287,7 @@ function WidgetDisplay({ displayType, dataArray, rawData, columns, maxRows, valu
           {rows.map((row, i) => (
             <TableRow key={i}>
               {columns.map((col) => (
-                <TableCell key={col} className="py-1 px-2 max-w-[120px] truncate" title={String(row[col] ?? "")}>
+                <TableCell key={col} className="py-1 px-2 max-w-[110px] truncate" title={String(row[col] ?? "")}>
                   {row[col] != null ? String(row[col]) : <span className="text-muted-foreground">—</span>}
                 </TableCell>
               ))}
@@ -308,24 +305,19 @@ function WidgetDisplay({ displayType, dataArray, rawData, columns, maxRows, valu
 }
 
 function EmptyState() {
-  return (
-    <p className="text-sm text-muted-foreground text-center py-6">No data to display</p>
-  );
+  return <p className="text-sm text-muted-foreground text-center py-4">No data to display</p>;
 }
 
 // ─── Config Dialog ─────────────────────────────────────────────────────────
 
 interface ConfigDialogProps {
-  widgetDbId: number;
   currentConfig: ApiDataWidgetConfig;
   availableFields: string[];
+  onSave: (config: ApiDataWidgetConfig) => void;
   onClose: () => void;
 }
 
-function ConfigDialog({ widgetDbId, currentConfig, availableFields, onClose }: ConfigDialogProps) {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-
+function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: ConfigDialogProps) {
   const [templateId, setTemplateId] = useState<string>(
     currentConfig.templateId ? String(currentConfig.templateId) : ""
   );
@@ -360,7 +352,6 @@ function ConfigDialog({ widgetDbId, currentConfig, availableFields, onClose }: C
 
   const selectedTemplate = dataSourceTemplates.find((t: any) => t.id === Number(templateId));
 
-  // Infer available fields from template responseSchema if we have it
   const schemaFields: string[] = (() => {
     if (!selectedTemplate?.config?.responseSchema) return availableFields;
     try {
@@ -371,43 +362,24 @@ function ConfigDialog({ widgetDbId, currentConfig, availableFields, onClose }: C
     }
   })();
 
-  const saveConfig = useMutation({
-    mutationFn: async () => {
-      const newConfig: ApiDataWidgetConfig = {
-        templateId: Number(templateId),
-        templateName: selectedTemplate?.name || "",
-        displayType,
-        title: title || selectedTemplate?.name || "",
-        dataPath: dataPath || undefined,
-        maxRows: Number(maxRows) || 10,
-        columns: columns ? columns.split(",").map((c) => c.trim()).filter(Boolean) : [],
-        valueField: valueField || undefined,
-        valueLabel: valueLabel || undefined,
-        xField: xField || undefined,
-        yField: yField || undefined,
-        chartType,
-      };
-      const res = await fetch(`/api/dashboard/widgets/${widgetDbId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ configuration: newConfig }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || "Failed to save");
-      }
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/widgets"] });
-      toast({ title: "Widget configured", description: "Data source widget updated successfully." });
-      onClose();
-    },
-    onError: (err: any) => {
-      toast({ title: "Save failed", description: err.message, variant: "destructive" });
-    },
-  });
+  const handleSave = () => {
+    if (!templateId) return;
+    const newConfig: ApiDataWidgetConfig = {
+      templateId: Number(templateId),
+      templateName: selectedTemplate?.name || "",
+      displayType,
+      title: title || selectedTemplate?.name || "",
+      dataPath: dataPath || undefined,
+      maxRows: Number(maxRows) || 10,
+      columns: columns ? columns.split(",").map((c) => c.trim()).filter(Boolean) : [],
+      valueField: valueField || undefined,
+      valueLabel: valueLabel || undefined,
+      xField: xField || undefined,
+      yField: yField || undefined,
+      chartType,
+    };
+    onSave(newConfig);
+  };
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -422,7 +394,7 @@ function ConfigDialog({ widgetDbId, currentConfig, availableFields, onClose }: C
             <label className="text-sm font-medium">Data Source Template</label>
             {dataSourceTemplates.length === 0 ? (
               <p className="text-xs text-muted-foreground p-3 border rounded-md bg-muted/30">
-                No data source templates found. Create a Webhook template and enable "Use as Data Source" on it first.
+                No data source templates found. Create a Webhook template and enable "Use as Data Source" in its settings first.
               </p>
             ) : (
               <Select value={templateId} onValueChange={setTemplateId}>
@@ -456,10 +428,10 @@ function ConfigDialog({ widgetDbId, currentConfig, availableFields, onClose }: C
             <Input
               value={dataPath}
               onChange={(e) => setDataPath(e.target.value)}
-              placeholder="e.g. data.records or merchants"
+              placeholder="e.g. data.records or results"
             />
             <p className="text-[11px] text-muted-foreground">
-              Dot-notation path to the array/object inside the API response. Leave blank to use the root.
+              Dot-notation path into the API response. Leave blank to use the root.
             </p>
           </div>
 
@@ -498,7 +470,7 @@ function ConfigDialog({ widgetDbId, currentConfig, availableFields, onClose }: C
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium">Label</label>
-                <Input value={valueLabel} onChange={(e) => setValueLabel(e.target.value)} placeholder="e.g. Total Merchants" />
+                <Input value={valueLabel} onChange={(e) => setValueLabel(e.target.value)} placeholder="e.g. Total Records" />
               </div>
             </div>
           )}
@@ -511,7 +483,7 @@ function ConfigDialog({ widgetDbId, currentConfig, availableFields, onClose }: C
                 <Input
                   value={columns}
                   onChange={(e) => setColumns(e.target.value)}
-                  placeholder="id, name, status (comma-separated, leave blank for all)"
+                  placeholder="id, name, status (comma-separated, blank = all)"
                 />
                 {schemaFields.length > 0 && (
                   <p className="text-[11px] text-muted-foreground">
@@ -521,13 +493,7 @@ function ConfigDialog({ widgetDbId, currentConfig, availableFields, onClose }: C
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium">Max Rows</label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={maxRows}
-                  onChange={(e) => setMaxRows(e.target.value)}
-                />
+                <Input type="number" min={1} max={100} value={maxRows} onChange={(e) => setMaxRows(e.target.value)} />
               </div>
             </div>
           )}
@@ -570,11 +536,7 @@ function ConfigDialog({ widgetDbId, currentConfig, availableFields, onClose }: C
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button
-            onClick={() => saveConfig.mutate()}
-            disabled={!templateId || saveConfig.isPending}
-          >
-            {saveConfig.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+          <Button onClick={handleSave} disabled={!templateId}>
             Save
           </Button>
         </DialogFooter>
@@ -590,9 +552,7 @@ function FieldSelect({ fields, value, onChange, placeholder }: {
   placeholder: string;
 }) {
   if (!fields.length) {
-    return (
-      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
-    );
+    return <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />;
   }
   return (
     <Select value={value} onValueChange={onChange}>

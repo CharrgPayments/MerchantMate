@@ -47,8 +47,8 @@ export const WIDGET_REGISTRY: Record<string, React.ComponentType<WidgetProps>> =
   [WIDGET_TYPES.ALERTS_CENTER]: SystemOverviewWidget,
   [WIDGET_TYPES.PERFORMANCE_METRICS]: QuickStatsWidget,
 
-  // Dynamic API data widget — rendered separately via DashboardWidget switch
-  [WIDGET_TYPES.API_DATA_WIDGET]: QuickStatsWidget, // placeholder; actual render handled in DashboardWidget
+  // Dynamic API data widget — powered by webhook action templates
+  [WIDGET_TYPES.API_DATA_WIDGET]: ApiDataWidget,
 };
 
 // Widget definitions with metadata

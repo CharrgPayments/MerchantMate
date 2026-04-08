@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 interface BaseWidgetProps extends WidgetProps {
   children: React.ReactNode;
   isLoading?: boolean;
+  onConfigure?: () => void;
 }
 
 export function BaseWidget({
@@ -17,7 +18,8 @@ export function BaseWidget({
   onSizeChange,
   onVisibilityChange,
   children,
-  isLoading = false
+  isLoading = false,
+  onConfigure,
 }: BaseWidgetProps) {
   const getSizeClasses = (size: string) => {
     switch (size) {
@@ -76,10 +78,10 @@ export function BaseWidget({
               <EyeOff className="mr-2 h-4 w-4" />
               Hide Widget
             </DropdownMenuItem>
-            {definition.configurable.length > 0 && (
+            {definition.configurable.length > 0 && onConfigure && (
               <>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem>
+                <DropdownMenuItem onClick={onConfigure}>
                   <Settings className="mr-2 h-4 w-4" />
                   Configure
                 </DropdownMenuItem>
