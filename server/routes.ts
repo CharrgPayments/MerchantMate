@@ -158,6 +158,20 @@ function getDefaultWidgetsForRole(role: string) {
   }
 }
 
+/**
+ * Resolve {{$SECRET_NAME}} placeholders in a string using process.env.
+ * Throws if any referenced secret is missing.
+ */
+function resolveSecrets(text: string): string {
+  return text.replace(/\{\{\$([A-Z0-9_]+)\}\}/g, (_match, name) => {
+    const val = process.env[name];
+    if (val === undefined || val === '') {
+      throw new Error(`Secret not found: "${name}". Ensure the environment variable ${name} is set.`);
+    }
+    return val;
+  });
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Multer configuration for PDF uploads
   const upload = multer({
@@ -7980,8 +7994,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const cfg = inlineConfig || {};
-        const { url, method = 'GET', headers: headersStr, body: bodyStr } = cfg;
+        const { method = 'GET' } = cfg;
+        let { url, headers: headersStr, body: bodyStr } = cfg;
         if (!url) return res.status(400).json({ message: "No URL configured for this webhook" });
+
+        // Resolve {{$SECRET_NAME}} placeholders before sending
+        try {
+          url = resolveSecrets(url);
+          if (headersStr) headersStr = resolveSecrets(headersStr);
+          if (bodyStr) bodyStr = resolveSecrets(bodyStr);
+        } catch (secretErr: any) {
+          return res.status(400).json({ message: secretErr.message });
+        }
 
         let parsedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
         if (headersStr) {
@@ -8038,6 +8062,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/admin/available-secrets — return env var names available for use as {{$SECRET_NAME}} references
+  app.get("/api/admin/available-secrets", requireRole(['admin', 'super_admin']), (req, res) => {
+    // System / infrastructure vars to never expose even by name
+    const systemExclusions = new Set([
+      'NODE_ENV', 'PATH', 'HOME', 'USER', 'SHELL', 'TERM', 'LANG', 'PWD', 'OLDPWD',
+      'LOGNAME', 'SHLVL', 'HOSTNAME', 'PORT', 'HOST',
+      'DATABASE_URL', 'DEV_DATABASE_URL', 'TEST_DATABASE_URL', 'SESSION_SECRET',
+      'REPLIT_DB_URL', 'REPL_ID', 'REPL_SLUG', 'REPL_OWNER', 'REPL_IMAGE',
+      'REPLIT_CLUSTER', 'REPLIT_DEPLOYMENT', 'REPLIT_ENV', 'REPLIT_DOMAINS',
+      'NPM_CONFIG_LOGLEVEL', 'npm_lifecycle_event', 'npm_package_name',
+    ]);
+    const names = Object.keys(process.env)
+      .filter(k => !systemExclusions.has(k) && !k.startsWith('npm_') && !k.startsWith('REPL_') && k === k.toUpperCase())
+      .sort();
+    res.json({ secrets: names });
+  });
+
   // GET /api/action-templates/:id/data — fetch live data from a webhook data-source template (for dashboard widgets)
   app.get("/api/action-templates/:id/data", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
@@ -8064,15 +8105,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: `URL has unresolved route parameters: ${url}. Set default values on the template.` });
       }
 
+      // Resolve {{$SECRET_NAME}} placeholders before sending
+      let headersRaw: string | undefined = cfg.headers;
+      let bodyRaw: string | undefined = cfg.body;
+      try {
+        url = resolveSecrets(url);
+        if (headersRaw) headersRaw = resolveSecrets(headersRaw);
+        if (bodyRaw) bodyRaw = resolveSecrets(bodyRaw);
+      } catch (secretErr: any) {
+        return res.status(400).json({ message: secretErr.message });
+      }
+
       let parsedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (cfg.headers) {
-        try { parsedHeaders = { ...parsedHeaders, ...JSON.parse(cfg.headers) }; } catch {}
+      if (headersRaw) {
+        try { parsedHeaders = { ...parsedHeaders, ...JSON.parse(headersRaw) }; } catch {}
       }
 
       const method = cfg.method || 'GET';
       const fetchOptions: RequestInit = { method, headers: parsedHeaders };
-      if (method !== 'GET' && method !== 'HEAD' && cfg.body) {
-        fetchOptions.body = cfg.body;
+      if (method !== 'GET' && method !== 'HEAD' && bodyRaw) {
+        fetchOptions.body = bodyRaw;
       }
 
       const startTime = Date.now();

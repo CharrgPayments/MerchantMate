@@ -51,6 +51,11 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle2,
+  Lock,
+  ShieldCheck,
+  Eye,
+  EyeOff,
+  ClipboardCopy,
 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -208,6 +213,19 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
   const subjectRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const messageRef = useRef<HTMLTextAreaElement>(null);
+  const webhookUrlRef = useRef<HTMLInputElement>(null);
+  const webhookHeadersRef = useRef<HTMLTextAreaElement>(null);
+  const webhookBodyRef = useRef<HTMLTextAreaElement>(null);
+  // Which webhook field is currently focused for secret insertion
+  const [focusedWebhookField, setFocusedWebhookField] = useState<'url' | 'headers' | 'body' | null>(null);
+  const [secretsExpanded, setSecretsExpanded] = useState(false);
+
+  // Fetch available secret names (for admin/super_admin users)
+  const { data: secretsData } = useQuery<{ secrets: string[] }>({
+    queryKey: ['/api/admin/available-secrets'],
+    staleTime: 60_000,
+    retry: false,
+  });
   
   const form = useForm<TemplateFormData>({
     resolver: zodResolver(templateFormSchema),
@@ -423,6 +441,39 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
       setConfigFields({ ...configFields, [fieldName]: currentValue + variable });
     }
   };
+
+  // Insert {{$SECRET_NAME}} into the currently focused webhook field at cursor position
+  const insertSecretRef = (secretName: string) => {
+    const token = `{{$${secretName}}}`;
+    type FieldEntry = { el: HTMLInputElement | HTMLTextAreaElement | null; field: string };
+    const fieldMap: Record<string, FieldEntry> = {
+      url: { el: webhookUrlRef.current, field: 'url' },
+      headers: { el: webhookHeadersRef.current, field: 'headers' },
+      body: { el: webhookBodyRef.current, field: 'body' },
+    };
+    const target = focusedWebhookField ? fieldMap[focusedWebhookField] : null;
+    if (target?.el) {
+      const el = target.el;
+      const currentValue = configFields[target.field] || '';
+      const cursorPos = el.selectionStart ?? currentValue.length;
+      const cursorEnd = el.selectionEnd ?? cursorPos;
+      const newValue = currentValue.substring(0, cursorPos) + token + currentValue.substring(cursorEnd);
+      setConfigFields({ ...configFields, [target.field]: newValue });
+      setTimeout(() => {
+        el.focus();
+        const newPos = cursorPos + token.length;
+        el.setSelectionRange(newPos, newPos);
+      }, 0);
+    } else {
+      // No focused field — copy to clipboard as fallback
+      navigator.clipboard.writeText(token).then(() => {
+        toast({ title: 'Copied to clipboard', description: `${token} — paste it into a field`, duration: 2000 });
+      });
+    }
+  };
+
+  // Detect if a string contains any {{$...}} secret references
+  const containsSecretRef = (val: string | undefined): boolean => !!val && /\{\{\$[A-Z0-9_]+\}\}/.test(val);
 
   const renderTemplateWithData = (text: string, data: Record<string, string>): string => {
     if (!text) return '';
@@ -747,17 +798,26 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
         return (
           <>
             <FormItem>
-              <FormLabel>URL</FormLabel>
+              <div className="flex items-center justify-between">
+                <FormLabel>URL</FormLabel>
+                {containsSecretRef(configFields.url) && (
+                  <Badge variant="secondary" className="text-xs gap-1 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800">
+                    <Lock className="h-3 w-3" /> contains secrets
+                  </Badge>
+                )}
+              </div>
               <FormControl>
                 <Input
+                  ref={webhookUrlRef}
                   value={configFields.url || ''}
                   onChange={(e) => setConfigFields({ ...configFields, url: e.target.value })}
+                  onFocus={() => setFocusedWebhookField('url')}
                   placeholder="https://api.example.com/merchants/{merchantId}/transactions"
                   data-testid="input-webhook-url"
                 />
               </FormControl>
               <FormDescription className="text-xs">
-                Use <code className="font-mono bg-muted px-1 rounded">{'{paramName}'}</code> in the URL for dynamic route parameters (e.g. <code className="font-mono bg-muted px-1 rounded">/merchants/{'{merchantId}'}</code>). Use <code className="font-mono bg-muted px-1 rounded">{'{{variable}}'}</code> for template variables.
+                Use <code className="font-mono bg-muted px-1 rounded">{'{paramName}'}</code> for route params. Use <code className="font-mono bg-muted px-1 rounded">{'{{$SECRET_NAME}}'}</code> for secrets. Use <code className="font-mono bg-muted px-1 rounded">{'{{variable}}'}</code> for template variables.
               </FormDescription>
             </FormItem>
 
@@ -838,24 +898,91 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
                 </SelectContent>
               </Select>
             </FormItem>
+            {/* Secrets Reference Panel */}
+            {secretsData && secretsData.secrets.length > 0 && (
+              <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/30 p-3 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setSecretsExpanded(v => !v)}
+                  className="w-full flex items-center justify-between text-left"
+                >
+                  <div className="flex items-center gap-2 text-sm font-medium text-amber-800 dark:text-amber-300">
+                    <ShieldCheck className="h-4 w-4" />
+                    Secrets Reference
+                    <Badge variant="outline" className="text-xs border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400">
+                      {secretsData.secrets.length} available
+                    </Badge>
+                  </div>
+                  {secretsExpanded
+                    ? <ChevronUp className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                    : <ChevronDown className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                  }
+                </button>
+
+                {secretsExpanded && (
+                  <div className="space-y-2 pt-1">
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      Click a secret to insert <code className="font-mono bg-amber-100 dark:bg-amber-900 px-1 rounded">{'{{$SECRET_NAME}}'}</code> at your cursor in the URL, Headers, or Body field.
+                      {focusedWebhookField
+                        ? <span className="ml-1 font-medium">Inserting into: <span className="capitalize">{focusedWebhookField}</span></span>
+                        : <span className="ml-1 text-amber-600 dark:text-amber-500"> (focus a field first, or the token will be copied to clipboard)</span>
+                      }
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {secretsData.secrets.map(name => (
+                        <button
+                          key={name}
+                          type="button"
+                          onClick={() => insertSecretRef(name)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-mono font-medium bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700 hover:bg-amber-200 dark:hover:bg-amber-800 transition-colors"
+                          title={`Insert {{$${name}}}`}
+                        >
+                          <Lock className="h-3 w-3 opacity-60" />
+                          {name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <FormItem>
-              <FormLabel>Headers (JSON, optional)</FormLabel>
+              <div className="flex items-center justify-between">
+                <FormLabel>Headers (JSON, optional)</FormLabel>
+                {containsSecretRef(configFields.headers) && (
+                  <Badge variant="secondary" className="text-xs gap-1 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800">
+                    <Lock className="h-3 w-3" /> contains secrets
+                  </Badge>
+                )}
+              </div>
               <FormControl>
                 <Textarea
+                  ref={webhookHeadersRef}
                   value={configFields.headers || ''}
                   onChange={(e) => setConfigFields({ ...configFields, headers: e.target.value })}
-                  placeholder='{"Authorization": "Bearer {{token}}"}'
+                  onFocus={() => setFocusedWebhookField('headers')}
+                  placeholder='{"Authorization": "Bearer {{$API_TOKEN}}", "X-Api-Key": "{{$API_KEY}}"}'
                   rows={3}
                   data-testid="textarea-webhook-headers"
                 />
               </FormControl>
             </FormItem>
             <FormItem>
-              <FormLabel>Body (optional)</FormLabel>
+              <div className="flex items-center justify-between">
+                <FormLabel>Body (optional)</FormLabel>
+                {containsSecretRef(configFields.body) && (
+                  <Badge variant="secondary" className="text-xs gap-1 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800">
+                    <Lock className="h-3 w-3" /> contains secrets
+                  </Badge>
+                )}
+              </div>
               <FormControl>
                 <Textarea
+                  ref={webhookBodyRef}
                   value={configFields.body || ''}
                   onChange={(e) => setConfigFields({ ...configFields, body: e.target.value })}
+                  onFocus={() => setFocusedWebhookField('body')}
                   placeholder='{"data": "{{variable}}"}'
                   rows={4}
                   data-testid="textarea-webhook-body"
