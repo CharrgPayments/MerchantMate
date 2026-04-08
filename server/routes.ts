@@ -7965,18 +7965,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/action-templates/:id/test — test send a template
   app.post("/api/action-templates/:id/test", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
-      const db = req.db!;
-      const [template] = await db.select().from(actionTemplates).where(eq(actionTemplates.id, parseInt(req.params.id)));
-      if (!template) return res.status(404).json({ message: "Template not found" });
-      const { recipientEmail } = req.body;
-      if (template.actionType === 'email' && recipientEmail) {
-        const config = template.config as any;
-        await emailService.sendEmail({
-          to: recipientEmail,
-          subject: `[TEST] ${config.subject || template.name}`,
-          html: config.body || config.html || `<p>Test send of template: ${template.name}</p>`,
+      const { mode, config: inlineConfig, recipientEmail } = req.body;
+
+      // Handle webhook live proxy
+      if (mode === 'live') {
+        const cfg = inlineConfig || {};
+        const { url, method = 'GET', headers: headersStr, body: bodyStr } = cfg;
+        if (!url) return res.status(400).json({ message: "No URL configured for this webhook" });
+
+        let parsedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (headersStr) {
+          try { parsedHeaders = { ...parsedHeaders, ...JSON.parse(headersStr) }; } catch {}
+        }
+
+        const fetchOptions: RequestInit = { method, headers: parsedHeaders };
+        if (method !== 'GET' && method !== 'HEAD' && bodyStr) {
+          fetchOptions.body = bodyStr;
+        }
+
+        const startTime = Date.now();
+        const upstream = await fetch(url, fetchOptions);
+        const elapsed = Date.now() - startTime;
+
+        let data: any;
+        const contentType = upstream.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          data = await upstream.json();
+        } else {
+          const text = await upstream.text();
+          try { data = JSON.parse(text); } catch { data = { _raw: text }; }
+        }
+
+        return res.json({
+          success: upstream.ok,
+          status: upstream.status,
+          statusText: upstream.statusText,
+          elapsed,
+          data,
+          mode: 'live',
         });
       }
+
+      // Handle email test
+      const db = req.db!;
+      const idStr = req.params.id;
+      if (idStr !== 'preview' && !isNaN(parseInt(idStr))) {
+        const [template] = await db.select().from(actionTemplates).where(eq(actionTemplates.id, parseInt(idStr)));
+        if (!template) return res.status(404).json({ message: "Template not found" });
+        if (template.actionType === 'email' && recipientEmail) {
+          const cfg = template.config as any;
+          await emailService.sendEmail({
+            to: recipientEmail,
+            subject: `[TEST] ${cfg.subject || template.name}`,
+            html: cfg.body || cfg.html || `<p>Test send of template: ${template.name}</p>`,
+          });
+        }
+      }
+
       res.json({ success: true, message: "Test sent successfully" });
     } catch (error: any) {
       res.status(500).json({ message: "Failed to send test", error: error.message });
