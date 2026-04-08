@@ -27,6 +27,9 @@ export const WIDGET_TYPES = {
   FINANCIAL_SUMMARY: "financial_summary",
   ALERTS_CENTER: "alerts_center",
   PERFORMANCE_METRICS: "performance_metrics",
+
+  // Dynamic data-source widget — powered by webhook action templates
+  API_DATA_WIDGET: "api_data_widget",
 } as const;
 
 export type WidgetType = typeof WIDGET_TYPES[keyof typeof WIDGET_TYPES];
@@ -51,6 +54,7 @@ export const ROLE_WIDGET_PERMISSIONS = {
     WIDGET_TYPES.LOCATION_PERFORMANCE,
     WIDGET_TYPES.TRANSACTION_TRENDS,
     WIDGET_TYPES.TOP_LOCATIONS,
+    WIDGET_TYPES.API_DATA_WIDGET,
   ],
   agent: [
     WIDGET_TYPES.QUICK_STATS,
@@ -61,6 +65,7 @@ export const ROLE_WIDGET_PERMISSIONS = {
     WIDGET_TYPES.COMMISSION_TRACKING,
     WIDGET_TYPES.AGENT_LEADERBOARD,
     WIDGET_TYPES.PIPELINE_OVERVIEW,
+    WIDGET_TYPES.API_DATA_WIDGET,
   ],
   admin: [
     WIDGET_TYPES.QUICK_STATS,
@@ -76,6 +81,7 @@ export const ROLE_WIDGET_PERMISSIONS = {
     WIDGET_TYPES.PERFORMANCE_METRICS,
     WIDGET_TYPES.PIPELINE_OVERVIEW,
     WIDGET_TYPES.AGENT_LEADERBOARD,
+    WIDGET_TYPES.API_DATA_WIDGET,
   ],
   corporate: [
     WIDGET_TYPES.QUICK_STATS,
@@ -84,6 +90,7 @@ export const ROLE_WIDGET_PERMISSIONS = {
     WIDGET_TYPES.FINANCIAL_SUMMARY,
     WIDGET_TYPES.REVENUE_OVERVIEW,
     WIDGET_TYPES.SYSTEM_OVERVIEW,
+    WIDGET_TYPES.API_DATA_WIDGET,
   ],
   super_admin: Object.values(WIDGET_TYPES),
 } as const;

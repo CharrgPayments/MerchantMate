@@ -22,14 +22,16 @@ import {
 } from "lucide-react";
 import { WIDGET_TYPES, type WidgetType, type WidgetSize } from "@shared/widget-schema";
 import { type UserDashboardPreference } from "@shared/schema";
+import { ApiDataWidget } from "@/components/widgets/ApiDataWidget";
 
 interface DashboardWidgetProps {
   widget: UserDashboardPreference;
   onConfigure?: (widgetId: string) => void;
   onRemove?: (widgetId: string) => void;
+  editMode?: boolean;
 }
 
-export function DashboardWidget({ widget, onConfigure, onRemove }: DashboardWidgetProps) {
+export function DashboardWidget({ widget, onConfigure, onRemove, editMode }: DashboardWidgetProps) {
   const getSizeClasses = (size: WidgetSize) => {
     switch (size) {
       case "small": return "col-span-1 row-span-1";
@@ -77,6 +79,19 @@ export function DashboardWidget({ widget, onConfigure, onRemove }: DashboardWidg
   };
 
   if (!widget.isVisible) return null;
+
+  // API Data Widget manages its own Card shell including title, refresh button, and config dialog
+  if (widget.widgetId === WIDGET_TYPES.API_DATA_WIDGET) {
+    return (
+      <div className={`${getSizeClasses(widget.size)} relative`}>
+        <ApiDataWidget
+          widgetDbId={widget.id}
+          config={(widget.configuration as any) || {}}
+          editMode={editMode}
+        />
+      </div>
+    );
+  }
 
   const IconComponent = getWidgetIcon(widget.widgetId as WidgetType);
 

@@ -4,6 +4,7 @@ import { WidgetProps } from "./widget-types";
 
 // Widget components
 import { QuickStatsWidget } from "./QuickStatsWidget";
+import { ApiDataWidget } from "./ApiDataWidget";
 import { RevenueMetricsWidget } from "./RevenueMetricsWidget";
 import { TransactionCountWidget } from "./TransactionCountWidget";
 import { RecentTransactionsWidget } from "./RecentTransactionsWidget";
@@ -45,6 +46,9 @@ export const WIDGET_REGISTRY: Record<string, React.ComponentType<WidgetProps>> =
   [WIDGET_TYPES.FINANCIAL_SUMMARY]: RevenueMetricsWidget,
   [WIDGET_TYPES.ALERTS_CENTER]: SystemOverviewWidget,
   [WIDGET_TYPES.PERFORMANCE_METRICS]: QuickStatsWidget,
+
+  // Dynamic API data widget — rendered separately via DashboardWidget switch
+  [WIDGET_TYPES.API_DATA_WIDGET]: QuickStatsWidget, // placeholder; actual render handled in DashboardWidget
 };
 
 // Widget definitions with metadata
@@ -238,6 +242,15 @@ export const WIDGET_DEFINITIONS = {
     allowedRoles: ["admin", "corporate", "super_admin"],
     defaultSize: "large" as const,
     configurable: ["metrics", "timeRange"],
+  },
+  [WIDGET_TYPES.API_DATA_WIDGET]: {
+    id: WIDGET_TYPES.API_DATA_WIDGET,
+    name: "API Data Widget",
+    description: "Display live data from any configured webhook data source as a table, chart, or stat card",
+    category: "utility" as const,
+    allowedRoles: ["admin", "corporate", "super_admin", "agent", "merchant"],
+    defaultSize: "medium" as const,
+    configurable: ["templateId", "displayType", "columns", "valueField", "xField", "yField"],
   },
 } as const;
 

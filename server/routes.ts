@@ -8038,6 +8038,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/action-templates/:id/data — fetch live data from a webhook data-source template (for dashboard widgets)
+  app.get("/api/action-templates/:id/data", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
+    try {
+      const db = req.db!;
+      const templateId = parseInt(req.params.id);
+      if (isNaN(templateId)) return res.status(400).json({ message: "Invalid template ID" });
+
+      const [template] = await db.select().from(actionTemplates).where(eq(actionTemplates.id, templateId));
+      if (!template) return res.status(404).json({ message: "Template not found" });
+      if (template.actionType !== 'webhook') return res.status(400).json({ message: "Template is not a webhook type" });
+
+      const cfg = (template.config || {}) as Record<string, any>;
+      if (!cfg.url) return res.status(400).json({ message: "Template has no URL configured" });
+
+      // Resolve route params using their default values
+      let url: string = cfg.url;
+      const routeParams: Array<{ name: string; defaultValue?: string }> = cfg.routeParams || [];
+      for (const param of routeParams) {
+        if (param.defaultValue) {
+          url = url.replace(new RegExp(`\\{${param.name}\\}`, 'g'), param.defaultValue);
+        }
+      }
+      if (/\{[^{}]+\}/.test(url)) {
+        return res.status(400).json({ message: `URL has unresolved route parameters: ${url}. Set default values on the template.` });
+      }
+
+      let parsedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (cfg.headers) {
+        try { parsedHeaders = { ...parsedHeaders, ...JSON.parse(cfg.headers) }; } catch {}
+      }
+
+      const method = cfg.method || 'GET';
+      const fetchOptions: RequestInit = { method, headers: parsedHeaders };
+      if (method !== 'GET' && method !== 'HEAD' && cfg.body) {
+        fetchOptions.body = cfg.body;
+      }
+
+      const startTime = Date.now();
+      const upstream = await fetch(url, fetchOptions);
+      const elapsed = Date.now() - startTime;
+
+      let data: any;
+      const contentType = upstream.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        data = await upstream.json();
+      } else {
+        const text = await upstream.text();
+        try { data = JSON.parse(text); } catch { data = { _raw: text }; }
+      }
+
+      res.json({ success: upstream.ok, status: upstream.status, elapsed, data, templateId });
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to fetch data from template", error: error.message });
+    }
+  });
+
   // GET /api/admin/trigger-catalog — list all triggers
   app.get("/api/admin/trigger-catalog", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
