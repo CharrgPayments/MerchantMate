@@ -120,8 +120,19 @@ const routeParamSchema = z.object({
   description: z.string().optional(),
 });
 
+// A URL field that accepts a valid URL OR a string containing {{$SECRET_NAME}} tokens
+// (secrets are resolved server-side so we can't validate the final URL on the client)
+const urlOrSecretRef = (msg = "Must be a valid URL or a secret reference like {{$SECRET_NAME}}...") =>
+  z.string().refine(
+    (val) => {
+      if (/\{\{\$[A-Z0-9_]+\}\}/.test(val)) return true; // contains at least one secret token
+      try { new URL(val); return true; } catch { return false; }
+    },
+    msg,
+  );
+
 const webhookConfigSchema = z.object({
-  url: z.string().url("Must be a valid URL"),
+  url: urlOrSecretRef("Must be a valid URL or contain a secret reference like {{$SECRET_NAME}}"),
   method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
   headers: z.string().optional(),
   body: z.string().optional(),
@@ -146,7 +157,7 @@ const slackConfigSchema = z.object({
 });
 
 const teamsConfigSchema = z.object({
-  webhookUrl: z.string().url("Must be a valid URL"),
+  webhookUrl: urlOrSecretRef("Must be a valid URL or contain a secret reference like {{$SECRET_NAME}}"),
   message: z.string().min(1, "Message is required"),
   title: z.string().optional(),
 });
