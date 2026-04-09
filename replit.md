@@ -50,6 +50,8 @@ Preferred communication style: Simple, everyday language.
 - **Schema Management**: Comprehensive database schema comparison and synchronization utilities supporting production, development, and test environments. Features automated difference detection, bidirectional sync options (Drizzle push and selective table sync), and interactive management interface in Testing Utilities.
 - **Multi-Environment Support**: Complete session-based database environment switching with login screen environment selector integration, ensuring proper ACID compliance and environment isolation across all authenticated routes. Database environment is selected during login via `?db=development` parameter and persisted throughout the entire session.
 - **Workflow Definitions**: Implemented complete Workflow Definitions system for configuring and managing automation workflows.
+- **ApiDataGrid component**: New standalone `<ApiDataGrid templateId={N} />` component in `client/src/components/ApiDataGrid.tsx` — drop into any page to render a template-powered full-featured data grid with search, multi-column sort, pagination, and 3-level field label cascade (widget override → template label → auto-humanize).
+- **Full-page data viewer**: `/data-view/:templateId` route (`client/src/pages/data-view.tsx`) renders any webhook data-source template as a full-page searchable/sortable grid. Action Templates list shows a "View Grid" button on all data-source templates to open this view.
 
 ## External Dependencies
 - **@neondatabase/serverless**: Serverless PostgreSQL connector.

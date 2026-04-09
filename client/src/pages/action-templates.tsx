@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,7 @@ import {
   ClipboardCopy,
   Tag,
   Type,
+  LayoutGrid,
 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -1732,6 +1734,7 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
 
 export default function ActionTemplates() {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedType, setSelectedType] = useState<ActionType | 'all'>('all');
   const [selectedCategory, setSelectedCategory] = useState<Category>('all');
@@ -2068,6 +2071,18 @@ export default function ActionTemplates() {
                           )}
 
                           <div className="flex gap-2 pt-2">
+                            {(template.config as any)?.isDataSource && (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                className="flex-1 gap-1"
+                                onClick={() => navigate(`/data-view/${template.id}`)}
+                                data-testid={`button-view-grid-${template.id}`}
+                              >
+                                <LayoutGrid className="h-3 w-3" />
+                                View Grid
+                              </Button>
+                            )}
                             <Button 
                               variant="outline" 
                               size="sm" 

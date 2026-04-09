@@ -51,6 +51,7 @@ import MccPolicies from "@/pages/mcc-policies";
 import DisclosureLibrary from "@/pages/disclosure-library";
 import FormDemo from "@/pages/form-demo";
 import ActionTemplates from "@/pages/action-templates";
+import DataView from "@/pages/data-view";
 import CommunicationsManagement from "@/pages/communications-management";
 import AlertsPage from "@/pages/AlertsPage";
 import ProfilePage from "@/pages/profile";
@@ -688,6 +689,20 @@ function AuthenticatedApp() {
                   <Header title={pageInfo.title} onSearch={setGlobalSearch} />
                   <main className="flex-1 overflow-auto bg-gray-50">
                     <ActionTemplates />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/data-view/:templateId">
+            {() => {
+              const userRoles = (user as any)?.roles || [];
+              if (!user || (!userRoles.includes('admin') && !userRoles.includes('super_admin'))) return <NotFound />;
+              return (
+                <>
+                  <Header title="Data View" onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <DataView />
                   </main>
                 </>
               );
