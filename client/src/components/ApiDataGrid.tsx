@@ -28,15 +28,17 @@ import {
   Search,
   ChevronUp,
   ChevronDown,
+  ChevronRight,
   ChevronsUpDown,
   Loader2,
   AlertCircle,
   Database,
   RefreshCw,
+  Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// ── Label utilities ─────────────────────────────────────────────────────────
+// ── Label utilities ──────────────────────────────────────────────────────────
 
 const KNOWN_ABBREVS = new Set([
   "id","url","api","mtd","ytd","ssn","ein","mcc","pos","atm","crm","erp",
@@ -44,10 +46,8 @@ const KNOWN_ABBREVS = new Set([
   "aml","pci","dss","tpv","mrr","arr","roi","cac","ltv","gp","np",
 ]);
 
-function humanizeField(field: string): string {
-  // snake_case → words
+export function humanizeField(field: string): string {
   let s = field.replace(/_/g, " ");
-  // camelCase / PascalCase → words
   s = s.replace(/([a-z])([A-Z])/g, "$1 $2");
   s = s.replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
   const words = s.split(" ").filter(Boolean);
@@ -61,7 +61,7 @@ function humanizeField(field: string): string {
     .join(" ");
 }
 
-function displayLabel(
+export function displayLabel(
   field: string,
   widgetLabels?: Record<string, string>,
   templateLabels?: Record<string, string>
@@ -102,7 +102,200 @@ function sortRows(rows: Record<string, unknown>[], key: string, dir: SortDir) {
   });
 }
 
-// ── Props ────────────────────────────────────────────────────────────────────
+// ── Cell renderer ─────────────────────────────────────────────────────────────
+
+function renderCell(value: unknown) {
+  if (value == null) return <span className="text-muted-foreground">—</span>;
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "object") return <code className="text-[11px]">{JSON.stringify(value)}</code>;
+  const str = String(value);
+  return (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="truncate block max-w-[180px]">{str}</span>
+        </TooltipTrigger>
+        {str.length > 20 && (
+          <TooltipContent side="top" className="max-w-xs break-all text-xs">
+            {str}
+          </TooltipContent>
+        )}
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+// ── Row Expansion types ───────────────────────────────────────────────────────
+
+/**
+ * Config for a row-level detail expansion.
+ * When a row is clicked, the detail template is called with the row's key value
+ * substituted into the URL as a route parameter.
+ *
+ * Example:
+ *   Primary template URL: https://api.example.com/merchants (returns a list)
+ *   Detail template URL:  https://api.example.com/merchants/{merchantId}/locations
+ *
+ *   rowExpansion = {
+ *     templateId: 42,          // the detail template
+ *     rowKeyField: "id",       // field in the parent row that holds the merchant ID
+ *     routeParamName: "merchantId", // {merchantId} placeholder in the detail URL
+ *     label: "Locations",
+ *   }
+ */
+export interface RowExpansionConfig {
+  /** Action template ID to call for each expanded row. */
+  templateId: number;
+  /**
+   * The field name in the parent row whose value is passed as the route param.
+   * E.g. "id" or "merchantId".
+   */
+  rowKeyField: string;
+  /**
+   * The placeholder name in the detail template URL.
+   * E.g. if the URL is /merchants/{merchantId}/locations this should be "merchantId".
+   * Defaults to the same value as rowKeyField.
+   */
+  routeParamName?: string;
+  /** Columns to display in the expanded sub-table. Auto-detected if omitted. */
+  columns?: string[];
+  /** JSON path into the detail response to extract the array. */
+  dataPath?: string;
+  /** Display label for the expansion section header. */
+  label?: string;
+  /** Field label overrides for the detail columns. */
+  fieldLabels?: Record<string, string>;
+}
+
+// ── RowExpansionPanel ─────────────────────────────────────────────────────────
+
+interface RowExpansionPanelProps {
+  config: RowExpansionConfig;
+  parentRow: Record<string, unknown>;
+  colSpan: number;
+}
+
+function RowExpansionPanel({ config, parentRow, colSpan }: RowExpansionPanelProps) {
+  const keyValue = String(parentRow[config.rowKeyField] ?? "");
+  const paramName = config.routeParamName || config.rowKeyField;
+
+  // Fetch detail template metadata for its field labels
+  const { data: detailMeta } = useQuery<{ name: string; config: Record<string, unknown> }>({
+    queryKey: ["/api/action-templates", config.templateId, "meta"],
+    queryFn: async () => {
+      const res = await fetch(`/api/action-templates/${config.templateId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Not found");
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+
+  const templateFieldLabels: Record<string, string> =
+    ((detailMeta?.config?.fieldLabels) as Record<string, string> | undefined) || {};
+  const effectiveDataPath =
+    (detailMeta?.config?.dataPath as string | undefined) || config.dataPath;
+
+  // Fetch detail data — enabled only when keyValue is present
+  const { data: rawDetail, isLoading, isError, error } = useQuery<unknown>({
+    queryKey: ["/api/action-templates", config.templateId, "data", paramName, keyValue],
+    queryFn: async () => {
+      const params = new URLSearchParams({ [paramName]: keyValue });
+      const res = await fetch(
+        `/api/action-templates/${config.templateId}/data?${params}`,
+        { credentials: "include" }
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to load detail");
+      }
+      return res.json();
+    },
+    enabled: !!keyValue,
+    staleTime: 0,
+    gcTime: 0,
+  });
+
+  // Extract the rows from the detail response
+  const detailRows = useMemo<Record<string, unknown>[]>(() => {
+    if (!rawDetail) return [];
+    const payload = (rawDetail as Record<string, unknown>)?.data ?? rawDetail;
+    const arr = resolvePath(payload, effectiveDataPath);
+    return arr.filter((r): r is Record<string, unknown> => r != null && typeof r === "object");
+  }, [rawDetail, effectiveDataPath]);
+
+  // Derive columns
+  const columns = useMemo(() => {
+    if (config.columns && config.columns.length > 0) return config.columns;
+    if (detailRows.length === 0) return [];
+    return Object.keys(detailRows[0]);
+  }, [config.columns, detailRows]);
+
+  const label = config.label || detailMeta?.name || `Detail (template #${config.templateId})`;
+  const mergedLabels = { ...templateFieldLabels, ...(config.fieldLabels || {}) };
+
+  return (
+    <TableRow className="bg-muted/20 hover:bg-muted/30">
+      <TableCell colSpan={colSpan} className="py-0 px-0">
+        <div className="border-l-2 border-primary/30 ml-8 my-2 mr-4 rounded-md overflow-hidden">
+          {/* Expansion header */}
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/40 border-b">
+            <Layers className="h-3.5 w-3.5 text-primary/70" />
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              {label}
+            </span>
+            {!isLoading && !isError && (
+              <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-normal ml-auto">
+                {detailRows.length} record{detailRows.length !== 1 ? "s" : ""}
+              </Badge>
+            )}
+          </div>
+
+          {/* Expansion body */}
+          {isLoading ? (
+            <div className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Loading {label.toLowerCase()}…
+            </div>
+          ) : isError ? (
+            <div className="flex items-center gap-2 px-3 py-3 text-xs text-destructive">
+              <AlertCircle className="h-3.5 w-3.5" />
+              {String(error)}
+            </div>
+          ) : detailRows.length === 0 ? (
+            <div className="px-3 py-3 text-xs text-muted-foreground">
+              No {label.toLowerCase()} found for this record.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="border-b border-border/50">
+                  {columns.map((col) => (
+                    <TableHead key={col} className="py-1.5 px-3 text-[11px] font-medium bg-muted/20 whitespace-nowrap">
+                      {displayLabel(col, config.fieldLabels, templateFieldLabels)}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {detailRows.map((row, i) => (
+                  <TableRow key={i} className="border-b border-border/30 hover:bg-muted/20">
+                    {columns.map((col) => (
+                      <TableCell key={col} className="py-1.5 px-3 text-xs align-middle max-w-[220px]">
+                        {renderCell(row[col])}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+}
+
+// ── ApiDataGridProps ──────────────────────────────────────────────────────────
 
 export interface ApiDataGridProps {
   templateId: number;
@@ -121,9 +314,14 @@ export interface ApiDataGridProps {
   className?: string;
   /** Hide the card chrome — just the table. */
   bare?: boolean;
+  /**
+   * Optional row expansion config. When set, each row gets a toggle chevron.
+   * Clicking it fires the detail template with the row's key value as a route param.
+   */
+  rowExpansion?: RowExpansionConfig;
 }
 
-// ── Component ────────────────────────────────────────────────────────────────
+// ── ApiDataGrid ───────────────────────────────────────────────────────────────
 
 export function ApiDataGrid({
   templateId,
@@ -135,20 +333,21 @@ export function ApiDataGrid({
   dataPath,
   className,
   bare = false,
+  rowExpansion,
 }: ApiDataGridProps) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(pageSizeProp);
+  // Track which rows are expanded by their key value (or row index as fallback)
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
-  // Fetch template metadata (for name + templateFieldLabels)
+  // Fetch template metadata (name + field labels)
   const { data: templateMeta } = useQuery<{ id: number; name: string; config: Record<string, unknown> }>({
     queryKey: ["/api/action-templates", templateId, "meta"],
     queryFn: async () => {
-      const res = await fetch(`/api/action-templates/${templateId}`, {
-        credentials: "include",
-      });
+      const res = await fetch(`/api/action-templates/${templateId}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load template");
       return res.json();
     },
@@ -156,38 +355,25 @@ export function ApiDataGrid({
   });
 
   // Fetch live data
-  const {
-    data: rawResponse,
-    isLoading,
-    isError,
-    error,
-    refetch,
-    isFetching,
-  } = useQuery<unknown>({
+  const { data: rawResponse, isLoading, isError, error, refetch, isFetching } = useQuery<unknown>({
     queryKey: ["/api/action-templates", templateId, "data"],
     queryFn: async () => {
-      const res = await fetch(`/api/action-templates/${templateId}/data`, {
-        credentials: "include",
-      });
+      const res = await fetch(`/api/action-templates/${templateId}/data`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch data");
-      const json = await res.json();
-      return json;
+      return res.json();
     },
     staleTime: 0,
     gcTime: 0,
   });
 
-  // Resolve the template's field labels (middle tier)
   const templateFieldLabels = useMemo<Record<string, string>>(
-    () => ((templateMeta?.config as Record<string, unknown>)?.fieldLabels as Record<string, string>) || {},
+    () => ((templateMeta?.config?.fieldLabels) as Record<string, string> | undefined) || {},
     [templateMeta]
   );
 
-  // Resolve config-level dataPath (template config overrides prop)
   const effectiveDataPath =
-    (templateMeta?.config as Record<string, unknown>)?.dataPath as string | undefined || dataPath;
+    (templateMeta?.config?.dataPath as string | undefined) || dataPath;
 
-  // Extract the array of rows from the response
   const allRows = useMemo<Record<string, unknown>[]>(() => {
     if (!rawResponse) return [];
     const payload = (rawResponse as Record<string, unknown>)?.data ?? rawResponse;
@@ -195,14 +381,12 @@ export function ApiDataGrid({
     return arr.filter((r): r is Record<string, unknown> => r != null && typeof r === "object");
   }, [rawResponse, effectiveDataPath]);
 
-  // Derive columns
   const columns = useMemo(() => {
     if (columnsProp && columnsProp.length > 0) return columnsProp;
     if (allRows.length === 0) return [];
     return Object.keys(allRows[0]);
   }, [columnsProp, allRows]);
 
-  // Filter
   const filtered = useMemo(() => {
     if (!search.trim()) return allRows;
     const q = search.toLowerCase();
@@ -211,68 +395,56 @@ export function ApiDataGrid({
     );
   }, [allRows, search, columns]);
 
-  // Sort
   const sorted = useMemo(
     () => (sortKey ? sortRows(filtered, sortKey, sortDir) : filtered),
     [filtered, sortKey, sortDir]
   );
 
-  // Paginate
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const pageRows = useMemo(() => {
     const start = (page - 1) * pageSize;
     return sorted.slice(start, start + pageSize);
   }, [sorted, page, pageSize]);
 
-  // Sort toggle
   const toggleSort = (col: string) => {
-    if (sortKey !== col) {
-      setSortKey(col);
-      setSortDir("asc");
-    } else if (sortDir === "asc") {
-      setSortDir("desc");
-    } else {
-      setSortKey(null);
-      setSortDir(null);
-    }
+    if (sortKey !== col) { setSortKey(col); setSortDir("asc"); }
+    else if (sortDir === "asc") { setSortDir("desc"); }
+    else { setSortKey(null); setSortDir(null); }
     setPage(1);
+  };
+
+  // Row expansion helpers
+  const getRowKey = (row: Record<string, unknown>, idx: number): string => {
+    if (rowExpansion) {
+      const val = row[rowExpansion.rowKeyField];
+      if (val != null) return String(val);
+    }
+    return String(idx);
+  };
+
+  const toggleExpand = (key: string) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
   };
 
   const displayTitle = title || templateMeta?.name || `Template #${templateId}`;
 
-  // ── Render helpers ─────────────────────────────────────────────────────────
+  // Total columns = data columns + optional expand toggle column
+  const totalColSpan = columns.length + (rowExpansion ? 1 : 0);
+
+  // ── Sort icon ───────────────────────────────────────────────────────────────
 
   const SortIcon = ({ col }: { col: string }) => {
     if (sortKey !== col) return <ChevronsUpDown className="w-3 h-3 ml-1 opacity-40" />;
-    return sortDir === "asc" ? (
-      <ChevronUp className="w-3 h-3 ml-1 text-primary" />
-    ) : (
-      <ChevronDown className="w-3 h-3 ml-1 text-primary" />
-    );
+    return sortDir === "asc"
+      ? <ChevronUp className="w-3 h-3 ml-1 text-primary" />
+      : <ChevronDown className="w-3 h-3 ml-1 text-primary" />;
   };
 
-  const renderCell = (value: unknown) => {
-    if (value == null) return <span className="text-muted-foreground">—</span>;
-    if (typeof value === "boolean") return value ? "Yes" : "No";
-    if (typeof value === "object") return <code className="text-xs">{JSON.stringify(value)}</code>;
-    const str = String(value);
-    return (
-      <TooltipProvider delayDuration={300}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="truncate block max-w-[180px]">{str}</span>
-          </TooltipTrigger>
-          {str.length > 20 && (
-            <TooltipContent side="top" className="max-w-xs break-all text-xs">
-              {str}
-            </TooltipContent>
-          )}
-        </Tooltip>
-      </TooltipProvider>
-    );
-  };
-
-  // ── Layout ─────────────────────────────────────────────────────────────────
+  // ── Grid content ────────────────────────────────────────────────────────────
 
   const gridContent = (
     <div className={cn("flex flex-col gap-3", className)}>
@@ -290,6 +462,12 @@ export function ApiDataGrid({
           </div>
         )}
         <div className="flex items-center gap-2 ml-auto">
+          {rowExpansion && (
+            <Badge variant="outline" className="gap-1 text-xs">
+              <Layers className="h-3 w-3" />
+              Expandable rows
+            </Badge>
+          )}
           {allRows.length > 0 && (
             <Badge variant="secondary" className="text-xs font-normal">
               {sorted.length.toLocaleString()} row{sorted.length !== 1 ? "s" : ""}
@@ -297,11 +475,8 @@ export function ApiDataGrid({
             </Badge>
           )}
           <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 px-2"
-            onClick={() => refetch()}
-            disabled={isFetching}
+            variant="ghost" size="sm" className="h-8 px-2"
+            onClick={() => refetch()} disabled={isFetching}
           >
             <RefreshCw className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} />
           </Button>
@@ -319,9 +494,7 @@ export function ApiDataGrid({
           <AlertCircle className="h-8 w-8" />
           <p className="text-sm font-medium">Failed to load data</p>
           <p className="text-xs text-muted-foreground">{String(error)}</p>
-          <Button variant="outline" size="sm" onClick={() => refetch()} className="mt-2">
-            Retry
-          </Button>
+          <Button variant="outline" size="sm" onClick={() => refetch()} className="mt-2">Retry</Button>
         </div>
       ) : columns.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
@@ -334,6 +507,9 @@ export function ApiDataGrid({
           <Table>
             <TableHeader>
               <TableRow>
+                {rowExpansion && (
+                  <TableHead className="w-8 py-2 px-2" />
+                )}
                 {columns.map((col) => (
                   <TableHead
                     key={col}
@@ -351,20 +527,52 @@ export function ApiDataGrid({
             <TableBody>
               {pageRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={columns.length} className="text-center text-muted-foreground text-sm py-10">
+                  <TableCell colSpan={totalColSpan} className="text-center text-muted-foreground text-sm py-10">
                     No results found.
                   </TableCell>
                 </TableRow>
               ) : (
-                pageRows.map((row, i) => (
-                  <TableRow key={i} className="hover:bg-muted/40 transition-colors">
-                    {columns.map((col) => (
-                      <TableCell key={col} className="py-2 px-3 text-xs align-middle max-w-[220px]">
-                        {renderCell(row[col])}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
+                pageRows.map((row, i) => {
+                  const rowKey = getRowKey(row, i);
+                  const isExpanded = expandedKeys.has(rowKey);
+                  return (
+                    <>
+                      <TableRow
+                        key={`row-${rowKey}`}
+                        className={cn(
+                          "transition-colors",
+                          rowExpansion ? "cursor-pointer hover:bg-muted/50" : "hover:bg-muted/40",
+                          isExpanded && "bg-muted/30"
+                        )}
+                        onClick={rowExpansion ? () => toggleExpand(rowKey) : undefined}
+                      >
+                        {rowExpansion && (
+                          <TableCell className="py-2 px-2 w-8">
+                            <ChevronRight
+                              className={cn(
+                                "h-4 w-4 text-muted-foreground transition-transform duration-150",
+                                isExpanded && "rotate-90 text-primary"
+                              )}
+                            />
+                          </TableCell>
+                        )}
+                        {columns.map((col) => (
+                          <TableCell key={col} className="py-2 px-3 text-xs align-middle max-w-[220px]">
+                            {renderCell(row[col])}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                      {rowExpansion && isExpanded && (
+                        <RowExpansionPanel
+                          key={`expand-${rowKey}`}
+                          config={rowExpansion}
+                          parentRow={row}
+                          colSpan={totalColSpan}
+                        />
+                      )}
+                    </>
+                  );
+                })
               )}
             </TableBody>
           </Table>
@@ -376,13 +584,8 @@ export function ApiDataGrid({
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span>Rows per page:</span>
-            <Select
-              value={String(pageSize)}
-              onValueChange={(v) => { setPageSize(Number(v)); setPage(1); }}
-            >
-              <SelectTrigger className="h-7 w-[70px] text-xs">
-                <SelectValue />
-              </SelectTrigger>
+            <Select value={String(pageSize)} onValueChange={(v) => { setPageSize(Number(v)); setPage(1); }}>
+              <SelectTrigger className="h-7 w-[70px] text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {[10, 25, 50, 100].map((n) => (
                   <SelectItem key={n} value={String(n)} className="text-xs">{n}</SelectItem>
@@ -397,15 +600,9 @@ export function ApiDataGrid({
               {sorted.length.toLocaleString()}
             </span>
             <Button
-              variant="outline"
-              size="sm"
-              className="h-7 px-2 ml-2"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-            >
-              ‹
-            </Button>
-            {/* page chips — show max 5 */}
+              variant="outline" size="sm" className="h-7 px-2 ml-2"
+              onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
+            >‹</Button>
             {Array.from({ length: totalPages }, (_, i) => i + 1)
               .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
               .reduce<(number | "…")[]>((acc, p, idx, arr) => {
@@ -420,23 +617,15 @@ export function ApiDataGrid({
                   <Button
                     key={p}
                     variant={p === page ? "default" : "outline"}
-                    size="sm"
-                    className="h-7 w-7 p-0 text-xs"
+                    size="sm" className="h-7 w-7 p-0 text-xs"
                     onClick={() => setPage(p as number)}
-                  >
-                    {p}
-                  </Button>
+                  >{p}</Button>
                 )
               )}
             <Button
-              variant="outline"
-              size="sm"
-              className="h-7 px-2"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-            >
-              ›
-            </Button>
+              variant="outline" size="sm" className="h-7 px-2"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+            >›</Button>
           </div>
         </div>
       )}
@@ -453,6 +642,7 @@ export function ApiDataGrid({
           {templateMeta?.config && (
             <p className="text-xs text-muted-foreground mt-0.5">
               Powered by action template · {allRows.length.toLocaleString()} records loaded
+              {rowExpansion && " · click any row to expand detail"}
             </p>
           )}
         </div>

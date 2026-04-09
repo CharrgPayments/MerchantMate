@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ApiDataGrid } from "@/components/ApiDataGrid";
+import { ApiDataGrid, type RowExpansionConfig } from "@/components/ApiDataGrid";
 import {
   ArrowLeft,
   Database,
@@ -56,6 +56,22 @@ export default function DataViewPage() {
   const columns = (template?.config?.columns as string[] | undefined) || undefined;
   const dataPath = (template?.config?.dataPath as string | undefined) || undefined;
   const templateFieldLabels = (template?.config?.fieldLabels as Record<string, string> | undefined) || {};
+  // Convert stored rowExpansion config to the component-expected shape
+  const rowExpansion: RowExpansionConfig | undefined = (() => {
+    const re = template?.config?.rowExpansion as Record<string, unknown> | undefined;
+    if (!re || !re.templateId || !re.rowKeyField) return undefined;
+    return {
+      templateId: Number(re.templateId),
+      rowKeyField: String(re.rowKeyField),
+      routeParamName: re.routeParamName ? String(re.routeParamName) : String(re.rowKeyField),
+      label: re.label ? String(re.label) : undefined,
+      // columns stored as comma-string, convert to array
+      columns: re.columns
+        ? String(re.columns).split(",").map((s) => s.trim()).filter(Boolean)
+        : undefined,
+      dataPath: re.dataPath ? String(re.dataPath) : undefined,
+    } satisfies RowExpansionConfig;
+  })();
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-screen-xl mx-auto">
@@ -140,6 +156,7 @@ export default function DataViewPage() {
             columns={columns}
             fieldLabels={templateFieldLabels}
             dataPath={dataPath}
+            rowExpansion={rowExpansion}
             searchable
             pageSize={25}
           />

@@ -60,6 +60,7 @@ import {
   Tag,
   Type,
   LayoutGrid,
+  Layers,
 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -144,7 +145,18 @@ const webhookConfigSchema = z.object({
   mockData: z.string().optional(),
   isDataSource: z.boolean().optional(),
   routeParams: z.array(routeParamSchema).optional(),
-});
+  // Data-source display options
+  dataPath: z.string().optional(),
+  fieldLabels: z.record(z.string()).optional(),
+  rowExpansion: z.object({
+    templateId: z.number().nullable().optional(),
+    rowKeyField: z.string().optional(),
+    routeParamName: z.string().optional(),
+    label: z.string().optional(),
+    columns: z.string().optional(),
+    dataPath: z.string().optional(),
+  }).optional(),
+}).passthrough();
 
 type RouteParam = z.infer<typeof routeParamSchema>;
 
@@ -1061,6 +1073,14 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
                 data-testid="switch-is-data-source"
               />
             </FormItem>
+
+            {/* ── Row Expansion ─────────────────────────────────────── */}
+            {configFields.isDataSource && (
+              <RowExpansionEditor
+                value={(configFields.rowExpansion as RowExpansionEditorValue | undefined) || null}
+                onChange={(val) => setConfigFields({ ...configFields, rowExpansion: val || undefined })}
+              />
+            )}
           </>
         );
       
@@ -2227,6 +2247,191 @@ export default function ActionTemplates() {
         template={selectedTemplate}
         mode={modalMode}
       />
+    </div>
+  );
+}
+
+// ─── Row Expansion Editor (webhook template form) ────────────────────────────
+
+export interface RowExpansionEditorValue {
+  templateId: number | null;
+  rowKeyField: string;
+  routeParamName: string;
+  label: string;
+  columns: string;
+  dataPath: string;
+}
+
+interface RowExpansionEditorProps {
+  value: RowExpansionEditorValue | null;
+  onChange: (val: RowExpansionEditorValue | null) => void;
+}
+
+function RowExpansionEditor({ value, onChange }: RowExpansionEditorProps) {
+  const [expanded, setExpanded] = useState(false);
+  const isConfigured = !!(value?.templateId && value?.rowKeyField);
+
+  // Fetch available webhook data-source templates for the dropdown
+  const { data: allTemplates = [] } = useQuery<ActionTemplate[]>({
+    queryKey: ["/api/action-templates"],
+    queryFn: async () => {
+      const res = await fetch("/api/action-templates", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch templates");
+      return res.json();
+    },
+    staleTime: 30_000,
+  });
+
+  const detailTemplates = allTemplates.filter(
+    (t) => t.actionType === "webhook"
+  );
+
+  const update = (patch: Partial<RowExpansionEditorValue>) => {
+    const current: RowExpansionEditorValue = value || {
+      templateId: null,
+      rowKeyField: "",
+      routeParamName: "",
+      label: "",
+      columns: "",
+      dataPath: "",
+    };
+    onChange({ ...current, ...patch });
+  };
+
+  const clear = () => onChange(null);
+
+  return (
+    <div className="rounded-lg border">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium hover:bg-muted/50 transition-colors"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <div className="flex items-center gap-2">
+          <Layers className="h-4 w-4 text-muted-foreground" />
+          <span>Row Expansion (optional)</span>
+          {isConfigured && (
+            <Badge className="text-[10px] h-4 px-1.5 bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200 font-normal">
+              configured
+            </Badge>
+          )}
+        </div>
+        {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+      </button>
+
+      {expanded && (
+        <div className="border-t px-3 py-3 flex flex-col gap-3">
+          <p className="text-xs text-muted-foreground">
+            When a user clicks a row in the grid, this secondary template is called with the row's key value substituted into its URL.
+            For example: if the primary list returns merchants, the detail template URL might be{" "}
+            <code className="font-mono bg-muted px-1 rounded">https://api.example.com/merchants/&#123;merchantId&#125;/locations</code>.
+          </p>
+
+          {/* Detail template select */}
+          <FormItem>
+            <FormLabel className="text-xs">Detail Template</FormLabel>
+            <Select
+              value={value?.templateId ? String(value.templateId) : ""}
+              onValueChange={(v) => update({ templateId: v ? Number(v) : null })}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Select a webhook template…" />
+              </SelectTrigger>
+              <SelectContent>
+                {detailTemplates.map((t) => (
+                  <SelectItem key={t.id} value={String(t.id)} className="text-xs">
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FormDescription className="text-xs">
+              The template that will be called per-row. Its URL must contain a route param like <code className="font-mono">&#123;merchantId&#125;</code>.
+            </FormDescription>
+          </FormItem>
+
+          <div className="grid grid-cols-2 gap-3">
+            {/* Row key field */}
+            <FormItem>
+              <FormLabel className="text-xs">Row Key Field</FormLabel>
+              <Input
+                value={value?.rowKeyField || ""}
+                onChange={(e) => update({ rowKeyField: e.target.value })}
+                placeholder="id"
+                className="h-8 text-xs"
+              />
+              <FormDescription className="text-xs">
+                The field in the primary row whose value is used as the param (e.g. <code className="font-mono">id</code>).
+              </FormDescription>
+            </FormItem>
+
+            {/* Route param name */}
+            <FormItem>
+              <FormLabel className="text-xs">Route Param Name</FormLabel>
+              <Input
+                value={value?.routeParamName || ""}
+                onChange={(e) => update({ routeParamName: e.target.value })}
+                placeholder="merchantId"
+                className="h-8 text-xs"
+              />
+              <FormDescription className="text-xs">
+                The <code className="font-mono">&#123;name&#125;</code> placeholder in the detail template URL. Defaults to Row Key Field if blank.
+              </FormDescription>
+            </FormItem>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {/* Section label */}
+            <FormItem>
+              <FormLabel className="text-xs">Section Label</FormLabel>
+              <Input
+                value={value?.label || ""}
+                onChange={(e) => update({ label: e.target.value })}
+                placeholder="Locations"
+                className="h-8 text-xs"
+              />
+              <FormDescription className="text-xs">
+                Header shown above the expanded sub-table.
+              </FormDescription>
+            </FormItem>
+
+            {/* Detail data path */}
+            <FormItem>
+              <FormLabel className="text-xs">Detail Data Path</FormLabel>
+              <Input
+                value={value?.dataPath || ""}
+                onChange={(e) => update({ dataPath: e.target.value })}
+                placeholder="data.locations"
+                className="h-8 text-xs"
+              />
+              <FormDescription className="text-xs">
+                Dot-path to extract the array from the detail response (leave blank for root array).
+              </FormDescription>
+            </FormItem>
+          </div>
+
+          {/* Detail columns */}
+          <FormItem>
+            <FormLabel className="text-xs">Detail Columns (optional)</FormLabel>
+            <Input
+              value={value?.columns || ""}
+              onChange={(e) => update({ columns: e.target.value })}
+              placeholder="id, name, address, status"
+              className="h-8 text-xs"
+            />
+            <FormDescription className="text-xs">
+              Comma-separated list of fields to show in the expanded sub-table. Leave blank to show all fields.
+            </FormDescription>
+          </FormItem>
+
+          {isConfigured && (
+            <Button type="button" variant="ghost" size="sm" className="self-start text-xs h-7 text-destructive" onClick={clear}>
+              <Trash2 className="h-3 w-3 mr-1" />
+              Remove expansion
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -8105,15 +8105,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: secretErr.message });
       }
 
-      // Resolve route params using their default values
+      // Resolve route params — runtime query-string values take priority over template defaults.
+      // This allows per-row expansion calls: GET /api/action-templates/:id/data?merchantId=123
       const routeParams: Array<{ name: string; defaultValue?: string }> = cfg.routeParams || [];
       for (const param of routeParams) {
-        if (param.defaultValue) {
-          url = url.replace(new RegExp(`\\{${param.name}\\}`, 'g'), param.defaultValue);
+        const runtimeValue = req.query[param.name] as string | undefined;
+        const value = runtimeValue || param.defaultValue;
+        if (value) {
+          url = url.replace(new RegExp(`\\{${param.name}\\}`, 'g'), encodeURIComponent(String(value)));
+          if (headersRaw) headersRaw = headersRaw.replace(new RegExp(`\\{${param.name}\\}`, 'g'), String(value));
+          if (bodyRaw)    bodyRaw    = bodyRaw.replace(new RegExp(`\\{${param.name}\\}`, 'g'), String(value));
+        }
+      }
+      // Also substitute any ad-hoc query params that match unresolved placeholders
+      const remainingPlaceholders = [...(url.match(/\{([^{}]+)\}/g) || [])];
+      for (const placeholder of remainingPlaceholders) {
+        const paramName = placeholder.slice(1, -1);
+        const runtimeValue = req.query[paramName] as string | undefined;
+        if (runtimeValue) {
+          url = url.replace(new RegExp(`\\{${paramName}\\}`, 'g'), encodeURIComponent(String(runtimeValue)));
         }
       }
       if (/\{[^{}]+\}/.test(url)) {
-        return res.status(400).json({ message: `URL has unresolved route parameters: ${url}. Set default values on the template.` });
+        return res.status(400).json({ message: `URL has unresolved route parameters: ${url}. Set default values on the template or pass them as query parameters.` });
       }
 
       let parsedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
