@@ -9,6 +9,8 @@ interface BaseWidgetProps extends WidgetProps {
   children: React.ReactNode;
   isLoading?: boolean;
   onConfigure?: () => void;
+  /** Override the default widget-type name shown in the card header. */
+  title?: string;
 }
 
 export function BaseWidget({
@@ -20,6 +22,7 @@ export function BaseWidget({
   children,
   isLoading = false,
   onConfigure,
+  title,
 }: BaseWidgetProps) {
   const getSizeClasses = (size: string) => {
     switch (size) {
@@ -52,7 +55,7 @@ export function BaseWidget({
     )}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium text-gray-700">
-          {definition.name}
+          {title || definition.name}
         </CardTitle>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

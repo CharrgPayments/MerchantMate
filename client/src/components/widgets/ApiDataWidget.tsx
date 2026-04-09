@@ -52,45 +52,7 @@ import {
 import { BaseWidget } from "./BaseWidget";
 import { type WidgetProps } from "./widget-types";
 import { useToast } from "@/hooks/use-toast";
-
-// ─── Field humanization ─────────────────────────────────────────────────────
-
-// Well-known abbreviations that should always be ALL-CAPS
-const KNOWN_ABBREVS = new Set([
-  "id", "url", "guid", "uuid", "api", "dba", "mid", "ssn", "ein", "zip",
-  "pos", "atm", "pin", "ach", "aba", "iso", "irs", "cvv", "mcc", "sic",
-  "mrn", "dob", "pci", "dss", "aml", "kyc", "crm", "erp",
-]);
-
-/**
- * Convert any field key (camelCase, snake_case, PascalCase, SCREAMING_SNAKE)
- * to a human-readable label.
- *
- * Examples:
- *   merchantId        → "Merchant ID"
- *   total_amount      → "Total Amount"
- *   CreatedAt         → "Created At"
- *   dba               → "DBA"
- *   MerchantGUID      → "Merchant GUID"
- *   isActive          → "Is Active"
- */
-export function humanizeField(key: string): string {
-  // Split on transitions: ABC|Def, abc|Def, abc|123, 123|abc, snake, kebab
-  const tokens = key
-    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")   // ABCDef → ABC Def
-    .replace(/([a-z\d])([A-Z])/g, "$1 $2")         // camelCase → camel Case
-    .replace(/[_\-]+/g, " ")                        // snake / kebab → space
-    .trim()
-    .split(/\s+/);
-
-  return tokens
-    .map((word) => {
-      const lower = word.toLowerCase();
-      if (KNOWN_ABBREVS.has(lower)) return lower.toUpperCase();
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-    })
-    .join(" ");
-}
+import { humanizeField } from "@/lib/grid-utils";
 
 /**
  * Resolve a display label with a 3-level priority cascade:
@@ -200,6 +162,7 @@ export function ApiDataWidget(props: WidgetProps) {
         onVisibilityChange={onVisibilityChange}
         onConfigure={() => setShowConfig(true)}
         isLoading={isLoading && isConfigured}
+        title={config.title || config.templateName || undefined}
       >
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
