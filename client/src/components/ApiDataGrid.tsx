@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Table,
@@ -327,6 +327,8 @@ export interface ApiDataGridProps {
    * Clicking it fires the detail template with the row's key value as a route param.
    */
   rowExpansion?: RowExpansionConfig;
+  /** Called once when the template name is resolved from the server. */
+  onMetaLoaded?: (name: string) => void;
 }
 
 // ── ApiDataGrid ───────────────────────────────────────────────────────────────
@@ -342,6 +344,7 @@ export function ApiDataGrid({
   className,
   bare = false,
   rowExpansion,
+  onMetaLoaded,
 }: ApiDataGridProps) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -375,6 +378,13 @@ export function ApiDataGrid({
     staleTime: 0,
     gcTime: 0,
   });
+
+  // Notify parent once template name is known
+  useEffect(() => {
+    if (templateMeta?.name && onMetaLoaded) {
+      onMetaLoaded(templateMeta.name);
+    }
+  }, [templateMeta?.name, onMetaLoaded]);
 
   const templateFieldLabels = useMemo<Record<string, string>>(
     () => ((templateMeta?.config?.fieldLabels) as Record<string, string> | undefined) || {},
