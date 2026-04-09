@@ -372,7 +372,11 @@ export function ApiDataGrid({
     queryKey: ["/api/action-templates", templateId, "data"],
     queryFn: async () => {
       const res = await fetch(`/api/action-templates/${templateId}/data`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch data");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ message: res.statusText }));
+        const detail = body.error ? `${body.message}: ${body.error}` : (body.message || `HTTP ${res.status}`);
+        throw new Error(detail);
+      }
       return res.json();
     },
     staleTime: 0,

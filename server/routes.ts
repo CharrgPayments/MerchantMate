@@ -8156,6 +8156,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ success: upstream.ok, status: upstream.status, elapsed, data, templateId });
     } catch (error: any) {
+      console.error(`[template/data] template=${req.params.id} error:`, error.message);
       res.status(500).json({ message: "Failed to fetch data from template", error: error.message });
     }
   });

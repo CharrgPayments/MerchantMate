@@ -126,7 +126,8 @@ export function ApiDataWidget(props: WidgetProps) {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ message: res.statusText }));
-        throw new Error(err.message || `HTTP ${res.status}`);
+        const detail = err.error ? `${err.message}: ${err.error}` : (err.message || `HTTP ${res.status}`);
+        throw new Error(detail);
       }
       return res.json();
     },
