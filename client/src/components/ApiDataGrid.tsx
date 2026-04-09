@@ -1,4 +1,4 @@
-import { useState, useMemo, Fragment } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Table,
@@ -606,44 +606,47 @@ export function ApiDataGrid({
                   </TableCell>
                 </TableRow>
               ) : (
-                pageRows.map((row, i) => {
+                pageRows.flatMap((row, i) => {
                   const rowKey = getRowKey(row, i);
                   const isExpanded = expandedKeys.has(rowKey);
-                  return (
-                    <Fragment key={`group-${rowKey}`}>
-                      <TableRow
-                        className={cn(
-                          "transition-colors",
-                          rowExpansion ? "cursor-pointer hover:bg-muted/50" : "hover:bg-muted/40",
-                          isExpanded && "bg-muted/30"
-                        )}
-                        onClick={rowExpansion ? () => toggleExpand(rowKey) : undefined}
-                      >
-                        {rowExpansion && (
-                          <TableCell className="py-2 px-2 w-8">
-                            <ChevronRight
-                              className={cn(
-                                "h-4 w-4 text-muted-foreground transition-transform duration-150",
-                                isExpanded && "rotate-90 text-primary"
-                              )}
-                            />
-                          </TableCell>
-                        )}
-                        {columns.map((col) => (
-                          <TableCell key={col} className="py-2 px-3 text-xs align-middle max-w-[220px]">
-                            {renderCell(row[col])}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                      {rowExpansion && isExpanded && (
-                        <RowExpansionPanel
-                          config={rowExpansion}
-                          parentRow={row}
-                          colSpan={totalColSpan}
-                        />
+                  const elements: JSX.Element[] = [
+                    <TableRow
+                      key={`row-${rowKey}`}
+                      className={cn(
+                        "transition-colors",
+                        rowExpansion ? "cursor-pointer hover:bg-muted/50" : "hover:bg-muted/40",
+                        isExpanded && "bg-muted/30"
                       )}
-                    </Fragment>
-                  );
+                      onClick={rowExpansion ? () => toggleExpand(rowKey) : undefined}
+                    >
+                      {rowExpansion && (
+                        <TableCell className="py-2 px-2 w-8">
+                          <ChevronRight
+                            className={cn(
+                              "h-4 w-4 text-muted-foreground transition-transform duration-150",
+                              isExpanded && "rotate-90 text-primary"
+                            )}
+                          />
+                        </TableCell>
+                      )}
+                      {columns.map((col) => (
+                        <TableCell key={col} className="py-2 px-3 text-xs align-middle max-w-[220px]">
+                          {renderCell(row[col])}
+                        </TableCell>
+                      ))}
+                    </TableRow>,
+                  ];
+                  if (rowExpansion && isExpanded) {
+                    elements.push(
+                      <RowExpansionPanel
+                        key={`expand-${rowKey}`}
+                        config={rowExpansion}
+                        parentRow={row}
+                        colSpan={totalColSpan}
+                      />
+                    );
+                  }
+                  return elements;
                 })
               )}
             </TableBody>
