@@ -227,6 +227,19 @@ interface TemplateModalProps {
 function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
   const { toast } = useToast();
   const [configFields, setConfigFields] = useState<any>({});
+
+  // Fetch all webhook templates for the row-expansion detail template dropdown
+  // (called at top-level of the component to satisfy Rules of Hooks)
+  const { data: allWebhookTemplates = [] } = useQuery<ActionTemplate[]>({
+    queryKey: ["/api/action-templates"],
+    queryFn: async () => {
+      const res = await fetch("/api/action-templates", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch templates");
+      return res.json();
+    },
+    staleTime: 30_000,
+    enabled: open,
+  });
   const [activeFieldRef, setActiveFieldRef] = useState<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [sampleData, setSampleData] = useState<Record<string, string>>({});
@@ -1079,6 +1092,7 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
               <RowExpansionEditor
                 value={(configFields.rowExpansion as RowExpansionEditorValue | undefined) || null}
                 onChange={(val) => setConfigFields({ ...configFields, rowExpansion: val || undefined })}
+                allTemplates={allWebhookTemplates}
               />
             )}
           </>
@@ -2265,22 +2279,13 @@ export interface RowExpansionEditorValue {
 interface RowExpansionEditorProps {
   value: RowExpansionEditorValue | null;
   onChange: (val: RowExpansionEditorValue | null) => void;
+  /** All webhook templates passed from the parent (avoids hooks-in-function violation). */
+  allTemplates: ActionTemplate[];
 }
 
-function RowExpansionEditor({ value, onChange }: RowExpansionEditorProps) {
+function RowExpansionEditor({ value, onChange, allTemplates }: RowExpansionEditorProps) {
   const [expanded, setExpanded] = useState(false);
   const isConfigured = !!(value?.templateId && value?.rowKeyField);
-
-  // Fetch available webhook data-source templates for the dropdown
-  const { data: allTemplates = [] } = useQuery<ActionTemplate[]>({
-    queryKey: ["/api/action-templates"],
-    queryFn: async () => {
-      const res = await fetch("/api/action-templates", { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch templates");
-      return res.json();
-    },
-    staleTime: 30_000,
-  });
 
   const detailTemplates = allTemplates.filter(
     (t) => t.actionType === "webhook"

@@ -85,6 +85,44 @@ function resolvePath(data: unknown, path: string | undefined): unknown[] {
   return Array.isArray(cur) ? cur : [];
 }
 
+/**
+ * BFS search through an object to find the first array value.
+ * Returns { path, array } or null.
+ * Skips arrays of primitives (strings/numbers) — only returns object arrays.
+ */
+function autoDiscoverArray(
+  data: unknown,
+  maxDepth = 4
+): { path: string; array: unknown[] } | null {
+  if (!data || typeof data !== "object") return null;
+  type QueueItem = { obj: Record<string, unknown>; prefix: string; depth: number };
+  const queue: QueueItem[] = [{ obj: data as Record<string, unknown>, prefix: "", depth: 0 }];
+  while (queue.length) {
+    const item = queue.shift()!;
+    if (item.depth > maxDepth) continue;
+    for (const [key, val] of Object.entries(item.obj)) {
+      const fullPath = item.prefix ? `${item.prefix}.${key}` : key;
+      if (Array.isArray(val)) {
+        // Only return arrays of objects (i.e. rows), not primitive arrays
+        const objItems = val.filter((v) => v != null && typeof v === "object");
+        if (objItems.length > 0) return { path: fullPath, array: objItems };
+      } else if (val != null && typeof val === "object") {
+        queue.push({ obj: val as Record<string, unknown>, prefix: fullPath, depth: item.depth + 1 });
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Wrap a single non-array object as a one-row table.
+ * Only called when the response is clearly a single record.
+ */
+function singleObjectToRow(data: unknown): Record<string, unknown> | null {
+  if (data == null || typeof data !== "object" || Array.isArray(data)) return null;
+  return data as Record<string, unknown>;
+}
+
 // ── Sorting ──────────────────────────────────────────────────────────────────
 
 type SortDir = "asc" | "desc" | null;
@@ -374,11 +412,44 @@ export function ApiDataGrid({
   const effectiveDataPath =
     (templateMeta?.config?.dataPath as string | undefined) || dataPath;
 
-  const allRows = useMemo<Record<string, unknown>[]>(() => {
-    if (!rawResponse) return [];
+  type RowSource =
+    | { kind: "path"; path: string }
+    | { kind: "auto"; path: string }
+    | { kind: "single" }
+    | { kind: "none" }
+    | null;
+
+  /** Describes how rows were resolved (for the diagnostic panel). */
+  const { allRows, rowSource } = useMemo<{ allRows: Record<string, unknown>[]; rowSource: RowSource }>(() => {
+    if (!rawResponse) return { allRows: [], rowSource: null };
+
     const payload = (rawResponse as Record<string, unknown>)?.data ?? rawResponse;
-    const arr = resolvePath(payload, effectiveDataPath);
-    return arr.filter((r): r is Record<string, unknown> => r != null && typeof r === "object");
+
+    // 1. Try the configured / prop dataPath first
+    const explicit = resolvePath(payload, effectiveDataPath);
+    if (explicit.length > 0) {
+      return {
+        allRows: explicit.filter((r): r is Record<string, unknown> => r != null && typeof r === "object"),
+        rowSource: { kind: "path", path: effectiveDataPath || "(root)" },
+      };
+    }
+
+    // 2. Auto-discover the first array of objects in the response
+    const discovered = autoDiscoverArray(payload);
+    if (discovered && discovered.array.length > 0) {
+      return {
+        allRows: discovered.array.filter((r): r is Record<string, unknown> => r != null && typeof r === "object"),
+        rowSource: { kind: "auto", path: discovered.path },
+      };
+    }
+
+    // 3. Fallback: if the payload is a single object (not an array), show it as one row
+    const singleRow = singleObjectToRow(payload);
+    if (singleRow) {
+      return { allRows: [singleRow], rowSource: { kind: "single" } };
+    }
+
+    return { allRows: [], rowSource: { kind: "none" } };
   }, [rawResponse, effectiveDataPath]);
 
   const columns = useMemo(() => {
@@ -483,6 +554,27 @@ export function ApiDataGrid({
         </div>
       </div>
 
+      {/* Auto-discover / single-record notice banners */}
+      {rowSource?.kind === "auto" && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-300 mb-2">
+          <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span>
+            <strong>Auto-detected data path: </strong>
+            <code className="font-mono bg-amber-100 dark:bg-amber-900 px-1 rounded">{rowSource.path}</code>
+            {" — To lock this in, set it as the "}<em>Data Path</em>{" in the template's data-source settings."}
+          </span>
+        </div>
+      )}
+      {rowSource?.kind === "single" && (
+        <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 px-3 py-2 text-xs text-blue-800 dark:text-blue-300 mb-2">
+          <Database className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span>
+            <strong>Single-record endpoint</strong> — This API returned one object, not a list.
+            The fields are displayed as a single row. Use a list endpoint if you need multiple rows.
+          </span>
+        </div>
+      )}
+
       {/* Table */}
       {isLoading ? (
         <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
@@ -497,10 +589,20 @@ export function ApiDataGrid({
           <Button variant="outline" size="sm" onClick={() => refetch()} className="mt-2">Retry</Button>
         </div>
       ) : columns.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
+        <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
           <Database className="h-8 w-8 opacity-40" />
-          <p className="text-sm">No data returned from this template.</p>
-          <p className="text-xs">Check that the endpoint is reachable and returns an array.</p>
+          <p className="text-sm font-medium">No data returned from this template.</p>
+          <p className="text-xs">The API responded but no rows or object were found in the response.</p>
+          {rawResponse != null && (
+            <details className="mt-2 w-full max-w-lg">
+              <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground select-none">
+                View raw response
+              </summary>
+              <pre className="mt-2 rounded border bg-muted p-3 text-[11px] overflow-auto max-h-64 text-left">
+                {JSON.stringify(rawResponse, null, 2)}
+              </pre>
+            </details>
+          )}
         </div>
       ) : (
         <div className="rounded-md border overflow-auto">
