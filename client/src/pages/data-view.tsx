@@ -27,7 +27,8 @@ export default function DataViewPage() {
     config: Record<string, unknown>;
     isActive: boolean;
   }>({
-    queryKey: ["/api/action-templates", templateId, "meta"],
+    // Use a distinct key from ApiDataGrid's internal meta query to avoid shared cache conflicts
+    queryKey: ["/api/action-templates", templateId, "page-meta"],
     queryFn: async () => {
       const res = await fetch(`/api/action-templates/${templateId}`, {
         credentials: "include",
@@ -36,7 +37,9 @@ export default function DataViewPage() {
       return res.json();
     },
     enabled: templateId != null,
-    staleTime: 60_000,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   });
 
   if (!templateId) {
