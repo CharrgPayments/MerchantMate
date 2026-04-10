@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +43,8 @@ import {
   ChevronsUpDown,
   ChevronLeft,
   ChevronRight,
+  Search,
+  X,
 } from "lucide-react";
 import { BaseWidget } from "./BaseWidget";
 import { type WidgetProps } from "./widget-types";
@@ -84,6 +86,10 @@ interface ApiDataWidgetConfig {
   templateFieldLabels?: Record<string, string>;
   /** Per-widget label overrides (highest priority, overrides templateFieldLabels) */
   fieldLabels?: Record<string, string>;
+  /** When true, renders a search input above the table */
+  enableSearch?: boolean;
+  /** Ordered list of up to 5 columns to search against (ordinal priority) */
+  searchColumns?: string[];
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -263,6 +269,8 @@ export function ApiDataWidget(props: WidgetProps) {
             chartType={config.chartType || "bar"}
             fieldLabels={fieldLabels}
             templateFieldLabels={templateFieldLabels}
+            enableSearch={config.enableSearch}
+            searchColumns={config.searchColumns}
           />
         )}
       </BaseWidget>
@@ -294,32 +302,49 @@ interface DisplayProps {
   chartType: "bar" | "line";
   fieldLabels: Record<string, string>;
   templateFieldLabels: Record<string, string>;
+  enableSearch?: boolean;
+  searchColumns?: string[];
 }
 
 function WidgetDisplay({
   displayType, dataArray, rawData, columns, maxRows,
   valueField, valueLabel, xField, yField, chartType, fieldLabels, templateFieldLabels,
+  enableSearch, searchColumns,
 }: DisplayProps) {
   const pageSize = maxRows || 10;
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(0);
+  const [searchTerm, setSearchTerm] = useState("");
 
-  // Reset page when data changes
-  const totalRows = dataArray.length;
+  // Filter by search term across searchColumns (OR logic, ordinal order as priority)
+  const searchCols = searchColumns?.filter(Boolean) ?? [];
+  const filtered: any[] = (enableSearch && searchTerm.trim() && searchCols.length)
+    ? dataArray.filter((row) =>
+        searchCols.some((col) =>
+          String(row[col] ?? "").toLowerCase().includes(searchTerm.toLowerCase())
+        )
+      )
+    : dataArray;
+
+  // Reset page when search/sort changes
+  const totalRows = filtered.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const safePage = Math.min(page, totalPages - 1);
 
   const sorted = sortCol
-    ? [...dataArray].sort((a, b) => {
+    ? [...filtered].sort((a, b) => {
         const av = a[sortCol] ?? "";
         const bv = b[sortCol] ?? "";
         const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" });
         return sortDir === "asc" ? cmp : -cmp;
       })
-    : dataArray;
+    : filtered;
 
   const pageRows = sorted.slice(safePage * pageSize, safePage * pageSize + pageSize);
+
+  // Reset to page 1 whenever the search term changes
+  useEffect(() => { setPage(0); }, [searchTerm]);
 
   function handleHeaderClick(col: string) {
     if (sortCol === col) {
@@ -391,6 +416,29 @@ function WidgetDisplay({
   const firstRow = safePage * pageSize + 1;
   const lastRow = Math.min(safePage * pageSize + pageSize, totalRows);
   return (
+    <div className="flex flex-col gap-1.5">
+      {/* Search bar — only shown when enabled in config */}
+      {enableSearch && searchCols.length > 0 && (
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder={`Search ${searchCols.length === 1 ? displayLabel(searchCols[0], fieldLabels, templateFieldLabels) : `${searchCols.length} columns`}…`}
+            className="w-full h-7 pl-7 pr-6 text-xs rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/60"
+          />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm("")}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 h-4 w-4 flex items-center justify-center rounded text-muted-foreground hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+      )}
     <div className="flex flex-col rounded-md border text-xs overflow-hidden">
       {/* Scrollable table area */}
       <div className="overflow-auto" style={{ maxHeight: "210px" }}>
@@ -467,6 +515,7 @@ function WidgetDisplay({
         </div>
       </div>
     </div>
+    </div>
   );
 }
 
@@ -505,6 +554,10 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
   );
   const [showFieldLabels, setShowFieldLabels] = useState(
     Object.keys(currentConfig.fieldLabels || {}).length > 0
+  );
+  const [enableSearch, setEnableSearch] = useState(currentConfig.enableSearch ?? false);
+  const [searchColumns, setSearchColumns] = useState<(string | "")[]>(
+    Array.from({ length: 5 }, (_, i) => currentConfig.searchColumns?.[i] ?? "")
   );
 
   const { data: allTemplates = [] } = useQuery<any[]>({
@@ -564,6 +617,7 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
     // Snapshot the template's field labels so the widget can use them at render-time
     // without needing to re-fetch the template
     const tplLabels = (selectedTemplate?.config?.fieldLabels as Record<string, string> | undefined) || {};
+    const cleanedSearchCols = searchColumns.map((c) => c.trim()).filter(Boolean);
     const newConfig: ApiDataWidgetConfig = {
       templateId: Number(templateId),
       templateName: selectedTemplate?.name || "",
@@ -580,6 +634,8 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
       chartType,
       templateFieldLabels: Object.keys(tplLabels).length ? tplLabels : undefined,
       fieldLabels: Object.keys(cleanedLabels).length ? cleanedLabels : undefined,
+      enableSearch: enableSearch || undefined,
+      searchColumns: cleanedSearchCols.length ? cleanedSearchCols : undefined,
     };
     onSave(newConfig);
   };
@@ -763,8 +819,71 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
                 )}
               </div>
               <div className="space-y-1">
-                <label className="text-sm font-medium">Max Rows</label>
+                <label className="text-sm font-medium">Max Rows (per page)</label>
                 <Input type="number" min={1} max={500} value={maxRows} onChange={(e) => setMaxRows(e.target.value)} />
+              </div>
+
+              {/* ── Search ── */}
+              <div className="rounded-lg border bg-muted/20 overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2.5">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Search className="h-3.5 w-3.5 text-muted-foreground" />
+                    Enable Search
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={enableSearch}
+                    onClick={() => setEnableSearch((v) => !v)}
+                    className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none
+                      ${enableSearch ? "bg-primary" : "bg-muted-foreground/30"}`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform ring-0 transition-transform
+                        ${enableSearch ? "translate-x-4" : "translate-x-0"}`}
+                    />
+                  </button>
+                </div>
+
+                {enableSearch && (
+                  <div className="border-t px-3 py-3 space-y-2">
+                    <p className="text-[11px] text-muted-foreground">
+                      Select up to 5 columns to search. Columns are checked in order — any match includes the row.
+                    </p>
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="text-[11px] text-muted-foreground w-14 shrink-0 tabular-nums">
+                          {["1st", "2nd", "3rd", "4th", "5th"][i]} col
+                        </span>
+                        <Select
+                          value={searchColumns[i] || "__none__"}
+                          onValueChange={(val) => {
+                            setSearchColumns((prev) => {
+                              const next = [...prev] as (string | "")[];
+                              next[i] = val === "__none__" ? "" : val;
+                              return next;
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="h-7 text-xs flex-1">
+                            <SelectValue placeholder="— not set —" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">— not set —</SelectItem>
+                            {pickableFields
+                              .filter((f) => !searchColumns.some((sc, si) => si !== i && sc === f))
+                              .map((f) => (
+                                <SelectItem key={f} value={f}>
+                                  {displayLabel(f, currentConfig.fieldLabels || {}, currentConfig.templateFieldLabels || {})}
+                                  <span className="ml-1 text-muted-foreground text-[10px] font-mono">({f})</span>
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
