@@ -40,6 +40,9 @@ import {
   Tag,
   ChevronDown,
   ChevronUp,
+  ChevronsUpDown,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { BaseWidget } from "./BaseWidget";
 import { type WidgetProps } from "./widget-types";
@@ -297,6 +300,37 @@ function WidgetDisplay({
   displayType, dataArray, rawData, columns, maxRows,
   valueField, valueLabel, xField, yField, chartType, fieldLabels, templateFieldLabels,
 }: DisplayProps) {
+  const pageSize = maxRows || 10;
+  const [sortCol, setSortCol] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [page, setPage] = useState(0);
+
+  // Reset page when data changes
+  const totalRows = dataArray.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safePage = Math.min(page, totalPages - 1);
+
+  const sorted = sortCol
+    ? [...dataArray].sort((a, b) => {
+        const av = a[sortCol] ?? "";
+        const bv = b[sortCol] ?? "";
+        const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" });
+        return sortDir === "asc" ? cmp : -cmp;
+      })
+    : dataArray;
+
+  const pageRows = sorted.slice(safePage * pageSize, safePage * pageSize + pageSize);
+
+  function handleHeaderClick(col: string) {
+    if (sortCol === col) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortCol(col);
+      setSortDir("asc");
+    }
+    setPage(0);
+  }
+
   if (displayType === "stat") {
     const val = Array.isArray(rawData) ? rawData[0]?.[valueField] : rawData?.[valueField];
     return (
@@ -354,45 +388,84 @@ function WidgetDisplay({
 
   // Table (default)
   if (!dataArray.length) return <EmptyState />;
-  const rows = dataArray.slice(0, maxRows);
+  const firstRow = safePage * pageSize + 1;
+  const lastRow = Math.min(safePage * pageSize + pageSize, totalRows);
   return (
-    <div className="overflow-auto max-h-52 rounded-md border text-xs">
-      <table className="min-w-max w-full caption-bottom border-collapse">
-        <thead>
-          <tr className="border-b bg-muted/40">
-            {columns.map((col) => (
-              <th
-                key={col}
-                className="py-1.5 px-2.5 text-[11px] font-medium whitespace-nowrap text-left text-muted-foreground"
-              >
-                {displayLabel(col, fieldLabels, templateFieldLabels)}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-              {columns.map((col) => (
-                <td
-                  key={col}
-                  className="py-1.5 px-2.5 whitespace-nowrap max-w-[160px] truncate"
-                  title={String(row[col] ?? "")}
-                >
-                  {row[col] != null
-                    ? String(row[col])
-                    : <span className="text-muted-foreground/50">—</span>}
-                </td>
-              ))}
+    <div className="flex flex-col rounded-md border text-xs overflow-hidden">
+      {/* Scrollable table area */}
+      <div className="overflow-auto" style={{ maxHeight: "210px" }}>
+        <table className="min-w-max w-full border-collapse">
+          <thead className="sticky top-0 z-10">
+            <tr className="border-b bg-muted/60">
+              {columns.map((col) => {
+                const isSorted = sortCol === col;
+                return (
+                  <th
+                    key={col}
+                    onClick={() => handleHeaderClick(col)}
+                    className="py-1.5 px-2.5 text-[11px] font-medium whitespace-nowrap text-left text-muted-foreground cursor-pointer select-none hover:text-foreground hover:bg-muted/80 transition-colors"
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {displayLabel(col, fieldLabels, templateFieldLabels)}
+                      {isSorted ? (
+                        sortDir === "asc"
+                          ? <ChevronUp className="h-3 w-3 text-primary" />
+                          : <ChevronDown className="h-3 w-3 text-primary" />
+                      ) : (
+                        <ChevronsUpDown className="h-3 w-3 opacity-30" />
+                      )}
+                    </span>
+                  </th>
+                );
+              })}
             </tr>
-          ))}
-        </tbody>
-      </table>
-      {dataArray.length > maxRows && (
-        <div className="px-3 py-1 text-[10px] text-muted-foreground border-t bg-muted/20 sticky bottom-0">
-          Showing {maxRows} of {dataArray.length.toLocaleString()} records
+          </thead>
+          <tbody>
+            {pageRows.map((row, i) => (
+              <tr key={i} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                {columns.map((col) => (
+                  <td
+                    key={col}
+                    className="py-1.5 px-2.5 whitespace-nowrap max-w-[160px] truncate"
+                    title={String(row[col] ?? "")}
+                  >
+                    {row[col] != null
+                      ? String(row[col])
+                      : <span className="text-muted-foreground/50">—</span>}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {/* Footer: always outside the scroll area so it never overlaps rows */}
+      <div className="flex items-center justify-between px-2.5 py-1.5 border-t bg-muted/20 shrink-0">
+        <span className="text-[10px] text-muted-foreground tabular-nums">
+          {firstRow}–{lastRow} of {totalRows.toLocaleString()}
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={safePage === 0}
+            className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            aria-label="Previous page"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <span className="text-[10px] text-muted-foreground tabular-nums">
+            {safePage + 1}/{totalPages}
+          </span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            disabled={safePage >= totalPages - 1}
+            className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            aria-label="Next page"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
         </div>
-      )}
+      </div>
     </div>
   );
 }
