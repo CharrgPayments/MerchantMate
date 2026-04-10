@@ -396,14 +396,14 @@ function WidgetDisplay({
       <div className="overflow-auto" style={{ maxHeight: "210px" }}>
         <table className="min-w-max w-full border-collapse">
           <thead className="sticky top-0 z-10">
-            <tr className="border-b bg-muted/60">
+            <tr className="border-b bg-muted">
               {columns.map((col) => {
                 const isSorted = sortCol === col;
                 return (
                   <th
                     key={col}
                     onClick={() => handleHeaderClick(col)}
-                    className="py-1.5 px-2.5 text-[11px] font-medium whitespace-nowrap text-left text-muted-foreground cursor-pointer select-none hover:text-foreground hover:bg-muted/80 transition-colors"
+                    className="py-1.5 px-2.5 text-[11px] font-medium whitespace-nowrap text-left text-muted-foreground cursor-pointer select-none hover:text-foreground hover:bg-muted/70 transition-colors"
                   >
                     <span className="inline-flex items-center gap-1">
                       {displayLabel(col, fieldLabels, templateFieldLabels)}
