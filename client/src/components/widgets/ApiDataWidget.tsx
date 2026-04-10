@@ -90,6 +90,14 @@ interface ApiDataWidgetConfig {
   enableSearch?: boolean;
   /** Ordered list of up to 5 columns to search against (ordinal priority) */
   searchColumns?: string[];
+  /** When true, each page change fires a new API request instead of slicing the full payload */
+  serverSidePagination?: boolean;
+  /** URL param name for the record offset (default: "skip") */
+  skipParam?: string;
+  /** URL param name for the page size (default: "take") */
+  takeParam?: string;
+  /** Dot-notation path into the response that holds the total record count (e.g. "meta.total") */
+  totalCountPath?: string;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -114,6 +122,16 @@ export function ApiDataWidget(props: WidgetProps) {
 
   const config: ApiDataWidgetConfig = (preference.configuration as ApiDataWidgetConfig) || {};
   const isConfigured = !!config.templateId;
+  const isServerSide = !!config.serverSidePagination;
+  const pageSize = config.maxRows || 10;
+  const skipParam = config.skipParam || "skip";
+  const takeParam = config.takeParam || "take";
+
+  // Server-side page state lives here so page changes trigger a new query
+  const [serverPage, setServerPage] = useState(0);
+
+  // Reset to page 0 whenever the template or server-side setting changes
+  useEffect(() => { setServerPage(0); }, [config.templateId, isServerSide]);
 
   // 1. Fetch live data (staleTime:0 so always fresh)
   const {
@@ -123,11 +141,14 @@ export function ApiDataWidget(props: WidgetProps) {
     error,
     refetch,
   } = useQuery<{ data: any; status: number; elapsed: number; success: boolean; templateConfig?: Record<string, unknown> }>({
-    queryKey: ["/api/action-templates", config.templateId, "data"],
+    queryKey: ["/api/action-templates", config.templateId, "data", isServerSide ? serverPage : "all"],
     queryFn: async () => {
-      const res = await fetch(`/api/action-templates/${config.templateId}/data`, {
-        credentials: "include",
-      });
+      let url = `/api/action-templates/${config.templateId}/data`;
+      if (isServerSide) {
+        const skip = serverPage * pageSize;
+        url += `?${skipParam}=${skip}&${takeParam}=${pageSize}`;
+      }
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ message: res.statusText }));
         const detail = err.error ? `${err.message}: ${err.error}` : (err.message || `HTTP ${res.status}`);
@@ -139,6 +160,14 @@ export function ApiDataWidget(props: WidgetProps) {
     staleTime: 0,
     gcTime: 0,
   });
+
+  // Resolve the server-provided total count (only used in server-side mode)
+  const serverTotalRows: number | null = (() => {
+    if (!isServerSide || !config.totalCountPath || !result?.data) return null;
+    const raw = resolvePath(result.data, config.totalCountPath);
+    const n = Number(raw);
+    return isNaN(n) ? null : n;
+  })();
 
   // 2. Fetch template metadata as a lower-priority fallback for name + config
   const { data: templateMeta } = useQuery<{ id: number; name: string; config: Record<string, unknown> }>({
@@ -261,7 +290,7 @@ export function ApiDataWidget(props: WidgetProps) {
             dataArray={dataArray}
             rawData={displayData}
             columns={config.columns?.length ? config.columns : availableFields.slice(0, 5)}
-            maxRows={config.maxRows || 10}
+            maxRows={pageSize}
             valueField={config.valueField || availableFields[0] || ""}
             valueLabel={config.valueLabel || displayLabel(config.valueField || availableFields[0] || "", fieldLabels, templateFieldLabels)}
             xField={config.xField || availableFields[0] || ""}
@@ -271,6 +300,11 @@ export function ApiDataWidget(props: WidgetProps) {
             templateFieldLabels={templateFieldLabels}
             enableSearch={config.enableSearch}
             searchColumns={config.searchColumns}
+            serverSidePagination={isServerSide}
+            serverPage={serverPage}
+            serverTotalRows={serverTotalRows}
+            onServerPageChange={setServerPage}
+            isLoading={isLoading}
           />
         )}
       </BaseWidget>
@@ -304,12 +338,18 @@ interface DisplayProps {
   templateFieldLabels: Record<string, string>;
   enableSearch?: boolean;
   searchColumns?: string[];
+  serverSidePagination?: boolean;
+  serverPage?: number;
+  serverTotalRows?: number | null;
+  onServerPageChange?: (page: number) => void;
+  isLoading?: boolean;
 }
 
 function WidgetDisplay({
   displayType, dataArray, rawData, columns, maxRows,
   valueField, valueLabel, xField, yField, chartType, fieldLabels, templateFieldLabels,
   enableSearch, searchColumns,
+  serverSidePagination, serverPage = 0, serverTotalRows, onServerPageChange, isLoading,
 }: DisplayProps) {
   const pageSize = maxRows || 10;
   const [sortCol, setSortCol] = useState<string | null>(null);
@@ -412,9 +452,35 @@ function WidgetDisplay({
   }
 
   // Table (default)
-  if (!dataArray.length) return <EmptyState />;
-  const firstRow = safePage * pageSize + 1;
-  const lastRow = Math.min(safePage * pageSize + pageSize, totalRows);
+  if (!dataArray.length && !isLoading) return <EmptyState />;
+
+  // In server-side mode the whole dataArray is already one page — don't re-slice.
+  // Local sort/search still apply within that page.
+  const serverTotalPages = serverTotalRows != null
+    ? Math.max(1, Math.ceil(serverTotalRows / pageSize))
+    : null;
+  const effectiveTotalRows = serverSidePagination
+    ? (serverTotalRows ?? totalRows)
+    : totalRows;
+  const effectivePage = serverSidePagination ? serverPage : safePage;
+  const effectiveTotalPages = serverSidePagination
+    ? (serverTotalPages ?? 1)
+    : totalPages;
+  const displayRows = serverSidePagination ? sorted : pageRows;
+  const firstRow = effectivePage * pageSize + 1;
+  const lastRow = serverSidePagination
+    ? Math.min(effectivePage * pageSize + displayRows.length, effectiveTotalRows)
+    : Math.min(safePage * pageSize + pageSize, totalRows);
+
+  function handlePrev() {
+    if (serverSidePagination) onServerPageChange?.(Math.max(0, serverPage - 1));
+    else setPage((p) => Math.max(0, p - 1));
+  }
+  function handleNext() {
+    if (serverSidePagination) onServerPageChange?.(Math.min((serverTotalPages ?? 1) - 1, serverPage + 1));
+    else setPage((p) => Math.min(totalPages - 1, p + 1));
+  }
+
   return (
     <div className="flex flex-col gap-1.5">
       {/* Search bar — only shown when enabled in config */}
@@ -469,7 +535,7 @@ function WidgetDisplay({
             </tr>
           </thead>
           <tbody>
-            {pageRows.map((row, i) => (
+            {displayRows.map((row, i) => (
               <tr key={i} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                 {columns.map((col) => (
                   <td
@@ -489,24 +555,30 @@ function WidgetDisplay({
       </div>
       {/* Footer: always outside the scroll area so it never overlaps rows */}
       <div className="flex items-center justify-between px-2.5 py-1.5 border-t bg-muted/20 shrink-0">
-        <span className="text-[10px] text-muted-foreground tabular-nums">
-          {firstRow}–{lastRow} of {totalRows.toLocaleString()}
+        <span className="text-[10px] text-muted-foreground tabular-nums flex items-center gap-1.5">
+          {isLoading && serverSidePagination && (
+            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+          )}
+          {effectiveTotalRows > 0
+            ? <>{firstRow}–{lastRow} of {effectiveTotalRows.toLocaleString()}{serverSidePagination && serverTotalRows == null && "+"}</>
+            : "No records"
+          }
         </span>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            disabled={safePage === 0}
+            onClick={handlePrev}
+            disabled={effectivePage === 0 || isLoading}
             className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             aria-label="Previous page"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
           <span className="text-[10px] text-muted-foreground tabular-nums">
-            {safePage + 1}/{totalPages}
+            {effectivePage + 1}/{effectiveTotalPages}
           </span>
           <button
-            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-            disabled={safePage >= totalPages - 1}
+            onClick={handleNext}
+            disabled={effectivePage >= effectiveTotalPages - 1 || isLoading}
             className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             aria-label="Next page"
           >
@@ -559,6 +631,10 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
   const [searchColumns, setSearchColumns] = useState<(string | "")[]>(
     Array.from({ length: 5 }, (_, i) => currentConfig.searchColumns?.[i] ?? "")
   );
+  const [serverSidePagination, setServerSidePagination] = useState(currentConfig.serverSidePagination ?? false);
+  const [skipParam, setSkipParam] = useState(currentConfig.skipParam || "skip");
+  const [takeParam, setTakeParam] = useState(currentConfig.takeParam || "take");
+  const [totalCountPath, setTotalCountPath] = useState(currentConfig.totalCountPath || "");
 
   const { data: allTemplates = [] } = useQuery<any[]>({
     queryKey: ["/api/action-templates"],
@@ -636,6 +712,10 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
       fieldLabels: Object.keys(cleanedLabels).length ? cleanedLabels : undefined,
       enableSearch: enableSearch || undefined,
       searchColumns: cleanedSearchCols.length ? cleanedSearchCols : undefined,
+      serverSidePagination: serverSidePagination || undefined,
+      skipParam: serverSidePagination && skipParam !== "skip" ? skipParam : undefined,
+      takeParam: serverSidePagination && takeParam !== "take" ? takeParam : undefined,
+      totalCountPath: serverSidePagination && totalCountPath.trim() ? totalCountPath.trim() : undefined,
     };
     onSave(newConfig);
   };
@@ -821,6 +901,71 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
               <div className="space-y-1">
                 <label className="text-sm font-medium">Max Rows (per page)</label>
                 <Input type="number" min={1} max={500} value={maxRows} onChange={(e) => setMaxRows(e.target.value)} />
+              </div>
+
+              {/* ── Server-side Pagination ── */}
+              <div className="rounded-lg border bg-muted/20 overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2.5">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Database className="h-3.5 w-3.5 text-muted-foreground" />
+                    Server-side Pagination
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={serverSidePagination}
+                    onClick={() => setServerSidePagination((v) => !v)}
+                    className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none
+                      ${serverSidePagination ? "bg-primary" : "bg-muted-foreground/30"}`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform ring-0 transition-transform
+                        ${serverSidePagination ? "translate-x-4" : "translate-x-0"}`}
+                    />
+                  </button>
+                </div>
+
+                {serverSidePagination && (
+                  <div className="border-t px-3 py-3 space-y-3">
+                    <p className="text-[11px] text-muted-foreground">
+                      Each page change fires a new API request with updated offset/limit params instead of loading the full payload once. Max Rows above controls how many records are fetched per page.
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium">Skip param name</label>
+                        <Input
+                          value={skipParam}
+                          onChange={(e) => setSkipParam(e.target.value)}
+                          placeholder="skip"
+                          className="h-7 text-xs font-mono"
+                        />
+                        <p className="text-[10px] text-muted-foreground">URL param for the record offset</p>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium">Take param name</label>
+                        <Input
+                          value={takeParam}
+                          onChange={(e) => setTakeParam(e.target.value)}
+                          placeholder="take"
+                          className="h-7 text-xs font-mono"
+                        />
+                        <p className="text-[10px] text-muted-foreground">URL param for page size</p>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium">Total count path</label>
+                      <Input
+                        value={totalCountPath}
+                        onChange={(e) => setTotalCountPath(e.target.value)}
+                        placeholder="e.g. meta.total or count"
+                        className="h-7 text-xs font-mono"
+                      />
+                      <p className="text-[10px] text-muted-foreground">
+                        Dot-notation path in the API response to the total record count. Used to calculate how many pages exist. Leave blank if the API doesn't return a total.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* ── Search ── */}
