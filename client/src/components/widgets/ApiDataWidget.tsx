@@ -114,6 +114,30 @@ export function ApiDataWidget(props: WidgetProps) {
   const config: ApiDataWidgetConfig = (preference.configuration as ApiDataWidgetConfig) || {};
   const isConfigured = !!config.templateId;
 
+  // Fetch live template metadata so dataPath / rowPath / fieldLabels on the template
+  // are always used as fallbacks — no stale widget config required.
+  const { data: templateMeta } = useQuery<{ id: number; name: string; config: Record<string, unknown> }>({
+    queryKey: ["/api/action-templates", config.templateId, "meta"],
+    queryFn: async () => {
+      const res = await fetch(`/api/action-templates/${config.templateId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load template");
+      return res.json();
+    },
+    enabled: isConfigured,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  });
+
+  // Cascade: widget config override → template config → undefined
+  const effectiveDataPath =
+    config.dataPath || (templateMeta?.config?.dataPath as string | undefined) || undefined;
+  const effectiveRowPath =
+    config.rowPath || (templateMeta?.config?.rowPath as string | undefined) || undefined;
+  const effectiveTemplateFieldLabels: Record<string, string> =
+    config.templateFieldLabels ||
+    ((templateMeta?.config?.fieldLabels as Record<string, string> | undefined) ?? {});
+
   const {
     data: result,
     isLoading,
@@ -139,22 +163,22 @@ export function ApiDataWidget(props: WidgetProps) {
   });
 
   const rawData = result?.data;
-  const displayData = config.dataPath ? resolvePath(rawData, config.dataPath) : rawData;
+  const displayData = effectiveDataPath ? resolvePath(rawData, effectiveDataPath) : rawData;
   const dataArrayRaw: any[] = Array.isArray(displayData)
     ? displayData
     : displayData != null
     ? [displayData]
     : [];
   // Apply rowPath: extract a sub-key from each row (e.g. "attributes" for JSON:API responses)
-  const dataArray: any[] = config.rowPath
+  const dataArray: any[] = effectiveRowPath
     ? dataArrayRaw.map((row: any) => {
-        const sub = row?.[config.rowPath!];
+        const sub = row?.[effectiveRowPath];
         return (sub != null && typeof sub === "object" && !Array.isArray(sub)) ? sub : row;
       })
     : dataArrayRaw;
-  const availableFields = inferFields(displayData);
+  const availableFields = inferFields(dataArray.length ? dataArray : displayData);
   const fieldLabels = config.fieldLabels || {};
-  const templateFieldLabels = config.templateFieldLabels || {};
+  const templateFieldLabels = effectiveTemplateFieldLabels;
 
   const handleSave = (newConfig: ApiDataWidgetConfig) => {
     onConfigChange(newConfig as Record<string, any>);
