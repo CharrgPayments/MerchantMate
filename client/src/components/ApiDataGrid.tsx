@@ -319,6 +319,11 @@ export interface ApiDataGridProps {
   pageSize?: number;
   /** JSON path into the response to extract the data array, e.g. "data.items". */
   dataPath?: string;
+  /**
+   * After extracting the array via dataPath, extract this key from each row.
+   * Useful for JSON:API style responses where data lives in e.g. "attributes".
+   */
+  rowPath?: string;
   className?: string;
   /** Hide the card chrome — just the table. */
   bare?: boolean;
@@ -341,6 +346,7 @@ export function ApiDataGrid({
   searchable = true,
   pageSize: pageSizeProp = 25,
   dataPath,
+  rowPath,
   className,
   bare = false,
   rowExpansion,
@@ -398,12 +404,26 @@ export function ApiDataGrid({
   const effectiveDataPath =
     (templateMeta?.config?.dataPath as string | undefined) || dataPath;
 
+  const effectiveRowPath =
+    (templateMeta?.config?.rowPath as string | undefined) || rowPath;
+
   type RowSource =
     | { kind: "path"; path: string }
     | { kind: "auto"; path: string }
     | { kind: "single" }
     | { kind: "none" }
     | null;
+
+  /** If rowPath is set, extract that sub-key from each row object. */
+  const applyRowPath = (rows: Record<string, unknown>[]): Record<string, unknown>[] => {
+    if (!effectiveRowPath) return rows;
+    return rows.map((row) => {
+      const sub = row[effectiveRowPath];
+      return (sub != null && typeof sub === "object" && !Array.isArray(sub))
+        ? (sub as Record<string, unknown>)
+        : row;
+    });
+  };
 
   /** Describes how rows were resolved (for the diagnostic panel). */
   const { allRows, rowSource } = useMemo<{ allRows: Record<string, unknown>[]; rowSource: RowSource }>(() => {
@@ -415,7 +435,7 @@ export function ApiDataGrid({
     const explicit = resolvePath(payload, effectiveDataPath);
     if (explicit.length > 0) {
       return {
-        allRows: explicit.filter((r): r is Record<string, unknown> => r != null && typeof r === "object"),
+        allRows: applyRowPath(explicit.filter((r): r is Record<string, unknown> => r != null && typeof r === "object")),
         rowSource: { kind: "path", path: effectiveDataPath || "(root)" },
       };
     }
@@ -424,7 +444,7 @@ export function ApiDataGrid({
     const discovered = autoDiscoverArray(payload);
     if (discovered && discovered.array.length > 0) {
       return {
-        allRows: discovered.array.filter((r): r is Record<string, unknown> => r != null && typeof r === "object"),
+        allRows: applyRowPath(discovered.array.filter((r): r is Record<string, unknown> => r != null && typeof r === "object")),
         rowSource: { kind: "auto", path: discovered.path },
       };
     }
@@ -436,7 +456,7 @@ export function ApiDataGrid({
     }
 
     return { allRows: [], rowSource: { kind: "none" } };
-  }, [rawResponse, effectiveDataPath]);
+  }, [rawResponse, effectiveDataPath, effectiveRowPath]);
 
   const columns = useMemo(() => {
     if (columnsProp && columnsProp.length > 0) return columnsProp;

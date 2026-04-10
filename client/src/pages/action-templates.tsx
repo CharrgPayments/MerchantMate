@@ -147,6 +147,7 @@ const webhookConfigSchema = z.object({
   routeParams: z.array(routeParamSchema).optional(),
   // Data-source display options
   dataPath: z.string().optional(),
+  rowPath: z.string().optional(),
   fieldLabels: z.record(z.string()).optional(),
   rowExpansion: z.object({
     templateId: z.number().nullable().optional(),
@@ -1049,6 +1050,36 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
                 Paste a sample JSON response from this endpoint so you can explore its fields and map them to dashboards.
               </FormDescription>
             </FormItem>
+
+            {/* Data binding paths */}
+            <div className="grid grid-cols-2 gap-3">
+              <FormItem>
+                <FormLabel>Data Path</FormLabel>
+                <FormControl>
+                  <Input
+                    value={(configFields.dataPath as string) || ''}
+                    onChange={(e) => setConfigFields({ ...configFields, dataPath: e.target.value })}
+                    placeholder="e.g. data or results.items"
+                  />
+                </FormControl>
+                <FormDescription className="text-xs">
+                  Dot-path to the array in the response.
+                </FormDescription>
+              </FormItem>
+              <FormItem>
+                <FormLabel>Row Path</FormLabel>
+                <FormControl>
+                  <Input
+                    value={(configFields.rowPath as string) || ''}
+                    onChange={(e) => setConfigFields({ ...configFields, rowPath: e.target.value })}
+                    placeholder="e.g. attributes"
+                  />
+                </FormControl>
+                <FormDescription className="text-xs">
+                  Sub-key to flatten from each row (e.g. JSON:API <code className="font-mono">attributes</code>).
+                </FormDescription>
+              </FormItem>
+            </div>
 
             {/* Field Label Mappings — stored in configFields.fieldLabels as {apiKey: friendlyLabel} */}
             <FieldLabelEditor

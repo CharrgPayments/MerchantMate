@@ -76,6 +76,8 @@ interface ApiDataWidgetConfig {
   displayType?: "stat" | "table" | "chart";
   title?: string;
   dataPath?: string;
+  /** After extracting the array via dataPath, pull this sub-key from each row. */
+  rowPath?: string;
   columns?: string[];
   maxRows?: number;
   valueField?: string;
@@ -138,11 +140,18 @@ export function ApiDataWidget(props: WidgetProps) {
 
   const rawData = result?.data;
   const displayData = config.dataPath ? resolvePath(rawData, config.dataPath) : rawData;
-  const dataArray: any[] = Array.isArray(displayData)
+  const dataArrayRaw: any[] = Array.isArray(displayData)
     ? displayData
     : displayData != null
     ? [displayData]
     : [];
+  // Apply rowPath: extract a sub-key from each row (e.g. "attributes" for JSON:API responses)
+  const dataArray: any[] = config.rowPath
+    ? dataArrayRaw.map((row: any) => {
+        const sub = row?.[config.rowPath!];
+        return (sub != null && typeof sub === "object" && !Array.isArray(sub)) ? sub : row;
+      })
+    : dataArrayRaw;
   const availableFields = inferFields(displayData);
   const fieldLabels = config.fieldLabels || {};
   const templateFieldLabels = config.templateFieldLabels || {};
@@ -379,6 +388,7 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
   );
   const [title, setTitle] = useState(currentConfig.title || "");
   const [dataPath, setDataPath] = useState(currentConfig.dataPath || "");
+  const [rowPath, setRowPath] = useState(currentConfig.rowPath || "");
   const [maxRows, setMaxRows] = useState(String(currentConfig.maxRows || 10));
   const [columns, setColumns] = useState((currentConfig.columns || []).join(", "));
   const [valueField, setValueField] = useState(currentConfig.valueField || "");
@@ -456,6 +466,7 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
       displayType,
       title: title || selectedTemplate?.name || "",
       dataPath: dataPath || undefined,
+      rowPath: rowPath || undefined,
       maxRows: Number(maxRows) || 10,
       columns: columns ? columns.split(",").map((c) => c.trim()).filter(Boolean) : [],
       valueField: valueField || undefined,
@@ -519,7 +530,19 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
               placeholder="e.g. data.records or results"
             />
             <p className="text-[11px] text-muted-foreground">
-              Dot-notation path into the API response. Leave blank to use the root.
+              Dot-notation path into the API response to find the data array. Leave blank to auto-detect.
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Row Path (optional)</label>
+            <Input
+              value={rowPath}
+              onChange={(e) => setRowPath(e.target.value)}
+              placeholder="e.g. attributes"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Sub-key to extract from each row. Use for JSON:API style responses where fields are nested (e.g. <code className="font-mono">attributes</code>).
             </p>
           </div>
 
