@@ -18,14 +18,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   BarChart,
   Bar,
   LineChart,
@@ -114,37 +106,14 @@ export function ApiDataWidget(props: WidgetProps) {
   const config: ApiDataWidgetConfig = (preference.configuration as ApiDataWidgetConfig) || {};
   const isConfigured = !!config.templateId;
 
-  // Fetch live template metadata so dataPath / rowPath / fieldLabels on the template
-  // are always used as fallbacks — no stale widget config required.
-  const { data: templateMeta } = useQuery<{ id: number; name: string; config: Record<string, unknown> }>({
-    queryKey: ["/api/action-templates", config.templateId, "meta"],
-    queryFn: async () => {
-      const res = await fetch(`/api/action-templates/${config.templateId}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load template");
-      return res.json();
-    },
-    enabled: isConfigured,
-    staleTime: 5 * 60_000,
-    refetchOnWindowFocus: false,
-    retry: 1,
-  });
-
-  // Cascade: widget config override → template config → undefined
-  const effectiveDataPath =
-    config.dataPath || (templateMeta?.config?.dataPath as string | undefined) || undefined;
-  const effectiveRowPath =
-    config.rowPath || (templateMeta?.config?.rowPath as string | undefined) || undefined;
-  const effectiveTemplateFieldLabels: Record<string, string> =
-    config.templateFieldLabels ||
-    ((templateMeta?.config?.fieldLabels as Record<string, string> | undefined) ?? {});
-
+  // 1. Fetch live data (staleTime:0 so always fresh)
   const {
     data: result,
     isLoading,
     isError,
     error,
     refetch,
-  } = useQuery<{ data: any; status: number; elapsed: number; success: boolean }>({
+  } = useQuery<{ data: any; status: number; elapsed: number; success: boolean; templateConfig?: Record<string, unknown> }>({
     queryKey: ["/api/action-templates", config.templateId, "data"],
     queryFn: async () => {
       const res = await fetch(`/api/action-templates/${config.templateId}/data`, {
@@ -161,6 +130,39 @@ export function ApiDataWidget(props: WidgetProps) {
     staleTime: 0,
     gcTime: 0,
   });
+
+  // 2. Fetch template metadata as a lower-priority fallback for name + config
+  const { data: templateMeta } = useQuery<{ id: number; name: string; config: Record<string, unknown> }>({
+    queryKey: ["/api/action-templates", config.templateId, "meta"],
+    queryFn: async () => {
+      const res = await fetch(`/api/action-templates/${config.templateId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load template");
+      return res.json();
+    },
+    enabled: isConfigured,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
+  });
+
+  // 3. Resolve config: widget override → embedded in data response → meta query → nothing
+  //    The embedded config arrives on the same network round-trip as the data, so there's
+  //    no race condition — dataPath/rowPath are always correct on first render.
+  const embeddedCfg = result?.templateConfig;
+  const effectiveDataPath =
+    config.dataPath ||
+    (embeddedCfg?.dataPath as string | undefined) ||
+    (templateMeta?.config?.dataPath as string | undefined) ||
+    undefined;
+  const effectiveRowPath =
+    config.rowPath ||
+    (embeddedCfg?.rowPath as string | undefined) ||
+    (templateMeta?.config?.rowPath as string | undefined) ||
+    undefined;
+  const effectiveTemplateFieldLabels: Record<string, string> =
+    config.templateFieldLabels ||
+    (embeddedCfg?.fieldLabels as Record<string, string> | undefined) ||
+    ((templateMeta?.config?.fieldLabels as Record<string, string> | undefined) ?? {});
 
   const rawData = result?.data;
   const displayData = effectiveDataPath ? resolvePath(rawData, effectiveDataPath) : rawData;
@@ -354,36 +356,41 @@ function WidgetDisplay({
   if (!dataArray.length) return <EmptyState />;
   const rows = dataArray.slice(0, maxRows);
   return (
-    <div className="overflow-auto max-h-48 rounded-md border text-xs">
-      <Table>
-        <TableHeader>
-          <TableRow>
+    <div className="overflow-auto max-h-52 rounded-md border text-xs">
+      <table className="min-w-max w-full caption-bottom border-collapse">
+        <thead>
+          <tr className="border-b bg-muted/40">
             {columns.map((col) => (
-              <TableHead key={col} className="py-1 px-2 text-[11px] font-medium whitespace-nowrap">
+              <th
+                key={col}
+                className="py-1.5 px-2.5 text-[11px] font-medium whitespace-nowrap text-left text-muted-foreground"
+              >
                 {displayLabel(col, fieldLabels, templateFieldLabels)}
-              </TableHead>
+              </th>
             ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
+          </tr>
+        </thead>
+        <tbody>
           {rows.map((row, i) => (
-            <TableRow key={i}>
+            <tr key={i} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
               {columns.map((col) => (
-                <TableCell
+                <td
                   key={col}
-                  className="py-1 px-2 max-w-[110px] truncate"
+                  className="py-1.5 px-2.5 whitespace-nowrap max-w-[160px] truncate"
                   title={String(row[col] ?? "")}
                 >
-                  {row[col] != null ? String(row[col]) : <span className="text-muted-foreground">—</span>}
-                </TableCell>
+                  {row[col] != null
+                    ? String(row[col])
+                    : <span className="text-muted-foreground/50">—</span>}
+                </td>
               ))}
-            </TableRow>
+            </tr>
           ))}
-        </TableBody>
-      </Table>
+        </tbody>
+      </table>
       {dataArray.length > maxRows && (
-        <div className="px-3 py-1 text-[10px] text-muted-foreground border-t">
-          Showing {maxRows} of {dataArray.length} records
+        <div className="px-3 py-1 text-[10px] text-muted-foreground border-t bg-muted/20 sticky bottom-0">
+          Showing {maxRows} of {dataArray.length.toLocaleString()} records
         </div>
       )}
     </div>

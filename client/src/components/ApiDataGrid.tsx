@@ -396,16 +396,28 @@ export function ApiDataGrid({
     }
   }, [templateMeta?.name, onMetaLoaded]);
 
-  const templateFieldLabels = useMemo<Record<string, string>>(
-    () => ((templateMeta?.config?.fieldLabels) as Record<string, string> | undefined) || {},
-    [templateMeta]
+  // Template config is embedded in the data response for race-condition-free resolution.
+  // Falls back to the separate meta query, then to props.
+  const embeddedCfg = useMemo(
+    () => (rawResponse as Record<string, unknown> | undefined)?.templateConfig as Record<string, unknown> | undefined,
+    [rawResponse]
   );
 
+  const templateFieldLabels = useMemo<Record<string, string>>(() => {
+    return (embeddedCfg?.fieldLabels as Record<string, string> | undefined) ||
+      (templateMeta?.config?.fieldLabels as Record<string, string> | undefined) ||
+      {};
+  }, [embeddedCfg, templateMeta]);
+
   const effectiveDataPath =
-    (templateMeta?.config?.dataPath as string | undefined) || dataPath;
+    (embeddedCfg?.dataPath as string | undefined) ||
+    (templateMeta?.config?.dataPath as string | undefined) ||
+    dataPath;
 
   const effectiveRowPath =
-    (templateMeta?.config?.rowPath as string | undefined) || rowPath;
+    (embeddedCfg?.rowPath as string | undefined) ||
+    (templateMeta?.config?.rowPath as string | undefined) ||
+    rowPath;
 
   type RowSource =
     | { kind: "path"; path: string }
