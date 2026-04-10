@@ -414,7 +414,7 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
   const [dataPath, setDataPath] = useState(currentConfig.dataPath || "");
   const [rowPath, setRowPath] = useState(currentConfig.rowPath || "");
   const [maxRows, setMaxRows] = useState(String(currentConfig.maxRows || 10));
-  const [columns, setColumns] = useState((currentConfig.columns || []).join(", "));
+  const [selectedCols, setSelectedCols] = useState<string[]>(currentConfig.columns || []);
   const [valueField, setValueField] = useState(currentConfig.valueField || "");
   const [valueLabel, setValueLabel] = useState(currentConfig.valueLabel || "");
   const [xField, setXField] = useState(currentConfig.xField || "");
@@ -460,15 +460,15 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
 
   // The full set of fields that may need labels — union of schema fields + selected columns
   const labelableFields: string[] = (() => {
-    const colList = columns
-      ? columns.split(",").map((c) => c.trim()).filter(Boolean)
-      : [];
     const base = schemaFields.length ? schemaFields : availableFields;
     // Also surface any fields from the template's existing label map
     const fromTpl = Object.keys(templateFieldLabelsFromTpl);
-    const union = [...new Set([...base, ...colList, ...fromTpl])];
+    const union = [...new Set([...base, ...selectedCols, ...fromTpl])];
     return union;
   })();
+
+  // All fields available for column picking (same union, ordered)
+  const pickableFields = labelableFields;
 
   const setFieldLabel = (field: string, label: string) => {
     setFieldLabels((prev) => ({ ...prev, [field]: label }));
@@ -492,7 +492,7 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
       dataPath: dataPath || undefined,
       rowPath: rowPath || undefined,
       maxRows: Number(maxRows) || 10,
-      columns: columns ? columns.split(",").map((c) => c.trim()).filter(Boolean) : [],
+      columns: selectedCols,
       valueField: valueField || undefined,
       valueLabel: valueLabel || undefined,
       xField: xField || undefined,
@@ -617,22 +617,74 @@ function ConfigDialog({ currentConfig, availableFields, onSave, onClose }: Confi
           {/* Table options */}
           {displayType === "table" && (
             <div className="space-y-3">
-              <div className="space-y-1">
-                <label className="text-sm font-medium">Columns</label>
-                <Input
-                  value={columns}
-                  onChange={(e) => setColumns(e.target.value)}
-                  placeholder="id, name, status (comma-separated, blank = all)"
-                />
-                {schemaFields.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium">Columns</label>
+                  <div className="flex gap-1">
+                    {selectedCols.length > 0 && (
+                      <span className="text-[11px] text-muted-foreground mr-2 self-center">
+                        {selectedCols.length} selected
+                      </span>
+                    )}
+                    <Button
+                      type="button" variant="ghost" size="sm" className="h-6 text-xs px-2"
+                      onClick={() => setSelectedCols(pickableFields)}
+                      disabled={pickableFields.length === 0}
+                    >
+                      All
+                    </Button>
+                    <Button
+                      type="button" variant="ghost" size="sm" className="h-6 text-xs px-2"
+                      onClick={() => setSelectedCols([])}
+                      disabled={selectedCols.length === 0}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                {pickableFields.length > 0 ? (
+                  <div className="border rounded-md max-h-52 overflow-y-auto p-2 grid grid-cols-2 gap-0.5 bg-muted/20">
+                    {pickableFields.map((field) => {
+                      const checked = selectedCols.includes(field);
+                      const label = templateFieldLabelsFromTpl[field] || humanizeField(field);
+                      return (
+                        <label
+                          key={field}
+                          className="flex items-center gap-2 px-2 py-1 rounded hover:bg-muted cursor-pointer text-xs select-none"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) =>
+                              setSelectedCols((prev) =>
+                                e.target.checked
+                                  ? [...prev, field]
+                                  : prev.filter((c) => c !== field)
+                              )
+                            }
+                            className="rounded border-border accent-primary shrink-0"
+                          />
+                          <span className="truncate" title={`${label} (${field})`}>
+                            {label}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground border rounded-md p-3 bg-muted/20">
+                    No fields available yet — save with a template selected to see column choices.
+                  </p>
+                )}
+                {selectedCols.length === 0 && (
                   <p className="text-[11px] text-muted-foreground">
-                    Available: {schemaFields.join(", ")}
+                    No columns selected — all columns will be shown.
                   </p>
                 )}
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium">Max Rows</label>
-                <Input type="number" min={1} max={100} value={maxRows} onChange={(e) => setMaxRows(e.target.value)} />
+                <Input type="number" min={1} max={500} value={maxRows} onChange={(e) => setMaxRows(e.target.value)} />
               </div>
             </div>
           )}
