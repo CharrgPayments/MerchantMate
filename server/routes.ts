@@ -7942,6 +7942,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/action-templates/:id — fetch single template by ID
+  app.get("/api/action-templates/:id", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
+    try {
+      const db = req.db!;
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid template id" });
+      const [template] = await db.select().from(actionTemplates).where(eq(actionTemplates.id, id));
+      if (!template) return res.status(404).json({ message: "Template not found" });
+      res.json(template);
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to fetch action template", error: error.message });
+    }
+  });
+
   // POST /api/action-templates — create template
   app.post("/api/action-templates", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
     try {
