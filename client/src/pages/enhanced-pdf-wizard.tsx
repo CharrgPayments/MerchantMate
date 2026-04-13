@@ -152,6 +152,8 @@ export default function EnhancedPdfWizard() {
   const urlParams = new URLSearchParams(window.location.search);
   const prospectToken = urlParams.get('token');
   const isProspectMode = !!prospectToken;
+  const previewTemplateId = urlParams.get('templateId');
+  const isTemplatePreviewMode = !!previewTemplateId && urlParams.get('preview') === 'true';
 
   // Fetch prospect data if token is present
   const { data: prospectData } = useQuery({
@@ -557,7 +559,7 @@ export default function EnhancedPdfWizard() {
     return hasErrors;
   };
 
-  // Fetch PDF form with fields (disable for prospect mode)
+  // Fetch PDF form with fields (disable for prospect mode or template preview mode)
   const { data: pdfForm, isLoading, error } = useQuery<PdfForm>({
     queryKey: ['/api/pdf-forms', id, 'with-fields'],
     queryFn: async () => {
@@ -569,8 +571,29 @@ export default function EnhancedPdfWizard() {
       }
       return response.json();
     },
-    enabled: !!id && !isProspectMode
+    enabled: !!id && !isProspectMode && !isTemplatePreviewMode
   });
+
+  // Fetch acquirer application template as a form (for template preview mode)
+  const { data: templateAsForm, isLoading: isTemplateLoading, error: templateError } = useQuery<PdfForm>({
+    queryKey: ['/api/acquirer-application-templates', previewTemplateId, 'as-form'],
+    queryFn: async () => {
+      const response = await fetch(`/api/acquirer-application-templates/${previewTemplateId}/as-form`, {
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch template form');
+      }
+      return response.json();
+    },
+    enabled: isTemplatePreviewMode,
+    staleTime: 0,
+    gcTime: 0
+  });
+
+  const activeForm = isTemplatePreviewMode ? templateAsForm : pdfForm;
+  const activeIsLoading = isTemplatePreviewMode ? isTemplateLoading : isLoading;
+  const activeError = isTemplatePreviewMode ? templateError : error;
 
   // Load owners with signatures from database
   const loadOwnersWithSignatures = async (prospectId: number) => {
@@ -866,13 +889,27 @@ export default function EnhancedPdfWizard() {
   
   if (isProspectMode) {
     sections = createProspectFormSections();
-  } else if (pdfForm?.fields) {
+  } else if (isTemplatePreviewMode && activeForm?.fields) {
+    // Group fields by section name for template preview
+    const sectionMap = new Map<string, FormField[]>();
+    activeForm.fields.sort((a, b) => a.position - b.position).forEach(field => {
+      const sectionName = field.section || 'General';
+      if (!sectionMap.has(sectionName)) sectionMap.set(sectionName, []);
+      sectionMap.get(sectionName)!.push(field);
+    });
+    sections = Array.from(sectionMap.entries()).map(([name, fields]) => ({
+      name,
+      description: '',
+      icon: FileText,
+      fields
+    }));
+  } else if (activeForm?.fields) {
     sections = [
       {
         name: 'Form Fields',
         description: 'Complete all required fields',
         icon: FileText,
-        fields: pdfForm.fields.sort((a, b) => a.position - b.position)
+        fields: activeForm.fields.sort((a, b) => a.position - b.position)
       }
     ];
   }
@@ -1607,9 +1644,9 @@ export default function EnhancedPdfWizard() {
     );
   }
 
-  // For authenticated mode, show loading and error states for PDF form
+  // For authenticated mode, show loading and error states for PDF form or template
   if (!isProspectMode) {
-    if (isLoading) {
+    if (activeIsLoading) {
       return (
         <div className="min-h-screen bg-gray-50 flex items-center justify-center">
           <div className="text-center">
@@ -1620,12 +1657,14 @@ export default function EnhancedPdfWizard() {
       );
     }
 
-    if (error || !pdfForm) {
+    if (activeError || !activeForm) {
       return (
         <div className="min-h-screen bg-gray-50 flex items-center justify-center">
           <div className="text-center">
             <p className="text-red-600 mb-4">Failed to load form</p>
-            <Button onClick={() => setLocation('/pdf-forms')}>Back to Forms</Button>
+            <Button onClick={() => setLocation(isTemplatePreviewMode ? '/application-templates' : '/pdf-forms')}>
+              {isTemplatePreviewMode ? 'Back to Templates' : 'Back to Forms'}
+            </Button>
           </div>
         </div>
       );
@@ -2424,6 +2463,12 @@ export default function EnhancedPdfWizard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+      {/* Preview mode banner */}
+      {isTemplatePreviewMode && (
+        <div className="bg-amber-500 text-white text-center py-2 px-4 text-sm font-medium">
+          Preview Mode — {activeForm?.name || 'Template'} — This form is for review only; submissions are disabled.
+        </div>
+      )}
       {/* Header - Fixed */}
       <div className="bg-white/95 backdrop-blur-sm border-b border-gray-200 px-4 py-6 sticky top-0 z-50 shadow-sm">
         <div className="max-w-4xl mx-auto">
@@ -2434,12 +2479,14 @@ export default function EnhancedPdfWizard() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">
-                  {isProspectMode ? 'Merchant Processing Application' : (pdfForm?.name || 'Form')}
+                  {isProspectMode ? 'Merchant Processing Application' : (activeForm?.name || 'Form')}
                 </h1>
                 <p className="text-gray-600 text-sm">
                   {isProspectMode 
                     ? `Welcome ${prospectData?.prospect?.firstName || ''}! Complete your application - all changes save automatically`
-                    : `${pdfForm?.description || 'Form'} - all changes save automatically`
+                    : isTemplatePreviewMode
+                    ? `Template preview — ${activeForm?.description || ''}`
+                    : `${activeForm?.description || 'Form'} - all changes save automatically`
                   }
                 </p>
               </div>
@@ -2635,9 +2682,10 @@ export default function EnhancedPdfWizard() {
                         </Button>
                       ) : (
                         <Button
-                          onClick={() => submitApplicationMutation.mutate(formData)}
-                          disabled={submitApplicationMutation.isPending}
-                          className="flex items-center space-x-2 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
+                          onClick={() => !isTemplatePreviewMode && submitApplicationMutation.mutate(formData)}
+                          disabled={submitApplicationMutation.isPending || isTemplatePreviewMode}
+                          title={isTemplatePreviewMode ? 'Submission disabled in preview mode' : undefined}
+                          className="flex items-center space-x-2 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {submitApplicationMutation.isPending ? (
                             <>
@@ -2647,7 +2695,7 @@ export default function EnhancedPdfWizard() {
                           ) : (
                             <>
                               <CheckCircle className="w-4 h-4" />
-                              <span>Submit Application</span>
+                              <span>{isTemplatePreviewMode ? 'Preview Only' : 'Submit Application'}</span>
                             </>
                           )}
                         </Button>

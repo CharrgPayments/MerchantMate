@@ -343,8 +343,8 @@ export default function ApplicationTemplatesPage() {
   };
 
   const openTestPreview = (template: AcquirerApplicationTemplate) => {
-    // Open the form in preview mode with the template ID
-    const previewUrl = `/enhanced-pdf-wizard/1?preview=true&templateId=${template.id}`;
+    // Open the form in preview mode using the template's field configuration
+    const previewUrl = `/enhanced-pdf-wizard/0?preview=true&templateId=${template.id}`;
     window.open(previewUrl, '_blank');
     
     toast({

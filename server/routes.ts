@@ -7510,6 +7510,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get('/api/acquirer-application-templates/:id/as-form', isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res: Response) => {
+    try {
+      const templateId = parseInt(req.params.id);
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { acquirerApplicationTemplates } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [template] = await dbToUse.select()
+        .from(acquirerApplicationTemplates)
+        .where(eq(acquirerApplicationTemplates.id, templateId))
+        .limit(1);
+      if (!template) return res.status(404).json({ error: "Template not found" });
+
+      const fieldConfig: any = template.fieldConfiguration || {};
+      const templateSections: any[] = Array.isArray(fieldConfig.sections) ? fieldConfig.sections : [];
+
+      let position = 0;
+      const fields: any[] = [];
+      templateSections.forEach((section: any) => {
+        const sectionTitle: string = section.title || section.id || 'General';
+        const sectionFields: any[] = Array.isArray(section.fields) ? section.fields : [];
+        sectionFields.forEach((f: any) => {
+          fields.push({
+            id: ++position,
+            fieldName: f.id || f.pdfFieldId || `field_${position}`,
+            fieldType: f.type || 'text',
+            fieldLabel: f.label || f.id || `Field ${position}`,
+            isRequired: !!f.required,
+            options: Array.isArray(f.options) ? f.options : null,
+            defaultValue: f.defaultValue ?? null,
+            validation: f.validation ?? null,
+            position,
+            section: sectionTitle
+          });
+        });
+      });
+
+      res.json({
+        id: template.id,
+        name: template.templateName,
+        description: `Preview: ${template.templateName} v${template.version}`,
+        fileName: '',
+        fields
+      });
+    } catch (error) {
+      console.error('Error converting acquirer application template to form:', error);
+      res.status(500).json({ error: 'Failed to convert template to form' });
+    }
+  });
+
   app.put('/api/acquirer-application-templates/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
       const templateId = parseInt(req.params.id);
