@@ -1735,20 +1735,23 @@ startxref
     return Buffer.from(pdf, 'binary');
   }
 
-  async generateMappedApplicationPDF(
+  async generateFilledPDF(
+    originalPdfBase64: string,
     applicationData: Record<string, any>,
     fieldConfiguration: any,
-    pdfMappingConfiguration: any[],
-    templateName: string
+    pdfMappingConfiguration: any[]
   ): Promise<Buffer> {
     try {
-      const sections: { title: string; fields: { label: string; value: string; pdfFieldId?: string }[] }[] = [];
+      const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
+      const originalPdfBytes = Buffer.from(originalPdfBase64, 'base64');
+      const pdfDoc = await PDFDocument.load(originalPdfBytes, { ignoreEncryption: true });
 
+      const fieldValueMap = new Map<string, string>();
       if (Array.isArray(fieldConfiguration?.sections)) {
         for (const section of fieldConfiguration.sections) {
-          const sectionFields: { label: string; value: string; pdfFieldId?: string }[] = [];
           if (Array.isArray(section.fields)) {
             for (const field of section.fields) {
+              if (!field.pdfFieldId) continue;
               const rawValue = applicationData[field.id];
               let displayValue = '';
               if (rawValue === undefined || rawValue === null || rawValue === '') {
@@ -1760,90 +1763,113 @@ startxref
               } else {
                 displayValue = String(rawValue);
               }
-              sectionFields.push({
-                label: field.label || field.id,
-                value: displayValue,
-                pdfFieldId: field.pdfFieldId || undefined,
-              });
+              if (displayValue) {
+                fieldValueMap.set(field.pdfFieldId, displayValue);
+              }
             }
           }
-          if (sectionFields.length > 0) {
-            sections.push({ title: section.title, fields: sectionFields });
+        }
+      }
+
+      const form = pdfDoc.getForm();
+      const pdfFields = form.getFields();
+      let filledCount = 0;
+
+      if (pdfFields.length > 0) {
+        for (const pdfField of pdfFields) {
+          const fieldName = pdfField.getName();
+          for (const [pdfFieldId, value] of fieldValueMap.entries()) {
+            const rawMapping = pdfMappingConfiguration.find((m: any) => m.pdfFieldId === pdfFieldId);
+            const originalFieldName = rawMapping?.fieldName || pdfFieldId;
+            if (fieldName === originalFieldName || fieldName === pdfFieldId) {
+              try {
+                const fieldType = pdfField.constructor.name;
+                if (fieldType === 'PDFTextField') {
+                  (pdfField as any).setText(value);
+                  filledCount++;
+                } else if (fieldType === 'PDFCheckBox') {
+                  const isChecked = ['true', 'yes', '1', 'on', 'checked'].includes(value.toLowerCase());
+                  if (isChecked) (pdfField as any).check();
+                  else (pdfField as any).uncheck();
+                  filledCount++;
+                } else if (fieldType === 'PDFDropdown') {
+                  try { (pdfField as any).select(value); filledCount++; } catch {}
+                } else if (fieldType === 'PDFRadioGroup') {
+                  try { (pdfField as any).select(value); filledCount++; } catch {}
+                }
+              } catch (e) {
+                console.warn(`Could not fill PDF field ${fieldName}:`, e);
+              }
+              break;
+            }
           }
         }
       }
 
-      const mappingStats = {
-        totalFields: sections.reduce((sum, s) => sum + s.fields.length, 0),
-        mappedFields: sections.reduce((sum, s) => sum + s.fields.filter(f => f.pdfFieldId).length, 0),
-        totalPdfFields: Array.isArray(pdfMappingConfiguration) ? pdfMappingConfiguration.length : 0,
-      };
+      if (filledCount === 0 && fieldValueMap.size > 0) {
+        console.log('No form fields found in PDF or no matches — overlaying text onto pages');
+        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        const fontSize = 9;
+        const pages = pdfDoc.getPages();
 
-      const pages = this.buildMappedPages(sections, templateName, mappingStats);
-      const pdfContent = this.buildMultiPagePDF(pages);
-      return Buffer.from(pdfContent, 'binary');
+        let currentPageIndex = pages.length;
+        let page = pdfDoc.addPage();
+        let y = page.getHeight() - 50;
+        const margin = 50;
+        const lineHeight = 14;
+
+        page.drawText('Application Data (Mapped from Form)', {
+          x: margin, y, font: boldFont, size: 14, color: rgb(0, 0, 0),
+        });
+        y -= 24;
+
+        if (Array.isArray(fieldConfiguration?.sections)) {
+          for (const section of fieldConfiguration.sections) {
+            if (y < 60) {
+              page = pdfDoc.addPage();
+              y = page.getHeight() - 50;
+            }
+            page.drawText(section.title, {
+              x: margin, y, font: boldFont, size: 11, color: rgb(0.1, 0.1, 0.4),
+            });
+            y -= 4;
+            page.drawLine({ start: { x: margin, y }, end: { x: page.getWidth() - margin, y }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) });
+            y -= lineHeight;
+
+            if (Array.isArray(section.fields)) {
+              for (const field of section.fields) {
+                if (y < 60) {
+                  page = pdfDoc.addPage();
+                  y = page.getHeight() - 50;
+                }
+                const rawValue = applicationData[field.id];
+                let displayValue = '';
+                if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
+                  displayValue = Array.isArray(rawValue) ? rawValue.join(', ') : typeof rawValue === 'object' ? JSON.stringify(rawValue) : String(rawValue);
+                }
+                const label = (field.label || field.id).substring(0, 35);
+                page.drawText(`${label}:`, { x: margin, y, font: boldFont, size: fontSize, color: rgb(0.2, 0.2, 0.2) });
+                page.drawText(displayValue || '—', { x: 220, y, font, size: fontSize, color: rgb(0, 0, 0) });
+                if (field.pdfFieldId) {
+                  page.drawText(`[${field.pdfFieldId}]`, { x: 440, y, font, size: 6, color: rgb(0.5, 0.5, 0.5) });
+                }
+                y -= lineHeight;
+              }
+            }
+            y -= 8;
+          }
+        }
+      }
+
+      try { form.flatten(); } catch {}
+
+      const filledPdfBytes = await pdfDoc.save();
+      return Buffer.from(filledPdfBytes);
     } catch (error) {
-      console.error('Mapped PDF generation failed:', error);
-      return this.createMinimalPDF(templateName);
+      console.error('Filled PDF generation failed:', error);
+      throw error;
     }
-  }
-
-  private buildMappedPages(
-    sections: { title: string; fields: { label: string; value: string; pdfFieldId?: string }[] }[],
-    templateName: string,
-    stats: { totalFields: number; mappedFields: number; totalPdfFields: number }
-  ): string[][] {
-    const pages: string[][] = [];
-    let currentPage: string[] = [];
-    let y = 750;
-    const lineHeight = 14;
-    const pageHeight = 792;
-    const margin = 50;
-    const bottomMargin = 60;
-
-    currentPage.push(`BT /F2 16 Tf ${margin} ${y} Td (${this.escapePdfText(templateName)}) Tj ET`);
-    y -= 24;
-    currentPage.push(`BT /F1 9 Tf ${margin} ${y} Td (Fields: ${stats.totalFields} | Mapped to PDF: ${stats.mappedFields} | PDF Fields: ${stats.totalPdfFields}) Tj ET`);
-    y -= 20;
-    currentPage.push(`${margin} ${y} m ${562} ${y} l S`);
-    y -= 16;
-
-    for (const section of sections) {
-      if (y < bottomMargin + 40) {
-        pages.push(currentPage);
-        currentPage = [];
-        y = pageHeight - margin;
-      }
-      currentPage.push(`BT /F2 12 Tf ${margin} ${y} Td (${this.escapePdfText(section.title)}) Tj ET`);
-      y -= 4;
-      currentPage.push(`${margin} ${y} m ${562} ${y} l S`);
-      y -= lineHeight;
-
-      for (const field of section.fields) {
-        if (y < bottomMargin) {
-          pages.push(currentPage);
-          currentPage = [];
-          y = pageHeight - margin;
-        }
-        const label = this.escapePdfText(field.label);
-        const value = this.escapePdfText(field.value || '—');
-        currentPage.push(`BT /F2 9 Tf ${margin} ${y} Td (${label}:) Tj ET`);
-        currentPage.push(`BT /F1 9 Tf 220 ${y} Td (${value}) Tj ET`);
-        if (field.pdfFieldId) {
-          currentPage.push(`BT /F1 7 Tf 450 ${y} Td ([${this.escapePdfText(field.pdfFieldId)}]) Tj ET`);
-        }
-        y -= lineHeight;
-      }
-      y -= 8;
-    }
-
-    if (currentPage.length > 0) pages.push(currentPage);
-    return pages;
-  }
-
-  private escapePdfText(text: string): string {
-    if (!text) return '';
-    return text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)').replace(/[\r\n]/g, ' ');
   }
 }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
@@ -1085,6 +1085,51 @@ function EditTemplateDialog({
   );
 }
 
+function UploadOriginalPdf({ templateId, hasOriginalPdf }: { templateId: number; hasOriginalPdf: boolean }) {
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('pdf', file);
+      const res = await fetch(`/api/acquirer-application-templates/${templateId}/upload-pdf`, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Upload failed');
+      queryClient.invalidateQueries({ queryKey: ['/api/acquirer-application-templates'] });
+    } catch (err) {
+      console.error('PDF upload error:', err);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <input ref={fileInputRef} type="file" accept="application/pdf" className="hidden" onChange={handleUpload} />
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={uploading}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <Upload className="w-4 h-4 mr-2" />
+        {uploading ? 'Uploading...' : hasOriginalPdf ? 'Replace Original PDF' : 'Upload Original PDF'}
+      </Button>
+      {!hasOriginalPdf && (
+        <span className="text-xs text-muted-foreground">Upload the original PDF to enable filled PDF generation from completed applications.</span>
+      )}
+    </div>
+  );
+}
+
 // View Template Dialog Component
 function PdfFieldMappingView({ template }: { template: AcquirerApplicationTemplate }) {
   const rawFields: any[] = Array.isArray(template.pdfMappingConfiguration) ? template.pdfMappingConfiguration : [];
@@ -1260,7 +1305,20 @@ function ViewTemplateDialog({
               <h4 className="font-medium text-sm text-muted-foreground">Updated</h4>
               <p>{new Date(template.updatedAt).toLocaleDateString()}</p>
             </div>
+            <div>
+              <h4 className="font-medium text-sm text-muted-foreground">Original PDF</h4>
+              {(template as any).hasOriginalPdf || (template as any).originalPdfFilename ? (
+                <div className="flex items-center gap-2">
+                  <Badge variant="default" className="text-xs">Stored</Badge>
+                  <span className="text-sm text-muted-foreground">{(template as any).originalPdfFilename}</span>
+                </div>
+              ) : (
+                <Badge variant="destructive" className="text-xs">Not Stored</Badge>
+              )}
+            </div>
           </div>
+
+          <UploadOriginalPdf templateId={template.id} hasOriginalPdf={!!(template as any).hasOriginalPdf || !!(template as any).originalPdfFilename} />
 
           <Separator />
 

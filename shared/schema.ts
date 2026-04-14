@@ -805,6 +805,8 @@ export const acquirerApplicationTemplates = pgTable("acquirer_application_templa
   isActive: boolean("is_active").notNull().default(true),
   fieldConfiguration: jsonb("field_configuration").notNull(),
   pdfMappingConfiguration: jsonb("pdf_mapping_configuration"),
+  originalPdfBase64: text("original_pdf_base64"),
+  originalPdfFilename: text("original_pdf_filename"),
   requiredFields: text("required_fields").array().notNull().default(sql`ARRAY[]::text[]`),
   conditionalFields: jsonb("conditional_fields"),
   addressGroups: jsonb("address_groups").default(sql`'[]'::jsonb`),

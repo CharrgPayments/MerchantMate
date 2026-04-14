@@ -7398,8 +7398,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isActive: acquirerApplicationTemplates.isActive,
         fieldConfiguration: acquirerApplicationTemplates.fieldConfiguration,
         pdfMappingConfiguration: acquirerApplicationTemplates.pdfMappingConfiguration,
+        originalPdfFilename: acquirerApplicationTemplates.originalPdfFilename,
         requiredFields: acquirerApplicationTemplates.requiredFields,
         conditionalFields: acquirerApplicationTemplates.conditionalFields,
+        addressGroups: acquirerApplicationTemplates.addressGroups,
+        signatureGroups: acquirerApplicationTemplates.signatureGroups,
         createdAt: acquirerApplicationTemplates.createdAt,
         updatedAt: acquirerApplicationTemplates.updatedAt,
         acquirer: {
@@ -7412,7 +7415,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .from(acquirerApplicationTemplates)
       .leftJoin(acquirers, eq(acquirerApplicationTemplates.acquirerId, acquirers.id))
       .orderBy(acquirerApplicationTemplates.templateName);
-      res.json(templates);
+      const templatesWithPdfFlag = templates.map(t => ({
+        ...t,
+        hasOriginalPdf: !!t.originalPdfFilename,
+      }));
+      res.json(templatesWithPdfFlag);
     } catch (error) {
       console.error('Error fetching acquirer application templates:', error);
       res.status(500).json({ error: 'Failed to fetch acquirer application templates' });
@@ -7426,10 +7433,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
 
-      // Parse PDF to extract field configuration
-      const parseResult = await pdfFormParser.parsePDFForm(req.file.path);
+      const pdfBuffer = req.file.buffer;
+      const parseResult = await pdfFormParser.parsePDFForm(pdfBuffer);
 
-      // If acquirerId provided, save as template
       if (req.body.acquirerId && req.body.templateName) {
         const acquirerId = parseInt(req.body.acquirerId);
         const { acquirerApplicationTemplates } = await import("@shared/schema");
@@ -7462,13 +7468,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           isActive: true,
           fieldConfiguration,
           pdfMappingConfiguration: parseResult.rawFields || {},
+          originalPdfBase64: pdfBuffer.toString('base64'),
+          originalPdfFilename: req.file.originalname || 'uploaded.pdf',
           requiredFields: [],
           conditionalFields: []
         }).returning();
         return res.status(201).json({ template: newTemplate, parseResult });
       }
 
-      // Otherwise just return parsed fields
       res.json({ parseResult });
     } catch (error) {
       console.error('Error processing PDF upload:', error);
@@ -7730,6 +7737,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post('/api/acquirer-application-templates/:id/upload-pdf', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), upload.single('pdf'), async (req: RequestWithDB, res: Response) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: 'No PDF file uploaded' });
+      const templateId = parseInt(req.params.id);
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { acquirerApplicationTemplates } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+
+      const [template] = await dbToUse.select().from(acquirerApplicationTemplates).where(eq(acquirerApplicationTemplates.id, templateId)).limit(1);
+      if (!template) return res.status(404).json({ error: "Template not found" });
+
+      const pdfBuffer = req.file.buffer;
+      const [updated] = await dbToUse.update(acquirerApplicationTemplates).set({
+        originalPdfBase64: pdfBuffer.toString('base64'),
+        originalPdfFilename: req.file.originalname || 'uploaded.pdf',
+        updatedAt: new Date()
+      }).where(eq(acquirerApplicationTemplates.id, templateId)).returning();
+
+      res.json({ success: true, message: "Original PDF uploaded successfully", originalPdfFilename: updated.originalPdfFilename });
+    } catch (error) {
+      console.error('Error uploading PDF for template:', error);
+      res.status(500).json({ error: 'Failed to upload PDF' });
+    }
+  });
+
   app.delete('/api/acquirer-application-templates/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
       const templateId = parseInt(req.params.id);
@@ -7760,20 +7793,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [template] = await dbToUse.select().from(acquirerApplicationTemplates).where(eq(acquirerApplicationTemplates.id, application.templateId)).limit(1);
       if (!template) return res.status(404).json({ error: "Template not found" });
 
+      if (!template.originalPdfBase64) {
+        return res.status(400).json({ error: "No original PDF stored for this template. Re-upload the PDF to enable filled PDF generation." });
+      }
+
       const { pdfGenerator } = await import('./pdfGenerator');
-      const pdfBuffer = await pdfGenerator.generateMappedApplicationPDF(
+      const pdfBuffer = await pdfGenerator.generateFilledPDF(
+        template.originalPdfBase64,
         application.applicationData as Record<string, any>,
         template.fieldConfiguration,
-        Array.isArray(template.pdfMappingConfiguration) ? template.pdfMappingConfiguration as any[] : [],
-        template.templateName
+        Array.isArray(template.pdfMappingConfiguration) ? template.pdfMappingConfiguration as any[] : []
       );
 
+      const safeFilename = template.templateName.replace(/[^a-zA-Z0-9_-]/g, '_');
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${template.templateName.replace(/[^a-zA-Z0-9]/g, '_')}_application_${applicationId}.pdf"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}_application_${applicationId}.pdf"`);
       res.send(pdfBuffer);
     } catch (error) {
-      console.error('Error generating mapped PDF:', error);
-      res.status(500).json({ error: 'Failed to generate PDF' });
+      console.error('Error generating filled PDF:', error);
+      res.status(500).json({ error: 'Failed to generate filled PDF' });
     }
   });
 

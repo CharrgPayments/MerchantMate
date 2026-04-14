@@ -425,14 +425,14 @@ export class PDFFormParser {
     return sections;
   }
 
-  async parsePDFForm(filePath: string): Promise<{
+  async parsePDFForm(filePathOrBuffer: string | Buffer): Promise<{
     sections: ParsedFormSection[];
     totalFields: number;
     rawFields: any[];
   }> {
     try {
       const pdfParse = (await import('pdf-parse')).default;
-      const buffer = fs.readFileSync(filePath);
+      const buffer = typeof filePathOrBuffer === 'string' ? fs.readFileSync(filePathOrBuffer) : filePathOrBuffer;
       const pdfData = await pdfParse(buffer);
 
       const rawFields: any[] = [];
