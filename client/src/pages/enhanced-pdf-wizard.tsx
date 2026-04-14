@@ -89,11 +89,275 @@ function DisclosureFieldRenderer({ field, formData, onFieldChange }: { field: Fo
       </div>
 
       {field.requiresSignature && (
-        <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center bg-gray-50">
-          <PenTool className="h-6 w-6 text-gray-400 mx-auto mb-2" />
-          <p className="text-sm text-gray-500">
-            Signature required — {field.signerLabel || 'Signer'} (up to {field.maxSigners || 1})
-          </p>
+        <DisclosureSignatureArea
+          field={field}
+          formData={formData}
+          onFieldChange={onFieldChange}
+        />
+      )}
+    </div>
+  );
+}
+
+function DisclosureSignatureArea({ field, formData, onFieldChange }: { field: FormField; formData: Record<string, any>; onFieldChange: (name: string, value: any) => void }) {
+  const maxSigners = field.maxSigners || 1;
+  const signerLabel = field.signerLabel || 'Signer';
+  const signaturesKey = `${field.fieldName}_signatures`;
+  const signatures: Array<{ name: string; signature: string | null; signatureType: string | null }> = formData[signaturesKey] || [];
+
+  const ensureSignerSlots = () => {
+    if (signatures.length === 0) {
+      onFieldChange(signaturesKey, [{ name: '', signature: null, signatureType: null }]);
+    }
+  };
+
+  React.useEffect(() => { ensureSignerSlots(); }, []);
+
+  const updateSigner = (index: number, updates: any) => {
+    const updated = [...signatures];
+    updated[index] = { ...updated[index], ...updates };
+    onFieldChange(signaturesKey, updated);
+  };
+
+  const addSigner = () => {
+    if (signatures.length < maxSigners) {
+      onFieldChange(signaturesKey, [...signatures, { name: '', signature: null, signatureType: null }]);
+    }
+  };
+
+  const removeSigner = (index: number) => {
+    if (signatures.length > 1) {
+      onFieldChange(signaturesKey, signatures.filter((_, i) => i !== index));
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-semibold text-gray-700">
+          {signerLabel} Signature{maxSigners > 1 ? 's' : ''} {maxSigners > 1 && `(${signatures.length} of ${maxSigners})`}
+        </h4>
+        {signatures.length < maxSigners && (
+          <Button type="button" variant="outline" size="sm" onClick={addSigner}>
+            Add {signerLabel}
+          </Button>
+        )}
+      </div>
+      {signatures.map((signer, index) => (
+        <SingleSignaturePad
+          key={index}
+          index={index}
+          signer={signer}
+          signerLabel={signerLabel}
+          canRemove={signatures.length > 1}
+          onUpdate={(updates) => updateSigner(index, updates)}
+          onRemove={() => removeSigner(index)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function SingleSignaturePad({ index, signer, signerLabel, canRemove, onUpdate, onRemove }: {
+  index: number;
+  signer: { name: string; signature: string | null; signatureType: string | null };
+  signerLabel: string;
+  canRemove: boolean;
+  onUpdate: (updates: any) => void;
+  onRemove: () => void;
+}) {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = React.useState(false);
+  const [signatureMode, setSignatureMode] = React.useState<'draw' | 'type'>('draw');
+  const [typedSignature, setTypedSignature] = React.useState('');
+  const [showPad, setShowPad] = React.useState(false);
+
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    setIsDrawing(true);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.beginPath();
+    ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+  };
+
+  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#000';
+    ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+    ctx.stroke();
+  };
+
+  const stopDrawing = () => setIsDrawing(false);
+
+  const clearSignature = () => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+    setTypedSignature('');
+    onUpdate({ signature: null, signatureType: null });
+  };
+
+  const saveSignature = () => {
+    let signatureData: string | null = null;
+    let signatureType: string | null = null;
+    if (signatureMode === 'draw') {
+      const canvas = canvasRef.current;
+      if (canvas) {
+        signatureData = canvas.toDataURL();
+        signatureType = 'canvas';
+      }
+    } else {
+      signatureData = typedSignature;
+      signatureType = 'typed';
+    }
+    onUpdate({ signature: signatureData, signatureType });
+    setShowPad(false);
+  };
+
+  React.useEffect(() => {
+    if (signatureMode === 'type' && typedSignature) {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.font = '32px "Brush Script MT", cursive';
+      ctx.fillStyle = '#000';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(typedSignature, canvas.width / 2, canvas.height / 2);
+    }
+  }, [typedSignature, signatureMode]);
+
+  return (
+    <div className="border border-gray-200 rounded-lg p-4 bg-white">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-gray-700">{signerLabel} {index + 1}</span>
+        </div>
+        {canRemove && (
+          <Button type="button" variant="ghost" size="sm" onClick={onRemove}>
+            <X className="w-4 h-4" />
+          </Button>
+        )}
+      </div>
+
+      <div className="mb-3">
+        <Input
+          placeholder={`${signerLabel} full name`}
+          value={signer.name || ''}
+          onChange={(e) => onUpdate({ name: e.target.value })}
+          className="text-sm"
+        />
+      </div>
+
+      {!showPad && !signer.signature && (
+        <Button type="button" variant="outline" onClick={() => setShowPad(true)} className="w-full">
+          <PenTool className="w-4 h-4 mr-2" />
+          Add Digital Signature
+        </Button>
+      )}
+
+      {!showPad && signer.signature && (
+        <div className="border border-green-200 bg-green-50 p-3 rounded-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Check className="w-4 h-4 text-green-600" />
+              <span className="text-sm font-medium text-green-800">
+                Signature Added ({signer.signatureType === 'canvas' ? 'Drawn' : 'Typed'})
+              </span>
+            </div>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setShowPad(true)}>Edit</Button>
+          </div>
+          {signer.signatureType === 'canvas' && (
+            <img src={signer.signature} alt="Signature" className="mt-2 border rounded max-h-20" />
+          )}
+          {signer.signatureType === 'typed' && (
+            <div className="mt-2 text-2xl italic text-center py-2 border rounded bg-white" style={{ fontFamily: '"Brush Script MT", cursive' }}>
+              {signer.signature}
+            </div>
+          )}
+        </div>
+      )}
+
+      {showPad && (
+        <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+          <div className="flex justify-between items-center mb-4">
+            <h4 className="font-medium text-sm">Digital Signature</h4>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setShowPad(false)}>
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+
+          <div className="flex space-x-2 mb-4">
+            <Button type="button" variant={signatureMode === 'draw' ? 'default' : 'outline'} size="sm" onClick={() => setSignatureMode('draw')}>
+              <PenTool className="w-4 h-4 mr-2" />
+              Draw
+            </Button>
+            <Button type="button" variant={signatureMode === 'type' ? 'default' : 'outline'} size="sm" onClick={() => setSignatureMode('type')}>
+              <Type className="w-4 h-4 mr-2" />
+              Type
+            </Button>
+          </div>
+
+          {signatureMode === 'draw' && (
+            <div className="space-y-3">
+              <canvas
+                ref={canvasRef}
+                width={400}
+                height={150}
+                className="border border-gray-300 rounded bg-white cursor-crosshair w-full"
+                style={{ maxWidth: '100%', height: '150px' }}
+                onMouseDown={startDrawing}
+                onMouseMove={draw}
+                onMouseUp={stopDrawing}
+                onMouseLeave={stopDrawing}
+              />
+              <p className="text-xs text-gray-500">Draw your signature using your mouse or touch screen.</p>
+            </div>
+          )}
+
+          {signatureMode === 'type' && (
+            <div className="space-y-3">
+              <Input
+                placeholder="Type your full name"
+                value={typedSignature}
+                onChange={(e) => setTypedSignature(e.target.value)}
+                className="text-center"
+              />
+              <canvas
+                ref={canvasRef}
+                width={400}
+                height={150}
+                className="border border-gray-300 rounded bg-white w-full"
+                style={{ maxWidth: '100%', height: '150px' }}
+              />
+              <p className="text-xs text-gray-500">Type your name to preview your signature style.</p>
+            </div>
+          )}
+
+          <div className="flex space-x-2 mt-4">
+            <Button type="button" variant="outline" size="sm" onClick={clearSignature}>
+              <RotateCcw className="w-4 h-4 mr-2" />
+              Clear
+            </Button>
+            <Button type="button" size="sm" onClick={saveSignature} disabled={signatureMode === 'type' && !typedSignature.trim()}>
+              <Check className="w-4 h-4 mr-2" />
+              Save Signature
+            </Button>
+          </div>
         </div>
       )}
     </div>
