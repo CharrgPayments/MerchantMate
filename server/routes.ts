@@ -7540,18 +7540,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const fieldConfig: any = template.fieldConfiguration || {};
       const templateSections: any[] = Array.isArray(fieldConfig.sections) ? fieldConfig.sections : [];
 
+      // requiredFields is a separate column: array of field IDs that are required
+      const requiredFieldIds = new Set<string>(Array.isArray(template.requiredFields) ? template.requiredFields : []);
+
+      // Map template field types to wizard-supported types
+      const normalizeFieldType = (type: string): string => {
+        switch (type) {
+          case 'tel': return 'phone';
+          case 'ein': return 'text';
+          case 'currency': return 'number';
+          case 'zipcode': return 'text';
+          case 'radio': return 'select';
+          case 'address': return 'address';
+          case 'url': return 'url';
+          default: return type || 'text';
+        }
+      };
+
       let position = 0;
       const fields: any[] = [];
       templateSections.forEach((section: any) => {
         const sectionTitle: string = section.title || section.id || 'General';
         const sectionFields: any[] = Array.isArray(section.fields) ? section.fields : [];
         sectionFields.forEach((f: any) => {
+          const fieldId = f.id || f.pdfFieldId || `field_${position + 1}`;
           fields.push({
             id: ++position,
-            fieldName: f.id || f.pdfFieldId || `field_${position}`,
-            fieldType: f.type || 'text',
+            fieldName: fieldId,
+            fieldType: normalizeFieldType(f.type),
             fieldLabel: f.label || f.id || `Field ${position}`,
-            isRequired: !!f.required,
+            isRequired: requiredFieldIds.has(fieldId) || !!f.required || !!f.isRequired,
             options: Array.isArray(f.options) ? f.options : null,
             defaultValue: f.defaultValue ?? null,
             validation: f.validation ?? null,

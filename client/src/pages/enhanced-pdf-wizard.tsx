@@ -1717,6 +1717,9 @@ export default function EnhancedPdfWizard() {
     const hasError = validationErrors[field.fieldName];
 
     switch (field.fieldType) {
+      case 'address':
+      case 'url':
+      case 'tel':
       case 'text':
       case 'email':
       case 'phone':
@@ -1856,6 +1859,7 @@ export default function EnhancedPdfWizard() {
           </div>
         );
 
+      case 'radio':
       case 'select':
         return (
           <div className="space-y-2">
@@ -2497,7 +2501,23 @@ export default function EnhancedPdfWizard() {
         );
 
       default:
-        return null;
+        return (
+          <div className="space-y-2">
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <Input
+              id={field.fieldName}
+              type="text"
+              value={value}
+              onChange={(e) => handleFieldChange(field.fieldName, e.target.value)}
+              className={hasError ? 'border-red-500' : ''}
+              placeholder={`Enter ${field.fieldLabel.toLowerCase()}`}
+            />
+            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
+          </div>
+        );
     }
   };
 
