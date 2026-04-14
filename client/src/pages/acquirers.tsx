@@ -39,6 +39,19 @@ export default function AcquirersPage() {
     gcTime: 0
   });
 
+  const { data: templates = [] } = useQuery<any[]>({
+    queryKey: ['/api/acquirer-application-templates'],
+    queryFn: async () => {
+      const response = await fetch('/api/acquirer-application-templates', {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch templates');
+      return response.json();
+    },
+    staleTime: 0,
+    gcTime: 0
+  });
+
   // Create acquirer mutation
   const createMutation = useMutation({
     mutationFn: (data: InsertAcquirer) => apiRequest('POST', '/api/acquirers', data),
@@ -306,7 +319,7 @@ export default function AcquirersPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="text-total-templates">
-              {acquirers?.reduce((sum: number, a: any) => sum + (a.templates?.length || 0), 0) || 0}
+              {templates.length}
             </div>
           </CardContent>
         </Card>
