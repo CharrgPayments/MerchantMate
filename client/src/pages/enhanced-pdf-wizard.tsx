@@ -2808,6 +2808,231 @@ export default function EnhancedPdfWizard() {
           </div>
         );
 
+      case 'checkbox-list': {
+        const selectedValues: string[] = Array.isArray(value) ? value : (value ? String(value).split(',').filter(Boolean) : []);
+        const checklistOptions = field.options || [];
+        return (
+          <div className="space-y-2">
+            <Label className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            {field.description && <p className="text-xs text-gray-500">{field.description}</p>}
+            <div className="space-y-2 border rounded-lg p-3 bg-white">
+              {checklistOptions.length > 0 ? checklistOptions.map((opt: any, idx: number) => {
+                const optLabel = typeof opt === 'object' ? opt.label : opt;
+                const optValue = typeof opt === 'object' ? opt.value : opt;
+                const isChecked = selectedValues.includes(optValue);
+                return (
+                  <label key={idx} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1.5 rounded">
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => {
+                        const updated = isChecked
+                          ? selectedValues.filter(v => v !== optValue)
+                          : [...selectedValues, optValue];
+                        handleFieldChange(field.fieldName, updated);
+                      }}
+                      className="rounded border-gray-300 text-blue-600"
+                    />
+                    <span className="text-sm text-gray-700">{optLabel}</span>
+                  </label>
+                );
+              }) : (
+                <p className="text-sm text-gray-400 text-center py-2">No options configured</p>
+              )}
+            </div>
+            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
+          </div>
+        );
+      }
+
+      case 'currency':
+        return (
+          <div className="space-y-2">
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            {field.description && <p className="text-xs text-gray-500">{field.description}</p>}
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+              <Input
+                id={field.fieldName}
+                type="text"
+                inputMode="decimal"
+                value={value}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/[^0-9.]/g, '');
+                  handleFieldChange(field.fieldName, raw);
+                }}
+                className={`pl-7 ${hasError ? 'border-red-500' : ''}`}
+                placeholder="0.00"
+              />
+            </div>
+            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
+          </div>
+        );
+
+      case 'percentage':
+        return (
+          <div className="space-y-2">
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            {field.description && <p className="text-xs text-gray-500">{field.description}</p>}
+            <div className="relative">
+              <Input
+                id={field.fieldName}
+                type="text"
+                inputMode="decimal"
+                value={value}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/[^0-9.]/g, '');
+                  handleFieldChange(field.fieldName, raw);
+                }}
+                className={`pr-8 ${hasError ? 'border-red-500' : ''}`}
+                placeholder="0"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">%</span>
+            </div>
+            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
+          </div>
+        );
+
+      case 'ssn':
+        return (
+          <div className="space-y-2">
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            {field.description && <p className="text-xs text-gray-500">{field.description}</p>}
+            <Input
+              id={field.fieldName}
+              type="text"
+              inputMode="numeric"
+              maxLength={11}
+              value={value}
+              onChange={(e) => {
+                let raw = e.target.value.replace(/\D/g, '').slice(0, 9);
+                let formatted = raw;
+                if (raw.length > 5) formatted = `${raw.slice(0,3)}-${raw.slice(3,5)}-${raw.slice(5)}`;
+                else if (raw.length > 3) formatted = `${raw.slice(0,3)}-${raw.slice(3)}`;
+                handleFieldChange(field.fieldName, formatted);
+              }}
+              className={hasError ? 'border-red-500' : ''}
+              placeholder="XXX-XX-XXXX"
+            />
+            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
+          </div>
+        );
+
+      case 'ein':
+        return (
+          <div className="space-y-2">
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            {field.description && <p className="text-xs text-gray-500">{field.description}</p>}
+            <Input
+              id={field.fieldName}
+              type="text"
+              inputMode="numeric"
+              maxLength={10}
+              value={value}
+              onChange={(e) => {
+                let raw = e.target.value.replace(/\D/g, '').slice(0, 9);
+                let formatted = raw.length > 2 ? `${raw.slice(0,2)}-${raw.slice(2)}` : raw;
+                handleFieldChange(field.fieldName, formatted);
+              }}
+              className={hasError ? 'border-red-500' : ''}
+              placeholder="XX-XXXXXXX"
+            />
+            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
+          </div>
+        );
+
+      case 'zipcode':
+        return (
+          <div className="space-y-2">
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            {field.description && <p className="text-xs text-gray-500">{field.description}</p>}
+            <Input
+              id={field.fieldName}
+              type="text"
+              inputMode="numeric"
+              maxLength={10}
+              value={value}
+              onChange={(e) => {
+                let raw = e.target.value.replace(/[^0-9-]/g, '').slice(0, 10);
+                handleFieldChange(field.fieldName, raw);
+              }}
+              className={hasError ? 'border-red-500' : ''}
+              placeholder="12345 or 12345-6789"
+            />
+            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
+          </div>
+        );
+
+      case 'bank_account':
+        return (
+          <div className="space-y-2">
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            {field.description && <p className="text-xs text-gray-500">{field.description}</p>}
+            <Input
+              id={field.fieldName}
+              type="text"
+              inputMode="numeric"
+              maxLength={17}
+              value={value}
+              onChange={(e) => {
+                const raw = e.target.value.replace(/\D/g, '').slice(0, 17);
+                handleFieldChange(field.fieldName, raw);
+              }}
+              className={hasError ? 'border-red-500' : ''}
+              placeholder="Account number"
+            />
+            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
+          </div>
+        );
+
+      case 'bank_routing':
+        return (
+          <div className="space-y-2">
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            {field.description && <p className="text-xs text-gray-500">{field.description}</p>}
+            <Input
+              id={field.fieldName}
+              type="text"
+              inputMode="numeric"
+              maxLength={9}
+              value={value}
+              onChange={(e) => {
+                const raw = e.target.value.replace(/\D/g, '').slice(0, 9);
+                handleFieldChange(field.fieldName, raw);
+              }}
+              className={hasError ? 'border-red-500' : ''}
+              placeholder="9-digit routing number"
+            />
+            {value && value.length === 9 && <p className="text-xs text-green-600">Valid length (9 digits)</p>}
+            {value && value.length > 0 && value.length < 9 && <p className="text-xs text-amber-500">{9 - value.length} more digit{9 - value.length > 1 ? 's' : ''} needed</p>}
+            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
+          </div>
+        );
+
       case 'boolean':
         return (
           <div className="space-y-2">

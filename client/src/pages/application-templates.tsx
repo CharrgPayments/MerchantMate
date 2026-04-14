@@ -96,6 +96,102 @@ const templateFormSchema = z.object({
 
 type TemplateFormData = z.infer<typeof templateFormSchema>;
 
+function DisclosureFieldConfig({ editingField, setEditingField }: { editingField: any; setEditingField: (f: any) => void }) {
+  const { data: disclosureData, isLoading } = useQuery({
+    queryKey: ['/api/disclosures'],
+    queryFn: async () => {
+      const res = await fetch('/api/disclosures', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch disclosures');
+      return res.json();
+    },
+    staleTime: 0,
+    gcTime: 0,
+  });
+
+  const disclosures = disclosureData?.disclosures || [];
+
+  return (
+    <div className="space-y-4 border rounded-md p-4 bg-muted/30">
+      <h4 className="text-sm font-semibold">Disclosure Configuration</h4>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs text-muted-foreground">Disclosure from Library</label>
+          <Select
+            value={editingField.disclosureDefinitionId ? String(editingField.disclosureDefinitionId) : ''}
+            onValueChange={(val) => {
+              const id = parseInt(val);
+              const selected = disclosures.find((d: any) => d.id === id);
+              setEditingField({
+                ...editingField,
+                disclosureDefinitionId: id,
+                disclosureTitle: selected?.displayName || editingField.disclosureTitle || '',
+              });
+            }}
+          >
+            <SelectTrigger className="h-8">
+              <SelectValue placeholder={isLoading ? 'Loading disclosures...' : 'Select a disclosure'} />
+            </SelectTrigger>
+            <SelectContent>
+              {disclosures.map((d: any) => (
+                <SelectItem key={d.id} value={String(d.id)}>
+                  {d.displayName} {d.currentVersion ? `(v${d.currentVersion.version})` : ''}
+                </SelectItem>
+              ))}
+              {disclosures.length === 0 && !isLoading && (
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">No disclosures found in library</div>
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground">Disclosure Title (override)</label>
+          <Input
+            value={editingField.disclosureTitle || ''}
+            onChange={(e) => setEditingField({ ...editingField, disclosureTitle: e.target.value })}
+            placeholder="Auto-filled from selection"
+            className="h-8"
+          />
+        </div>
+      </div>
+      <div className="flex items-center gap-4">
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={!!editingField.requiresSignature}
+            onChange={(e) => setEditingField({ ...editingField, requiresSignature: e.target.checked })}
+            className="rounded border-gray-300"
+          />
+          Requires Signature
+        </label>
+      </div>
+      {editingField.requiresSignature && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-muted-foreground">Max Signers</label>
+            <Input
+              type="number"
+              min="1"
+              max="10"
+              value={editingField.maxSigners || 1}
+              onChange={(e) => setEditingField({ ...editingField, maxSigners: parseInt(e.target.value) || 1 })}
+              className="h-8"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Signer Label</label>
+            <Input
+              value={editingField.signerLabel || ''}
+              onChange={(e) => setEditingField({ ...editingField, signerLabel: e.target.value })}
+              placeholder="e.g., Authorized Signer"
+              className="h-8"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ApplicationTemplatesPage() {
   const [selectedTemplate, setSelectedTemplate] = useState<AcquirerApplicationTemplate | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -2078,64 +2174,74 @@ function FieldConfigurationDialog({
                 )}
 
                 {editingField.type === 'disclosure' && (
-                  <div className="space-y-4 border rounded-md p-4 bg-muted/30">
-                    <h4 className="text-sm font-semibold">Disclosure Configuration</h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs text-muted-foreground">Disclosure Definition ID</label>
-                        <Input
-                          type="number"
-                          value={editingField.disclosureDefinitionId || ''}
-                          onChange={(e) => setEditingField({ ...editingField, disclosureDefinitionId: parseInt(e.target.value) || null })}
-                          placeholder="e.g., 1"
-                          className="h-8"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-muted-foreground">Disclosure Title</label>
-                        <Input
-                          value={editingField.disclosureTitle || ''}
-                          onChange={(e) => setEditingField({ ...editingField, disclosureTitle: e.target.value })}
-                          placeholder="e.g., Wells Fargo Bank Disclosure"
-                          className="h-8"
-                        />
-                      </div>
+                  <DisclosureFieldConfig editingField={editingField} setEditingField={setEditingField} />
+                )}
+
+                {editingField.type === 'checkbox-list' && (
+                  <div className="space-y-3 border rounded-md p-4 bg-muted/30">
+                    <h4 className="text-sm font-semibold">Checkbox List Options</h4>
+                    <p className="text-xs text-muted-foreground">Users can select multiple items from the list below.</p>
+                    <div className="space-y-2 max-h-60 overflow-y-auto border rounded-md p-3">
+                      {editingField.options && Array.isArray(editingField.options) && editingField.options.length > 0 ? (
+                        editingField.options.map((option: any, index: number) => {
+                          const isStructured = typeof option === 'object' && option !== null;
+                          const optionLabel = isStructured ? option.label : option;
+                          const optionValue = isStructured ? option.value : option.toLowerCase().replace(/\s+/g, '_');
+                          return (
+                            <div key={index} className="flex items-center gap-2 p-2 bg-background rounded border">
+                              <input type="checkbox" disabled className="rounded border-gray-300" />
+                              <Input
+                                value={optionLabel}
+                                onChange={(e) => {
+                                  const newOptions = [...editingField.options];
+                                  newOptions[index] = isStructured ? { ...option, label: e.target.value } : e.target.value;
+                                  setEditingField({ ...editingField, options: newOptions });
+                                }}
+                                placeholder="Option label"
+                                className="h-7 flex-1"
+                              />
+                              <Input
+                                value={optionValue}
+                                onChange={(e) => {
+                                  const newOptions = [...editingField.options];
+                                  newOptions[index] = isStructured ? { ...option, value: e.target.value } : e.target.value;
+                                  setEditingField({ ...editingField, options: newOptions });
+                                }}
+                                placeholder="Value"
+                                className="h-7 w-32"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  const newOptions = editingField.options.filter((_: any, i: number) => i !== index);
+                                  setEditingField({ ...editingField, options: newOptions });
+                                }}
+                                className="h-7 w-7 p-0 text-red-500"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <p className="text-sm text-muted-foreground text-center py-2">No options defined</p>
+                      )}
                     </div>
-                    <div className="flex items-center gap-4">
-                      <label className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={!!editingField.requiresSignature}
-                          onChange={(e) => setEditingField({ ...editingField, requiresSignature: e.target.checked })}
-                          className="rounded border-gray-300"
-                        />
-                        Requires Signature
-                      </label>
-                    </div>
-                    {editingField.requiresSignature && (
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="text-xs text-muted-foreground">Max Signers</label>
-                          <Input
-                            type="number"
-                            min="1"
-                            max="10"
-                            value={editingField.maxSigners || 1}
-                            onChange={(e) => setEditingField({ ...editingField, maxSigners: parseInt(e.target.value) || 1 })}
-                            className="h-8"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs text-muted-foreground">Signer Label</label>
-                          <Input
-                            value={editingField.signerLabel || ''}
-                            onChange={(e) => setEditingField({ ...editingField, signerLabel: e.target.value })}
-                            placeholder="e.g., Merchant Processing Application Signer"
-                            className="h-8"
-                          />
-                        </div>
-                      </div>
-                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const currentOptions = editingField.options || [];
+                        setEditingField({ ...editingField, options: [...currentOptions, { label: '', value: '' }] });
+                      }}
+                      className="mt-2"
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Checkbox Option
+                    </Button>
                   </div>
                 )}
               </div>
