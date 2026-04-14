@@ -540,9 +540,14 @@ export class PDFFormParser {
       return { sections, totalFields, rawFields };
     } catch (error) {
       console.error('PDF form parsing error:', error);
-      const buffer = fs.readFileSync(filePath);
-      const fallback = await this.parsePDF(buffer);
-      return { ...fallback, rawFields: [] };
+      try {
+        const buffer = typeof filePathOrBuffer === 'string' ? fs.readFileSync(filePathOrBuffer) : filePathOrBuffer;
+        const fallback = await this.parsePDF(buffer);
+        return { ...fallback, rawFields: [] };
+      } catch (fallbackError) {
+        console.error('PDF fallback parsing also failed:', fallbackError);
+        return { sections: [], totalFields: 0, rawFields: [] };
+      }
     }
   }
 
