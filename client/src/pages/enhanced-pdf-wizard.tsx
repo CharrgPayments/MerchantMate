@@ -21,8 +21,75 @@ interface FormField {
   options: string[] | null;
   defaultValue: string | null;
   validation: string | null;
+  description: string | null;
   position: number;
   section: string | null;
+  disclosureDefinitionId?: number | null;
+  disclosureTitle?: string | null;
+  requiresSignature?: boolean;
+  maxSigners?: number | null;
+  signerLabel?: string | null;
+  ownerGroupConfig?: any | null;
+}
+
+function DisclosureFieldRenderer({ field, formData, onFieldChange }: { field: FormField; formData: Record<string, any>; onFieldChange: (name: string, value: any) => void }) {
+  const { data: disclosureData, isLoading } = useQuery<any>({
+    queryKey: ['/api/disclosures', field.disclosureDefinitionId],
+    enabled: !!field.disclosureDefinitionId,
+    staleTime: 0,
+    gcTime: 0,
+  });
+
+  const currentVersion = disclosureData?.versions?.find((v: any) => v.isCurrentVersion) || disclosureData?.versions?.[0];
+  const acknowledged = !!formData[field.fieldName];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <FileText className="h-5 w-5 text-blue-600" />
+        <h3 className="text-lg font-semibold text-gray-800">{field.disclosureTitle || field.fieldLabel}</h3>
+        {field.isRequired && <span className="text-red-500 text-sm">*</span>}
+      </div>
+
+      {isLoading ? (
+        <div className="border rounded-lg p-6 text-center text-gray-500 bg-gray-50">
+          <div className="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 mr-2" />
+          Loading disclosure content...
+        </div>
+      ) : currentVersion ? (
+        <div
+          className="border rounded-lg p-4 max-h-72 overflow-y-auto bg-white text-sm leading-relaxed prose prose-sm max-w-none"
+          dangerouslySetInnerHTML={{ __html: currentVersion.content }}
+        />
+      ) : (
+        <div className="border rounded-lg p-4 bg-amber-50 text-amber-700 text-sm">
+          Disclosure content not available. Definition ID: {field.disclosureDefinitionId}
+        </div>
+      )}
+
+      <div className="flex items-center gap-3 pt-2">
+        <input
+          type="checkbox"
+          id={field.fieldName}
+          checked={acknowledged}
+          onChange={(e) => onFieldChange(field.fieldName, e.target.checked ? 'acknowledged' : '')}
+          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+        <label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+          I have read and acknowledge this disclosure
+        </label>
+      </div>
+
+      {field.requiresSignature && (
+        <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center bg-gray-50">
+          <PenTool className="h-6 w-6 text-gray-400 mx-auto mb-2" />
+          <p className="text-sm text-gray-500">
+            Signature required — {field.signerLabel || 'Signer'} (up to {field.maxSigners || 1})
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface PdfForm {
@@ -2501,6 +2568,70 @@ export default function EnhancedPdfWizard() {
                 </div>
               </div>
             )}
+          </div>
+        );
+
+      case 'disclosure':
+        return (
+          <DisclosureFieldRenderer
+            field={field}
+            formData={formData}
+            onFieldChange={handleFieldChange}
+          />
+        );
+
+      case 'boolean':
+        return (
+          <div className="space-y-2">
+            <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
+              {field.fieldLabel}
+              {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            {field.description && <p className="text-xs text-gray-500">{field.description}</p>}
+            <Select value={value} onValueChange={(val) => handleFieldChange(field.fieldName, val)}>
+              <SelectTrigger className={hasError ? 'border-red-500' : ''}>
+                <SelectValue placeholder="Select Yes or No" />
+              </SelectTrigger>
+              <SelectContent>
+                {(field.options || []).map((opt: any, idx: number) => {
+                  const optVal = typeof opt === 'object' ? (opt.value || '') : opt;
+                  const optLbl = typeof opt === 'object' ? (opt.label || opt.value || '') : opt;
+                  return (
+                    <SelectItem key={optVal || idx} value={optVal || `opt_${idx}`}>
+                      {optLbl}
+                    </SelectItem>
+                  );
+                })}
+                {(!field.options || field.options.length === 0) && (
+                  <>
+                    <SelectItem value="yes">Yes</SelectItem>
+                    <SelectItem value="no">No</SelectItem>
+                  </>
+                )}
+              </SelectContent>
+            </Select>
+            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
+          </div>
+        );
+
+      case 'owner_group':
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-blue-600" />
+              <Label className="text-lg font-semibold text-gray-800">
+                {field.fieldLabel}
+                {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+              </Label>
+            </div>
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 bg-gray-50">
+              <p className="text-sm text-gray-500 text-center">
+                Owner/principal information section — supports up to {field.ownerGroupConfig?.maxOwners || 4} owners
+              </p>
+              <p className="text-xs text-gray-400 text-center mt-1">
+                Full ownership form with name, title, SSN, DOB, address, and ownership percentage
+              </p>
+            </div>
           </div>
         );
 

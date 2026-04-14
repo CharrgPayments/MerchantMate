@@ -7553,6 +7553,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           case 'radio': return 'select';
           case 'address': return 'address';
           case 'url': return 'url';
+          case 'disclosure': return 'disclosure';
+          case 'boolean': return 'boolean';
+          case 'owner_group': return 'owner_group';
           default: return type || 'text';
         }
       };
@@ -7573,8 +7576,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
             options: Array.isArray(f.options) ? f.options : null,
             defaultValue: f.defaultValue ?? null,
             validation: f.validation ?? null,
+            description: f.description || null,
             position,
-            section: sectionTitle
+            section: sectionTitle,
+            disclosureDefinitionId: f.disclosureDefinitionId || null,
+            disclosureTitle: f.disclosureTitle || null,
+            requiresSignature: !!f.requiresSignature,
+            maxSigners: f.maxSigners || null,
+            signerLabel: f.signerLabel || null,
+            ownerGroupConfig: f.ownerGroupConfig || null,
           });
         });
       });
