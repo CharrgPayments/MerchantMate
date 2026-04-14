@@ -77,7 +77,7 @@ const templateFormSchema = z.object({
       description: z.string().optional(),
       fields: z.array(z.object({
         id: z.string(),
-        type: z.enum(['text', 'email', 'tel', 'url', 'date', 'number', 'select', 'checkbox', 'textarea', 'radio', 'currency', 'zipcode', 'phone', 'ein', 'address']),
+        type: z.enum(['text', 'email', 'tel', 'url', 'date', 'number', 'select', 'checkbox', 'textarea', 'radio', 'currency', 'zipcode', 'phone', 'ein', 'address', 'disclosure', 'owner_group', 'signature', 'mcc-select', 'bank_account', 'bank_routing', 'checkbox-list', 'boolean', 'percentage', 'ssn']),
         label: z.string(),
         required: z.boolean().optional(),
         pattern: z.string().optional(),
@@ -1419,7 +1419,14 @@ function FieldConfigurationDialog({
     { value: 'zipcode', label: 'US Zip Code' },
     { value: 'phone', label: 'Phone (Formatted)' },
     { value: 'ein', label: 'EIN/Tax ID' },
-    { value: 'address', label: 'Address (Google Autocomplete)' }
+    { value: 'address', label: 'Address (Google Autocomplete)' },
+    { value: 'disclosure', label: 'Disclosure (Legal/Agreement)' },
+    { value: 'owner_group', label: 'Owner Group' },
+    { value: 'signature', label: 'Signature' },
+    { value: 'mcc-select', label: 'MCC Code Select' },
+    { value: 'bank_account', label: 'Bank Account Number' },
+    { value: 'bank_routing', label: 'Bank Routing Number' },
+    { value: 'checkbox-list', label: 'Checkbox List' }
   ];
 
   const sensors = useSensors(
@@ -2067,6 +2074,68 @@ function FieldConfigurationDialog({
                       <Plus className="h-4 w-4 mr-2" />
                       Add Option
                     </Button>
+                  </div>
+                )}
+
+                {editingField.type === 'disclosure' && (
+                  <div className="space-y-4 border rounded-md p-4 bg-muted/30">
+                    <h4 className="text-sm font-semibold">Disclosure Configuration</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs text-muted-foreground">Disclosure Definition ID</label>
+                        <Input
+                          type="number"
+                          value={editingField.disclosureDefinitionId || ''}
+                          onChange={(e) => setEditingField({ ...editingField, disclosureDefinitionId: parseInt(e.target.value) || null })}
+                          placeholder="e.g., 1"
+                          className="h-8"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground">Disclosure Title</label>
+                        <Input
+                          value={editingField.disclosureTitle || ''}
+                          onChange={(e) => setEditingField({ ...editingField, disclosureTitle: e.target.value })}
+                          placeholder="e.g., Wells Fargo Bank Disclosure"
+                          className="h-8"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={!!editingField.requiresSignature}
+                          onChange={(e) => setEditingField({ ...editingField, requiresSignature: e.target.checked })}
+                          className="rounded border-gray-300"
+                        />
+                        Requires Signature
+                      </label>
+                    </div>
+                    {editingField.requiresSignature && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-muted-foreground">Max Signers</label>
+                          <Input
+                            type="number"
+                            min="1"
+                            max="10"
+                            value={editingField.maxSigners || 1}
+                            onChange={(e) => setEditingField({ ...editingField, maxSigners: parseInt(e.target.value) || 1 })}
+                            className="h-8"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted-foreground">Signer Label</label>
+                          <Input
+                            value={editingField.signerLabel || ''}
+                            onChange={(e) => setEditingField({ ...editingField, signerLabel: e.target.value })}
+                            placeholder="e.g., Merchant Processing Application Signer"
+                            className="h-8"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
