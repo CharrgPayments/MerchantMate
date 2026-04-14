@@ -3109,6 +3109,27 @@ export default function EnhancedPdfWizard() {
           </div>
         );
 
+      case 'checkbox':
+        return (
+          <div className="space-y-2">
+            <div className="flex items-center gap-3 py-2">
+              <input
+                type="checkbox"
+                id={field.fieldName}
+                checked={value === true || value === 'true' || value === 'yes' || value === 'on' || value === '1'}
+                onChange={(e) => handleFieldChange(field.fieldName, e.target.checked ? 'yes' : 'no')}
+                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <Label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700 cursor-pointer">
+                {field.fieldLabel}
+                {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+              </Label>
+            </div>
+            {field.description && <p className="text-xs text-gray-500 ml-7">{field.description}</p>}
+            {hasError && <p className="text-xs text-red-500">{hasError}</p>}
+          </div>
+        );
+
       case 'boolean':
         return (
           <div className="space-y-2">
