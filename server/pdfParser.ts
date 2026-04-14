@@ -523,7 +523,7 @@ export class PDFFormParser {
       }
 
       const totalFields = sections.reduce((sum, s) => sum + s.fields.length, 0);
-      console.log(`PDF parsing complete: ${acroFormFields.length} AcroForm fields + ${textFields.length} text fields = ${totalFields} total (${rawFields.length} unique)`);
+      console.log(`PDF parsing complete: ${source} extraction, ${totalFields} total fields (${rawFields.length} unique)`);
       return { sections, totalFields, rawFields };
     } catch (error) {
       console.error('PDF form parsing error:', error);
