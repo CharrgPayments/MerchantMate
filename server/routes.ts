@@ -7543,19 +7543,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // requiredFields is a separate column: array of field IDs that are required
       const requiredFieldIds = new Set<string>(Array.isArray(template.requiredFields) ? template.requiredFields : []);
 
-      // Map template field types to wizard-supported types
       const normalizeFieldType = (type: string): string => {
         switch (type) {
           case 'tel': return 'phone';
-          case 'ein': return 'text';
-          case 'currency': return 'number';
-          case 'zipcode': return 'text';
           case 'radio': return 'select';
-          case 'address': return 'address';
-          case 'url': return 'url';
-          case 'disclosure': return 'disclosure';
-          case 'boolean': return 'boolean';
-          case 'owner_group': return 'owner_group';
           default: return type || 'text';
         }
       };
@@ -7585,6 +7576,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             maxSigners: f.maxSigners || null,
             signerLabel: f.signerLabel || null,
             ownerGroupConfig: f.ownerGroupConfig || null,
+            conditional: f.conditional || null,
+            displayOrientation: f.displayOrientation || null,
           });
         });
       });

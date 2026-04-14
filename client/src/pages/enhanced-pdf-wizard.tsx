@@ -30,6 +30,15 @@ interface FormField {
   maxSigners?: number | null;
   signerLabel?: string | null;
   ownerGroupConfig?: any | null;
+  conditional?: {
+    action: 'show' | 'hide';
+    when: {
+      field: string;
+      operator: string;
+      value: string;
+    };
+  } | null;
+  displayOrientation?: 'horizontal' | 'vertical' | null;
 }
 
 function DisclosureFieldRenderer({ field, formData, onFieldChange }: { field: FormField; formData: Record<string, any>; onFieldChange: (name: string, value: any) => void }) {
@@ -519,7 +528,73 @@ export default function EnhancedPdfWizard() {
     }
   });
 
-  // Navigation handlers that save form data before moving between sections
+  const isFieldVisible = (field: FormField): boolean => {
+    const allFields = sections.flatMap(s => s.fields);
+
+    if (field.conditional) {
+      const { action, when } = field.conditional;
+      if (when?.field) {
+        const sourceField = allFields.find(f =>
+          f.fieldName === when.field || String(f.id) === when.field
+        );
+        if (sourceField) {
+          const sourceValue = formData[sourceField.fieldName];
+          const targetValue = when.value;
+
+          let conditionMet = false;
+          switch (when.operator) {
+            case 'equals':
+              conditionMet = String(sourceValue || '') === String(targetValue || '');
+              break;
+            case 'not_equals':
+              conditionMet = String(sourceValue || '') !== String(targetValue || '');
+              break;
+            case 'contains':
+              conditionMet = String(sourceValue || '').toLowerCase().includes(String(targetValue || '').toLowerCase());
+              break;
+            case 'is_checked':
+              conditionMet = sourceValue === true || sourceValue === 'true' || sourceValue === 'yes' || sourceValue === 'Yes';
+              break;
+            case 'is_not_checked':
+              conditionMet = !sourceValue || sourceValue === false || sourceValue === 'false' || sourceValue === 'no' || sourceValue === 'No';
+              break;
+            case 'is_not_empty':
+              conditionMet = !!sourceValue && String(sourceValue).trim().length > 0;
+              break;
+            default:
+              conditionMet = true;
+          }
+
+          const visible = action === 'show' ? conditionMet : !conditionMet;
+          if (!visible) return false;
+        }
+      }
+    }
+
+    for (const otherField of allFields) {
+      if (!otherField.options || !Array.isArray(otherField.options)) continue;
+      const currentValue = formData[otherField.fieldName];
+      for (const opt of otherField.options) {
+        if (typeof opt !== 'object' || !opt.conditional) continue;
+        const optCond = opt.conditional;
+        if (optCond.targetField !== field.fieldName && optCond.targetField !== String(field.id)) continue;
+
+        const optValue = opt.value || opt.label;
+        const isSelected = Array.isArray(currentValue)
+          ? currentValue.includes(optValue)
+          : String(currentValue || '') === String(optValue);
+
+        if (optCond.action === 'show') {
+          if (!isSelected) return false;
+        } else if (optCond.action === 'hide') {
+          if (isSelected) return false;
+        }
+      }
+    }
+
+    return true;
+  };
+
   const handleNext = () => {
     // Always mark current section as visited when attempting to advance
     setVisitedSections(prev => {
@@ -591,8 +666,8 @@ export default function EnhancedPdfWizard() {
     const section = sections[sectionIndex];
     let hasErrors = false;
 
-    // Check required fields in this section
     for (const field of section.fields) {
+      if (!isFieldVisible(field)) continue;
       const error = validateField(field, formData[field.fieldName]);
       if (error) {
         hasErrors = true;
@@ -1723,6 +1798,7 @@ export default function EnhancedPdfWizard() {
     const errors: Record<string, string> = {};
 
     sections[currentStep].fields.forEach(field => {
+      if (!isFieldVisible(field)) return;
       const value = formData[field.fieldName];
       const error = validateField(field, value);
       if (error) {
@@ -1784,7 +1860,6 @@ export default function EnhancedPdfWizard() {
     }
   }
 
-  // Render form field based on type
   const renderField = (field: FormField) => {
     const value = formData[field.fieldName] || '';
     const hasError = validationErrors[field.fieldName];
@@ -2811,6 +2886,7 @@ export default function EnhancedPdfWizard() {
       case 'checkbox-list': {
         const selectedValues: string[] = Array.isArray(value) ? value : (value ? String(value).split(',').filter(Boolean) : []);
         const checklistOptions = field.options || [];
+        const isHorizontal = field.displayOrientation === 'horizontal';
         return (
           <div className="space-y-2">
             <Label className="text-sm font-medium text-gray-700">
@@ -2818,7 +2894,7 @@ export default function EnhancedPdfWizard() {
               {field.isRequired && <span className="text-red-500 ml-1">*</span>}
             </Label>
             {field.description && <p className="text-xs text-gray-500">{field.description}</p>}
-            <div className="space-y-2 border rounded-lg p-3 bg-white">
+            <div className={`border rounded-lg p-3 bg-white ${isHorizontal ? 'flex flex-wrap gap-4' : 'space-y-2'}`}>
               {checklistOptions.length > 0 ? checklistOptions.map((opt: any, idx: number) => {
                 const optLabel = typeof opt === 'object' ? opt.label : opt;
                 const optValue = typeof opt === 'object' ? opt.value : opt;
@@ -3286,11 +3362,14 @@ export default function EnhancedPdfWizard() {
                 {/* Form Fields */}
                 <div className="p-8">
                   <div className="space-y-6">
-                    {sections[currentStep]?.fields.map((field) => (
-                      <div key={field.id}>
-                        {renderField(field)}
-                      </div>
-                    ))}
+                    {sections[currentStep]?.fields.map((field) => {
+                      if (!isFieldVisible(field)) return null;
+                      return (
+                        <div key={field.id}>
+                          {renderField(field)}
+                        </div>
+                      );
+                    })}
                   </div>
 
                   {/* Navigation Buttons */}

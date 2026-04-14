@@ -2181,6 +2181,21 @@ function FieldConfigurationDialog({
                   <div className="space-y-3 border rounded-md p-4 bg-muted/30">
                     <h4 className="text-sm font-semibold">Checkbox List Options</h4>
                     <p className="text-xs text-muted-foreground">Users can select multiple items from the list below.</p>
+                    <div>
+                      <label className="text-xs text-muted-foreground">Display Orientation</label>
+                      <Select
+                        value={editingField.displayOrientation || 'vertical'}
+                        onValueChange={(val) => setEditingField({ ...editingField, displayOrientation: val })}
+                      >
+                        <SelectTrigger className="h-8 w-48">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="vertical">Vertical (stacked)</SelectItem>
+                          <SelectItem value="horizontal">Horizontal (inline)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <div className="space-y-2 max-h-60 overflow-y-auto border rounded-md p-3">
                       {editingField.options && Array.isArray(editingField.options) && editingField.options.length > 0 ? (
                         editingField.options.map((option: any, index: number) => {
