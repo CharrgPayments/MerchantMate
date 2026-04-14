@@ -1144,16 +1144,25 @@ function ViewTemplateDialog({
                     <div className="space-y-2">
                       {section.fields?.map((field: any, fieldIndex: number) => (
                         <div key={fieldIndex} className="flex items-center justify-between py-2 border-b border-border/50 last:border-b-0">
-                          <div>
+                          <div className="flex-1">
                             <span className="font-medium">{field.label}</span>
                             <Badge variant="outline" className="ml-2">{field.type}</Badge>
                             {field.required && (
                               <Badge variant="destructive" className="ml-1">Required</Badge>
                             )}
+                            {field.pdfFieldId && (
+                              <Badge variant="secondary" className="ml-1 text-xs">PDF: {field.pdfFieldId}</Badge>
+                            )}
+                            {field.conditional && (
+                              <Badge variant="secondary" className="ml-1 text-xs">Conditional</Badge>
+                            )}
                           </div>
-                          {field.description && (
-                            <span className="text-sm text-muted-foreground">{field.description}</span>
-                          )}
+                          <div className="text-right">
+                            {field.description && (
+                              <span className="text-sm text-muted-foreground">{field.description}</span>
+                            )}
+                            <span className="text-xs text-muted-foreground ml-2">{field.id}</span>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1162,6 +1171,50 @@ function ViewTemplateDialog({
               ))}
             </div>
           </div>
+
+          {template.pdfMappingConfiguration && Object.keys(template.pdfMappingConfiguration).length > 0 && (
+            <>
+              <Separator />
+              <div>
+                <h4 className="font-medium mb-3">PDF Imported Fields</h4>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Raw fields detected from the uploaded PDF form. These map to the field configuration above via pdfFieldId.
+                </p>
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="max-h-80 overflow-y-auto">
+                    {Array.isArray(template.pdfMappingConfiguration) ? (
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted sticky top-0">
+                          <tr>
+                            <th className="text-left p-2 font-medium">PDF Field ID</th>
+                            <th className="text-left p-2 font-medium">Original Label</th>
+                            <th className="text-left p-2 font-medium">Detected Type</th>
+                            <th className="text-left p-2 font-medium">Section</th>
+                            <th className="text-center p-2 font-medium">Required</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {template.pdfMappingConfiguration.map((field: any, idx: number) => (
+                            <tr key={idx} className="border-t border-border/50">
+                              <td className="p-2 font-mono text-xs">{field.pdfFieldId}</td>
+                              <td className="p-2">{field.originalLabel}</td>
+                              <td className="p-2"><Badge variant="outline" className="text-xs">{field.detectedType}</Badge></td>
+                              <td className="p-2 text-muted-foreground">{field.section}</td>
+                              <td className="p-2 text-center">{field.required ? '✓' : ''}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <pre className="p-3 text-xs overflow-x-auto bg-muted/30">
+                        {JSON.stringify(template.pdfMappingConfiguration, null, 2)}
+                      </pre>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="flex justify-end">
             <Button onClick={onClose}>Close</Button>
@@ -1219,11 +1272,17 @@ function SortableField({
         <GripVertical className="h-4 w-4 text-gray-400" />
       </div>
       <div className="flex-1">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="font-medium">{field.label}</span>
           <Badge variant="outline">{field.type}</Badge>
           {requiredFields.includes(field.id) && (
             <Badge variant="destructive">Required</Badge>
+          )}
+          {field.pdfFieldId && (
+            <Badge variant="secondary" className="text-xs font-mono">PDF: {field.pdfFieldId}</Badge>
+          )}
+          {field.conditional && (
+            <Badge variant="secondary" className="text-xs">Conditional</Badge>
           )}
         </div>
         {field.description && (
@@ -1828,6 +1887,17 @@ function FieldConfigurationDialog({
                     placeholder="Field description or help text"
                     data-testid="textarea-edit-field-description"
                   />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">PDF Field ID</label>
+                  <Input
+                    value={editingField.pdfFieldId || ''}
+                    onChange={(e) => setEditingField({ ...editingField, pdfFieldId: e.target.value })}
+                    placeholder="Maps to PDF form field (from import)"
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Links this field to the original PDF form field for data export</p>
                 </div>
 
                 {/* Conditional Visibility Section */}

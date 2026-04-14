@@ -1,5 +1,6 @@
 import { PdfFormField } from '@shared/schema';
 import { getWellsFargoMPAForm } from './wellsFargoMPA';
+import * as fs from 'fs';
 
 interface ParsedFormField {
   fieldName: string;
@@ -422,6 +423,121 @@ export class PDFFormParser {
     ];
 
     return sections;
+  }
+
+  async parsePDFForm(filePath: string): Promise<{
+    sections: ParsedFormSection[];
+    totalFields: number;
+    rawFields: any[];
+  }> {
+    try {
+      const pdfParse = (await import('pdf-parse')).default;
+      const buffer = fs.readFileSync(filePath);
+      const pdfData = await pdfParse(buffer);
+
+      const rawFields: any[] = [];
+      const lines = pdfData.text.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 0);
+
+      let currentSection = 'General Information';
+      const sectionMap = new Map<string, ParsedFormField[]>();
+      let position = 0;
+
+      const sectionPatterns = [
+        /^(section|part|article)\s+[\dIVXivx]+[\.:]/i,
+        /^[\dIVXivx]+[\.\)]\s+[A-Z]/,
+        /^[A-Z][A-Z\s&\/]{3,}$/,
+      ];
+
+      for (const line of lines) {
+        const isSectionHeader = sectionPatterns.some(p => p.test(line));
+        if (isSectionHeader && line.length < 80) {
+          currentSection = line.replace(/^(section|part|article)\s+[\dIVXivx]+[\.:]\s*/i, '').trim();
+          if (!currentSection) currentSection = line;
+          continue;
+        }
+
+        const colonMatch = line.match(/^(.+?):\s*(.*)$/);
+        const underscoreField = line.match(/^(.+?)_{3,}/);
+        const bracketField = line.match(/^(.+?)\[.*\]/);
+
+        let fieldLabel = '';
+        let defaultValue = '';
+
+        if (colonMatch) {
+          fieldLabel = colonMatch[1].trim();
+          defaultValue = colonMatch[2].trim();
+        } else if (underscoreField) {
+          fieldLabel = underscoreField[1].trim();
+        } else if (bracketField) {
+          fieldLabel = bracketField[1].trim();
+        }
+
+        if (!fieldLabel || fieldLabel.length < 2 || fieldLabel.length > 100) continue;
+        if (/^(page|©|copyright|www\.|http)/i.test(fieldLabel)) continue;
+
+        position++;
+        const fieldName = fieldLabel
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/^_|_$/g, '')
+          .slice(0, 50);
+
+        let fieldType: ParsedFormField['fieldType'] = 'text';
+        const lowerLabel = fieldLabel.toLowerCase();
+        if (/email/i.test(lowerLabel)) fieldType = 'email';
+        else if (/phone|fax|tel/i.test(lowerLabel)) fieldType = 'phone';
+        else if (/date|dob|birth/i.test(lowerLabel)) fieldType = 'date';
+        else if (/url|website|web site/i.test(lowerLabel)) fieldType = 'url';
+        else if (/amount|volume|ticket|price|\$/i.test(lowerLabel)) fieldType = 'number';
+        else if (/yes.*no|no.*yes/i.test(lowerLabel)) fieldType = 'select';
+        else if (/description|comment|note|detail/i.test(lowerLabel)) fieldType = 'textarea';
+
+        const isRequired = /required|\*/i.test(fieldLabel);
+
+        const parsedField: ParsedFormField = {
+          fieldName,
+          fieldType,
+          fieldLabel: fieldLabel.replace(/\s*\*\s*$/, '').replace(/\s*\(required\)\s*$/i, ''),
+          isRequired,
+          position,
+          section: currentSection,
+          ...(defaultValue ? { defaultValue } : {}),
+          ...(fieldType === 'select' && /yes.*no|no.*yes/i.test(lowerLabel) ? { options: ['Yes', 'No'] } : {}),
+        };
+
+        if (!sectionMap.has(currentSection)) sectionMap.set(currentSection, []);
+        sectionMap.get(currentSection)!.push(parsedField);
+
+        rawFields.push({
+          pdfFieldId: fieldName,
+          originalLabel: fieldLabel,
+          detectedType: fieldType,
+          required: isRequired,
+          section: currentSection,
+          position,
+          rawLine: line.slice(0, 200),
+        });
+      }
+
+      let sectionOrder = 0;
+      const sections: ParsedFormSection[] = [];
+      for (const [title, fields] of sectionMap.entries()) {
+        sections.push({ title, fields, order: ++sectionOrder });
+      }
+
+      if (sections.length === 0) {
+        const fallback = await this.parsePDF(buffer);
+        return { ...fallback, rawFields: [] };
+      }
+
+      const totalFields = sections.reduce((sum, s) => sum + s.fields.length, 0);
+      return { sections, totalFields, rawFields };
+    } catch (error) {
+      console.error('PDF form parsing error:', error);
+      const buffer = fs.readFileSync(filePath);
+      const fallback = await this.parsePDF(buffer);
+      return { ...fallback, rawFields: [] };
+    }
   }
 
   convertToDbFields(sections: ParsedFormSection[], formId: number): Omit<PdfFormField, 'id' | 'createdAt'>[] {
