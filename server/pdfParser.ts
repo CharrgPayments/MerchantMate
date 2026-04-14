@@ -425,22 +425,243 @@ export class PDFFormParser {
     return sections;
   }
 
+  private inferFieldType(label: string): ParsedFormField['fieldType'] {
+    const lower = label.toLowerCase();
+    if (/e[\-_\s]?mail/i.test(lower)) return 'email';
+    if (/phone|fax|tel(?:ephone)?|mobile|cell/i.test(lower)) return 'phone';
+    if (/date|dob|d\.o\.b|birth/i.test(lower)) return 'date';
+    if (/url|website|web\s*site/i.test(lower)) return 'url';
+    if (/amount|volume|ticket|price|\$|revenue|sales|fee|cost|rate/i.test(lower)) return 'number';
+    if (/yes.*no|no.*yes/i.test(lower)) return 'select';
+    if (/description|comment|note|detail|explain|reason/i.test(lower)) return 'textarea';
+    if (/zip\s*code|postal/i.test(lower)) return 'text';
+    if (/ssn|social\s*security/i.test(lower)) return 'text';
+    if (/ein|tax\s*id|federal/i.test(lower)) return 'text';
+    if (/routing|aba/i.test(lower)) return 'text';
+    if (/account\s*#|account\s*number|acct/i.test(lower)) return 'text';
+    return 'text';
+  }
+
+  private labelToFieldName(label: string): string {
+    return label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_|_$/g, '')
+      .slice(0, 50);
+  }
+
   async parsePDFForm(filePathOrBuffer: string | Buffer): Promise<{
     sections: ParsedFormSection[];
     totalFields: number;
     rawFields: any[];
   }> {
     try {
-      const pdfParse = (await import('pdf-parse')).default;
       const buffer = typeof filePathOrBuffer === 'string' ? fs.readFileSync(filePathOrBuffer) : filePathOrBuffer;
+
+      const acroFormFields = await this.extractAcroFormFields(buffer);
+      const textFields = await this.extractTextBasedFields(buffer);
+
+      const seenFieldNames = new Set<string>();
+      const rawFields: any[] = [];
+      const sectionMap = new Map<string, ParsedFormField[]>();
+      let position = 0;
+
+      for (const field of acroFormFields) {
+        const key = field.fieldName;
+        if (seenFieldNames.has(key)) continue;
+        seenFieldNames.add(key);
+        position++;
+
+        const pdfFieldId = field.pdfFieldId || `pdf_${key}_${position}`;
+        const section = field.section || 'Form Fields';
+
+        const parsedField: any = {
+          fieldName: key,
+          fieldType: field.fieldType,
+          fieldLabel: field.fieldLabel,
+          isRequired: field.isRequired,
+          position,
+          section,
+          pdfFieldId,
+          ...(field.defaultValue ? { defaultValue: field.defaultValue } : {}),
+          ...(field.options ? { options: field.options } : {}),
+        };
+
+        if (!sectionMap.has(section)) sectionMap.set(section, []);
+        sectionMap.get(section)!.push(parsedField);
+
+        rawFields.push({
+          pdfFieldId,
+          fieldName: key,
+          originalLabel: field.fieldLabel,
+          detectedType: field.fieldType,
+          required: field.isRequired,
+          section,
+          position,
+          rawLine: field.rawPdfFieldName || field.fieldLabel,
+          mappedToTemplateField: key,
+          mappingStatus: 'auto',
+          source: 'acroform',
+        });
+      }
+
+      for (const field of textFields) {
+        const key = field.fieldName;
+        if (seenFieldNames.has(key)) continue;
+        seenFieldNames.add(key);
+        position++;
+
+        const pdfFieldId = `pdf_${key}_${position}`;
+        const section = field.section || 'General Information';
+
+        const parsedField: any = {
+          fieldName: key,
+          fieldType: field.fieldType,
+          fieldLabel: field.fieldLabel,
+          isRequired: field.isRequired,
+          position,
+          section,
+          pdfFieldId,
+          ...(field.defaultValue ? { defaultValue: field.defaultValue } : {}),
+          ...(field.options ? { options: field.options } : {}),
+        };
+
+        if (!sectionMap.has(section)) sectionMap.set(section, []);
+        sectionMap.get(section)!.push(parsedField);
+
+        rawFields.push({
+          pdfFieldId,
+          fieldName: key,
+          originalLabel: field.fieldLabel,
+          detectedType: field.fieldType,
+          required: field.isRequired,
+          section,
+          position,
+          rawLine: field.rawLine || field.fieldLabel,
+          mappedToTemplateField: key,
+          mappingStatus: 'auto',
+          source: 'text',
+        });
+      }
+
+      let sectionOrder = 0;
+      const sections: ParsedFormSection[] = [];
+      for (const [title, fields] of sectionMap.entries()) {
+        sections.push({ title, fields, order: ++sectionOrder });
+      }
+
+      if (sections.length === 0) {
+        const fallback = await this.parsePDF(buffer);
+        return { ...fallback, rawFields: [] };
+      }
+
+      const totalFields = sections.reduce((sum, s) => sum + s.fields.length, 0);
+      console.log(`PDF parsing complete: ${acroFormFields.length} AcroForm fields + ${textFields.length} text fields = ${totalFields} total (${rawFields.length} unique)`);
+      return { sections, totalFields, rawFields };
+    } catch (error) {
+      console.error('PDF form parsing error:', error);
+      try {
+        const buffer = typeof filePathOrBuffer === 'string' ? fs.readFileSync(filePathOrBuffer) : filePathOrBuffer;
+        const fallback = await this.parsePDF(buffer);
+        return { ...fallback, rawFields: [] };
+      } catch (fallbackError) {
+        console.error('PDF fallback parsing also failed:', fallbackError);
+        return { sections: [], totalFields: 0, rawFields: [] };
+      }
+    }
+  }
+
+  private async extractAcroFormFields(buffer: Buffer): Promise<any[]> {
+    try {
+      const { PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList } = await import('pdf-lib');
+      const pdfDoc = await PDFDocument.load(buffer, { ignoreEncryption: true });
+      const form = pdfDoc.getForm();
+      const pdfFields = form.getFields();
+
+      if (pdfFields.length === 0) return [];
+
+      const results: any[] = [];
+
+      for (const pdfField of pdfFields) {
+        const rawName = pdfField.getName();
+        if (!rawName) continue;
+
+        const cleanLabel = rawName
+          .replace(/^(topmostSubform\[0\]\.Page\d+\[0\]\.|form1\[0\]\.|data\[0\]\.)/i, '')
+          .replace(/\[\d+\]/g, '')
+          .replace(/\./g, ' - ')
+          .replace(/([a-z])([A-Z])/g, '$1 $2')
+          .replace(/_/g, ' ')
+          .trim();
+
+        const fieldLabel = cleanLabel.length > 0 ? cleanLabel : rawName;
+        const fieldName = this.labelToFieldName(fieldLabel);
+        if (!fieldName || fieldName.length < 1) continue;
+
+        let fieldType: ParsedFormField['fieldType'] = 'text';
+        let options: string[] | undefined;
+        let defaultValue: string | undefined;
+
+        if (pdfField instanceof PDFTextField) {
+          fieldType = this.inferFieldType(fieldLabel);
+          try { defaultValue = pdfField.getText() || undefined; } catch {}
+        } else if (pdfField instanceof PDFCheckBox) {
+          fieldType = 'checkbox';
+          try { defaultValue = pdfField.isChecked() ? 'yes' : 'no'; } catch {}
+        } else if (pdfField instanceof PDFDropdown) {
+          fieldType = 'select';
+          try { options = pdfField.getOptions(); } catch {}
+          try { const sel = pdfField.getSelected(); if (sel.length > 0) defaultValue = sel[0]; } catch {}
+        } else if (pdfField instanceof PDFRadioGroup) {
+          fieldType = 'select';
+          try { options = pdfField.getOptions(); } catch {}
+          try { defaultValue = pdfField.getSelected() || undefined; } catch {}
+        } else if (pdfField instanceof PDFOptionList) {
+          fieldType = 'select';
+          try { options = pdfField.getOptions(); } catch {}
+        }
+
+        let section = 'Form Fields';
+        const nameParts = rawName.split('.');
+        if (nameParts.length > 2) {
+          const sectionPart = nameParts.slice(0, -1)
+            .filter((p: string) => !p.match(/^(topmostSubform|Page\d+|form1|data)\[\d+\]$/i))
+            .map((p: string) => p.replace(/\[\d+\]/g, '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' '))
+            .filter((p: string) => p.length > 0);
+          if (sectionPart.length > 0) {
+            section = sectionPart[0].charAt(0).toUpperCase() + sectionPart[0].slice(1);
+          }
+        }
+
+        results.push({
+          fieldName,
+          fieldType,
+          fieldLabel,
+          isRequired: false,
+          section,
+          pdfFieldId: `acro_${fieldName}`,
+          rawPdfFieldName: rawName,
+          ...(defaultValue ? { defaultValue } : {}),
+          ...(options && options.length > 0 ? { options } : {}),
+        });
+      }
+
+      return results;
+    } catch (error) {
+      console.error('AcroForm extraction error (non-fatal):', error);
+      return [];
+    }
+  }
+
+  private async extractTextBasedFields(buffer: Buffer): Promise<any[]> {
+    try {
+      const pdfParse = (await import('pdf-parse')).default;
       const pdfData = await pdfParse(buffer);
 
-      const rawFields: any[] = [];
+      const results: any[] = [];
       const lines = pdfData.text.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 0);
 
       let currentSection = 'General Information';
-      const sectionMap = new Map<string, ParsedFormField[]>();
-      let position = 0;
 
       const sectionPatterns = [
         /^(section|part|article)\s+[\dIVXivx]+[\.:]/i,
@@ -475,79 +696,26 @@ export class PDFFormParser {
         if (!fieldLabel || fieldLabel.length < 2 || fieldLabel.length > 100) continue;
         if (/^(page|©|copyright|www\.|http)/i.test(fieldLabel)) continue;
 
-        position++;
-        const fieldName = fieldLabel
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '_')
-          .replace(/^_|_$/g, '')
-          .slice(0, 50);
-
-        let fieldType: ParsedFormField['fieldType'] = 'text';
-        const lowerLabel = fieldLabel.toLowerCase();
-        if (/email/i.test(lowerLabel)) fieldType = 'email';
-        else if (/phone|fax|tel/i.test(lowerLabel)) fieldType = 'phone';
-        else if (/date|dob|birth/i.test(lowerLabel)) fieldType = 'date';
-        else if (/url|website|web site/i.test(lowerLabel)) fieldType = 'url';
-        else if (/amount|volume|ticket|price|\$/i.test(lowerLabel)) fieldType = 'number';
-        else if (/yes.*no|no.*yes/i.test(lowerLabel)) fieldType = 'select';
-        else if (/description|comment|note|detail/i.test(lowerLabel)) fieldType = 'textarea';
-
+        const fieldName = this.labelToFieldName(fieldLabel);
+        const fieldType = this.inferFieldType(fieldLabel);
         const isRequired = /required|\*/i.test(fieldLabel);
 
-        const pdfFieldId = `pdf_${fieldName}_${position}`;
-
-        const parsedField: any = {
+        results.push({
           fieldName,
           fieldType,
           fieldLabel: fieldLabel.replace(/\s*\*\s*$/, '').replace(/\s*\(required\)\s*$/i, ''),
           isRequired,
-          position,
           section: currentSection,
-          pdfFieldId,
-          ...(defaultValue ? { defaultValue } : {}),
-          ...(fieldType === 'select' && /yes.*no|no.*yes/i.test(lowerLabel) ? { options: ['Yes', 'No'] } : {}),
-        };
-
-        if (!sectionMap.has(currentSection)) sectionMap.set(currentSection, []);
-        sectionMap.get(currentSection)!.push(parsedField);
-
-        rawFields.push({
-          pdfFieldId,
-          fieldName,
-          originalLabel: fieldLabel,
-          detectedType: fieldType,
-          required: isRequired,
-          section: currentSection,
-          position,
           rawLine: line.slice(0, 200),
-          mappedToTemplateField: fieldName,
-          mappingStatus: 'auto',
+          ...(defaultValue ? { defaultValue } : {}),
+          ...(fieldType === 'select' && /yes.*no|no.*yes/i.test(fieldLabel.toLowerCase()) ? { options: ['Yes', 'No'] } : {}),
         });
       }
 
-      let sectionOrder = 0;
-      const sections: ParsedFormSection[] = [];
-      for (const [title, fields] of sectionMap.entries()) {
-        sections.push({ title, fields, order: ++sectionOrder });
-      }
-
-      if (sections.length === 0) {
-        const fallback = await this.parsePDF(buffer);
-        return { ...fallback, rawFields: [] };
-      }
-
-      const totalFields = sections.reduce((sum, s) => sum + s.fields.length, 0);
-      return { sections, totalFields, rawFields };
+      return results;
     } catch (error) {
-      console.error('PDF form parsing error:', error);
-      try {
-        const buffer = typeof filePathOrBuffer === 'string' ? fs.readFileSync(filePathOrBuffer) : filePathOrBuffer;
-        const fallback = await this.parsePDF(buffer);
-        return { ...fallback, rawFields: [] };
-      } catch (fallbackError) {
-        console.error('PDF fallback parsing also failed:', fallbackError);
-        return { sections: [], totalFields: 0, rawFields: [] };
-      }
+      console.error('Text-based extraction error (non-fatal):', error);
+      return [];
     }
   }
 
