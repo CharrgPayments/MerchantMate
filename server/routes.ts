@@ -7874,11 +7874,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/disclosures/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
+      let dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
       const { disclosureDefinitions, disclosureVersions } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
-      const [def] = await dbToUse.select().from(disclosureDefinitions).where(eq(disclosureDefinitions.id, parseInt(req.params.id))).limit(1);
+      const disclosureId = parseInt(req.params.id);
+
+      let def: any = null;
+      try {
+        [def] = await dbToUse.select().from(disclosureDefinitions).where(eq(disclosureDefinitions.id, disclosureId)).limit(1);
+      } catch (tableErr: any) {
+        // Table may not exist in production DB — fall back to dev DB
+        if (tableErr?.message?.includes('does not exist')) {
+          const { getDynamicDatabase } = await import("./db");
+          dbToUse = getDynamicDatabase('dev');
+          [def] = await dbToUse.select().from(disclosureDefinitions).where(eq(disclosureDefinitions.id, disclosureId)).limit(1);
+        } else {
+          throw tableErr;
+        }
+      }
+
+      if (!def) {
+        // Also try dev DB if not found in session DB
+        const sessionDbEnv: string = (req.session as any)?.dbEnv || 'production';
+        const isAlreadyDevDB = sessionDbEnv === 'dev' || sessionDbEnv === 'development';
+        if (!isAlreadyDevDB) {
+          const { getDynamicDatabase } = await import("./db");
+          const devDB = getDynamicDatabase('dev');
+          try {
+            [def] = await devDB.select().from(disclosureDefinitions).where(eq(disclosureDefinitions.id, disclosureId)).limit(1);
+            if (def) dbToUse = devDB;
+          } catch {}
+        }
+      }
+
       if (!def) return res.status(404).json({ success: false, message: 'Disclosure not found' });
       const versions = await dbToUse.select().from(disclosureVersions).where(eq(disclosureVersions.definitionId, def.id)).orderBy(disclosureVersions.version);
       const currentVersion = versions.find(v => v.isCurrentVersion) || versions[versions.length - 1] || null;
