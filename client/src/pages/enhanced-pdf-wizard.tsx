@@ -33,8 +33,15 @@ interface FormField {
 }
 
 function DisclosureFieldRenderer({ field, formData, onFieldChange }: { field: FormField; formData: Record<string, any>; onFieldChange: (name: string, value: any) => void }) {
-  const { data: disclosureData, isLoading } = useQuery<any>({
+  const { data: disclosureData, isLoading, error } = useQuery<any>({
     queryKey: [`/api/disclosures/${field.disclosureDefinitionId}`],
+    queryFn: async () => {
+      const res = await fetch(`/api/disclosures/${field.disclosureDefinitionId}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(`Failed to fetch disclosure: ${res.status}`);
+      return res.json();
+    },
     enabled: !!field.disclosureDefinitionId,
     staleTime: 0,
     gcTime: 0,

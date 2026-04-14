@@ -7883,7 +7883,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const versions = await dbToUse.select().from(disclosureVersions).where(eq(disclosureVersions.definitionId, def.id)).orderBy(disclosureVersions.version);
       const currentVersion = versions.find(v => v.isCurrentVersion) || versions[versions.length - 1] || null;
       res.json({ success: true, disclosure: { ...def, versions, currentVersion } });
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Error retrieving disclosure:', error?.message || error);
       res.status(500).json({ success: false, message: 'Failed to retrieve disclosure' });
     }
   });
