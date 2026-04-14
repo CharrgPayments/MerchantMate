@@ -445,9 +445,9 @@ export class PDFFormParser {
   private labelToFieldName(label: string): string {
     return label
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/[^a-z0-9.]+/g, '_')
       .replace(/^_|_$/g, '')
-      .slice(0, 50);
+      .slice(0, 80);
   }
 
   async parsePDFForm(filePathOrBuffer: string | Buffer): Promise<{
@@ -538,86 +538,196 @@ export class PDFFormParser {
     }
   }
 
+  private humanizeFieldName(dotName: string): string {
+    const lastPart = dotName.split('.').pop() || dotName;
+    return lastPart
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase())
+      .trim();
+  }
+
+  private deriveSectionFromFieldName(fieldId: string): string {
+    const parts = fieldId.split('.');
+    if (parts.length < 2) return 'Form Fields';
+    const sectionKey = parts[0];
+    const sectionMap: Record<string, string> = {
+      'merchant': 'Merchant Information',
+      'transactionInformation': 'Transaction Information',
+      'creditDebitAuth': 'Credit & Debit Authorization',
+      'owners': 'Ownership Information',
+      'agent': 'Agent Information',
+      'equipment': 'Equipment',
+      'pricing': 'Pricing & Fees',
+      'bankInformation': 'Bank Information',
+    };
+    return sectionMap[sectionKey] || this.humanizeFieldName(sectionKey);
+  }
+
   private async extractAcroFormFields(buffer: Buffer): Promise<any[]> {
     try {
-      const { PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList } = await import('pdf-lib');
+      const { PDFDocument } = await import('pdf-lib');
       const pdfDoc = await PDFDocument.load(buffer, { ignoreEncryption: true });
       const form = pdfDoc.getForm();
       const pdfFields = form.getFields();
 
       if (pdfFields.length === 0) return [];
 
-      const results: any[] = [];
-
+      const rawNames: string[] = [];
       for (const pdfField of pdfFields) {
-        const rawName = pdfField.getName();
-        if (!rawName) continue;
+        const name = pdfField.getName();
+        if (name) rawNames.push(name);
+      }
 
-        const cleanLabel = rawName
-          .replace(/^(topmostSubform\[0\]\.Page\d+\[0\]\.|form1\[0\]\.|data\[0\]\.)/i, '')
-          .replace(/\[\d+\]/g, '')
-          .replace(/\./g, ' - ')
-          .replace(/([a-z])([A-Z])/g, '$1 $2')
-          .replace(/_/g, ' ')
-          .trim();
+      console.log(`AcroForm: ${rawNames.length} raw PDF fields found`);
 
-        const fieldLabel = cleanLabel.length > 0 ? cleanLabel : rawName;
-        const fieldName = this.labelToFieldName(fieldLabel);
-        if (!fieldName || fieldName.length < 1) continue;
+      const groupedFields = new Map<string, {
+        fieldId: string;
+        fieldType: string;
+        fieldLabel: string;
+        options: string[];
+        rawPdfFieldNames: string[];
+        section: string;
+      }>();
 
-        let fieldType: ParsedFormField['fieldType'] = 'text';
-        let options: string[] | undefined;
-        let defaultValue: string | undefined;
-
-        if (pdfField instanceof PDFTextField) {
-          fieldType = this.inferFieldType(fieldLabel);
-          try { defaultValue = pdfField.getText() || undefined; } catch {}
-        } else if (pdfField instanceof PDFCheckBox) {
-          fieldType = 'checkbox';
-          try { defaultValue = pdfField.isChecked() ? 'yes' : 'no'; } catch {}
-        } else if (pdfField instanceof PDFDropdown) {
-          fieldType = 'select';
-          try { options = pdfField.getOptions(); } catch {}
-          try { const sel = pdfField.getSelected(); if (sel.length > 0) defaultValue = sel[0]; } catch {}
-        } else if (pdfField instanceof PDFRadioGroup) {
-          fieldType = 'select';
-          try { options = pdfField.getOptions(); } catch {}
-          try { defaultValue = pdfField.getSelected() || undefined; } catch {}
-        } else if (pdfField instanceof PDFOptionList) {
-          fieldType = 'select';
-          try { options = pdfField.getOptions(); } catch {}
-        }
-
-        let section = 'Form Fields';
-        const nameParts = rawName.split('.');
-        if (nameParts.length > 2) {
-          const sectionPart = nameParts.slice(0, -1)
-            .filter((p: string) => !p.match(/^(topmostSubform|Page\d+|form1|data)\[\d+\]$/i))
-            .map((p: string) => p.replace(/\[\d+\]/g, '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' '))
-            .filter((p: string) => p.length > 0);
-          if (sectionPart.length > 0) {
-            section = sectionPart[0].charAt(0).toUpperCase() + sectionPart[0].slice(1);
+      for (const rawName of rawNames) {
+        const radioMatch = rawName.match(/^(.+?)\.radio\.(.+)$/);
+        if (radioMatch) {
+          const groupId = radioMatch[1];
+          const optionValue = radioMatch[2];
+          const existing = groupedFields.get(groupId);
+          if (existing) {
+            existing.options.push(optionValue);
+            existing.rawPdfFieldNames.push(rawName);
+          } else {
+            groupedFields.set(groupId, {
+              fieldId: groupId,
+              fieldType: 'radio',
+              fieldLabel: this.humanizeFieldName(groupId),
+              options: [optionValue],
+              rawPdfFieldNames: [rawName],
+              section: this.deriveSectionFromFieldName(groupId),
+            });
           }
+          continue;
         }
 
-        results.push({
-          fieldName,
+        const boolMatch = rawName.match(/^(.+?)\.bool\.(yes|no)$/i);
+        if (boolMatch) {
+          const groupId = boolMatch[1];
+          if (!groupedFields.has(groupId)) {
+            groupedFields.set(groupId, {
+              fieldId: groupId,
+              fieldType: 'boolean',
+              fieldLabel: this.humanizeFieldName(groupId),
+              options: ['Yes', 'No'],
+              rawPdfFieldNames: [rawName],
+              section: this.deriveSectionFromFieldName(groupId),
+            });
+          } else {
+            groupedFields.get(groupId)!.rawPdfFieldNames.push(rawName);
+          }
+          continue;
+        }
+
+        const checkboxMatch = rawName.match(/^(.+?)\.checkbox\.(.+)$/);
+        if (checkboxMatch) {
+          const groupId = checkboxMatch[1];
+          const optionValue = checkboxMatch[2];
+          const existing = groupedFields.get(groupId);
+          if (existing) {
+            existing.options.push(optionValue);
+            existing.rawPdfFieldNames.push(rawName);
+          } else {
+            groupedFields.set(groupId, {
+              fieldId: groupId,
+              fieldType: 'checkbox-list',
+              fieldLabel: this.humanizeFieldName(groupId),
+              options: [optionValue],
+              rawPdfFieldNames: [rawName],
+              section: this.deriveSectionFromFieldName(groupId),
+            });
+          }
+          continue;
+        }
+
+        const addressMatch = rawName.match(/^(.+?)\.(address)\.(street1|street2|city|state|postalCode|zip|country)$/i);
+        if (addressMatch) {
+          const groupId = `${addressMatch[1]}.${addressMatch[2]}`;
+          if (!groupedFields.has(groupId)) {
+            groupedFields.set(groupId, {
+              fieldId: groupId,
+              fieldType: 'address',
+              fieldLabel: this.humanizeFieldName(addressMatch[1]) + ' Address',
+              options: [],
+              rawPdfFieldNames: [rawName],
+              section: this.deriveSectionFromFieldName(addressMatch[1]),
+            });
+          } else {
+            groupedFields.get(groupId)!.rawPdfFieldNames.push(rawName);
+          }
+          continue;
+        }
+
+        let fieldType = this.inferFieldTypeFromName(rawName);
+        groupedFields.set(rawName, {
+          fieldId: rawName,
           fieldType,
-          fieldLabel,
-          isRequired: false,
-          section,
-          pdfFieldId: `acro_${fieldName}`,
-          rawPdfFieldName: rawName,
-          ...(defaultValue ? { defaultValue } : {}),
-          ...(options && options.length > 0 ? { options } : {}),
+          fieldLabel: this.humanizeFieldName(rawName),
+          options: [],
+          rawPdfFieldNames: [rawName],
+          section: this.deriveSectionFromFieldName(rawName),
         });
       }
 
+      const results: any[] = [];
+      for (const [, group] of groupedFields) {
+        const optionLabels = group.options.map(opt =>
+          opt.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ')
+        );
+
+        results.push({
+          fieldName: group.fieldId,
+          fieldType: group.fieldType,
+          fieldLabel: group.fieldLabel,
+          isRequired: false,
+          section: group.section,
+          pdfFieldId: `acro_${group.fieldId}`,
+          rawPdfFieldName: group.rawPdfFieldNames[0],
+          rawPdfFieldNames: group.rawPdfFieldNames,
+          ...(optionLabels.length > 0 ? { options: optionLabels.map((label, i) => ({ label, value: group.options[i] })) } : {}),
+        });
+      }
+
+      console.log(`AcroForm: grouped ${rawNames.length} raw fields into ${results.length} logical fields`);
       return results;
     } catch (error) {
       console.error('AcroForm extraction error (non-fatal):', error);
       return [];
     }
+  }
+
+  private inferFieldTypeFromName(fieldName: string): string {
+    const lower = fieldName.toLowerCase();
+    const lastPart = fieldName.split('.').pop()?.toLowerCase() || '';
+
+    if (/\.address\./i.test(fieldName) || lastPart === 'address') return 'address';
+    if (lastPart === 'postalcode' || lastPart === 'zip' || lastPart === 'zipcode') return 'zipcode';
+    if (/e[\-_]?mail/i.test(lastPart) || lastPart === 'companyemail') return 'email';
+    if (/phone|fax|tel|mobile|cell/i.test(lastPart)) return 'phone';
+    if (/date|dob|startdate|enddate/i.test(lastPart)) return 'date';
+    if (/url|website/i.test(lastPart) || lastPart === 'companyurl') return 'url';
+    if (/taxid|ein/i.test(lastPart)) return 'ein';
+    if (/ssn|socialsecurity/i.test(lastPart)) return 'ssn';
+    if (/bankaccountnumber|accountnumber/i.test(lastPart)) return 'bank_account';
+    if (/bankroutingnumber|routingnumber|abanumber/i.test(lastPart)) return 'bank_routing';
+    if (/amount|volume|ticket|price|fee|cost|monthly|annual/i.test(lastPart)) return 'currency';
+    if (/percentage|percent|rate|swiped|keyed|internet/i.test(lastPart)) return 'percentage';
+    if (/signature/i.test(lastPart)) return 'signature';
+    if (/sellsproductsservices|mcc/i.test(lastPart)) return 'mcc-select';
+    if (/description|comment|note|detail|explain/i.test(lastPart)) return 'textarea';
+    return 'text';
   }
 
   private async extractTextBasedFields(buffer: Buffer): Promise<any[]> {

@@ -7602,7 +7602,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               max: field.max || undefined,
               sensitive: field.sensitive || false,
               pdfFieldId: field.pdfFieldId,
-              pdfFieldIds: field.pdfFieldIds
+              pdfFieldIds: field.pdfFieldIds || field.rawPdfFieldNames
             }))
           }))
         };
