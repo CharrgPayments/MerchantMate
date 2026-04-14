@@ -454,6 +454,16 @@ export default function EnhancedPdfWizard() {
 
   // Navigation handlers that save form data before moving between sections
   const handleNext = () => {
+    // Validate current section before advancing
+    if (!validateCurrentSection()) {
+      toast({
+        title: "Validation Error",
+        description: "Please complete all required fields before proceeding.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const nextStep = Math.min(sections.length - 1, currentStep + 1);
     
     console.log(`Navigating from step ${currentStep} to step ${nextStep}`);
@@ -1632,6 +1642,26 @@ export default function EnhancedPdfWizard() {
     return null;
   };
 
+  // Validate all fields in the current section and surface errors
+  const validateCurrentSection = (): boolean => {
+    if (!sections[currentStep]) return true;
+
+    let isValid = true;
+    const errors: Record<string, string> = {};
+
+    sections[currentStep].fields.forEach(field => {
+      const value = formData[field.fieldName];
+      const error = validateField(field, value);
+      if (error) {
+        errors[field.fieldName] = error;
+        isValid = false;
+      }
+    });
+
+    setValidationErrors(prev => ({ ...prev, ...errors }));
+    return isValid;
+  };
+
   // For prospect mode, show loading if prospect data isn't loaded yet
   if (isProspectMode && !prospectData) {
     return (
@@ -2682,7 +2712,18 @@ export default function EnhancedPdfWizard() {
                         </Button>
                       ) : (
                         <Button
-                          onClick={() => !isTemplatePreviewMode && submitApplicationMutation.mutate(formData)}
+                          onClick={() => {
+                            if (isTemplatePreviewMode) return;
+                            if (!validateCurrentSection()) {
+                              toast({
+                                title: "Validation Error",
+                                description: "Please complete all required fields before submitting.",
+                                variant: "destructive",
+                              });
+                              return;
+                            }
+                            submitApplicationMutation.mutate(formData);
+                          }}
                           disabled={submitApplicationMutation.isPending || isTemplatePreviewMode}
                           title={isTemplatePreviewMode ? 'Submission disabled in preview mode' : undefined}
                           className="flex items-center space-x-2 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:opacity-50 disabled:cursor-not-allowed"
