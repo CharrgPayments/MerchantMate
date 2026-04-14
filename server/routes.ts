@@ -7570,8 +7570,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pdfBuffer = req.file.buffer;
       const parseResult = await pdfFormParser.parsePDFForm(pdfBuffer);
 
-      if (req.body.acquirerId && req.body.templateName) {
-        const acquirerId = parseInt(req.body.acquirerId);
+      let templateData: any = {};
+      if (req.body.templateData) {
+        try {
+          templateData = JSON.parse(req.body.templateData);
+        } catch (e) {
+          console.error('Failed to parse templateData:', e);
+        }
+      }
+      const acquirerIdRaw = templateData.acquirerId || req.body.acquirerId;
+      const templateNameRaw = templateData.templateName || req.body.templateName;
+
+      if (acquirerIdRaw && templateNameRaw) {
+        const acquirerId = parseInt(acquirerIdRaw);
         const { acquirerApplicationTemplates } = await import("@shared/schema");
         const fieldConfiguration = {
           sections: parseResult.sections.map((section: any) => ({
@@ -7597,8 +7608,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
         const [newTemplate] = await dbToUse.insert(acquirerApplicationTemplates).values({
           acquirerId,
-          templateName: req.body.templateName,
-          version: req.body.version || '1.0',
+          templateName: templateNameRaw,
+          version: templateData.version || req.body.version || '1.0',
           isActive: true,
           fieldConfiguration,
           pdfMappingConfiguration: parseResult.rawFields || {},
