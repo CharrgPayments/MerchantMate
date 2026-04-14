@@ -34,13 +34,14 @@ interface FormField {
 
 function DisclosureFieldRenderer({ field, formData, onFieldChange }: { field: FormField; formData: Record<string, any>; onFieldChange: (name: string, value: any) => void }) {
   const { data: disclosureData, isLoading } = useQuery<any>({
-    queryKey: ['/api/disclosures', field.disclosureDefinitionId],
+    queryKey: [`/api/disclosures/${field.disclosureDefinitionId}`],
     enabled: !!field.disclosureDefinitionId,
     staleTime: 0,
     gcTime: 0,
   });
 
-  const currentVersion = disclosureData?.versions?.find((v: any) => v.isCurrentVersion) || disclosureData?.versions?.[0];
+  const disclosure = disclosureData?.disclosure;
+  const currentVersion = disclosure?.currentVersion || disclosure?.versions?.find((v: any) => v.isCurrentVersion) || disclosure?.versions?.[0];
   const acknowledged = !!formData[field.fieldName];
 
   return (
@@ -521,6 +522,13 @@ export default function EnhancedPdfWizard() {
 
   // Navigation handlers that save form data before moving between sections
   const handleNext = () => {
+    // Always mark current section as visited when attempting to advance
+    setVisitedSections(prev => {
+      const newVisited = new Set([...prev]);
+      newVisited.add(currentStep);
+      return newVisited;
+    });
+
     // Validate current section before advancing
     if (!validateCurrentSection()) {
       toast({
@@ -535,11 +543,10 @@ export default function EnhancedPdfWizard() {
     
     console.log(`Navigating from step ${currentStep} to step ${nextStep}`);
     
-    // Preserve all previously visited sections and add current one
+    // Mark next section as visited too
     setVisitedSections(prev => {
       const newVisited = new Set([...prev]);
-      newVisited.add(currentStep); // Mark current section as visited
-      newVisited.add(nextStep); // Mark next section as visited
+      newVisited.add(nextStep);
       return newVisited;
     });
     
@@ -2729,25 +2736,14 @@ export default function EnhancedPdfWizard() {
                     const hasValidationIssues = getSectionValidationStatus(index);
                     const showWarning = isVisited && hasValidationIssues && !isActive;
                     
-                    // Debug logging for Merchant Information section
-                    if (section.name === 'Merchant Information') {
-                      console.log(`Section ${index} (${section.name}) status:`, {
-                        isVisited,
-                        hasValidationIssues,
-                        showWarning,
-                        isActive,
-                        visitedSections: Array.from(visitedSections)
-                      });
-                    }
-                    
                     return (
                       <button
                         key={index}
                         onClick={() => {
-                          // Preserve all previously visited sections when navigating
                           setVisitedSections(prev => {
                             const newVisited = new Set([...prev]);
-                            newVisited.add(index); // Add current section
+                            newVisited.add(currentStep); // Mark the section we're LEAVING as visited
+                            newVisited.add(index); // Mark the section we're GOING TO as visited
                             return newVisited;
                           });
                           setCurrentStep(index);
