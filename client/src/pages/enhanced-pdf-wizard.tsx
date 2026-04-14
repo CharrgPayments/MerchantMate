@@ -1872,11 +1872,15 @@ export default function EnhancedPdfWizard() {
                 <SelectValue placeholder={`Select ${field.fieldLabel.toLowerCase()}`} />
               </SelectTrigger>
               <SelectContent>
-                {field.options?.map((option) => (
-                  <SelectItem key={option} value={option}>
-                    {option}
-                  </SelectItem>
-                ))}
+                {field.options?.map((option: any, idx: number) => {
+                  const optValue = typeof option === 'object' ? (option.value || option.label || '') : option;
+                  const optLabel = typeof option === 'object' ? (option.label || option.value || '') : option;
+                  return (
+                    <SelectItem key={optValue || idx} value={optValue || `option_${idx}`}>
+                      {optLabel}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
             {hasError && <p className="text-xs text-red-500">{hasError}</p>}
