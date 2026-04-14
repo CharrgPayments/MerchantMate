@@ -7476,6 +7476,122 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get('/api/acquirer-application-templates/:id/field-mapping', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const templateId = parseInt(req.params.id);
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { acquirerApplicationTemplates } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [template] = await dbToUse.select().from(acquirerApplicationTemplates).where(eq(acquirerApplicationTemplates.id, templateId)).limit(1);
+      if (!template) return res.status(404).json({ error: "Template not found" });
+
+      const rawFields: any[] = Array.isArray(template.pdfMappingConfiguration) ? template.pdfMappingConfiguration : [];
+      const fieldConfig: any = template.fieldConfiguration || {};
+      const templateFields: any[] = [];
+      if (Array.isArray(fieldConfig.sections)) {
+        for (const section of fieldConfig.sections) {
+          if (Array.isArray(section.fields)) {
+            for (const f of section.fields) {
+              templateFields.push({ ...f, sectionTitle: section.title });
+            }
+          }
+        }
+      }
+
+      const mappedPdfFieldIds = new Set<string>();
+      for (const tf of templateFields) {
+        if (tf.pdfFieldId) mappedPdfFieldIds.add(tf.pdfFieldId);
+      }
+
+      const mappedFields = rawFields.filter((rf: any) => mappedPdfFieldIds.has(rf.pdfFieldId));
+      const unmappedFields = rawFields.filter((rf: any) => !mappedPdfFieldIds.has(rf.pdfFieldId));
+      const templateFieldsWithoutMapping = templateFields.filter(tf => !tf.pdfFieldId);
+
+      res.json({
+        success: true,
+        templateId,
+        totalPdfFields: rawFields.length,
+        totalTemplateFields: templateFields.length,
+        mappedCount: mappedFields.length,
+        unmappedPdfFields: unmappedFields,
+        unmappedTemplateFields: templateFieldsWithoutMapping,
+        mappedFields: mappedFields.map((rf: any) => {
+          const tf = templateFields.find(t => t.pdfFieldId === rf.pdfFieldId);
+          return { pdfField: rf, templateField: tf || null };
+        }),
+        allPdfFields: rawFields,
+      });
+    } catch (error) {
+      console.error('Error fetching field mapping:', error);
+      res.status(500).json({ error: 'Failed to fetch field mapping' });
+    }
+  });
+
+  app.put('/api/acquirer-application-templates/:id/field-mapping', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const templateId = parseInt(req.params.id);
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { acquirerApplicationTemplates } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+
+      const [template] = await dbToUse.select().from(acquirerApplicationTemplates).where(eq(acquirerApplicationTemplates.id, templateId)).limit(1);
+      if (!template) return res.status(404).json({ error: "Template not found" });
+
+      const { pdfFieldId, templateFieldId, action } = req.body;
+      if (!pdfFieldId || !templateFieldId) return res.status(400).json({ error: "pdfFieldId and templateFieldId are required" });
+
+      const fieldConfig: any = { ...(template.fieldConfiguration as any) };
+      const rawFields: any[] = Array.isArray(template.pdfMappingConfiguration) ? [...(template.pdfMappingConfiguration as any[])] : [];
+
+      if (action === 'map') {
+        if (Array.isArray(fieldConfig.sections)) {
+          for (const section of fieldConfig.sections) {
+            if (Array.isArray(section.fields)) {
+              const field = section.fields.find((f: any) => f.id === templateFieldId);
+              if (field) {
+                field.pdfFieldId = pdfFieldId;
+                break;
+              }
+            }
+          }
+        }
+        const rawIdx = rawFields.findIndex((rf: any) => rf.pdfFieldId === pdfFieldId);
+        if (rawIdx >= 0) {
+          rawFields[rawIdx] = { ...rawFields[rawIdx], mappedToTemplateField: templateFieldId, mappingStatus: 'manual' };
+        }
+      } else if (action === 'unmap') {
+        if (Array.isArray(fieldConfig.sections)) {
+          for (const section of fieldConfig.sections) {
+            if (Array.isArray(section.fields)) {
+              const field = section.fields.find((f: any) => f.id === templateFieldId);
+              if (field) {
+                delete field.pdfFieldId;
+                break;
+              }
+            }
+          }
+        }
+        const rawIdx = rawFields.findIndex((rf: any) => rf.pdfFieldId === pdfFieldId);
+        if (rawIdx >= 0) {
+          rawFields[rawIdx] = { ...rawFields[rawIdx], mappedToTemplateField: null, mappingStatus: 'unmapped' };
+        }
+      }
+
+      const [updated] = await dbToUse.update(acquirerApplicationTemplates).set({
+        fieldConfiguration: fieldConfig,
+        pdfMappingConfiguration: rawFields,
+        updatedAt: new Date()
+      }).where(eq(acquirerApplicationTemplates.id, templateId)).returning();
+
+      res.json({ success: true, template: updated });
+    } catch (error) {
+      console.error('Error updating field mapping:', error);
+      res.status(500).json({ error: 'Failed to update field mapping' });
+    }
+  });
+
   app.post('/api/acquirer-application-templates', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
@@ -7629,6 +7745,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+
+  app.get('/api/prospect-applications/:id/mapped-pdf', dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res: Response) => {
+    try {
+      const applicationId = parseInt(req.params.id);
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { prospectApplications, acquirerApplicationTemplates } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+
+      const [application] = await dbToUse.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
+      if (!application) return res.status(404).json({ error: "Application not found" });
+
+      const [template] = await dbToUse.select().from(acquirerApplicationTemplates).where(eq(acquirerApplicationTemplates.id, application.templateId)).limit(1);
+      if (!template) return res.status(404).json({ error: "Template not found" });
+
+      const { pdfGenerator } = await import('./pdfGenerator');
+      const pdfBuffer = await pdfGenerator.generateMappedApplicationPDF(
+        application.applicationData as Record<string, any>,
+        template.fieldConfiguration,
+        Array.isArray(template.pdfMappingConfiguration) ? template.pdfMappingConfiguration as any[] : [],
+        template.templateName
+      );
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${template.templateName.replace(/[^a-zA-Z0-9]/g, '_')}_application_${applicationId}.pdf"`);
+      res.send(pdfBuffer);
+    } catch (error) {
+      console.error('Error generating mapped PDF:', error);
+      res.status(500).json({ error: 'Failed to generate PDF' });
+    }
+  });
 
   // ============================================================
   // MCC Codes API

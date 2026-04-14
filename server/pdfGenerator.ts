@@ -1734,6 +1734,117 @@ startxref
     
     return Buffer.from(pdf, 'binary');
   }
+
+  async generateMappedApplicationPDF(
+    applicationData: Record<string, any>,
+    fieldConfiguration: any,
+    pdfMappingConfiguration: any[],
+    templateName: string
+  ): Promise<Buffer> {
+    try {
+      const sections: { title: string; fields: { label: string; value: string; pdfFieldId?: string }[] }[] = [];
+
+      if (Array.isArray(fieldConfiguration?.sections)) {
+        for (const section of fieldConfiguration.sections) {
+          const sectionFields: { label: string; value: string; pdfFieldId?: string }[] = [];
+          if (Array.isArray(section.fields)) {
+            for (const field of section.fields) {
+              const rawValue = applicationData[field.id];
+              let displayValue = '';
+              if (rawValue === undefined || rawValue === null || rawValue === '') {
+                displayValue = '';
+              } else if (Array.isArray(rawValue)) {
+                displayValue = rawValue.join(', ');
+              } else if (typeof rawValue === 'object') {
+                displayValue = JSON.stringify(rawValue);
+              } else {
+                displayValue = String(rawValue);
+              }
+              sectionFields.push({
+                label: field.label || field.id,
+                value: displayValue,
+                pdfFieldId: field.pdfFieldId || undefined,
+              });
+            }
+          }
+          if (sectionFields.length > 0) {
+            sections.push({ title: section.title, fields: sectionFields });
+          }
+        }
+      }
+
+      const mappingStats = {
+        totalFields: sections.reduce((sum, s) => sum + s.fields.length, 0),
+        mappedFields: sections.reduce((sum, s) => sum + s.fields.filter(f => f.pdfFieldId).length, 0),
+        totalPdfFields: Array.isArray(pdfMappingConfiguration) ? pdfMappingConfiguration.length : 0,
+      };
+
+      const pages = this.buildMappedPages(sections, templateName, mappingStats);
+      const pdfContent = this.buildMultiPagePDF(pages);
+      return Buffer.from(pdfContent, 'binary');
+    } catch (error) {
+      console.error('Mapped PDF generation failed:', error);
+      return this.createMinimalPDF(templateName);
+    }
+  }
+
+  private buildMappedPages(
+    sections: { title: string; fields: { label: string; value: string; pdfFieldId?: string }[] }[],
+    templateName: string,
+    stats: { totalFields: number; mappedFields: number; totalPdfFields: number }
+  ): string[][] {
+    const pages: string[][] = [];
+    let currentPage: string[] = [];
+    let y = 750;
+    const lineHeight = 14;
+    const pageHeight = 792;
+    const margin = 50;
+    const bottomMargin = 60;
+
+    currentPage.push(`BT /F2 16 Tf ${margin} ${y} Td (${this.escapePdfText(templateName)}) Tj ET`);
+    y -= 24;
+    currentPage.push(`BT /F1 9 Tf ${margin} ${y} Td (Fields: ${stats.totalFields} | Mapped to PDF: ${stats.mappedFields} | PDF Fields: ${stats.totalPdfFields}) Tj ET`);
+    y -= 20;
+    currentPage.push(`${margin} ${y} m ${562} ${y} l S`);
+    y -= 16;
+
+    for (const section of sections) {
+      if (y < bottomMargin + 40) {
+        pages.push(currentPage);
+        currentPage = [];
+        y = pageHeight - margin;
+      }
+      currentPage.push(`BT /F2 12 Tf ${margin} ${y} Td (${this.escapePdfText(section.title)}) Tj ET`);
+      y -= 4;
+      currentPage.push(`${margin} ${y} m ${562} ${y} l S`);
+      y -= lineHeight;
+
+      for (const field of section.fields) {
+        if (y < bottomMargin) {
+          pages.push(currentPage);
+          currentPage = [];
+          y = pageHeight - margin;
+        }
+        const label = this.escapePdfText(field.label);
+        const value = this.escapePdfText(field.value || '—');
+        currentPage.push(`BT /F2 9 Tf ${margin} ${y} Td (${label}:) Tj ET`);
+        currentPage.push(`BT /F1 9 Tf 220 ${y} Td (${value}) Tj ET`);
+        if (field.pdfFieldId) {
+          currentPage.push(`BT /F1 7 Tf 450 ${y} Td ([${this.escapePdfText(field.pdfFieldId)}]) Tj ET`);
+        }
+        y -= lineHeight;
+      }
+      y -= 8;
+    }
+
+    if (currentPage.length > 0) pages.push(currentPage);
+    return pages;
+  }
+
+  private escapePdfText(text: string): string {
+    if (!text) return '';
+    return text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)').replace(/[\r\n]/g, ' ');
+  }
 }
 
 export const pdfGenerator = new PDFGenerator();

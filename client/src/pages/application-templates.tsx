@@ -1086,6 +1086,141 @@ function EditTemplateDialog({
 }
 
 // View Template Dialog Component
+function PdfFieldMappingView({ template }: { template: AcquirerApplicationTemplate }) {
+  const rawFields: any[] = Array.isArray(template.pdfMappingConfiguration) ? template.pdfMappingConfiguration : [];
+  const templateFields: any[] = [];
+  const fieldConfig: any = template.fieldConfiguration || {};
+  if (Array.isArray(fieldConfig.sections)) {
+    for (const section of fieldConfig.sections) {
+      if (Array.isArray(section.fields)) {
+        for (const f of section.fields) {
+          templateFields.push({ ...f, sectionTitle: section.title });
+        }
+      }
+    }
+  }
+
+  const mappedPdfIds = new Set(templateFields.filter(f => f.pdfFieldId).map(f => f.pdfFieldId));
+  const mapped = rawFields.filter(rf => mappedPdfIds.has(rf.pdfFieldId));
+  const unmapped = rawFields.filter(rf => !mappedPdfIds.has(rf.pdfFieldId));
+  const templateFieldsUnmapped = templateFields.filter(tf => !tf.pdfFieldId);
+
+  return (
+    <>
+      <Separator />
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="font-medium">PDF Field Mapping</h4>
+          <div className="flex gap-2 text-xs">
+            <Badge variant="default">{mapped.length} Mapped</Badge>
+            {unmapped.length > 0 && <Badge variant="destructive">{unmapped.length} Unmapped PDF</Badge>}
+            {templateFieldsUnmapped.length > 0 && <Badge variant="secondary">{templateFieldsUnmapped.length} No PDF Link</Badge>}
+          </div>
+        </div>
+
+        {mapped.length > 0 && (
+          <div className="mb-4">
+            <h5 className="text-sm font-medium text-green-700 mb-2">Mapped Fields ({mapped.length})</h5>
+            <div className="border rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-green-50">
+                  <tr>
+                    <th className="text-left p-2 font-medium">PDF Field</th>
+                    <th className="text-left p-2 font-medium">Original Label</th>
+                    <th className="text-left p-2 font-medium">→ Template Field</th>
+                    <th className="text-left p-2 font-medium">Type</th>
+                    <th className="text-center p-2 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mapped.map((rf: any, idx: number) => {
+                    const tf = templateFields.find(t => t.pdfFieldId === rf.pdfFieldId);
+                    return (
+                      <tr key={idx} className="border-t border-border/50">
+                        <td className="p-2 font-mono text-xs">{rf.pdfFieldId}</td>
+                        <td className="p-2 text-muted-foreground">{rf.originalLabel}</td>
+                        <td className="p-2 font-medium">{tf?.label || '—'}</td>
+                        <td className="p-2"><Badge variant="outline" className="text-xs">{rf.detectedType}</Badge></td>
+                        <td className="p-2 text-center">
+                          <Badge variant="default" className="text-xs">
+                            {rf.mappingStatus === 'manual' ? 'Manual' : 'Auto'}
+                          </Badge>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {unmapped.length > 0 && (
+          <div className="mb-4">
+            <h5 className="text-sm font-medium text-red-700 mb-2">Unmapped PDF Fields ({unmapped.length})</h5>
+            <p className="text-xs text-muted-foreground mb-2">These PDF fields have no corresponding template field. They can be mapped in Phase 2.</p>
+            <div className="border border-red-200 rounded-lg overflow-hidden">
+              <div className="max-h-48 overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-red-50 sticky top-0">
+                    <tr>
+                      <th className="text-left p-2 font-medium">PDF Field ID</th>
+                      <th className="text-left p-2 font-medium">Original Label</th>
+                      <th className="text-left p-2 font-medium">Type</th>
+                      <th className="text-left p-2 font-medium">Section</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {unmapped.map((rf: any, idx: number) => (
+                      <tr key={idx} className="border-t border-red-100">
+                        <td className="p-2 font-mono text-xs">{rf.pdfFieldId}</td>
+                        <td className="p-2">{rf.originalLabel}</td>
+                        <td className="p-2"><Badge variant="outline" className="text-xs">{rf.detectedType}</Badge></td>
+                        <td className="p-2 text-muted-foreground">{rf.section}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {templateFieldsUnmapped.length > 0 && (
+          <div>
+            <h5 className="text-sm font-medium text-amber-700 mb-2">Template Fields Without PDF Mapping ({templateFieldsUnmapped.length})</h5>
+            <p className="text-xs text-muted-foreground mb-2">These template fields have no PDF field link. Data won't be included when re-rendering the PDF.</p>
+            <div className="border border-amber-200 rounded-lg overflow-hidden">
+              <div className="max-h-48 overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-amber-50 sticky top-0">
+                    <tr>
+                      <th className="text-left p-2 font-medium">Field ID</th>
+                      <th className="text-left p-2 font-medium">Label</th>
+                      <th className="text-left p-2 font-medium">Type</th>
+                      <th className="text-left p-2 font-medium">Section</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {templateFieldsUnmapped.map((tf: any, idx: number) => (
+                      <tr key={idx} className="border-t border-amber-100">
+                        <td className="p-2 font-mono text-xs">{tf.id}</td>
+                        <td className="p-2">{tf.label}</td>
+                        <td className="p-2"><Badge variant="outline" className="text-xs">{tf.type}</Badge></td>
+                        <td className="p-2 text-muted-foreground">{tf.sectionTitle}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 function ViewTemplateDialog({ 
   isOpen, 
   onClose, 
@@ -1172,48 +1307,10 @@ function ViewTemplateDialog({
             </div>
           </div>
 
-          {template.pdfMappingConfiguration && Object.keys(template.pdfMappingConfiguration).length > 0 && (
-            <>
-              <Separator />
-              <div>
-                <h4 className="font-medium mb-3">PDF Imported Fields</h4>
-                <p className="text-sm text-muted-foreground mb-3">
-                  Raw fields detected from the uploaded PDF form. These map to the field configuration above via pdfFieldId.
-                </p>
-                <div className="border rounded-lg overflow-hidden">
-                  <div className="max-h-80 overflow-y-auto">
-                    {Array.isArray(template.pdfMappingConfiguration) ? (
-                      <table className="w-full text-sm">
-                        <thead className="bg-muted sticky top-0">
-                          <tr>
-                            <th className="text-left p-2 font-medium">PDF Field ID</th>
-                            <th className="text-left p-2 font-medium">Original Label</th>
-                            <th className="text-left p-2 font-medium">Detected Type</th>
-                            <th className="text-left p-2 font-medium">Section</th>
-                            <th className="text-center p-2 font-medium">Required</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {template.pdfMappingConfiguration.map((field: any, idx: number) => (
-                            <tr key={idx} className="border-t border-border/50">
-                              <td className="p-2 font-mono text-xs">{field.pdfFieldId}</td>
-                              <td className="p-2">{field.originalLabel}</td>
-                              <td className="p-2"><Badge variant="outline" className="text-xs">{field.detectedType}</Badge></td>
-                              <td className="p-2 text-muted-foreground">{field.section}</td>
-                              <td className="p-2 text-center">{field.required ? '✓' : ''}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    ) : (
-                      <pre className="p-3 text-xs overflow-x-auto bg-muted/30">
-                        {JSON.stringify(template.pdfMappingConfiguration, null, 2)}
-                      </pre>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </>
+          {template.pdfMappingConfiguration && (
+            Array.isArray(template.pdfMappingConfiguration) ? template.pdfMappingConfiguration.length > 0 : Object.keys(template.pdfMappingConfiguration).length > 0
+          ) && (
+            <PdfFieldMappingView template={template} />
           )}
 
           <div className="flex justify-end">

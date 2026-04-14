@@ -494,13 +494,16 @@ export class PDFFormParser {
 
         const isRequired = /required|\*/i.test(fieldLabel);
 
-        const parsedField: ParsedFormField = {
+        const pdfFieldId = `pdf_${fieldName}_${position}`;
+
+        const parsedField: any = {
           fieldName,
           fieldType,
           fieldLabel: fieldLabel.replace(/\s*\*\s*$/, '').replace(/\s*\(required\)\s*$/i, ''),
           isRequired,
           position,
           section: currentSection,
+          pdfFieldId,
           ...(defaultValue ? { defaultValue } : {}),
           ...(fieldType === 'select' && /yes.*no|no.*yes/i.test(lowerLabel) ? { options: ['Yes', 'No'] } : {}),
         };
@@ -509,13 +512,16 @@ export class PDFFormParser {
         sectionMap.get(currentSection)!.push(parsedField);
 
         rawFields.push({
-          pdfFieldId: fieldName,
+          pdfFieldId,
+          fieldName,
           originalLabel: fieldLabel,
           detectedType: fieldType,
           required: isRequired,
           section: currentSection,
           position,
           rawLine: line.slice(0, 200),
+          mappedToTemplateField: fieldName,
+          mappingStatus: 'auto',
         });
       }
 
