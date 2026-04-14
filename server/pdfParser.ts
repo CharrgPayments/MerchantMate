@@ -459,14 +459,20 @@ export class PDFFormParser {
       const buffer = typeof filePathOrBuffer === 'string' ? fs.readFileSync(filePathOrBuffer) : filePathOrBuffer;
 
       const acroFormFields = await this.extractAcroFormFields(buffer);
-      const textFields = await this.extractTextBasedFields(buffer);
+
+      const fieldsToProcess = acroFormFields.length > 0
+        ? acroFormFields
+        : await this.extractTextBasedFields(buffer);
+
+      const source = acroFormFields.length > 0 ? 'acroform' : 'text';
+      console.log(`PDF parsing: using ${source} extraction (${fieldsToProcess.length} fields found)`);
 
       const seenFieldNames = new Set<string>();
       const rawFields: any[] = [];
       const sectionMap = new Map<string, ParsedFormField[]>();
       let position = 0;
 
-      for (const field of acroFormFields) {
+      for (const field of fieldsToProcess) {
         const key = field.fieldName;
         if (seenFieldNames.has(key)) continue;
         seenFieldNames.add(key);
@@ -498,49 +504,10 @@ export class PDFFormParser {
           required: field.isRequired,
           section,
           position,
-          rawLine: field.rawPdfFieldName || field.fieldLabel,
+          rawLine: field.rawPdfFieldName || field.rawLine || field.fieldLabel,
           mappedToTemplateField: key,
           mappingStatus: 'auto',
-          source: 'acroform',
-        });
-      }
-
-      for (const field of textFields) {
-        const key = field.fieldName;
-        if (seenFieldNames.has(key)) continue;
-        seenFieldNames.add(key);
-        position++;
-
-        const pdfFieldId = `pdf_${key}_${position}`;
-        const section = field.section || 'General Information';
-
-        const parsedField: any = {
-          fieldName: key,
-          fieldType: field.fieldType,
-          fieldLabel: field.fieldLabel,
-          isRequired: field.isRequired,
-          position,
-          section,
-          pdfFieldId,
-          ...(field.defaultValue ? { defaultValue: field.defaultValue } : {}),
-          ...(field.options ? { options: field.options } : {}),
-        };
-
-        if (!sectionMap.has(section)) sectionMap.set(section, []);
-        sectionMap.get(section)!.push(parsedField);
-
-        rawFields.push({
-          pdfFieldId,
-          fieldName: key,
-          originalLabel: field.fieldLabel,
-          detectedType: field.fieldType,
-          required: field.isRequired,
-          section,
-          position,
-          rawLine: field.rawLine || field.fieldLabel,
-          mappedToTemplateField: key,
-          mappingStatus: 'auto',
-          source: 'text',
+          source,
         });
       }
 
