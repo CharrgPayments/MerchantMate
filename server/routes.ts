@@ -7517,10 +7517,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
       const { acquirerApplicationTemplates } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
-      const [template] = await dbToUse.select()
+      let [template] = await dbToUse.select()
         .from(acquirerApplicationTemplates)
         .where(eq(acquirerApplicationTemplates.id, templateId))
         .limit(1);
+
+      // If not found in session's DB, fall back to the dev database (templates are managed in dev)
+      const sessionDbEnv: string = (req.session as any)?.dbEnv || 'production';
+      const isAlreadyDevDB = sessionDbEnv === 'dev' || sessionDbEnv === 'development';
+      if (!template && !isAlreadyDevDB) {
+        const { getDynamicDatabase } = await import("./db");
+        const devDB = getDynamicDatabase('dev');
+        const [devTemplate] = await devDB.select()
+          .from(acquirerApplicationTemplates)
+          .where(eq(acquirerApplicationTemplates.id, templateId))
+          .limit(1);
+        if (devTemplate) template = devTemplate;
+      }
+
       if (!template) return res.status(404).json({ error: "Template not found" });
 
       const fieldConfig: any = template.fieldConfiguration || {};

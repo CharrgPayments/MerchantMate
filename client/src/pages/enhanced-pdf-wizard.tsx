@@ -1658,7 +1658,7 @@ export default function EnhancedPdfWizard() {
       }
     });
 
-    setValidationErrors(prev => ({ ...prev, ...errors }));
+    setValidationErrors(errors);
     return isValid;
   };
 
@@ -1688,12 +1688,22 @@ export default function EnhancedPdfWizard() {
     }
 
     if (activeError || !activeForm) {
+      const is401 = (activeError as any)?.status === 401 || (activeError as any)?.message?.includes('401');
       return (
         <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-          <div className="text-center">
-            <p className="text-red-600 mb-4">Failed to load form</p>
-            <Button onClick={() => setLocation(isTemplatePreviewMode ? '/application-templates' : '/pdf-forms')}>
-              {isTemplatePreviewMode ? 'Back to Templates' : 'Back to Forms'}
+          <div className="text-center max-w-md px-4">
+            <p className="text-red-600 font-semibold mb-2">
+              {is401 ? 'Session expired or not logged in' : 'Failed to load form'}
+            </p>
+            <p className="text-gray-500 text-sm mb-4">
+              {is401
+                ? 'Please log in and return to Application Templates to preview this form.'
+                : isTemplatePreviewMode
+                ? 'The template could not be loaded. Please return to Application Templates and try again.'
+                : 'The form could not be loaded.'}
+            </p>
+            <Button onClick={() => setLocation(is401 ? '/login' : isTemplatePreviewMode ? '/application-templates' : '/pdf-forms')}>
+              {is401 ? 'Go to Login' : isTemplatePreviewMode ? 'Back to Templates' : 'Back to Forms'}
             </Button>
           </div>
         </div>
