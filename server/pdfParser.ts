@@ -582,6 +582,21 @@ export class PDFFormParser {
 
       console.log(`AcroForm: ${rawNames.length} raw PDF fields found`);
 
+      const isProperlyNamed = (name: string): boolean => {
+        if (!name.includes('.')) return false;
+        const firstSegment = name.split('.')[0];
+        if (firstSegment === 'undefined' || firstSegment === '') return false;
+        if (/^[A-Z\s_\d]+$/.test(firstSegment)) return false;
+        if (/[a-z]/.test(firstSegment)) return true;
+        return false;
+      };
+
+      const properFields = rawNames.filter(isProperlyNamed);
+      const skippedCount = rawNames.length - properFields.length;
+      if (skippedCount > 0) {
+        console.log(`AcroForm: skipped ${skippedCount} fields without proper naming convention`);
+      }
+
       const groupedFields = new Map<string, {
         fieldId: string;
         fieldType: string;
@@ -591,7 +606,7 @@ export class PDFFormParser {
         section: string;
       }>();
 
-      for (const rawName of rawNames) {
+      for (const rawName of properFields) {
         const radioMatch = rawName.match(/^(.+?)\.radio\.(.+)$/);
         if (radioMatch) {
           const groupId = radioMatch[1];
@@ -700,7 +715,7 @@ export class PDFFormParser {
         });
       }
 
-      console.log(`AcroForm: grouped ${rawNames.length} raw fields into ${results.length} logical fields`);
+      console.log(`AcroForm: grouped ${properFields.length} properly-named fields into ${results.length} logical fields (${skippedCount} unnamed/legacy fields skipped)`);
       return results;
     } catch (error) {
       console.error('AcroForm extraction error (non-fatal):', error);
