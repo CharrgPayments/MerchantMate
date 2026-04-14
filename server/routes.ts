@@ -2915,12 +2915,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "No form data available" });
       }
 
-      // Generate PDF document
+      // Try to serve the pre-generated filled PDF first
+      try {
+        const { prospectApplications } = await import("@shared/schema");
+        const { eq } = await import("drizzle-orm");
+        const { getDynamicDatabase } = await import('./db');
+        const devDb = getDynamicDatabase('development');
+        const [prospectApp] = await devDb.select().from(prospectApplications)
+          .where(eq(prospectApplications.prospectId, prospectId)).limit(1);
+
+        if (prospectApp?.generatedPdfPath) {
+          const fs = await import('fs');
+          const pathMod = await import('path');
+          const fullPath = pathMod.default.join(process.cwd(), prospectApp.generatedPdfPath);
+          if (fs.existsSync(fullPath)) {
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `attachment; filename="${prospect.firstName}_${prospect.lastName}_Application.pdf"`);
+            const fileStream = fs.createReadStream(fullPath);
+            return fileStream.pipe(res);
+          }
+        }
+      } catch (filledPdfError) {
+        console.error('Filled PDF lookup failed, falling back to generated:', filledPdfError);
+      }
+
+      // Fall back to generating a fresh PDF
       try {
         const { pdfGenerator } = await import('./pdfGenerator');
         const pdfBuffer = await pdfGenerator.generateApplicationPDF(prospect, formData);
         
-        // Set headers for PDF download
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${prospect.firstName}_${prospect.lastName}_Application_${new Date().toLocaleDateString().replace(/\//g, '_')}.pdf"`);
         res.send(pdfBuffer);
@@ -3032,12 +3055,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Generate PDF document
       let pdfBuffer: Buffer | undefined;
+      let generatedPdfPath: string | undefined;
       try {
         const { pdfGenerator } = await import('./pdfGenerator');
-        pdfBuffer = await pdfGenerator.generateApplicationPDF(updatedProspect, formData);
+        const fs = await import('fs');
+        const path = await import('path');
+
+        // Check if prospect has an acquirer template-based application with original PDF
+        let filledFromTemplate = false;
+        try {
+          const { prospectApplications, acquirerApplicationTemplates } = await import("@shared/schema");
+          const { eq } = await import("drizzle-orm");
+          const { getDynamicDatabase } = await import('./db');
+          const devDb = getDynamicDatabase('development');
+          if (devDb) {
+            const [prospectApp] = await devDb.select().from(prospectApplications)
+              .where(eq(prospectApplications.prospectId, prospectId)).limit(1);
+            if (prospectApp) {
+              const [template] = await devDb.select().from(acquirerApplicationTemplates)
+                .where(eq(acquirerApplicationTemplates.id, prospectApp.templateId)).limit(1);
+              if (template?.originalPdfBase64) {
+                console.log(`Generating filled PDF from template "${template.templateName}" for prospect ${prospectId}`);
+                pdfBuffer = await pdfGenerator.generateFilledPDF(
+                  template.originalPdfBase64,
+                  { ...formData, ...(prospectApp.applicationData as Record<string, any> || {}) },
+                  template.fieldConfiguration,
+                  Array.isArray(template.pdfMappingConfiguration) ? template.pdfMappingConfiguration as any[] : []
+                );
+                filledFromTemplate = true;
+
+                // Save filled PDF to disk
+                const uploadsDir = path.default.join(process.cwd(), 'uploads', 'generated-pdfs');
+                if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+                const safeCompany = (formData.companyName || 'application').replace(/[^a-zA-Z0-9_-]/g, '_');
+                const fileName = `${safeCompany}_${prospectId}_${Date.now()}.pdf`;
+                const filePath = path.default.join(uploadsDir, fileName);
+                fs.writeFileSync(filePath, pdfBuffer);
+                generatedPdfPath = `uploads/generated-pdfs/${fileName}`;
+
+                // Update prospect_applications record with the generated PDF path
+                await devDb.update(prospectApplications).set({
+                  generatedPdfPath,
+                  status: 'submitted',
+                  submittedAt: new Date(),
+                  applicationData: { ...formData, ...(prospectApp.applicationData as Record<string, any> || {}) },
+                  updatedAt: new Date()
+                }).where(eq(prospectApplications.id, prospectApp.id));
+
+                console.log(`Filled PDF saved to ${generatedPdfPath}`);
+              }
+            }
+          }
+        } catch (templateError) {
+          console.error('Template-based PDF generation failed, falling back to standard:', templateError);
+        }
+
+        if (!filledFromTemplate) {
+          pdfBuffer = await pdfGenerator.generateApplicationPDF(updatedProspect, formData);
+        }
       } catch (pdfError) {
         console.error('PDF generation failed:', pdfError);
-        // Continue without PDF - don't fail the submission
       }
 
       // Send notification emails
@@ -3059,15 +3136,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }, pdfBuffer);
       } catch (emailError) {
         console.error('Email notification failed:', emailError);
-        // Continue without email - don't fail the submission
       }
 
-      console.log(`Application submitted for prospect ${prospectId}`);
+      console.log(`Application submitted for prospect ${prospectId}${generatedPdfPath ? ` (PDF: ${generatedPdfPath})` : ''}`);
       res.json({ 
         success: true, 
         message: "Application submitted successfully",
         prospect: updatedProspect,
-        statusUrl: `/application-status/${prospect.validationToken}`
+        statusUrl: `/application-status/${prospect.validationToken}`,
+        generatedPdfPath: generatedPdfPath || undefined
       });
     } catch (error) {
       console.error("Error submitting prospect application:", error);
@@ -3087,9 +3164,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get agent information
       const agent = await storage.getAgent(prospect.agentId);
+
+      // Check for generated PDF in prospect_applications
+      let hasGeneratedPdf = false;
+      try {
+        const { prospectApplications } = await import("@shared/schema");
+        const { eq } = await import("drizzle-orm");
+        const { getDynamicDatabase } = await import('./db');
+        const devDb = getDynamicDatabase('development');
+        const [prospectApp] = await devDb.select().from(prospectApplications)
+          .where(eq(prospectApplications.prospectId, prospect.id)).limit(1);
+        if (prospectApp?.generatedPdfPath) {
+          hasGeneratedPdf = true;
+        }
+      } catch {}
       
       const response = {
         ...prospect,
+        hasGeneratedPdf,
         agent: agent ? {
           firstName: agent.firstName,
           lastName: agent.lastName,
@@ -3101,6 +3193,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching application status:", error);
       res.status(500).json({ message: "Failed to fetch application status" });
+    }
+  });
+
+  // Download generated filled PDF by prospect token
+  app.get("/api/prospects/download-filled-pdf/:token", async (req, res) => {
+    try {
+      const { token } = req.params;
+      const prospect = await storage.getMerchantProspectByToken(token);
+      if (!prospect) {
+        return res.status(404).json({ message: "Application not found" });
+      }
+
+      if (prospect.status !== 'submitted' && prospect.status !== 'applied' && prospect.status !== 'approved') {
+        return res.status(400).json({ message: "PDF only available for submitted applications" });
+      }
+
+      const { prospectApplications } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const { getDynamicDatabase } = await import('./db');
+      const devDb = getDynamicDatabase('development');
+      const [prospectApp] = await devDb.select().from(prospectApplications)
+        .where(eq(prospectApplications.prospectId, prospect.id)).limit(1);
+
+      if (!prospectApp?.generatedPdfPath) {
+        return res.status(404).json({ message: "No generated PDF available. The application may not have been processed with a template." });
+      }
+
+      const fs = await import('fs');
+      const path = await import('path');
+      const fullPath = path.default.join(process.cwd(), prospectApp.generatedPdfPath);
+      if (!fs.existsSync(fullPath)) {
+        return res.status(404).json({ message: "Generated PDF file not found on disk" });
+      }
+
+      const safeCompany = (prospect.companyName || `${prospect.firstName}_${prospect.lastName}`).replace(/[^a-zA-Z0-9_-]/g, '_');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeCompany}_Application.pdf"`);
+      const fileStream = fs.createReadStream(fullPath);
+      fileStream.pipe(res);
+    } catch (error) {
+      console.error("Error downloading filled PDF:", error);
+      res.status(500).json({ message: "Failed to download PDF" });
     }
   });
 

@@ -1,5 +1,5 @@
 import { useRoute } from 'wouter';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -206,6 +206,16 @@ export default function ApplicationStatus() {
                   <p className="text-green-800">
                     Congratulations! Your application has been approved. We'll be in touch with next steps.
                   </p>
+                )}
+                {prospect.hasGeneratedPdf && (prospect.status === 'submitted' || prospect.status === 'applied' || prospect.status === 'approved') && (
+                  <div className="mt-4 pt-4 border-t border-blue-200">
+                    <a href={`/api/prospects/download-filled-pdf/${token}`} target="_blank" rel="noopener noreferrer">
+                      <Button variant="outline" className="w-full">
+                        <Download className="w-4 h-4 mr-2" />
+                        Download Application PDF
+                      </Button>
+                    </a>
+                  </div>
                 )}
                 {prospect.status === 'rejected' && (
                   <p className="text-red-800">
