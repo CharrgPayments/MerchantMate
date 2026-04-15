@@ -1162,8 +1162,10 @@ function EditTemplateDialog({
 }
 
 interface ParseWarning {
-  fieldName: string;
+  fieldName?: string;
+  field?: string;
   issue: string;
+  message?: string;
   severity: 'error' | 'warning' | 'info';
   suggestion?: string;
 }
@@ -1274,11 +1276,14 @@ function ParseResultPanel({
                   {w.severity === 'warning' && <AlertTriangle className="h-3 w-3 text-amber-500 mt-0.5 shrink-0" />}
                   {w.severity === 'info' && <Info className="h-3 w-3 text-blue-500 mt-0.5 shrink-0" />}
                   <div>
-                    <span className="font-mono">{w.fieldName}</span>
+                    <span className="font-mono bg-black/5 px-1 rounded">{w.fieldName || (w as any).field}</span>
                     <span className="mx-1">—</span>
-                    <span>{w.issue.replace(/_/g, ' ')}</span>
+                    <span>{(w as any).message || w.issue.replace(/_/g, ' ')}</span>
                     {w.suggestion && (
-                      <span className="block text-muted-foreground mt-0.5">Suggestion: {w.suggestion}</span>
+                      <div className="mt-1 pl-3 border-l-2 border-green-400/50 text-green-800 dark:text-green-300">
+                        <span className="font-medium">Fix: </span>
+                        {w.suggestion}
+                      </div>
                     )}
                   </div>
                 </div>

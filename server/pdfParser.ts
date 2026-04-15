@@ -38,6 +38,7 @@ export interface ParseWarning {
   issue: 'no_dot_notation' | 'all_caps' | 'unknown_section' | 'empty_name' | 'duplicate' | 'no_type_detected' | 'unnamed_field';
   message: string;
   severity: 'error' | 'warning' | 'info';
+  suggestion?: string;
 }
 
 export interface ParseResult {
@@ -249,18 +250,97 @@ function isProperlyNamed(name: string): boolean {
   return false;
 }
 
+function toCamelCase(str: string): string {
+  return str
+    .replace(/[\s_-]+(.)/g, (_, c) => c.toUpperCase())
+    .replace(/^[A-Z]/, c => c.toLowerCase());
+}
+
+function guessSection(name: string): string {
+  const lower = name.toLowerCase().replace(/[\s_-]+/g, '');
+  if (/bank|routing|aba|account/i.test(lower)) return 'bankInformation';
+  if (/owner|principal|signer|officer|guarantor|partner/i.test(lower)) return 'owners';
+  if (/transaction|volume|ticket|swiped|keyed|internet|moto/i.test(lower)) return 'transactionInformation';
+  if (/equip|terminal|device|gateway|pos/i.test(lower)) return 'equipment';
+  if (/pric|fee|rate|discount|markup|interchange/i.test(lower)) return 'pricing';
+  if (/agent|rep|sales|iso/i.test(lower)) return 'agent';
+  if (/contact|phone|fax|mobile/i.test(lower)) return 'contact';
+  if (/billing/i.test(lower)) return 'billing';
+  if (/shipping/i.test(lower)) return 'shipping';
+  return 'merchant';
+}
+
+function suggestFieldName(rawName: string): string {
+  const cleaned = rawName
+    .replace(/^(TEXT|FIELD|INPUT|CHK|CB|RB|COMBO|DROPDOWN|EDIT|BTN|BUTTON|LBL|LABEL|TXT|FLD|NUM)\s*/i, '')
+    .replace(/[\[\](){}#]/g, '')
+    .replace(/^\d+\s*[-_.]\s*/, '')
+    .trim();
+
+  if (!cleaned) return 'merchant.fieldName';
+
+  const words = cleaned
+    .replace(/([a-z])([A-Z])/g, '$1_$2')
+    .replace(/[^a-zA-Z0-9]/g, '_')
+    .split('_')
+    .filter(w => w.length > 0);
+
+  if (words.length === 0) return 'merchant.fieldName';
+
+  const fieldPart = words.map((w, i) => 
+    i === 0 ? w.toLowerCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+  ).join('');
+
+  const section = guessSection(cleaned);
+  return `${section}.${fieldPart}`;
+}
+
 function classifySkippedField(name: string): ParseWarning {
   if (!name || name.trim() === '') {
-    return { field: name || '(empty)', issue: 'empty_name', message: 'Field has no name', severity: 'warning' };
+    return {
+      field: name || '(empty)',
+      issue: 'empty_name',
+      message: 'Field has no name. It cannot be parsed.',
+      severity: 'warning',
+      suggestion: 'Give this field a name in your PDF editor using dot notation, e.g. merchant.legalBusinessName',
+    };
   }
+
+  const suggested = suggestFieldName(name);
+
   if (!name.includes('.')) {
-    return { field: name, issue: 'no_dot_notation', message: `Field "${name}" does not use dot notation (e.g., merchant.fieldName). It will be skipped.`, severity: 'warning' };
+    const detectedType = inferFieldTypeFromName(suggested);
+    return {
+      field: name,
+      issue: 'no_dot_notation',
+      message: `Field "${name}" is missing dot notation (section.fieldName). It was skipped.`,
+      severity: 'warning',
+      suggestion: `Rename to "${suggested}" in your PDF editor. This will be detected as type "${detectedType}" in the "${guessSection(name)}" section.`,
+    };
   }
+
   const firstSegment = name.split('.')[0];
   if (/^[A-Z\s_\d]+$/.test(firstSegment)) {
-    return { field: name, issue: 'all_caps', message: `Field "${name}" uses ALL CAPS section prefix "${firstSegment}". Use camelCase (e.g., "${firstSegment.charAt(0).toLowerCase() + firstSegment.slice(1).toLowerCase()}").`, severity: 'warning' };
+    const camelSection = toCamelCase(firstSegment);
+    const knownSection = SECTION_MAP[camelSection] ? camelSection : guessSection(firstSegment);
+    const rest = name.split('.').slice(1).join('.');
+    const fixedName = `${knownSection}.${rest}`;
+    return {
+      field: name,
+      issue: 'all_caps',
+      message: `Section prefix "${firstSegment}" is ALL CAPS. The parser expects camelCase.`,
+      severity: 'warning',
+      suggestion: `Rename to "${fixedName}" in your PDF editor. Section "${knownSection}" maps to "${SECTION_MAP[knownSection] || humanizeFieldName(knownSection)}".`,
+    };
   }
-  return { field: name, issue: 'unnamed_field', message: `Field "${name}" could not be classified.`, severity: 'info' };
+
+  return {
+    field: name,
+    issue: 'unnamed_field',
+    message: `Field "${name}" could not be classified.`,
+    severity: 'info',
+    suggestion: `Try renaming to "${suggested}" in your PDF editor.`,
+  };
 }
 
 interface GroupedField {
@@ -781,6 +861,8 @@ export {
   isProperlyNamed,
   classifySkippedField,
   groupAcroFormFields,
+  suggestFieldName,
+  guessSection,
   SECTION_MAP,
   FIELD_TYPE_RULES,
 };

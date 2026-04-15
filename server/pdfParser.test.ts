@@ -5,6 +5,8 @@ import {
   isProperlyNamed,
   classifySkippedField,
   groupAcroFormFields,
+  suggestFieldName,
+  guessSection,
   SECTION_MAP,
 } from './pdfParser';
 
@@ -279,6 +281,87 @@ test('SECTION_MAP has all expected entries', () => {
   assert('transactionInformation' in SECTION_MAP, 'transactionInformation in map');
   assert('agent' in SECTION_MAP, 'agent in map');
   assert('creditDebitAuth' in SECTION_MAP, 'creditDebitAuth in map');
+});
+
+test('guessSection - infers correct section from field content', () => {
+  assert(guessSection('BankRoutingNumber') === 'bankInformation', 'bank routing → bankInformation');
+  assert(guessSection('AccountNumber') === 'bankInformation', 'account → bankInformation');
+  assert(guessSection('OwnerName') === 'owners', 'owner → owners');
+  assert(guessSection('PrincipalAddress') === 'owners', 'principal → owners');
+  assert(guessSection('TransactionVolume') === 'transactionInformation', 'transaction → transactionInformation');
+  assert(guessSection('AverageTicket') === 'transactionInformation', 'ticket → transactionInformation');
+  assert(guessSection('TerminalType') === 'equipment', 'terminal → equipment');
+  assert(guessSection('GatewayID') === 'equipment', 'gateway → equipment');
+  assert(guessSection('DiscountRate') === 'pricing', 'discount → pricing');
+  assert(guessSection('MonthlyFee') === 'pricing', 'fee → pricing');
+  assert(guessSection('SalesRepName') === 'agent', 'sales rep → agent');
+  assert(guessSection('LegalBusinessName') === 'merchant', 'general → merchant fallback');
+  assert(guessSection('CompanyEmail') === 'merchant', 'company → merchant fallback');
+});
+
+test('suggestFieldName - generates proper dot-notation suggestions', () => {
+  const r1 = suggestFieldName('LegalBusinessName');
+  assert(r1.includes('.'), 'has dot notation');
+  assert(r1 === 'merchant.legalBusinessName', `LegalBusinessName → ${r1}`);
+
+  const r2 = suggestFieldName('BankRoutingNumber');
+  assert(r2 === 'bankInformation.bankRoutingNumber', `BankRoutingNumber → ${r2}`);
+
+  const r3 = suggestFieldName('OwnerSSN');
+  assert(r3.startsWith('owners.'), `OwnerSSN starts with owners. → ${r3}`);
+
+  const r4 = suggestFieldName('AverageTicket');
+  assert(r4.startsWith('transactionInformation.'), `AverageTicket starts with transactionInformation. → ${r4}`);
+
+  const r5 = suggestFieldName('TerminalType');
+  assert(r5.startsWith('equipment.'), `TerminalType starts with equipment. → ${r5}`);
+
+  const r6 = suggestFieldName('DiscountRate');
+  assert(r6.startsWith('pricing.'), `DiscountRate starts with pricing. → ${r6}`);
+});
+
+test('suggestFieldName - handles messy PDF tool names', () => {
+  const r1 = suggestFieldName('TEXT1');
+  assert(r1.includes('.'), 'TEXT1 gets dot notation');
+
+  const r2 = suggestFieldName('FIELD_BUSINESS_NAME');
+  assert(r2.includes('.'), 'FIELD_BUSINESS_NAME gets dot notation');
+
+  const r3 = suggestFieldName('TXT_Owner_SSN');
+  assert(r3.startsWith('owners.'), `TXT_Owner_SSN → owners section: ${r3}`);
+
+  const r4 = suggestFieldName('');
+  assert(r4 === 'merchant.fieldName', 'empty → merchant.fieldName');
+});
+
+test('classifySkippedField - includes actionable suggestions', () => {
+  const noDot = classifySkippedField('LegalBusinessName');
+  assert(noDot.suggestion !== undefined, 'no_dot has suggestion');
+  assert(noDot.suggestion!.includes('Rename to'), 'suggestion says Rename to');
+  assert(noDot.suggestion!.includes('merchant.legalBusinessName'), `suggestion includes proper name: ${noDot.suggestion}`);
+
+  const allCaps = classifySkippedField('MERCHANT.businessName');
+  assert(allCaps.suggestion !== undefined, 'all_caps has suggestion');
+  assert(allCaps.suggestion!.includes('Rename to'), 'all_caps suggestion says Rename to');
+  assert(allCaps.suggestion!.includes('merchant.businessName'), `all_caps fix: ${allCaps.suggestion}`);
+
+  const empty = classifySkippedField('');
+  assert(empty.suggestion !== undefined, 'empty has suggestion');
+  assert(empty.suggestion!.includes('dot notation'), 'empty suggestion mentions dot notation');
+
+  const bankField = classifySkippedField('RoutingNumber');
+  assert(bankField.suggestion!.includes('bankInformation'), `bank field suggestion: ${bankField.suggestion}`);
+
+  const ownerField = classifySkippedField('PrincipalName');
+  assert(ownerField.suggestion!.includes('owners'), `owner field suggestion: ${ownerField.suggestion}`);
+});
+
+test('classifySkippedField - suggestions include detected type', () => {
+  const emailField = classifySkippedField('CompanyEmail');
+  assert(emailField.suggestion!.includes('email'), `email type detected: ${emailField.suggestion}`);
+
+  const phoneField = classifySkippedField('BusinessPhone');
+  assert(phoneField.suggestion!.includes('phone'), `phone type detected: ${phoneField.suggestion}`);
 });
 
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===\n`);
