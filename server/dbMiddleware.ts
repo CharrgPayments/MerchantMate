@@ -10,31 +10,41 @@ export interface RequestWithDB extends Request {
 }
 
 /**
- * Middleware to extract database environment from URL and attach dynamic database connection
+ * Returns true only for the canonical production domain (crm.charrg.com).
+ * test-crm.charrg.com, *.replit.app and localhost are NOT locked to production.
+ */
+function isHardProductionDomain(req: RequestWithDB): boolean {
+  const host = req.get('host') || '';
+  // Exact match — only the live production URL is locked
+  return host === 'crm.charrg.com' || host === 'www.crm.charrg.com';
+}
+
+/**
+ * Middleware to extract database environment from URL and attach dynamic database connection.
+ *
+ * Priority order:
+ *   1. Hard-locked production domain (crm.charrg.com) → always production, no override
+ *   2. Session value (user explicitly chose at login — wins on all other domains)
+ *   3. Query-param / header (unauthenticated flows, e.g. portal login ?db=dev)
+ *   4. Fallback: production
  */
 export const dbEnvironmentMiddleware = (req: RequestWithDB, res: Response, next: NextFunction) => {
-  // Set userId from authentication context if available
   if (!req.userId && req.user?.id) {
     req.userId = req.user.id;
   }
-  
-  // Check if we're in a production deployment environment (Replit production domain)
-  const isProductionDomain = req.get('host')?.includes('.replit.app') || 
-                            req.get('host')?.includes('charrg.com') ||
-                            process.env.NODE_ENV === 'production';
-  
-  if (isProductionDomain) {
-    // Force production database for production deployments
+
+  // 1. crm.charrg.com is always production — no session or param can override this
+  if (isHardProductionDomain(req)) {
     req.dbEnv = 'production';
     req.dynamicDB = getDynamicDatabase('production');
     req.db = req.dynamicDB;
     res.setHeader('X-Database-Environment', 'production');
-    console.log('Production deployment: forcing production database');
+    console.log('Production domain (crm.charrg.com): using production database');
     next();
     return;
   }
-  
-  // First check if there's a stored database environment in session
+
+  // 2. Session value wins on all other domains (test-crm.charrg.com, *.replit.app, localhost)
   const sessionDbEnv = (req.session as any)?.dbEnv;
   if (sessionDbEnv && ['test', 'development', 'dev', 'production'].includes(sessionDbEnv)) {
     req.dbEnv = sessionDbEnv;
@@ -45,25 +55,25 @@ export const dbEnvironmentMiddleware = (req: RequestWithDB, res: Response, next:
     next();
     return;
   }
-  
-  // Extract database environment from URL parameters, headers, or subdomain
-  const dbEnv = extractDbEnv(req);
-  
-  if (dbEnv && ['test', 'development', 'dev'].includes(dbEnv)) {
-    req.dbEnv = dbEnv;
-    req.dynamicDB = getDynamicDatabase(dbEnv);
+
+  // 3. Explicit query-param or header (e.g. ?db=dev before session is established)
+  const paramDbEnv = extractDbEnv(req);
+  if (paramDbEnv && ['test', 'development', 'dev'].includes(paramDbEnv)) {
+    req.dbEnv = paramDbEnv;
+    req.dynamicDB = getDynamicDatabase(paramDbEnv);
     req.db = req.dynamicDB;
-    res.setHeader('X-Database-Environment', dbEnv);
-    console.log(`Database switching: using ${dbEnv} database`);
-  } else {
-    // Use default production database
-    req.dbEnv = 'production';
-    req.dynamicDB = getDynamicDatabase('production');
-    req.db = req.dynamicDB;
-    res.setHeader('X-Database-Environment', 'production');
-    console.log('Using default production database');
+    res.setHeader('X-Database-Environment', paramDbEnv);
+    console.log(`Database switching: using ${paramDbEnv} database from query/header`);
+    next();
+    return;
   }
-  
+
+  // 4. Fallback: production
+  req.dbEnv = 'production';
+  req.dynamicDB = getDynamicDatabase('production');
+  req.db = req.dynamicDB;
+  res.setHeader('X-Database-Environment', 'production');
+  console.log('Using default production database');
   next();
 };
 
@@ -75,36 +85,10 @@ export const getRequestDB = (req: RequestWithDB) => {
 };
 
 /**
- * Middleware specifically for admin routes that allows database switching for super_admin users
+ * Middleware specifically for admin routes.
+ * Same priority rules as dbEnvironmentMiddleware — always delegates to it.
+ * crm.charrg.com is still locked to production; all other domains respect session.
  */
 export const adminDbMiddleware = (req: RequestWithDB, res: Response, next: NextFunction) => {
-  // Check if we're in a production deployment environment
-  const isProductionDomain = req.get('host')?.includes('.replit.app') || 
-                            req.get('host')?.includes('charrg.com') ||
-                            process.env.NODE_ENV === 'production';
-  
-  if (isProductionDomain) {
-    // Force production database for production deployments
-    req.dbEnv = 'production';
-    req.dynamicDB = getDynamicDatabase('production');
-    res.setHeader('X-Database-Environment', 'production');
-    console.log('Admin middleware: production deployment - forcing production database');
-    next();
-    return;
-  }
-  
-  // In development, allow database switching for super_admin users
-  const currentUser = (req as any).currentUser;
-  
-  if (currentUser?.role === 'super_admin') {
-    // Allow database switching for super_admin users
-    dbEnvironmentMiddleware(req, res, next);
-  } else {
-    // Regular users always use production database
-    req.dbEnv = 'production';
-    req.dynamicDB = getDynamicDatabase('production');
-    res.setHeader('X-Database-Environment', 'production');
-    console.log('Admin middleware: non-super_admin user - using production database');
-    next();
-  }
+  dbEnvironmentMiddleware(req, res, next);
 };
