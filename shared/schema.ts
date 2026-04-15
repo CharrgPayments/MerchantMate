@@ -75,9 +75,51 @@ export const merchantProspects = pgTable("merchant_prospects", {
   formData: text("form_data"), // JSON string of form data for resuming applications
   currentStep: integer("current_step").default(0), // Current step in the application form
   notes: text("notes"),
+  // Prospect portal account
+  portalPasswordHash: text("portal_password_hash"),
+  portalSetupAt: timestamp("portal_setup_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// Prospect portal messaging (matches existing prospect_messages table)
+export const prospectMessages = pgTable("prospect_messages", {
+  id: serial("id").primaryKey(),
+  prospectId: integer("prospect_id").notNull().references(() => merchantProspects.id, { onDelete: 'cascade' }),
+  agentId: integer("agent_id"),
+  senderId: varchar("sender_id").notNull(), // userId or prospect email
+  senderType: text("sender_type").notNull(), // "prospect" | "agent"
+  subject: text("subject").notNull().default(""),
+  message: text("message").notNull(),
+  isRead: boolean("is_read").notNull().default(false),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertProspectMessageSchema = createInsertSchema(prospectMessages).omit({ id: true, createdAt: true });
+export type InsertProspectMessage = z.infer<typeof insertProspectMessageSchema>;
+export type ProspectMessage = typeof prospectMessages.$inferSelect;
+
+// Prospect file requests — includes inline file storage (base64) since object storage is not configured
+export const prospectFileRequests = pgTable("prospect_file_requests", {
+  id: serial("id").primaryKey(),
+  prospectId: integer("prospect_id").notNull().references(() => merchantProspects.id, { onDelete: 'cascade' }),
+  label: text("label").notNull(), // e.g. "Voided Check", "Driver's License"
+  description: text("description"),
+  required: boolean("required").notNull().default(true),
+  status: text("status").notNull().default("pending"), // pending, uploaded, approved, rejected
+  // Uploaded file (stored inline as base64 since object storage is not yet configured)
+  fileName: text("file_name"),
+  mimeType: text("mime_type"),
+  fileData: text("file_data"), // base64 encoded content
+  uploadedBy: varchar("uploaded_by"), // prospect email
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  fulfilledAt: timestamp("fulfilled_at"),
+});
+
+export const insertProspectFileRequestSchema = createInsertSchema(prospectFileRequests).omit({ id: true, createdAt: true });
+export type InsertProspectFileRequest = z.infer<typeof insertProspectFileRequestSchema>;
+export type ProspectFileRequest = typeof prospectFileRequests.$inferSelect;
 
 export const transactions = pgTable("transactions", {
   id: serial("id").primaryKey(),

@@ -1,10 +1,16 @@
-import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState, useRef } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRoute } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useToast } from '@/hooks/use-toast';
+import { apiRequest } from '@/lib/queryClient';
 import { 
   ArrowLeft,
   Building2,
@@ -20,7 +26,14 @@ import {
   Download,
   XCircle,
   Clock,
-  AlertCircle
+  AlertCircle,
+  MessageSquare,
+  FolderOpen,
+  Send,
+  Plus,
+  Trash2,
+  Upload,
+  Shield
 } from 'lucide-react';
 import { Link } from 'wouter';
 
@@ -83,6 +96,74 @@ export default function ApplicationView() {
     },
     enabled: !!prospectId,
   });
+
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [messageBody, setMessageBody] = useState("");
+  const [newRequestLabel, setNewRequestLabel] = useState("");
+  const [newRequestDesc, setNewRequestDesc] = useState("");
+  const [showNewRequest, setShowNewRequest] = useState(false);
+
+  const { data: messagesData } = useQuery<{ messages: any[] }>({
+    queryKey: ['/api/prospects', prospectId, 'messages'],
+    queryFn: async () => {
+      const r = await fetch(`/api/prospects/${prospectId}/messages`);
+      if (!r.ok) return { messages: [] };
+      return r.json();
+    },
+    staleTime: 0,
+    enabled: !!prospectId,
+  });
+
+  const { data: fileRequestsData } = useQuery<{ fileRequests: any[] }>({
+    queryKey: ['/api/prospects', prospectId, 'file-requests'],
+    queryFn: async () => {
+      const r = await fetch(`/api/prospects/${prospectId}/file-requests`);
+      if (!r.ok) return { fileRequests: [] };
+      return r.json();
+    },
+    staleTime: 0,
+    enabled: !!prospectId,
+  });
+
+  const sendMessageMutation = useMutation({
+    mutationFn: async () => apiRequest('POST', `/api/prospects/${prospectId}/messages`, { message: messageBody }),
+    onSuccess: () => {
+      setMessageBody("");
+      queryClient.invalidateQueries({ queryKey: ['/api/prospects', prospectId, 'messages'] });
+      toast({ title: "Message sent" });
+    },
+    onError: () => toast({ title: "Failed to send message", variant: "destructive" }),
+  });
+
+  const createFileRequestMutation = useMutation({
+    mutationFn: async () => apiRequest('POST', `/api/prospects/${prospectId}/file-requests`, { label: newRequestLabel, description: newRequestDesc }),
+    onSuccess: () => {
+      setNewRequestLabel("");
+      setNewRequestDesc("");
+      setShowNewRequest(false);
+      queryClient.invalidateQueries({ queryKey: ['/api/prospects', prospectId, 'file-requests'] });
+      toast({ title: "File request created" });
+    },
+    onError: () => toast({ title: "Failed to create request", variant: "destructive" }),
+  });
+
+  const deleteFileRequestMutation = useMutation({
+    mutationFn: async (frId: number) => apiRequest('DELETE', `/api/prospects/${prospectId}/file-requests/${frId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/prospects', prospectId, 'file-requests'] });
+      toast({ title: "Request deleted" });
+    },
+  });
+
+  const updateFileRequestMutation = useMutation({
+    mutationFn: async ({ frId, status }: { frId: number; status: string }) =>
+      apiRequest('PATCH', `/api/prospects/${prospectId}/file-requests/${frId}`, { status }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/prospects', prospectId, 'file-requests'] }),
+  });
+
+  const messages = messagesData?.messages ?? [];
+  const fileRequests = fileRequestsData?.fileRequests ?? [];
 
   if (isLoading) {
     return (
@@ -578,6 +659,175 @@ export default function ApplicationView() {
             </CardContent>
           </Card>
         )}
+
+        {/* ── Portal Communication ── */}
+        <div className="mt-8">
+          <div className="flex items-center gap-2 mb-4">
+            <Shield className="w-5 h-5 text-blue-600" />
+            <h2 className="text-lg font-semibold text-gray-900">Applicant Portal</h2>
+            {messages.filter((m: any) => m.senderType === "prospect" && !m.isRead).length > 0 && (
+              <Badge variant="destructive" className="text-xs">
+                {messages.filter((m: any) => m.senderType === "prospect" && !m.isRead).length} unread
+              </Badge>
+            )}
+          </div>
+
+          <Tabs defaultValue="messages">
+            <TabsList>
+              <TabsTrigger value="messages">
+                <MessageSquare className="w-4 h-4 mr-1.5" />
+                Messages ({messages.length})
+              </TabsTrigger>
+              <TabsTrigger value="files">
+                <FolderOpen className="w-4 h-4 mr-1.5" />
+                Document Requests ({fileRequests.length})
+              </TabsTrigger>
+            </TabsList>
+
+            {/* Messages Tab */}
+            <TabsContent value="messages" className="mt-4 space-y-4">
+              {/* Compose */}
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <Label className="text-sm font-medium">Send message to applicant</Label>
+                  <Textarea
+                    placeholder="Type your message..."
+                    value={messageBody}
+                    onChange={(e) => setMessageBody(e.target.value)}
+                    rows={3}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => sendMessageMutation.mutate()}
+                    disabled={sendMessageMutation.isPending || !messageBody.trim()}
+                  >
+                    <Send className="w-3.5 h-3.5 mr-1.5" />
+                    {sendMessageMutation.isPending ? "Sending..." : "Send"}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* Thread */}
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {messages.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400">
+                    <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">No messages yet</p>
+                  </div>
+                ) : (
+                  messages.map((msg: any) => (
+                    <div key={msg.id} className={`flex ${msg.senderType === "agent" ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+                        msg.senderType === "agent"
+                          ? "bg-blue-600 text-white rounded-br-sm"
+                          : "bg-white border border-gray-200 text-gray-900 rounded-bl-sm"
+                      }`}>
+                        <p className={`text-xs font-medium mb-1 ${msg.senderType === "agent" ? "text-blue-100" : "text-gray-500"}`}>
+                          {msg.senderType === "agent" ? "You (Agent)" : "Applicant"}
+                        </p>
+                        <p className="text-sm leading-relaxed">{msg.message}</p>
+                        <p className={`text-xs mt-1.5 ${msg.senderType === "agent" ? "text-blue-200" : "text-gray-400"}`}>
+                          {new Date(msg.createdAt).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </TabsContent>
+
+            {/* File Requests Tab */}
+            <TabsContent value="files" className="mt-4 space-y-4">
+              {/* New request form */}
+              {showNewRequest ? (
+                <Card>
+                  <CardContent className="p-4 space-y-3">
+                    <Label className="font-medium">New Document Request</Label>
+                    <div className="space-y-2">
+                      <Input
+                        placeholder="Document name (e.g. Voided Check, Driver's License)"
+                        value={newRequestLabel}
+                        onChange={(e) => setNewRequestLabel(e.target.value)}
+                      />
+                      <Input
+                        placeholder="Description or instructions (optional)"
+                        value={newRequestDesc}
+                        onChange={(e) => setNewRequestDesc(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button type="button" size="sm" onClick={() => createFileRequestMutation.mutate()} disabled={!newRequestLabel.trim() || createFileRequestMutation.isPending}>
+                        {createFileRequestMutation.isPending ? "Creating..." : "Create Request"}
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => setShowNewRequest(false)}>Cancel</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Button type="button" variant="outline" size="sm" onClick={() => setShowNewRequest(true)}>
+                  <Plus className="w-3.5 h-3.5 mr-1.5" />
+                  Request a Document
+                </Button>
+              )}
+
+              {/* List */}
+              {fileRequests.length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <FolderOpen className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No document requests yet</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {fileRequests.map((fr: any) => (
+                    <Card key={fr.id} className={fr.status === "uploaded" ? "border-green-200 bg-green-50/30" : ""}>
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium text-sm">{fr.label}</span>
+                              <Badge className={`text-xs ${
+                                fr.status === "uploaded" || fr.status === "approved" ? "bg-green-100 text-green-800" :
+                                fr.status === "rejected" ? "bg-red-100 text-red-800" : "bg-yellow-100 text-yellow-800"
+                              }`}>{fr.status}</Badge>
+                            </div>
+                            {fr.description && <p className="text-xs text-gray-500 mt-0.5">{fr.description}</p>}
+                            {fr.fileName && (
+                              <div className="flex items-center gap-2 mt-2">
+                                <span className="text-xs text-gray-500 flex items-center gap-1">
+                                  <FileText className="w-3 h-3" />{fr.fileName}
+                                </span>
+                                <a href={`/api/prospects/${prospectId}/file-requests/${fr.id}/download`} target="_blank" rel="noopener noreferrer">
+                                  <Button type="button" variant="outline" size="sm" className="h-6 px-2 text-xs">
+                                    <Download className="w-3 h-3 mr-1" />Download
+                                  </Button>
+                                </a>
+                                <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-xs text-green-700 border-green-300"
+                                  onClick={() => updateFileRequestMutation.mutate({ frId: fr.id, status: "approved" })}
+                                  disabled={fr.status === "approved"}>
+                                  <CheckCircle className="w-3 h-3 mr-1" />Approve
+                                </Button>
+                                <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-xs text-red-700 border-red-300"
+                                  onClick={() => updateFileRequestMutation.mutate({ frId: fr.id, status: "rejected" })}
+                                  disabled={fr.status === "rejected"}>
+                                  <XCircle className="w-3 h-3 mr-1" />Reject
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                          <Button type="button" variant="ghost" size="sm" className="text-gray-400 hover:text-red-500 h-7 w-7 p-0"
+                            onClick={() => deleteFileRequestMutation.mutate(fr.id)}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </div>
 
         {/* Actions */}
         <div className="flex justify-center space-x-4 mt-8">

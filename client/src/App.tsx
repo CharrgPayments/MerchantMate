@@ -56,6 +56,8 @@ import DataView from "@/pages/data-view";
 import CommunicationsManagement from "@/pages/communications-management";
 import AlertsPage from "@/pages/AlertsPage";
 import ProfilePage from "@/pages/profile";
+import PortalLogin from "@/pages/portal-login";
+import ProspectPortal from "@/pages/portal";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import Auth from "@/pages/auth";
@@ -863,6 +865,12 @@ function AppContent() {
                 <ApplicationStatus />
               </main>
             )}
+          </Route>
+          <Route path="/portal/login">
+            {() => <PortalLogin />}
+          </Route>
+          <Route path="/portal">
+            {() => <ProspectPortal />}
           </Route>
           <Route path="/application-print/:id">
             {() => <ApplicationPrint />}

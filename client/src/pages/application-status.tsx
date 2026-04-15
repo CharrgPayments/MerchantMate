@@ -1,26 +1,78 @@
-import { useRoute } from 'wouter';
-import { AlertCircle, Download } from 'lucide-react';
+import { useState } from "react";
+import { useRoute, useLocation } from 'wouter';
+import { AlertCircle, Download, Shield, Eye, EyeOff, LogIn, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useToast } from '@/hooks/use-toast';
 
 export default function ApplicationStatus() {
   const [, params] = useRoute('/application-status/:token');
   const token = params?.token;
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [portalCreated, setPortalCreated] = useState(false);
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const dbEnv = urlParams.get("db") || "";
 
   // Fetch prospect data by token
   const { data: prospect, isLoading, error } = useQuery({
     queryKey: [`/api/prospects/status/${token}`],
     queryFn: async () => {
       const response = await fetch(`/api/prospects/status/${token}`);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       return response.json();
     },
     enabled: !!token,
   });
+
+  const setupPortalMutation = useMutation({
+    mutationFn: async () => {
+      const url = dbEnv ? `/api/portal/setup-password?db=${dbEnv}` : `/api/portal/setup-password`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ token, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to create account");
+      return data;
+    },
+    onSuccess: () => {
+      setPortalCreated(true);
+      toast({ title: "Portal account created!", description: "You can now sign in to your applicant portal." });
+    },
+    onError: (err: Error) => {
+      if (err.message.includes("already set up")) {
+        toast({ title: "Account already exists", description: "You already have a portal account. Redirecting to login...", variant: "default" });
+        setTimeout(() => navigate(dbEnv ? `/portal/login?db=${dbEnv}` : "/portal/login"), 1500);
+      } else {
+        toast({ title: "Setup failed", description: err.message, variant: "destructive" });
+      }
+    },
+  });
+
+  const handleSetupPortal = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password.length < 8) {
+      toast({ title: "Password too short", description: "Password must be at least 8 characters.", variant: "destructive" });
+      return;
+    }
+    if (password !== confirmPassword) {
+      toast({ title: "Passwords don't match", description: "Please make sure both passwords are the same.", variant: "destructive" });
+      return;
+    }
+    setupPortalMutation.mutate();
+  };
 
   if (!token) {
     return (
@@ -59,26 +111,14 @@ export default function ApplicationStatus() {
     );
   }
 
-  // Parse form data
   let formData: any = {};
   if (prospect?.formData) {
-    try {
-      formData = JSON.parse(prospect.formData);
-    } catch (e) {
-      console.error('Error parsing form data:', e);
-      formData = {};
-    }
+    try { formData = JSON.parse(prospect.formData); } catch { formData = {}; }
   }
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'Not available';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
   const getStatusColor = (status: string) => {
@@ -93,6 +133,8 @@ export default function ApplicationStatus() {
       default: return 'bg-gray-100 text-gray-800';
     }
   };
+
+  const hasPortalAccount = !!prospect.portalSetupAt;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -177,36 +219,12 @@ export default function ApplicationStatus() {
             <div>
               <h3 className="font-semibold mb-3">Next Steps</h3>
               <div className="bg-blue-50 p-4 rounded-lg">
-                {prospect.status === 'pending' && (
-                  <p className="text-blue-800">
-                    Your application has been received. Our team will review it and contact you soon.
-                  </p>
-                )}
-                {prospect.status === 'contacted' && (
-                  <p className="text-blue-800">
-                    Our agent has reached out to you. Please check your email for next steps.
-                  </p>
-                )}
-                {prospect.status === 'in_progress' && (
-                  <p className="text-blue-800">
-                    Your application is being processed. We'll update you on the progress.
-                  </p>
-                )}
-                {prospect.status === 'submitted' && (
-                  <p className="text-blue-800">
-                    Your application has been submitted for review. We'll notify you of the decision.
-                  </p>
-                )}
-                {prospect.status === 'applied' && (
-                  <p className="text-blue-800">
-                    Your application has been submitted to our processing partner. We'll update you on the status.
-                  </p>
-                )}
-                {prospect.status === 'approved' && (
-                  <p className="text-green-800">
-                    Congratulations! Your application has been approved. We'll be in touch with next steps.
-                  </p>
-                )}
+                {prospect.status === 'pending' && <p className="text-blue-800">Your application has been received. Our team will review it and contact you soon.</p>}
+                {prospect.status === 'contacted' && <p className="text-blue-800">Our agent has reached out to you. Please check your email for next steps.</p>}
+                {prospect.status === 'in_progress' && <p className="text-blue-800">Your application is being processed. We'll update you on the progress.</p>}
+                {prospect.status === 'submitted' && <p className="text-blue-800">Your application has been submitted for review. We'll notify you of the decision.</p>}
+                {prospect.status === 'applied' && <p className="text-blue-800">Your application has been submitted to our processing partner. We'll update you on the status.</p>}
+                {prospect.status === 'approved' && <p className="text-green-800">Congratulations! Your application has been approved. We'll be in touch with next steps.</p>}
                 {prospect.hasGeneratedPdf && (prospect.status === 'submitted' || prospect.status === 'applied' || prospect.status === 'approved') && (
                   <div className="mt-4 pt-4 border-t border-blue-200">
                     <a href={`/api/prospects/download-filled-pdf/${token}`} target="_blank" rel="noopener noreferrer">
@@ -217,15 +235,104 @@ export default function ApplicationStatus() {
                     </a>
                   </div>
                 )}
-                {prospect.status === 'rejected' && (
-                  <p className="text-red-800">
-                    Your application was not approved at this time. Please contact us for more information.
-                  </p>
-                )}
+                {prospect.status === 'rejected' && <p className="text-red-800">Your application was not approved at this time. Please contact us for more information.</p>}
               </div>
             </div>
           </CardContent>
         </Card>
+
+        {/* Prospect Portal Section */}
+        {!hasPortalAccount ? (
+          <Card className="border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
+                  <Shield className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg">Create Your Applicant Portal Account</CardTitle>
+                  <p className="text-sm text-gray-600 mt-0.5">
+                    Set up a password to access your portal — message your agent and upload documents securely.
+                  </p>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {portalCreated ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg p-4">
+                    <CheckCircle className="w-5 h-5 text-green-500 shrink-0" />
+                    <p className="text-green-800 text-sm font-medium">Portal account created! You can now sign in to your applicant portal.</p>
+                  </div>
+                  <Button className="w-full" onClick={() => navigate(dbEnv ? `/portal?db=${dbEnv}` : "/portal")}>
+                    <LogIn className="w-4 h-4 mr-2" />
+                    Go to My Portal
+                  </Button>
+                </div>
+              ) : (
+                <form onSubmit={handleSetupPortal} className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="portal-email">Email address</Label>
+                      <Input id="portal-email" type="email" value={prospect.email} readOnly className="bg-gray-100 cursor-not-allowed" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="portal-password">Create a password</Label>
+                      <div className="relative">
+                        <Input
+                          id="portal-password"
+                          type={showPassword ? "text" : "password"}
+                          placeholder="Min 8 characters"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          required
+                          className="pr-10"
+                        />
+                        <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" onClick={() => setShowPassword(!showPassword)}>
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="portal-confirm">Confirm password</Label>
+                      <Input
+                        id="portal-confirm"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="Re-enter password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+                  <Button type="submit" className="w-full sm:w-auto" disabled={setupPortalMutation.isPending}>
+                    <Shield className="w-4 h-4 mr-2" />
+                    {setupPortalMutation.isPending ? "Creating account..." : "Create Portal Account"}
+                  </Button>
+                </form>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="border-green-200 bg-green-50">
+            <CardContent className="p-5 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <CheckCircle className="w-5 h-5 text-green-500 shrink-0" />
+                <div>
+                  <p className="font-medium text-green-900">You have a portal account</p>
+                  <p className="text-sm text-green-700">Sign in to message your agent and manage document uploads.</p>
+                </div>
+              </div>
+              <Button variant="outline" className="border-green-300 text-green-800 hover:bg-green-100 shrink-0"
+                onClick={() => navigate(dbEnv ? `/portal/login?db=${dbEnv}` : "/portal/login")}>
+                <LogIn className="w-4 h-4 mr-2" />
+                Sign In
+              </Button>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

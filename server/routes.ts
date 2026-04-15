@@ -2089,21 +2089,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Public API endpoint for application status lookup by token (no auth required)
-  app.get("/api/prospects/status/:token", async (req, res) => {
+  app.get("/api/prospects/status/:token", async (req: any, res) => {
     try {
       const { token } = req.params;
-      
-      if (!token) {
-        return res.status(400).json({ message: "Token is required" });
-      }
+      if (!token) return res.status(400).json({ message: "Token is required" });
 
       const prospect = await storage.getMerchantProspectByToken(token);
-      
-      if (!prospect) {
-        return res.status(404).json({ message: "Application not found" });
-      }
+      if (!prospect) return res.status(404).json({ message: "Application not found" });
 
-      // Return prospect data for status display (no sensitive data)
+      // Check if a filled PDF was generated for this prospect
+      let hasGeneratedPdf = false;
+      try {
+        const { prospectApplications } = await import("@shared/schema");
+        const { eq, and, isNotNull } = await import("drizzle-orm");
+        const db = getRequestDB(req);
+        const apps = await db.select({ generatedPdfPath: prospectApplications.generatedPdfPath })
+          .from(prospectApplications)
+          .where(and(eq(prospectApplications.prospectId, prospect.id), isNotNull(prospectApplications.generatedPdfPath)))
+          .limit(1);
+        hasGeneratedPdf = apps.length > 0 && !!apps[0].generatedPdfPath;
+      } catch { /* ignore */ }
+
       res.json({
         id: prospect.id,
         firstName: prospect.firstName,
@@ -2114,7 +2120,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updatedAt: prospect.updatedAt,
         validatedAt: prospect.validatedAt,
         applicationStartedAt: prospect.applicationStartedAt,
-        formData: prospect.formData // Include form data for company name display
+        formData: prospect.formData,
+        portalSetupAt: (prospect as any).portalSetupAt ?? null,
+        hasGeneratedPdf,
       });
     } catch (error) {
       console.error("Error fetching prospect status:", error);
@@ -8889,6 +8897,325 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting role definition:", error);
       res.status(500).json({ message: "Failed to delete role definition" });
+    }
+  });
+
+  // ── Prospect Portal ──────────────────────────────────────────────────────
+  // Helper: check prospect portal session
+  const requireProspectPortalAuth = async (req: RequestWithDB, res: any, next: any) => {
+    const prospectId = (req.session as any)?.portalProspectId;
+    if (!prospectId) return res.status(401).json({ message: "Portal session required" });
+    next();
+  };
+
+  // POST /api/portal/setup-password — prospect sets password via their validation token
+  app.post("/api/portal/setup-password", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+    try {
+      const { token, password } = req.body;
+      if (!token || !password || password.length < 8) {
+        return res.status(400).json({ message: "Token and password (min 8 chars) required" });
+      }
+      const bcrypt = await import("bcrypt");
+      const { merchantProspects } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const [prospect] = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.validationToken, token));
+      if (!prospect) return res.status(404).json({ message: "Invalid token" });
+      if (prospect.portalPasswordHash) return res.status(409).json({ message: "Portal account already set up. Please log in." });
+      const hash = await bcrypt.hash(password, 10);
+      await dynamicDB.update(merchantProspects).set({ portalPasswordHash: hash, portalSetupAt: new Date() }).where(eq(merchantProspects.id, prospect.id));
+      (req.session as any).portalProspectId = prospect.id;
+      (req.session as any).portalProspectEmail = prospect.email;
+      (req.session as any).portalDbEnv = req.dbEnv;
+      res.json({ message: "Portal account created", prospect: { id: prospect.id, firstName: prospect.firstName, lastName: prospect.lastName, email: prospect.email } });
+    } catch (error) {
+      console.error("Error setting up portal password:", error);
+      res.status(500).json({ message: "Failed to set up portal account" });
+    }
+  });
+
+  // POST /api/portal/login
+  app.post("/api/portal/login", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+    try {
+      const { email, password } = req.body;
+      if (!email || !password) return res.status(400).json({ message: "Email and password required" });
+      const bcrypt = await import("bcrypt");
+      const { merchantProspects } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const [prospect] = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.email, email.toLowerCase().trim()));
+      if (!prospect || !prospect.portalPasswordHash) return res.status(401).json({ message: "Invalid email or password" });
+      const valid = await bcrypt.compare(password, prospect.portalPasswordHash);
+      if (!valid) return res.status(401).json({ message: "Invalid email or password" });
+      (req.session as any).portalProspectId = prospect.id;
+      (req.session as any).portalProspectEmail = prospect.email;
+      (req.session as any).portalDbEnv = req.dbEnv;
+      res.json({ prospect: { id: prospect.id, firstName: prospect.firstName, lastName: prospect.lastName, email: prospect.email, status: prospect.status } });
+    } catch (error) {
+      console.error("Error in portal login:", error);
+      res.status(500).json({ message: "Login failed" });
+    }
+  });
+
+  // POST /api/portal/logout
+  app.post("/api/portal/logout", async (req: any, res) => {
+    delete req.session.portalProspectId;
+    delete req.session.portalProspectEmail;
+    delete req.session.portalDbEnv;
+    res.json({ message: "Logged out" });
+  });
+
+  // GET /api/portal/me
+  app.get("/api/portal/me", dbEnvironmentMiddleware, requireProspectPortalAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = (req.session as any).portalProspectId;
+      const { merchantProspects, prospectApplications, acquirerApplicationTemplates } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const [prospect] = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.id, prospectId));
+      if (!prospect) return res.status(404).json({ message: "Prospect not found" });
+      // Fetch latest application
+      const apps = await dynamicDB.select().from(prospectApplications).where(eq(prospectApplications.prospectId, prospectId)).limit(1);
+      const app = apps[0] || null;
+      let templateName = null;
+      if (app?.acquirerTemplateId) {
+        const [tpl] = await dynamicDB.select({ name: acquirerApplicationTemplates.name }).from(acquirerApplicationTemplates).where(eq(acquirerApplicationTemplates.id, app.acquirerTemplateId));
+        templateName = tpl?.name || null;
+      }
+      res.json({
+        id: prospect.id, firstName: prospect.firstName, lastName: prospect.lastName,
+        email: prospect.email, status: prospect.status,
+        validationToken: prospect.validationToken,
+        portalSetupAt: prospect.portalSetupAt,
+        application: app ? { id: app.id, status: app.status, templateName, createdAt: app.createdAt, hasGeneratedPdf: !!app.generatedPdfPath } : null,
+      });
+    } catch (error) {
+      console.error("Error fetching portal me:", error);
+      res.status(500).json({ message: "Failed to fetch account" });
+    }
+  });
+
+  // GET /api/portal/messages
+  app.get("/api/portal/messages", dbEnvironmentMiddleware, requireProspectPortalAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = (req.session as any).portalProspectId;
+      const { prospectMessages } = await import("@shared/schema");
+      const { eq, desc } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const msgs = await dynamicDB.select().from(prospectMessages).where(eq(prospectMessages.prospectId, prospectId)).orderBy(desc(prospectMessages.createdAt));
+      // Mark all agent messages as read
+      await dynamicDB.update(prospectMessages).set({ isRead: true, readAt: new Date() }).where(eq(prospectMessages.prospectId, prospectId));
+      res.json({ messages: msgs });
+    } catch (error) {
+      console.error("Error fetching portal messages:", error);
+      res.status(500).json({ message: "Failed to fetch messages" });
+    }
+  });
+
+  // POST /api/portal/messages — prospect sends a message
+  app.post("/api/portal/messages", dbEnvironmentMiddleware, requireProspectPortalAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = (req.session as any).portalProspectId;
+      const email = (req.session as any).portalProspectEmail;
+      const { subject = "", message } = req.body;
+      if (!message?.trim()) return res.status(400).json({ message: "Message body required" });
+      const { prospectMessages, merchantProspects } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const [prospect] = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.id, prospectId));
+      const [msg] = await dynamicDB.insert(prospectMessages).values({
+        prospectId, senderId: email, senderType: "prospect", subject: subject.trim(),
+        message: message.trim(), isRead: false,
+      }).returning();
+      res.json(msg);
+    } catch (error) {
+      console.error("Error sending portal message:", error);
+      res.status(500).json({ message: "Failed to send message" });
+    }
+  });
+
+  // GET /api/portal/file-requests
+  app.get("/api/portal/file-requests", dbEnvironmentMiddleware, requireProspectPortalAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = (req.session as any).portalProspectId;
+      const { prospectFileRequests } = await import("@shared/schema");
+      const { eq, desc } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const requests = await dynamicDB.select({
+        id: prospectFileRequests.id, prospectId: prospectFileRequests.prospectId,
+        label: prospectFileRequests.label, description: prospectFileRequests.description,
+        required: prospectFileRequests.required, status: prospectFileRequests.status,
+        fileName: prospectFileRequests.fileName, mimeType: prospectFileRequests.mimeType,
+        uploadedBy: prospectFileRequests.uploadedBy, createdAt: prospectFileRequests.createdAt,
+        fulfilledAt: prospectFileRequests.fulfilledAt,
+        // Omit fileData (base64 blob) from list view
+      }).from(prospectFileRequests).where(eq(prospectFileRequests.prospectId, prospectId)).orderBy(desc(prospectFileRequests.createdAt));
+      res.json({ fileRequests: requests });
+    } catch (error) {
+      console.error("Error fetching portal file requests:", error);
+      res.status(500).json({ message: "Failed to fetch file requests" });
+    }
+  });
+
+  // POST /api/portal/file-requests/:id/upload — prospect uploads a document
+  app.post("/api/portal/file-requests/:id/upload", dbEnvironmentMiddleware, requireProspectPortalAuth, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = (req.session as any).portalProspectId;
+      const email = (req.session as any).portalProspectEmail;
+      const frId = parseInt(req.params.id);
+      const { fileName, mimeType, fileData } = req.body; // base64 fileData from client
+      if (!fileName || !mimeType || !fileData) return res.status(400).json({ message: "fileName, mimeType, fileData required" });
+      const { prospectFileRequests } = await import("@shared/schema");
+      const { and, eq } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const [fr] = await dynamicDB.select().from(prospectFileRequests).where(and(eq(prospectFileRequests.id, frId), eq(prospectFileRequests.prospectId, prospectId)));
+      if (!fr) return res.status(404).json({ message: "File request not found" });
+      const [updated] = await dynamicDB.update(prospectFileRequests).set({
+        status: "uploaded", fileName, mimeType, fileData, uploadedBy: email, fulfilledAt: new Date(),
+      }).where(eq(prospectFileRequests.id, frId)).returning();
+      res.json(updated);
+    } catch (error) {
+      console.error("Error uploading file:", error);
+      res.status(500).json({ message: "Failed to upload file" });
+    }
+  });
+
+  // ── Prospect Portal — CRM-side routes ──────────────────────────────────────
+  // GET /api/prospects/:id/messages
+  app.get("/api/prospects/:id/messages", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const { prospectMessages } = await import("@shared/schema");
+      const { eq, desc } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const msgs = await dynamicDB.select().from(prospectMessages).where(eq(prospectMessages.prospectId, prospectId)).orderBy(desc(prospectMessages.createdAt));
+      res.json({ messages: msgs });
+    } catch (error) {
+      console.error("Error fetching prospect messages:", error);
+      res.status(500).json({ message: "Failed to fetch messages" });
+    }
+  });
+
+  // POST /api/prospects/:id/messages — agent sends a message
+  app.post("/api/prospects/:id/messages", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const { subject = "", message } = req.body;
+      if (!message?.trim()) return res.status(400).json({ message: "Message body required" });
+      const userId = (req.session as any)?.userId || (req as any).user?.claims?.sub || "agent";
+      const { prospectMessages, users } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      let senderName = "Agent";
+      const userRows = await dynamicDB.select({ username: users.username, email: users.email }).from(users).where(eq(users.id, userId));
+      if (userRows[0]) senderName = userRows[0].username || userRows[0].email || "Agent";
+      const [msg] = await dynamicDB.insert(prospectMessages).values({
+        prospectId, senderId: userId, senderType: "agent", subject: subject.trim(),
+        message: message.trim(), isRead: false,
+      }).returning();
+      res.json(msg);
+    } catch (error) {
+      console.error("Error sending message:", error);
+      res.status(500).json({ message: "Failed to send message" });
+    }
+  });
+
+  // PATCH /api/prospects/:id/messages/:mid/read
+  app.patch("/api/prospects/:id/messages/:mid/read", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
+    try {
+      const mid = parseInt(req.params.mid);
+      const { prospectMessages } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      await dynamicDB.update(prospectMessages).set({ isRead: true, readAt: new Date() }).where(eq(prospectMessages.id, mid));
+      res.json({ message: "Marked as read" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to mark as read" });
+    }
+  });
+
+  // GET /api/prospects/:id/file-requests
+  app.get("/api/prospects/:id/file-requests", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const { prospectFileRequests } = await import("@shared/schema");
+      const { eq, desc } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const rows = await dynamicDB.select({
+        id: prospectFileRequests.id, prospectId: prospectFileRequests.prospectId,
+        label: prospectFileRequests.label, description: prospectFileRequests.description,
+        required: prospectFileRequests.required, status: prospectFileRequests.status,
+        fileName: prospectFileRequests.fileName, mimeType: prospectFileRequests.mimeType,
+        uploadedBy: prospectFileRequests.uploadedBy, createdAt: prospectFileRequests.createdAt,
+        fulfilledAt: prospectFileRequests.fulfilledAt,
+      }).from(prospectFileRequests).where(eq(prospectFileRequests.prospectId, prospectId)).orderBy(desc(prospectFileRequests.createdAt));
+      res.json({ fileRequests: rows });
+    } catch (error) {
+      console.error("Error fetching file requests:", error);
+      res.status(500).json({ message: "Failed to fetch file requests" });
+    }
+  });
+
+  // POST /api/prospects/:id/file-requests — agent creates a file request
+  app.post("/api/prospects/:id/file-requests", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const { label, description, required = true } = req.body;
+      if (!label?.trim()) return res.status(400).json({ message: "Label required" });
+      const { prospectFileRequests } = await import("@shared/schema");
+      const dynamicDB = getRequestDB(req);
+      const [row] = await dynamicDB.insert(prospectFileRequests).values({ prospectId, label: label.trim(), description: description?.trim() || null, required }).returning();
+      res.json(row);
+    } catch (error) {
+      console.error("Error creating file request:", error);
+      res.status(500).json({ message: "Failed to create file request" });
+    }
+  });
+
+  // PATCH /api/prospects/:id/file-requests/:frid — update status (approve/reject)
+  app.patch("/api/prospects/:id/file-requests/:frid", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
+    try {
+      const frId = parseInt(req.params.frid);
+      const { status } = req.body;
+      const { prospectFileRequests } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const [row] = await dynamicDB.update(prospectFileRequests).set({ status }).where(eq(prospectFileRequests.id, frId)).returning();
+      res.json(row);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update file request" });
+    }
+  });
+
+  // DELETE /api/prospects/:id/file-requests/:frid
+  app.delete("/api/prospects/:id/file-requests/:frid", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
+    try {
+      const frId = parseInt(req.params.frid);
+      const { prospectFileRequests } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      await dynamicDB.delete(prospectFileRequests).where(eq(prospectFileRequests.id, frId));
+      res.json({ message: "Deleted" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete file request" });
+    }
+  });
+
+  // GET /api/prospects/:id/file-requests/:frid/download — agent downloads uploaded file
+  app.get("/api/prospects/:id/file-requests/:frid/download", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
+    try {
+      const frId = parseInt(req.params.frid);
+      const { prospectFileRequests } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const [fr] = await dynamicDB.select().from(prospectFileRequests).where(eq(prospectFileRequests.id, frId));
+      if (!fr || !fr.fileData) return res.status(404).json({ message: "File not found" });
+      const buffer = Buffer.from(fr.fileData, "base64");
+      res.setHeader("Content-Type", fr.mimeType || "application/octet-stream");
+      res.setHeader("Content-Disposition", `attachment; filename="${fr.fileName || "download"}"`);
+      res.send(buffer);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to download file" });
     }
   });
 
