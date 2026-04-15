@@ -60,6 +60,7 @@ interface DisclosureVersion {
   effectiveDate: string;
   retiredDate: string | null;
   requiresSignature: boolean;
+  requiresInitials: boolean;
   isCurrentVersion: boolean;
   createdBy: string | null;
   createdAt: string;
@@ -72,6 +73,7 @@ interface DisclosureDefinition {
   description: string | null;
   category: string;
   requiresSignature: boolean;
+  requiresInitials: boolean;
   isActive: boolean;
   companyId: number | null;
   createdBy: string | null;
@@ -152,7 +154,8 @@ export default function DisclosureLibraryPage() {
     displayName: '',
     description: '',
     category: 'general',
-    requiresSignature: true,
+    requiresSignature: false,
+    requiresInitials: false,
     isActive: true,
   });
 
@@ -160,7 +163,8 @@ export default function DisclosureLibraryPage() {
     version: '',
     title: '',
     content: '',
-    requiresSignature: true,
+    requiresSignature: false,
+    requiresInitials: false,
   });
 
   const queryFn = getQueryFn<any>({ on401: 'throw' });
@@ -340,7 +344,8 @@ export default function DisclosureLibraryPage() {
       displayName: '',
       description: '',
       category: 'general',
-      requiresSignature: true,
+      requiresSignature: false,
+      requiresInitials: false,
       isActive: true,
     });
   };
@@ -350,7 +355,8 @@ export default function DisclosureLibraryPage() {
       version: '',
       title: '',
       content: '',
-      requiresSignature: true,
+      requiresSignature: false,
+      requiresInitials: false,
     });
   };
 
@@ -383,6 +389,7 @@ export default function DisclosureLibraryPage() {
       description: disclosure.description || '',
       category: disclosure.category,
       requiresSignature: disclosure.requiresSignature,
+      requiresInitials: disclosure.requiresInitials ?? false,
       isActive: disclosure.isActive,
     });
     setShowEditDialog(true);
@@ -399,6 +406,7 @@ export default function DisclosureLibraryPage() {
       title: currentVersion?.title || disclosure.displayName,
       content: currentVersion?.content || '',
       requiresSignature: disclosure.requiresSignature,
+      requiresInitials: disclosure.requiresInitials ?? false,
     });
     setShowVersionDialog(true);
   };
@@ -525,6 +533,7 @@ export default function DisclosureLibraryPage() {
                     <TableHead>Name</TableHead>
                     <TableHead>Slug</TableHead>
                     <TableHead>Category</TableHead>
+                    <TableHead>Requires</TableHead>
                     <TableHead>Current Version</TableHead>
                     <TableHead>Signatures</TableHead>
                     <TableHead>Status</TableHead>
@@ -553,6 +562,19 @@ export default function DisclosureLibraryPage() {
                         <Badge className={CATEGORY_BADGES[disclosure.category] || CATEGORY_BADGES.general}>
                           {CATEGORY_OPTIONS.find(c => c.value === disclosure.category)?.label || disclosure.category}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {disclosure.requiresSignature && (
+                            <Badge variant="secondary" className="text-xs">Signature</Badge>
+                          )}
+                          {disclosure.requiresInitials && (
+                            <Badge variant="outline" className="text-xs">Initials</Badge>
+                          )}
+                          {!disclosure.requiresSignature && !disclosure.requiresInitials && (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         {disclosure.currentVersion ? (
@@ -700,13 +722,25 @@ export default function DisclosureLibraryPage() {
             <div className="flex items-center justify-between">
               <div>
                 <Label htmlFor="requiresSignature">Requires Signature</Label>
-                <p className="text-xs text-muted-foreground">Users must sign after reading</p>
+                <p className="text-xs text-muted-foreground">Reader must sign after reading</p>
               </div>
               <Switch
                 id="requiresSignature"
                 checked={formData.requiresSignature}
                 onCheckedChange={(c) => setFormData(prev => ({ ...prev, requiresSignature: c }))}
                 data-testid="switch-requiresSignature"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="requiresInitials">Requires Initials</Label>
+                <p className="text-xs text-muted-foreground">Reader must initial to acknowledge they have read this section</p>
+              </div>
+              <Switch
+                id="requiresInitials"
+                checked={formData.requiresInitials}
+                onCheckedChange={(c) => setFormData(prev => ({ ...prev, requiresInitials: c }))}
+                data-testid="switch-requiresInitials"
               />
             </div>
           </div>
@@ -771,13 +805,25 @@ export default function DisclosureLibraryPage() {
             <div className="flex items-center justify-between">
               <div>
                 <Label htmlFor="edit-requiresSignature">Requires Signature</Label>
-                <p className="text-xs text-muted-foreground">Users must sign after reading</p>
+                <p className="text-xs text-muted-foreground">Reader must sign after reading</p>
               </div>
               <Switch
                 id="edit-requiresSignature"
                 checked={formData.requiresSignature}
                 onCheckedChange={(c) => setFormData(prev => ({ ...prev, requiresSignature: c }))}
                 data-testid="switch-edit-requiresSignature"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="edit-requiresInitials">Requires Initials</Label>
+                <p className="text-xs text-muted-foreground">Reader must initial to acknowledge they have read this section</p>
+              </div>
+              <Switch
+                id="edit-requiresInitials"
+                checked={formData.requiresInitials}
+                onCheckedChange={(c) => setFormData(prev => ({ ...prev, requiresInitials: c }))}
+                data-testid="switch-edit-requiresInitials"
               />
             </div>
             <div className="flex items-center justify-between">
@@ -849,13 +895,25 @@ export default function DisclosureLibraryPage() {
             <div className="flex items-center justify-between">
               <div>
                 <Label htmlFor="version-requiresSignature">Requires Signature</Label>
-                <p className="text-xs text-muted-foreground">Override signature requirement for this version</p>
+                <p className="text-xs text-muted-foreground">Reader must sign this version</p>
               </div>
               <Switch
                 id="version-requiresSignature"
                 checked={versionFormData.requiresSignature}
                 onCheckedChange={(c) => setVersionFormData(prev => ({ ...prev, requiresSignature: c }))}
                 data-testid="switch-version-requiresSignature"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="version-requiresInitials">Requires Initials</Label>
+                <p className="text-xs text-muted-foreground">Reader must initial to acknowledge they have read this version</p>
+              </div>
+              <Switch
+                id="version-requiresInitials"
+                checked={versionFormData.requiresInitials}
+                onCheckedChange={(c) => setVersionFormData(prev => ({ ...prev, requiresInitials: c }))}
+                data-testid="switch-version-requiresInitials"
               />
             </div>
           </div>
