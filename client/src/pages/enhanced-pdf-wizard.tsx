@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Building, FileText, CheckCircle, ArrowLeft, ArrowRight, Users, Upload, Signature, PenTool, Type, RotateCcw, Check, X, AlertTriangle, Monitor } from 'lucide-react';
+import { Building, FileText, CheckCircle, ArrowLeft, ArrowRight, Users, Upload, Signature, PenTool, Type, RotateCcw, Check, X, AlertTriangle, Monitor, ChevronDown, Lock } from 'lucide-react';
 import { MCCSelect } from '@/components/ui/mcc-select';
 
 interface FormField {
@@ -28,6 +28,7 @@ interface FormField {
   disclosureDefinitionId?: number | null;
   disclosureTitle?: string | null;
   requiresSignature?: boolean;
+  requiresInitials?: boolean;
   maxSigners?: number | null;
   signerLabel?: string | null;
   ownerGroupConfig?: any | null;
@@ -43,7 +44,7 @@ interface FormField {
 }
 
 function DisclosureFieldRenderer({ field, formData, onFieldChange }: { field: FormField; formData: Record<string, any>; onFieldChange: (name: string, value: any) => void }) {
-  const { data: disclosureData, isLoading, error } = useQuery<any>({
+  const { data: disclosureData, isLoading } = useQuery<any>({
     queryKey: [`/api/disclosures/${field.disclosureDefinitionId}`],
     queryFn: async () => {
       const res = await fetch(`/api/disclosures/${field.disclosureDefinitionId}`, {
@@ -59,7 +60,32 @@ function DisclosureFieldRenderer({ field, formData, onFieldChange }: { field: Fo
 
   const disclosure = disclosureData?.disclosure;
   const currentVersion = disclosure?.currentVersion || disclosure?.versions?.find((v: any) => v.isCurrentVersion) || disclosure?.versions?.[0];
+
+  // Derive which interaction is required (version-level takes precedence over definition-level)
+  const needsInitials = !!(currentVersion?.requiresInitials ?? disclosure?.requiresInitials ?? field.requiresInitials);
+  const needsSignature = !!(currentVersion?.requiresSignature ?? disclosure?.requiresSignature ?? field.requiresSignature);
+  const needsAction = needsInitials || needsSignature;
+
+  // Scroll enforcement state
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
+
+  const checkScrolledToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Allow a 8px tolerance for sub-pixel rounding
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 8;
+    if (atBottom) setHasScrolledToBottom(true);
+  }, []);
+
+  // Check on mount and whenever content loads (content might be short enough to not need scrolling)
+  useEffect(() => {
+    checkScrolledToBottom();
+  }, [currentVersion, checkScrolledToBottom]);
+
+  // Stored values
   const acknowledged = !!formData[field.fieldName];
+  const initialsValue: string = formData[`${field.fieldName}_initials`] || '';
 
   return (
     <div className="space-y-4">
@@ -67,6 +93,12 @@ function DisclosureFieldRenderer({ field, formData, onFieldChange }: { field: Fo
         <FileText className="h-5 w-5 text-blue-600" />
         <h3 className="text-lg font-semibold text-gray-800">{field.disclosureTitle || field.fieldLabel}</h3>
         {field.isRequired && <span className="text-red-500 text-sm">*</span>}
+        {needsInitials && (
+          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Initials Required</span>
+        )}
+        {needsSignature && !needsInitials && (
+          <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">Signature Required</span>
+        )}
       </div>
 
       {isLoading ? (
@@ -75,29 +107,96 @@ function DisclosureFieldRenderer({ field, formData, onFieldChange }: { field: Fo
           Loading disclosure content...
         </div>
       ) : currentVersion ? (
-        <div
-          className="border rounded-lg p-4 max-h-72 overflow-y-auto bg-white text-sm leading-relaxed prose prose-sm max-w-none"
-          dangerouslySetInnerHTML={{ __html: currentVersion.content }}
-        />
+        <div className="relative">
+          <div
+            ref={scrollRef}
+            onScroll={checkScrolledToBottom}
+            className="border rounded-lg p-4 max-h-72 overflow-y-auto bg-white text-sm leading-relaxed prose prose-sm max-w-none"
+            dangerouslySetInnerHTML={{ __html: currentVersion.content }}
+          />
+          {/* Scroll-to-bottom indicator — only shown when not yet at bottom and action required */}
+          {needsAction && !hasScrolledToBottom && (
+            <div className="absolute bottom-0 left-0 right-0 flex flex-col items-center justify-end pointer-events-none">
+              <div className="w-full h-12 bg-gradient-to-t from-white to-transparent rounded-b-lg" />
+              <div className="absolute bottom-2 flex items-center gap-1.5 bg-blue-600 text-white text-xs font-medium px-3 py-1.5 rounded-full shadow-md pointer-events-none">
+                <ChevronDown className="h-3.5 w-3.5 animate-bounce" />
+                Scroll to the bottom to continue
+              </div>
+            </div>
+          )}
+        </div>
       ) : (
         <div className="border rounded-lg p-4 bg-amber-50 text-amber-700 text-sm">
           Disclosure content not available. Definition ID: {field.disclosureDefinitionId}
         </div>
       )}
 
-      <div className="flex items-center gap-3 pt-2">
-        <input
-          type="checkbox"
-          id={field.fieldName}
-          checked={acknowledged}
-          onChange={(e) => onFieldChange(field.fieldName, e.target.checked ? 'acknowledged' : '')}
-          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-        />
-        <label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700">
-          I have read and acknowledge this disclosure
-        </label>
-      </div>
+      {/* Acknowledgement controls — locked until scrolled to bottom */}
+      {currentVersion && (
+        <div className={`space-y-3 pt-1 transition-opacity duration-200 ${needsAction && !hasScrolledToBottom ? 'opacity-40 pointer-events-none select-none' : ''}`}>
+          {needsAction && !hasScrolledToBottom && (
+            <div className="flex items-center gap-2 text-xs text-gray-500 italic">
+              <Lock className="h-3.5 w-3.5" />
+              Please scroll through the entire disclosure above before continuing.
+            </div>
+          )}
 
+          {needsInitials ? (
+            // Initials input
+            <div className="flex items-center gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-medium text-gray-700">
+                  Enter your initials to acknowledge you have read this section:
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    maxLength={5}
+                    placeholder="e.g. JD"
+                    value={initialsValue}
+                    onChange={(e) => {
+                      const val = e.target.value.toUpperCase().replace(/[^A-Z]/g, '');
+                      onFieldChange(`${field.fieldName}_initials`, val);
+                      // Mark the base field as acknowledged when initials are provided
+                      onFieldChange(field.fieldName, val ? 'initialed' : '');
+                    }}
+                    disabled={needsAction && !hasScrolledToBottom}
+                    className="w-20 text-center text-lg font-bold border-2 border-gray-300 rounded-md px-2 py-1.5 uppercase tracking-widest focus:outline-none focus:border-blue-500 disabled:bg-gray-50 disabled:cursor-not-allowed"
+                    data-field-initials={field.fieldName}
+                  />
+                  {initialsValue && (
+                    <span className="flex items-center gap-1 text-sm text-green-600 font-medium">
+                      <Check className="h-4 w-4" />
+                      Initialed
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            // Standard acknowledgment checkbox (for signature-only or no-action disclosures)
+            <div className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                id={field.fieldName}
+                checked={acknowledged}
+                onChange={(e) => onFieldChange(field.fieldName, e.target.checked ? 'acknowledged' : '')}
+                disabled={needsAction && !hasScrolledToBottom}
+                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
+              />
+              <label htmlFor={field.fieldName} className="text-sm font-medium text-gray-700 cursor-pointer">
+                I have read and acknowledge this disclosure
+              </label>
+              {acknowledged && (
+                <span className="flex items-center gap-1 text-sm text-green-600 font-medium">
+                  <Check className="h-4 w-4" />
+                  Acknowledged
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
