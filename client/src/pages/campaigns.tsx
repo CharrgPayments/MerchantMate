@@ -1487,7 +1487,7 @@ export default function CampaignsPage() {
                         <TableCell>
                           <button 
                             className="font-medium text-primary hover:underline"
-                            onClick={() => setLocation(`/campaigns/${campaign.id}`)}
+                            onClick={() => setLocation(`/campaign-view/${campaign.id}`)}
                           >
                             {campaign.id}
                           </button>
@@ -1519,7 +1519,7 @@ export default function CampaignsPage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => setLocation(`/campaigns/${campaign.id}`)}>
+                              <DropdownMenuItem onClick={() => setLocation(`/campaign-view/${campaign.id}`)}>
                                 <Eye className="mr-2 h-4 w-4" />
                                 View Details
                               </DropdownMenuItem>

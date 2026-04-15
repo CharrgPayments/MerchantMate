@@ -5408,7 +5408,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       }));
 
-      res.json({ ...campaign, feeValues, equipment });
+      // 4. Associated application templates (campaignApplicationTemplates → acquirerApplicationTemplates → acquirers)
+      const {
+        campaignApplicationTemplates: campaignAppTemplatesTable,
+        acquirerApplicationTemplates: acquirerAppTemplatesTable,
+        acquirers: acquirersTable,
+      } = await import('@shared/schema');
+
+      const templateRows = await dbToUse
+        .select({
+          catId: campaignAppTemplatesTable.id,
+          catIsPrimary: campaignAppTemplatesTable.isPrimary,
+          catDisplayOrder: campaignAppTemplatesTable.displayOrder,
+          aatId: acquirerAppTemplatesTable.id,
+          aatTemplateName: acquirerAppTemplatesTable.templateName,
+          aatVersion: acquirerAppTemplatesTable.version,
+          aatIsActive: acquirerAppTemplatesTable.isActive,
+          acqId: acquirersTable.id,
+          acqName: acquirersTable.name,
+          acqDisplayName: acquirersTable.displayName,
+          acqCode: acquirersTable.code,
+        })
+        .from(campaignAppTemplatesTable)
+        .leftJoin(acquirerAppTemplatesTable, eqOp(campaignAppTemplatesTable.templateId, acquirerAppTemplatesTable.id))
+        .leftJoin(acquirersTable, eqOp(acquirerAppTemplatesTable.acquirerId, acquirersTable.id))
+        .where(eqOp(campaignAppTemplatesTable.campaignId, id));
+
+      const applicationTemplates = templateRows.map(r => ({
+        id: r.catId,
+        isPrimary: r.catIsPrimary,
+        displayOrder: r.catDisplayOrder,
+        template: r.aatId ? {
+          id: r.aatId,
+          templateName: r.aatTemplateName,
+          version: r.aatVersion,
+          isActive: r.aatIsActive,
+        } : null,
+        acquirer: r.acqId ? {
+          id: r.acqId,
+          name: r.acqName,
+          displayName: r.acqDisplayName,
+          code: r.acqCode,
+        } : null,
+      }));
+
+      // 5. Application status counts via campaignAssignments → prospectApplications
+      const {
+        campaignAssignments: campaignAssignmentsTable,
+        prospectApplications: prospectApplicationsTable,
+      } = await import('@shared/schema');
+
+      const assignmentRows = await dbToUse
+        .select({
+          caProspectId: campaignAssignmentsTable.prospectId,
+          caIsActive: campaignAssignmentsTable.isActive,
+        })
+        .from(campaignAssignmentsTable)
+        .where(eqOp(campaignAssignmentsTable.campaignId, id));
+
+      const totalAssigned = assignmentRows.length;
+      const activeAssigned = assignmentRows.filter(r => r.isActive).length;
+
+      const prospectIds = assignmentRows
+        .filter(r => r.caProspectId !== null)
+        .map(r => r.caProspectId as number);
+
+      let applicationStats: Record<string, number> = {};
+      let totalApplications = 0;
+
+      if (prospectIds.length > 0) {
+        const { inArray } = await import('drizzle-orm');
+        const appRows = await dbToUse
+          .select({
+            paStatus: prospectApplicationsTable.status,
+            paProspectId: prospectApplicationsTable.prospectId,
+          })
+          .from(prospectApplicationsTable)
+          .where(inArray(prospectApplicationsTable.prospectId, prospectIds));
+
+        totalApplications = appRows.length;
+        for (const row of appRows) {
+          applicationStats[row.paStatus] = (applicationStats[row.paStatus] || 0) + 1;
+        }
+      }
+
+      res.json({
+        ...campaign,
+        feeValues,
+        equipment,
+        applicationTemplates,
+        applicationStats: {
+          totalAssigned,
+          activeAssigned,
+          totalApplications,
+          byStatus: applicationStats,
+        },
+      });
     } catch (error) {
       console.error('Error fetching campaign:', error);
       res.status(500).json({ error: 'Failed to fetch campaign' });
