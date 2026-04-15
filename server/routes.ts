@@ -5289,48 +5289,126 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const id = parseInt(req.params.id);
       const dbToUse = getRequestDB(req);
-      const { campaigns: campaignsTable, pricingTypes: pricingTypesTable, campaignFeeValues, feeItems, feeGroups, campaignEquipment: campaignEquipmentTable, equipmentItems } = await import('@shared/schema');
+      const {
+        campaigns: campaignsTable,
+        pricingTypes: pricingTypesTable,
+        campaignFeeValues,
+        feeItems,
+        feeGroups,
+        campaignEquipment: campaignEquipmentTable,
+        equipmentItems,
+      } = await import('@shared/schema');
       const { eq: eqOp } = await import('drizzle-orm');
 
-      // Fetch campaign + pricingType
-      const [campaignRow] = await dbToUse
-        .select({ campaign: campaignsTable, pricingType: pricingTypesTable })
+      // 1. Campaign row (flat column selects — avoids SQL gen issues with nested table selects)
+      const campaignRows = await dbToUse
+        .select({
+          id: campaignsTable.id,
+          name: campaignsTable.name,
+          description: campaignsTable.description,
+          acquirer: campaignsTable.acquirer,
+          pricingTypeId: campaignsTable.pricingTypeId,
+          currency: campaignsTable.currency,
+          isActive: campaignsTable.isActive,
+          isDefault: campaignsTable.isDefault,
+          createdBy: campaignsTable.createdBy,
+          createdAt: campaignsTable.createdAt,
+          updatedAt: campaignsTable.updatedAt,
+          pricingTypeName: pricingTypesTable.name,
+        })
         .from(campaignsTable)
         .leftJoin(pricingTypesTable, eqOp(campaignsTable.pricingTypeId, pricingTypesTable.id))
         .where(eqOp(campaignsTable.id, id));
 
-      if (!campaignRow) {
+      if (!campaignRows.length) {
         return res.status(404).json({ error: 'Campaign not found' });
       }
 
-      // Fetch fee values
+      const row = campaignRows[0];
+      const campaign = {
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        acquirer: row.acquirer,
+        pricingTypeId: row.pricingTypeId,
+        currency: row.currency,
+        isActive: row.isActive,
+        isDefault: row.isDefault,
+        createdBy: row.createdBy,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        pricingType: row.pricingTypeId ? { id: row.pricingTypeId, name: row.pricingTypeName || 'Unknown' } : null,
+      };
+
+      // 2. Fee values with flat selects (join only to feeItems — feeGroupId is not on feeItems directly)
       const feeValueRows = await dbToUse
-        .select({ feeValue: campaignFeeValues, feeItem: feeItems, feeGroup: feeGroups })
+        .select({
+          fvId: campaignFeeValues.id,
+          fvCampaignId: campaignFeeValues.campaignId,
+          fvFeeItemId: campaignFeeValues.feeItemId,
+          fvValue: campaignFeeValues.value,
+          fvValueType: campaignFeeValues.valueType,
+          fvCreatedAt: campaignFeeValues.createdAt,
+          fvUpdatedAt: campaignFeeValues.updatedAt,
+          fiId: feeItems.id,
+          fiName: feeItems.name,
+          fiValueType: feeItems.valueType,
+          fiDisplayOrder: feeItems.displayOrder,
+        })
         .from(campaignFeeValues)
         .leftJoin(feeItems, eqOp(campaignFeeValues.feeItemId, feeItems.id))
-        .leftJoin(feeGroups, eqOp(feeItems.feeGroupId, feeGroups.id))
         .where(eqOp(campaignFeeValues.campaignId, id));
 
       const feeValues = feeValueRows.map(r => ({
-        ...r.feeValue,
-        feeItem: r.feeItem ? { ...r.feeItem, feeGroup: r.feeGroup || undefined } : undefined,
+        id: r.fvId,
+        campaignId: r.fvCampaignId,
+        feeItemId: r.fvFeeItemId,
+        value: r.fvValue,
+        valueType: r.fvValueType,
+        createdAt: r.fvCreatedAt,
+        updatedAt: r.fvUpdatedAt,
+        feeItem: r.fiId ? {
+          id: r.fiId,
+          name: r.fiName,
+          valueType: r.fiValueType,
+          displayOrder: r.fiDisplayOrder,
+        } : undefined,
       }));
 
-      // Fetch equipment
+      // 3. Equipment with flat selects
       const equipmentRows = await dbToUse
-        .select({ campaignEquipment: campaignEquipmentTable, equipmentItem: equipmentItems })
+        .select({
+          ceId: campaignEquipmentTable.id,
+          ceCampaignId: campaignEquipmentTable.campaignId,
+          ceEquipmentItemId: campaignEquipmentTable.equipmentItemId,
+          ceIsRequired: campaignEquipmentTable.isRequired,
+          ceDisplayOrder: campaignEquipmentTable.displayOrder,
+          eiId: equipmentItems.id,
+          eiName: equipmentItems.name,
+          eiDescription: equipmentItems.description,
+          eiCategory: equipmentItems.category,
+          eiManufacturer: equipmentItems.manufacturer,
+        })
         .from(campaignEquipmentTable)
         .innerJoin(equipmentItems, eqOp(campaignEquipmentTable.equipmentItemId, equipmentItems.id))
         .where(eqOp(campaignEquipmentTable.campaignId, id));
 
-      const equipment = equipmentRows.map(r => ({ ...r.campaignEquipment, equipmentItem: r.equipmentItem }));
+      const equipment = equipmentRows.map(r => ({
+        id: r.ceId,
+        campaignId: r.ceCampaignId,
+        equipmentItemId: r.ceEquipmentItemId,
+        isRequired: r.ceIsRequired,
+        displayOrder: r.ceDisplayOrder,
+        equipmentItem: {
+          id: r.eiId,
+          name: r.eiName,
+          description: r.eiDescription,
+          category: r.eiCategory,
+          manufacturer: r.eiManufacturer,
+        },
+      }));
 
-      res.json({
-        ...campaignRow.campaign,
-        pricingType: campaignRow.pricingType || undefined,
-        feeValues,
-        equipment,
-      });
+      res.json({ ...campaign, feeValues, equipment });
     } catch (error) {
       console.error('Error fetching campaign:', error);
       res.status(500).json({ error: 'Failed to fetch campaign' });
