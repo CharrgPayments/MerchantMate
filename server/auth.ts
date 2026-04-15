@@ -451,6 +451,65 @@ export class AuthService {
         };
       }
 
+      // ── 2FA / IP-change check ─────────────────────────────────────────────
+      const ipChanged = await this.hasIPChanged(user, ip);
+      if (user.twoFactorEnabled || ipChanged) {
+        if (!loginData.twoFactorCode) {
+          // Generate a 6-digit email code and persist it in the *correct* db
+          const code = this.generate2FACode();
+          const type = ipChanged ? "ip_change" : "login";
+
+          await db.insert(schema.twoFactorCodes).values({
+            userId: user.id,
+            code,
+            type,
+            expiresAt: new Date(Date.now() + TWO_FACTOR_EXPIRES),
+          });
+
+          await this.sendEmail(
+            user.email,
+            `CoreCRM Security Code${ipChanged ? " - New IP Address Detected" : ""}`,
+            `
+            <h2>Security Code Required</h2>
+            ${ipChanged ? "<p><strong>We detected a login from a new IP address.</strong></p>" : ""}
+            <p>Your verification code is: <strong style="font-size:24px;color:#007bff;">${code}</strong></p>
+            <p>This code expires in 5 minutes.</p>
+            <p>IP Address: ${ip}</p>
+            `
+          );
+
+          return {
+            success: false,
+            requires2FA: true,
+            message: ipChanged
+              ? "New IP address detected. Please check your email for a security code."
+              : "Please enter your 2FA code.",
+          };
+        }
+
+        // Verify the submitted code against the *correct* db
+        const { gte: gteOp, and: andOp } = await import('drizzle-orm');
+        const [match] = await db
+          .select()
+          .from(schema.twoFactorCodes)
+          .where(
+            andOp(
+              eq(schema.twoFactorCodes.userId, user.id),
+              eq(schema.twoFactorCodes.code, loginData.twoFactorCode),
+              gteOp(schema.twoFactorCodes.expiresAt, new Date())
+            )
+          );
+
+        if (!match) {
+          await this.logLoginAttempt(loginData.usernameOrEmail, ip, userAgent, false, "invalid_2fa");
+          return { success: false, message: "Invalid or expired security code" };
+        }
+
+        // Consume the code (single-use)
+        await db.delete(schema.twoFactorCodes).where(eq(schema.twoFactorCodes.id, match.id));
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       // Update user login info in the specific database
       const updateData = {
         lastLoginAt: new Date(),
