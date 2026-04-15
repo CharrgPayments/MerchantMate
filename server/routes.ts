@@ -5288,23 +5288,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/campaigns/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
       const id = parseInt(req.params.id);
-      const campaign = await storage.getCampaignWithDetails(id);
-      
-      if (!campaign) {
+      const dbToUse = getRequestDB(req);
+      const { campaigns: campaignsTable, pricingTypes: pricingTypesTable, campaignFeeValues, feeItems, feeGroups, campaignEquipment: campaignEquipmentTable, equipmentItems } = await import('@shared/schema');
+      const { eq: eqOp } = await import('drizzle-orm');
+
+      // Fetch campaign + pricingType
+      const [campaignRow] = await dbToUse
+        .select({ campaign: campaignsTable, pricingType: pricingTypesTable })
+        .from(campaignsTable)
+        .leftJoin(pricingTypesTable, eqOp(campaignsTable.pricingTypeId, pricingTypesTable.id))
+        .where(eqOp(campaignsTable.id, id));
+
+      if (!campaignRow) {
         return res.status(404).json({ error: 'Campaign not found' });
       }
-      
-      // Fetch related data
-      const [feeValues, equipment] = await Promise.all([
-        storage.getCampaignFeeValues(id),
-        storage.getCampaignEquipment(id)
-      ]);
-      
-      // Return campaign with complete data
+
+      // Fetch fee values
+      const feeValueRows = await dbToUse
+        .select({ feeValue: campaignFeeValues, feeItem: feeItems, feeGroup: feeGroups })
+        .from(campaignFeeValues)
+        .leftJoin(feeItems, eqOp(campaignFeeValues.feeItemId, feeItems.id))
+        .leftJoin(feeGroups, eqOp(feeItems.feeGroupId, feeGroups.id))
+        .where(eqOp(campaignFeeValues.campaignId, id));
+
+      const feeValues = feeValueRows.map(r => ({
+        ...r.feeValue,
+        feeItem: r.feeItem ? { ...r.feeItem, feeGroup: r.feeGroup || undefined } : undefined,
+      }));
+
+      // Fetch equipment
+      const equipmentRows = await dbToUse
+        .select({ campaignEquipment: campaignEquipmentTable, equipmentItem: equipmentItems })
+        .from(campaignEquipmentTable)
+        .innerJoin(equipmentItems, eqOp(campaignEquipmentTable.equipmentItemId, equipmentItems.id))
+        .where(eqOp(campaignEquipmentTable.campaignId, id));
+
+      const equipment = equipmentRows.map(r => ({ ...r.campaignEquipment, equipmentItem: r.equipmentItem }));
+
       res.json({
-        ...campaign,
+        ...campaignRow.campaign,
+        pricingType: campaignRow.pricingType || undefined,
         feeValues,
-        equipment
+        equipment,
       });
     } catch (error) {
       console.error('Error fetching campaign:', error);

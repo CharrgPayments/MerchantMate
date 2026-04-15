@@ -166,7 +166,7 @@ interface CreateCampaignData {
 
 export default function CampaignsPage() {
   const { toast } = useToast();
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAcquirer, setSelectedAcquirer] = useState<string>('all');
   const [showAddCampaign, setShowAddCampaign] = useState(false);
@@ -1153,7 +1153,7 @@ export default function CampaignsPage() {
           <div className="flex items-center gap-4">
             <Button 
               variant="ghost" 
-              onClick={() => window.location.href = '/campaigns'}
+              onClick={() => setLocation('/campaigns')}
               className="flex items-center gap-2"
             >
               ← Back to Campaigns
@@ -1166,7 +1166,7 @@ export default function CampaignsPage() {
           <div className="flex gap-2">
             <Button 
               variant="outline" 
-              onClick={() => window.location.href = `/campaigns/${campaignToEdit.id}/edit`}
+              onClick={() => setLocation(`/campaigns/${campaignToEdit.id}/edit`)}
             >
               <Edit className="h-4 w-4 mr-2" />
               Edit Campaign
@@ -1487,7 +1487,7 @@ export default function CampaignsPage() {
                         <TableCell>
                           <button 
                             className="font-medium text-primary hover:underline"
-                            onClick={() => window.location.href = `/campaigns/${campaign.id}`}
+                            onClick={() => setLocation(`/campaigns/${campaign.id}`)}
                           >
                             {campaign.id}
                           </button>
@@ -1519,11 +1519,11 @@ export default function CampaignsPage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => window.location.href = `/campaigns/${campaign.id}`}>
+                              <DropdownMenuItem onClick={() => setLocation(`/campaigns/${campaign.id}`)}>
                                 <Eye className="mr-2 h-4 w-4" />
                                 View Details
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => window.location.href = `/campaigns/${campaign.id}/edit`}>
+                              <DropdownMenuItem onClick={() => setLocation(`/campaigns/${campaign.id}/edit`)}>
                                 <Edit className="mr-2 h-4 w-4" />
                                 Edit Campaign
                               </DropdownMenuItem>
@@ -2029,13 +2029,13 @@ export default function CampaignsPage() {
         onOpenChange={(open) => {
           setShowAddCampaign(open);
           if (!open && isEditMode) {
-            window.location.href = '/campaigns';
+            setLocation('/campaigns');
           }
         }}
         onCampaignCreated={() => {
           queryClient.invalidateQueries({ queryKey: ['/api/campaigns'] });
           if (isEditMode) {
-            window.location.href = '/campaigns';
+            setLocation('/campaigns');
           }
         }}
         editCampaignId={editCampaignId}
