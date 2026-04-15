@@ -159,7 +159,6 @@ export function Header({ title, onSearch }: HeaderProps) {
   );
 
   const getDatabaseBadge = () => {
-    if (import.meta.env.PROD) return null;
     if (!dbEnvironment || dbEnvironment.environment === 'production') return null;
     const isDevEnvironment = dbEnvironment.environment === 'development' || dbEnvironment.environment === 'dev';
     const isTestEnvironment = dbEnvironment.environment === 'test';
