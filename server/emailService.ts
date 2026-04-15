@@ -404,6 +404,113 @@ This email was sent to ${data.ownerEmail}
       return false;
     }
   }
+
+  async sendPortalInviteEmail(data: { firstName: string; lastName: string; email: string; statusUrl: string; agentName: string }): Promise<boolean> {
+    const { firstName, lastName, email, statusUrl, agentName } = data;
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; padding: 30px; text-align: center;">
+          <h1 style="margin: 0; font-size: 24px;">Your Applicant Portal is Ready</h1>
+        </div>
+        <div style="padding: 30px; background: #ffffff;">
+          <p>Hi ${firstName} ${lastName},</p>
+          <p>Your advisor <strong>${agentName}</strong> has invited you to set up your applicant portal account. The portal lets you:</p>
+          <ul>
+            <li>Track your application status in real time</li>
+            <li>Message your advisor directly</li>
+            <li>Upload requested documents securely</li>
+          </ul>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${statusUrl}" style="background: #2563eb; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold;">Set Up My Portal Account</a>
+          </div>
+          <p style="color: #6b7280; font-size: 13px;">This link is tied to your application and will take you directly to the setup form. If you have questions, reply to your advisor directly.</p>
+        </div>
+        <div style="background: #f9fafb; padding: 16px; text-align: center; color: #6b7280; font-size: 12px;">
+          © ${new Date().getFullYear()} Core CRM. Secure applicant portal.
+        </div>
+      </div>`;
+    const text = `Hi ${firstName} ${lastName},\n\n${agentName} has invited you to set up your applicant portal account.\n\nVisit: ${statusUrl}\n\nCore CRM`;
+    if (!SENDGRID_ENABLED) { console.log(`[Email disabled] Portal invite to ${email}`); return false; }
+    try {
+      await mailService.send({ to: email, from: process.env.SENDGRID_FROM_EMAIL!, subject: 'Your Applicant Portal Invitation', html, text });
+      return true;
+    } catch (err) { console.error('Portal invite email error:', err); return false; }
+  }
+
+  async sendNewMessageNotification(data: { firstName: string; lastName: string; email: string; portalUrl: string; agentName: string; subject?: string }): Promise<boolean> {
+    const { firstName, email, portalUrl, agentName, subject } = data;
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: #2563eb; color: white; padding: 24px; text-align: center;">
+          <h1 style="margin: 0; font-size: 22px;">New Message from Your Advisor</h1>
+        </div>
+        <div style="padding: 28px; background: #ffffff;">
+          <p>Hi ${firstName},</p>
+          <p><strong>${agentName}</strong> sent you a message${subject ? ` regarding <em>${subject}</em>` : ''} on your application portal.</p>
+          <div style="text-align: center; margin: 24px 0;">
+            <a href="${portalUrl}" style="background: #2563eb; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: bold;">View Message &amp; Reply</a>
+          </div>
+        </div>
+        <div style="padding: 14px; text-align: center; color: #6b7280; font-size: 12px;">© ${new Date().getFullYear()} Core CRM</div>
+      </div>`;
+    const text = `Hi ${firstName},\n\n${agentName} sent you a message on your application portal.\n\nLog in to reply: ${portalUrl}\n\nCore CRM`;
+    if (!SENDGRID_ENABLED) { console.log(`[Email disabled] Message notification to ${email}`); return false; }
+    try {
+      await mailService.send({ to: email, from: process.env.SENDGRID_FROM_EMAIL!, subject: `New message from ${agentName}`, html, text });
+      return true;
+    } catch (err) { console.error('Message notification email error:', err); return false; }
+  }
+
+  async sendFileRequestNotification(data: { firstName: string; lastName: string; email: string; portalUrl: string; agentName: string; label: string }): Promise<boolean> {
+    const { firstName, email, portalUrl, agentName, label } = data;
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: #7c3aed; color: white; padding: 24px; text-align: center;">
+          <h1 style="margin: 0; font-size: 22px;">Document Requested</h1>
+        </div>
+        <div style="padding: 28px; background: #ffffff;">
+          <p>Hi ${firstName},</p>
+          <p><strong>${agentName}</strong> has requested a document from you: <strong>${label}</strong></p>
+          <p>Please log in to your portal to upload it at your earliest convenience.</p>
+          <div style="text-align: center; margin: 24px 0;">
+            <a href="${portalUrl}" style="background: #7c3aed; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: bold;">Upload Document</a>
+          </div>
+        </div>
+        <div style="padding: 14px; text-align: center; color: #6b7280; font-size: 12px;">© ${new Date().getFullYear()} Core CRM</div>
+      </div>`;
+    const text = `Hi ${firstName},\n\n${agentName} has requested: ${label}\n\nUpload it here: ${portalUrl}\n\nCore CRM`;
+    if (!SENDGRID_ENABLED) { console.log(`[Email disabled] File request notification to ${email}`); return false; }
+    try {
+      await mailService.send({ to: email, from: process.env.SENDGRID_FROM_EMAIL!, subject: `Document requested: ${label}`, html, text });
+      return true;
+    } catch (err) { console.error('File request notification email error:', err); return false; }
+  }
+
+  async sendMagicLinkEmail(data: { firstName: string; email: string; magicUrl: string }): Promise<boolean> {
+    const { firstName, email, magicUrl } = data;
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%); color: white; padding: 30px; text-align: center;">
+          <h1 style="margin: 0; font-size: 22px;">One-Click Sign In</h1>
+          <p style="margin: 8px 0 0; opacity: 0.9;">Applicant Portal</p>
+        </div>
+        <div style="padding: 30px; background: #ffffff;">
+          <p>Hi ${firstName},</p>
+          <p>Click the button below to sign in to your applicant portal instantly — no password required. This link is valid for 24 hours and can only be used once.</p>
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${magicUrl}" style="background: #2563eb; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">Sign In to My Portal</a>
+          </div>
+          <p style="color: #dc2626; font-size: 13px;"><strong>Security notice:</strong> If you didn't request this link, you can ignore this email. Do not share this link with anyone.</p>
+        </div>
+        <div style="padding: 14px; text-align: center; color: #6b7280; font-size: 12px;">© ${new Date().getFullYear()} Core CRM · Secure applicant portal</div>
+      </div>`;
+    const text = `Hi ${firstName},\n\nClick to sign in (valid 24h, single use):\n${magicUrl}\n\nIf you didn't request this, ignore this email.\n\nCore CRM`;
+    if (!SENDGRID_ENABLED) { console.log(`[Email disabled] Magic link to ${email}: ${magicUrl}`); return false; }
+    try {
+      await mailService.send({ to: email, from: process.env.SENDGRID_FROM_EMAIL!, subject: 'Your applicant portal sign-in link', html, text });
+      return true;
+    } catch (err) { console.error('Magic link email error:', err); return false; }
+  }
 }
 
 export const emailService = new EmailService();

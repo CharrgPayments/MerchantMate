@@ -121,6 +121,17 @@ export const insertProspectFileRequestSchema = createInsertSchema(prospectFileRe
 export type InsertProspectFileRequest = z.infer<typeof insertProspectFileRequestSchema>;
 export type ProspectFileRequest = typeof prospectFileRequests.$inferSelect;
 
+// Magic links for password-free portal access (single-use, 24h expiry)
+export const portalMagicLinks = pgTable("portal_magic_links", {
+  id: serial("id").primaryKey(),
+  prospectId: integer("prospect_id").notNull().references(() => merchantProspects.id, { onDelete: 'cascade' }),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type PortalMagicLink = typeof portalMagicLinks.$inferSelect;
+
 export const transactions = pgTable("transactions", {
   id: serial("id").primaryKey(),
   transactionId: text("transaction_id").notNull().unique(),

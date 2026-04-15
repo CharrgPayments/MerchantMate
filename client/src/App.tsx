@@ -58,6 +58,7 @@ import AlertsPage from "@/pages/AlertsPage";
 import ProfilePage from "@/pages/profile";
 import PortalLogin from "@/pages/portal-login";
 import ProspectPortal from "@/pages/portal";
+import PortalMagicLogin from "@/pages/portal-magic-login";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import Auth from "@/pages/auth";
@@ -868,6 +869,9 @@ function AppContent() {
           </Route>
           <Route path="/portal/login">
             {() => <PortalLogin />}
+          </Route>
+          <Route path="/portal/magic-login">
+            {() => <PortalMagicLogin />}
           </Route>
           <Route path="/portal">
             {() => <ProspectPortal />}

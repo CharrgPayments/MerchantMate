@@ -162,6 +162,12 @@ export default function ApplicationView() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/prospects', prospectId, 'file-requests'] }),
   });
 
+  const sendPortalInviteMutation = useMutation({
+    mutationFn: async () => apiRequest('POST', `/api/prospects/${prospectId}/send-portal-invite`, {}),
+    onSuccess: (data: any) => toast({ title: "Invitation sent", description: `Portal invite emailed to ${data.email}` }),
+    onError: (err: any) => toast({ title: "Failed to send invite", description: err?.message || "Please try again.", variant: "destructive" }),
+  });
+
   const messages = messagesData?.messages ?? [];
   const fileRequests = fileRequestsData?.fileRequests ?? [];
 
@@ -662,14 +668,27 @@ export default function ApplicationView() {
 
         {/* ── Portal Communication ── */}
         <div className="mt-8">
-          <div className="flex items-center gap-2 mb-4">
-            <Shield className="w-5 h-5 text-blue-600" />
-            <h2 className="text-lg font-semibold text-gray-900">Applicant Portal</h2>
-            {messages.filter((m: any) => m.senderType === "prospect" && !m.isRead).length > 0 && (
-              <Badge variant="destructive" className="text-xs">
-                {messages.filter((m: any) => m.senderType === "prospect" && !m.isRead).length} unread
-              </Badge>
-            )}
+          <div className="flex items-center justify-between gap-2 mb-4">
+            <div className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-blue-600" />
+              <h2 className="text-lg font-semibold text-gray-900">Applicant Portal</h2>
+              {messages.filter((m: any) => m.senderType === "prospect" && !m.isRead).length > 0 && (
+                <Badge variant="destructive" className="text-xs">
+                  {messages.filter((m: any) => m.senderType === "prospect" && !m.isRead).length} unread
+                </Badge>
+              )}
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => sendPortalInviteMutation.mutate()}
+              disabled={sendPortalInviteMutation.isPending}
+              title="Email the applicant a link to set up or access their portal account"
+            >
+              <Mail className="w-3.5 h-3.5 mr-1.5" />
+              {sendPortalInviteMutation.isPending ? "Sending…" : "Send Portal Invite"}
+            </Button>
           </div>
 
           <Tabs defaultValue="messages">

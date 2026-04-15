@@ -8965,6 +8965,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ message: "Logged out" });
   });
 
+  // POST /api/portal/magic-link-request — prospect requests a one-click sign-in email
+  app.post("/api/portal/magic-link-request", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+    try {
+      const { email } = req.body;
+      if (!email?.trim()) return res.status(400).json({ message: "Email required" });
+      const { merchantProspects, portalMagicLinks } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const [prospect] = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.email, email.trim().toLowerCase()));
+      // Always respond 200 to avoid email enumeration
+      if (!prospect) return res.json({ message: "If that email matches an application, a sign-in link has been sent." });
+      // Generate a secure random token
+      const crypto = await import("crypto");
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+      await dynamicDB.insert(portalMagicLinks).values({ prospectId: prospect.id, token, expiresAt });
+      // Determine the portal URL for the email
+      const dbParam = (req as any).dbEnv === "dev" ? "?db=dev" : "";
+      const baseUrl = process.env.BASE_URL || `https://${req.hostname}`;
+      const magicUrl = `${baseUrl}/portal/magic-login${dbParam}#token=${token}`;
+      emailService.sendMagicLinkEmail({ firstName: prospect.firstName, email: prospect.email, magicUrl }).catch(() => {});
+      res.json({ message: "If that email matches an application, a sign-in link has been sent." });
+    } catch (error) {
+      console.error("Magic link request error:", error);
+      res.status(500).json({ message: "Failed to send magic link" });
+    }
+  });
+
+  // POST /api/portal/magic-link-login — exchange token for a portal session
+  app.post("/api/portal/magic-link-login", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+    try {
+      const { token } = req.body;
+      if (!token) return res.status(400).json({ message: "Token required" });
+      const { portalMagicLinks, merchantProspects } = await import("@shared/schema");
+      const { eq, and, isNull } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const [link] = await dynamicDB.select().from(portalMagicLinks).where(and(eq(portalMagicLinks.token, token), isNull(portalMagicLinks.usedAt)));
+      if (!link) return res.status(401).json({ message: "Invalid or already-used sign-in link" });
+      if (new Date() > link.expiresAt) return res.status(401).json({ message: "This sign-in link has expired. Please request a new one." });
+      // Mark as used
+      await dynamicDB.update(portalMagicLinks).set({ usedAt: new Date() }).where(eq(portalMagicLinks.id, link.id));
+      // Look up prospect
+      const [prospect] = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.id, link.prospectId));
+      if (!prospect) return res.status(404).json({ message: "Account not found" });
+      // Create portal session
+      (req.session as any).portalProspectId = prospect.id;
+      (req.session as any).portalProspectEmail = prospect.email;
+      (req.session as any).portalDbEnv = (req as any).dbEnv || "production";
+      res.json({ message: "Signed in", prospect: { id: prospect.id, firstName: prospect.firstName, lastName: prospect.lastName, email: prospect.email } });
+    } catch (error) {
+      console.error("Magic link login error:", error);
+      res.status(500).json({ message: "Failed to sign in" });
+    }
+  });
+
   // GET /api/portal/me
   app.get("/api/portal/me", dbEnvironmentMiddleware, requireProspectPortalAuth, async (req: RequestWithDB, res) => {
     try {
@@ -9103,7 +9158,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { subject = "", message } = req.body;
       if (!message?.trim()) return res.status(400).json({ message: "Message body required" });
       const userId = (req.session as any)?.userId || (req as any).user?.claims?.sub || "agent";
-      const { prospectMessages, users } = await import("@shared/schema");
+      const { prospectMessages, users, merchantProspects } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
       let senderName = "Agent";
@@ -9113,6 +9168,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         prospectId, senderId: userId, senderType: "agent", subject: subject.trim(),
         message: message.trim(), isRead: false,
       }).returning();
+      // Non-blocking: notify prospect by email
+      (async () => {
+        try {
+          const [prospect] = await dynamicDB.select({ firstName: merchantProspects.firstName, lastName: merchantProspects.lastName, email: merchantProspects.email, validationToken: merchantProspects.validationToken })
+            .from(merchantProspects).where(eq(merchantProspects.id, prospectId));
+          if (prospect) {
+            const dbParam = (req as any).dbEnv === "dev" ? "?db=dev" : "";
+            const baseUrl = process.env.BASE_URL || `https://${req.hostname}`;
+            const portalUrl = `${baseUrl}/portal/login${dbParam}`;
+            await emailService.sendNewMessageNotification({ firstName: prospect.firstName, lastName: prospect.lastName, email: prospect.email, portalUrl, agentName: senderName, subject: subject.trim() || undefined });
+          }
+        } catch { /* ignore — email failure must not break the route */ }
+      })();
       res.json(msg);
     } catch (error) {
       console.error("Error sending message:", error);
@@ -9162,9 +9230,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const prospectId = parseInt(req.params.id);
       const { label, description, required = true } = req.body;
       if (!label?.trim()) return res.status(400).json({ message: "Label required" });
-      const { prospectFileRequests } = await import("@shared/schema");
+      const { prospectFileRequests, merchantProspects, users } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
       const [row] = await dynamicDB.insert(prospectFileRequests).values({ prospectId, label: label.trim(), description: description?.trim() || null, required }).returning();
+      // Non-blocking: notify prospect by email
+      (async () => {
+        try {
+          const userId = (req.session as any)?.userId || (req as any).user?.claims?.sub || "agent";
+          const [prospect] = await dynamicDB.select({ firstName: merchantProspects.firstName, lastName: merchantProspects.lastName, email: merchantProspects.email })
+            .from(merchantProspects).where(eq(merchantProspects.id, prospectId));
+          const userRows = await dynamicDB.select({ username: users.username }).from(users).where(eq(users.id, userId));
+          const agentName = userRows[0]?.username || "Your advisor";
+          if (prospect) {
+            const dbParam = (req as any).dbEnv === "dev" ? "?db=dev" : "";
+            const baseUrl = process.env.BASE_URL || `https://${req.hostname}`;
+            const portalUrl = `${baseUrl}/portal/login${dbParam}`;
+            await emailService.sendFileRequestNotification({ firstName: prospect.firstName, lastName: prospect.lastName, email: prospect.email, portalUrl, agentName, label: label.trim() });
+          }
+        } catch { /* ignore */ }
+      })();
       res.json(row);
     } catch (error) {
       console.error("Error creating file request:", error);
@@ -9340,6 +9425,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting alert:", error);
       res.status(500).json({ message: "Failed to delete alert" });
+    }
+  });
+
+  // POST /api/prospects/:id/send-portal-invite — agent sends portal invitation email
+  app.post("/api/prospects/:id/send-portal-invite", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const { merchantProspects, users } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const dynamicDB = getRequestDB(req);
+      const [prospect] = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.id, prospectId));
+      if (!prospect) return res.status(404).json({ message: "Prospect not found" });
+      if (!prospect.validationToken) return res.status(400).json({ message: "Prospect does not have a validation token" });
+      const userId = (req.session as any)?.userId || (req as any).user?.claims?.sub || "agent";
+      const userRows = await dynamicDB.select({ username: users.username }).from(users).where(eq(users.id, userId));
+      const agentName = userRows[0]?.username || "Your advisor";
+      const baseUrl = process.env.BASE_URL || `https://${req.hostname}`;
+      const statusUrl = `${baseUrl}/application-status/${prospect.validationToken}`;
+      await emailService.sendPortalInviteEmail({ firstName: prospect.firstName, lastName: prospect.lastName, email: prospect.email, statusUrl, agentName });
+      res.json({ message: "Portal invitation sent", email: prospect.email });
+    } catch (error) {
+      console.error("Error sending portal invite:", error);
+      res.status(500).json({ message: "Failed to send portal invitation" });
     }
   });
 
