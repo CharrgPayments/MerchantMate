@@ -343,6 +343,23 @@ export const insertUserDashboardPreferenceSchema = createInsertSchema(userDashbo
 export type InsertUserDashboardPreference = z.infer<typeof insertUserDashboardPreferenceSchema>;
 export type UserDashboardPreference = typeof userDashboardPreferences.$inferSelect;
 
+// User alerts / notification table
+export const userAlerts = pgTable("user_alerts", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull(),
+  message: text("message").notNull(),
+  type: varchar("type").notNull().default("info"), // info, warning, error, success
+  isRead: boolean("is_read").notNull().default(false),
+  readAt: timestamp("read_at"),
+  actionUrl: text("action_url"),
+  actionActivityId: integer("action_activity_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertUserAlertSchema = createInsertSchema(userAlerts).omit({ id: true, createdAt: true });
+export type InsertUserAlert = z.infer<typeof insertUserAlertSchema>;
+export type UserAlert = typeof userAlerts.$inferSelect;
+
 // Prospect owners table for business ownership information
 export const prospectOwners = pgTable("prospect_owners", {
   id: serial("id").primaryKey(),

@@ -8892,6 +8892,130 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── User Alerts / Notifications ─────────────────────────────────────────
+  app.get("/api/alerts", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+    try {
+      const userId = (req.session as any)?.userId;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const { userAlerts } = await import("@shared/schema");
+      const dynamicDB = getRequestDB(req);
+      const includeRead = req.query.includeRead === "true";
+      let alerts;
+      if (includeRead) {
+        alerts = await dynamicDB
+          .select()
+          .from(userAlerts)
+          .where(sqlTag`${userAlerts.userId} = ${userId}`)
+          .orderBy(sqlTag`${userAlerts.createdAt} DESC`);
+      } else {
+        alerts = await dynamicDB
+          .select()
+          .from(userAlerts)
+          .where(sqlTag`${userAlerts.userId} = ${userId} AND ${userAlerts.isRead} = false`)
+          .orderBy(sqlTag`${userAlerts.createdAt} DESC`);
+      }
+      res.json({ alerts });
+    } catch (error) {
+      console.error("Error fetching alerts:", error);
+      res.status(500).json({ message: "Failed to fetch alerts" });
+    }
+  });
+
+  app.get("/api/alerts/count", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+    try {
+      const userId = (req.session as any)?.userId;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const { sql: sqlTag, count } = await import("drizzle-orm");
+      const { userAlerts } = await import("@shared/schema");
+      const dynamicDB = getRequestDB(req);
+      const result = await dynamicDB
+        .select({ count: count() })
+        .from(userAlerts)
+        .where(sqlTag`${userAlerts.userId} = ${userId} AND ${userAlerts.isRead} = false`);
+      res.json({ count: Number(result[0]?.count ?? 0) });
+    } catch (error) {
+      console.error("Error fetching alert count:", error);
+      res.status(500).json({ message: "Failed to fetch alert count" });
+    }
+  });
+
+  app.patch("/api/alerts/:id/read", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+    try {
+      const userId = (req.session as any)?.userId;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const { sql: sqlTag, eq, and } = await import("drizzle-orm");
+      const { userAlerts } = await import("@shared/schema");
+      const dynamicDB = getRequestDB(req);
+      const id = parseInt(req.params.id);
+      const updated = await dynamicDB
+        .update(userAlerts)
+        .set({ isRead: true, readAt: new Date() })
+        .where(and(eq(userAlerts.id, id), eq(userAlerts.userId, userId)))
+        .returning();
+      if (!updated.length) return res.status(404).json({ message: "Alert not found" });
+      res.json(updated[0]);
+    } catch (error) {
+      console.error("Error marking alert read:", error);
+      res.status(500).json({ message: "Failed to mark alert as read" });
+    }
+  });
+
+  app.post("/api/alerts/read-all", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+    try {
+      const userId = (req.session as any)?.userId;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const { eq } = await import("drizzle-orm");
+      const { userAlerts } = await import("@shared/schema");
+      const dynamicDB = getRequestDB(req);
+      await dynamicDB
+        .update(userAlerts)
+        .set({ isRead: true, readAt: new Date() })
+        .where(eq(userAlerts.userId, userId));
+      res.json({ message: "All alerts marked as read" });
+    } catch (error) {
+      console.error("Error marking all alerts read:", error);
+      res.status(500).json({ message: "Failed to mark all alerts as read" });
+    }
+  });
+
+  app.delete("/api/alerts/read/all", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+    try {
+      const userId = (req.session as any)?.userId;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const { userAlerts } = await import("@shared/schema");
+      const dynamicDB = getRequestDB(req);
+      await dynamicDB
+        .delete(userAlerts)
+        .where(sqlTag`${userAlerts.userId} = ${userId} AND ${userAlerts.isRead} = true`);
+      res.json({ message: "All read alerts deleted" });
+    } catch (error) {
+      console.error("Error deleting read alerts:", error);
+      res.status(500).json({ message: "Failed to delete read alerts" });
+    }
+  });
+
+  app.delete("/api/alerts/:id", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+    try {
+      const userId = (req.session as any)?.userId;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const { and, eq } = await import("drizzle-orm");
+      const { userAlerts } = await import("@shared/schema");
+      const dynamicDB = getRequestDB(req);
+      const id = parseInt(req.params.id);
+      const deleted = await dynamicDB
+        .delete(userAlerts)
+        .where(and(eq(userAlerts.id, id), eq(userAlerts.userId, userId)))
+        .returning();
+      if (!deleted.length) return res.status(404).json({ message: "Alert not found" });
+      res.json({ message: "Alert deleted" });
+    } catch (error) {
+      console.error("Error deleting alert:", error);
+      res.status(500).json({ message: "Failed to delete alert" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
