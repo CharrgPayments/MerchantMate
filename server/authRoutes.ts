@@ -85,20 +85,27 @@ export function setupAuthRoutes(app: Express) {
   });
 
   // User login with database environment support
-  app.post('/api/auth/login', dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+  app.post('/api/auth/login', async (req: RequestWithDB, res) => {
     try {
       const validatedData = loginUserSchema.parse(req.body);
-      // Use dynamic database for login authentication
-      const dynamicDB = getRequestDB(req);
+
+      // Read ?db directly from query params — the domain-based override in
+      // dbEnvironmentMiddleware would force production even when the user
+      // explicitly chose Development or Test on the login screen.
+      const dbParam = req.query.db as string | undefined;
+      const allowedEnvs = ['dev', 'development', 'test'];
+      const dbEnv = dbParam && allowedEnvs.includes(dbParam) ? dbParam : 'production';
+      const dynamicDB = getDynamicDatabase(dbEnv);
+
       const result = await authService.loginWithDB(validatedData, req, dynamicDB);
       
       if (result.success && result.user) {
-        // Store user session data including database environment
+        // Store user session data including the ACTUAL chosen database environment
         req.session.userId = result.user.id;
         req.session.sessionId = result.sessionId || 'default-session';
-        req.session.dbEnv = req.dbEnv; // Store selected database environment in session
+        req.session.dbEnv = dbEnv;
         
-        console.log(`Session created: userId=${result.user.id}, dbEnv=${req.dbEnv}`);
+        console.log(`Session created: userId=${result.user.id}, dbEnv=${dbEnv}`);
         
         // Force session save before responding
         req.session.save((err: any) => {
