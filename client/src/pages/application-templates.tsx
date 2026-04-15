@@ -1260,6 +1260,7 @@ function ParseResultPanel({
       {hasIssues && warnings.length > 0 && (
         <div className="border-t border-inherit">
           <button 
+            type="button"
             className="w-full p-2 text-xs font-medium flex items-center justify-between hover:bg-black/5 transition-colors"
             onClick={() => setShowWarnings(!showWarnings)}
           >
@@ -1296,6 +1297,7 @@ function ParseResultPanel({
       {!compact && sections && sections.length > 0 && (
         <div className="border-t border-inherit">
           <button 
+            type="button"
             className="w-full p-2 text-xs font-medium flex items-center justify-between hover:bg-black/5 transition-colors"
             onClick={() => setShowSections(prev => !prev)}
           >
