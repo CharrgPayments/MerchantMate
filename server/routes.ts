@@ -7946,13 +7946,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!template) return res.status(404).json({ error: "Template not found" });
 
       const pdfBuffer = req.file.buffer;
+      const parseResult = await pdfFormParser.parsePDFForm(pdfBuffer);
+
       const [updated] = await dbToUse.update(acquirerApplicationTemplates).set({
         originalPdfBase64: pdfBuffer.toString('base64'),
         originalPdfFilename: req.file.originalname || 'uploaded.pdf',
         updatedAt: new Date()
       }).where(eq(acquirerApplicationTemplates.id, templateId)).returning();
 
-      res.json({ success: true, message: "Original PDF uploaded successfully", originalPdfFilename: updated.originalPdfFilename });
+      res.json({
+        success: true,
+        message: "Original PDF uploaded successfully",
+        originalPdfFilename: updated.originalPdfFilename,
+        parseResult: {
+          totalFields: parseResult.totalFields,
+          warnings: parseResult.warnings,
+          summary: parseResult.summary,
+        }
+      });
     } catch (error) {
       console.error('Error uploading PDF for template:', error);
       res.status(500).json({ error: 'Failed to upload PDF' });

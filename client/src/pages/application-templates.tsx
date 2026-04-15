@@ -15,7 +15,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus, Pencil, Eye, Copy, Download, Upload, Trash2, Settings, Circle, CheckCircle, ChevronDown, ChevronRight, GripVertical, FlaskConical, BookOpen } from 'lucide-react';
+import { Plus, Pencil, Eye, Copy, Download, Upload, Trash2, Settings, Circle, CheckCircle, ChevronDown, ChevronRight, GripVertical, FlaskConical, BookOpen, AlertTriangle, Info, FileText, RefreshCw, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useLocation } from 'wouter';
 import {
@@ -528,14 +528,30 @@ export default function ApplicationTemplatesPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-2 text-sm text-muted-foreground">
-                <div>Fields: {template.fieldConfiguration?.sections?.reduce((total: number, section: any) => total + section.fields.length, 0) || 0}</div>
-                <div>Required: {template.requiredFields.length}</div>
+                <div className="flex items-center gap-2">
+                  <span>Fields: {template.fieldConfiguration?.sections?.reduce((total: number, section: any) => total + section.fields.length, 0) || 0}</span>
+                  <span className="text-muted-foreground/50">·</span>
+                  <span>Sections: {template.fieldConfiguration?.sections?.length || 0}</span>
+                </div>
                 <div className="flex items-center gap-2">
                   <span>Applications: {applicationCounts[template.id] || 0}</span>
                   {(applicationCounts[template.id] || 0) > 0 && (
                     <Badge variant="outline" className="text-xs">
                       In Use
                     </Badge>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {(template as any).originalPdfFilename ? (
+                    <>
+                      <FileText className="h-3.5 w-3.5 text-green-600" />
+                      <span className="text-green-700 text-xs">PDF stored</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="h-3.5 w-3.5 text-muted-foreground/40" />
+                      <span className="text-xs">No PDF</span>
+                    </>
                   )}
                 </div>
                 <div>Created: {new Date(template.createdAt).toLocaleDateString()}</div>
@@ -704,6 +720,8 @@ function CreateTemplateDialog({
   isLoading: boolean;
 }) {
   const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null);
+  const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
+  const [pdfPreviewResult, setPdfPreviewResult] = useState<{ warnings: ParseWarning[]; summary: ParseSummary; sections: { title: string; fieldCount: number; fields: { fieldName: string; fieldType: string; fieldLabel: string }[] }[] } | null>(null);
   const { toast } = useToast();
 
   const form = useForm<TemplateFormData>({
@@ -742,7 +760,7 @@ function CreateTemplateDialog({
     }
   });
 
-  const handlePdfFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePdfFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       if (file.type !== 'application/pdf') {
@@ -753,7 +771,7 @@ function CreateTemplateDialog({
         });
         return;
       }
-      if (file.size > 10 * 1024 * 1024) { // 10MB limit
+      if (file.size > 10 * 1024 * 1024) {
         toast({
           title: 'File Too Large',
           description: 'PDF file must be less than 10MB.',
@@ -762,10 +780,44 @@ function CreateTemplateDialog({
         return;
       }
       setSelectedPdfFile(file);
-      // Auto-populate template name from filename if empty
+      setPdfPreviewResult(null);
+
       if (!form.getValues('templateName')) {
         const nameWithoutExtension = file.name.replace(/\.pdf$/i, '');
         form.setValue('templateName', nameWithoutExtension);
+      }
+
+      setPdfPreviewLoading(true);
+      try {
+        const formData = new FormData();
+        formData.append('pdf', file);
+        const res = await fetch('/api/acquirer-application-templates/upload', {
+          method: 'POST',
+          body: formData,
+          credentials: 'include',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.parseResult) {
+            setPdfPreviewResult({
+              warnings: data.parseResult.warnings || [],
+              summary: data.parseResult.summary || { totalRawFields: 0, properlyNamed: 0, skipped: 0, grouped: 0, sections: 0 },
+              sections: (data.parseResult.sections || []).map((s: any) => ({
+                title: s.title,
+                fieldCount: s.fields?.length || 0,
+                fields: (s.fields || []).map((f: any) => ({
+                  fieldName: f.fieldName || f.id,
+                  fieldType: f.fieldType || f.type,
+                  fieldLabel: f.fieldLabel || f.label,
+                })),
+              })),
+            });
+          }
+        }
+      } catch (err) {
+        console.error('PDF preview parse error:', err);
+      } finally {
+        setPdfPreviewLoading(false);
       }
     }
   };
@@ -898,6 +950,19 @@ function CreateTemplateDialog({
                       <CheckCircle className="h-4 w-4" />
                       Selected: {selectedPdfFile.name} ({(selectedPdfFile.size / 1024 / 1024).toFixed(2)} MB)
                     </div>
+                  )}
+                  {pdfPreviewLoading && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Analyzing PDF fields...
+                    </div>
+                  )}
+                  {pdfPreviewResult && (
+                    <ParseResultPanel
+                      warnings={pdfPreviewResult.warnings}
+                      summary={pdfPreviewResult.summary}
+                      sections={pdfPreviewResult.sections}
+                    />
                   )}
                 </div>
               </div>
@@ -1096,14 +1161,177 @@ function EditTemplateDialog({
   );
 }
 
+interface ParseWarning {
+  fieldName: string;
+  issue: string;
+  severity: 'error' | 'warning' | 'info';
+  suggestion?: string;
+}
+
+interface ParseSummary {
+  totalRawFields: number;
+  properlyNamed: number;
+  skipped: number;
+  grouped: number;
+  sections: number;
+}
+
+interface ParseDiagnostics {
+  templateId: number;
+  templateName: string;
+  hasOriginalPdf: boolean;
+  parseResult: {
+    totalFields: number;
+    warnings: ParseWarning[];
+    summary: ParseSummary;
+    sections: {
+      title: string;
+      order: number;
+      fieldCount: number;
+      fields: {
+        fieldName: string;
+        fieldType: string;
+        fieldLabel: string;
+        pdfFieldId: string;
+        rawPdfFieldNames: string[];
+      }[];
+    }[];
+  } | null;
+  message?: string;
+}
+
+function ParseResultPanel({ 
+  warnings, 
+  summary, 
+  sections,
+  compact = false 
+}: { 
+  warnings: ParseWarning[];
+  summary: ParseSummary;
+  sections?: { title: string; fieldCount: number; fields: { fieldName: string; fieldType: string; fieldLabel: string }[] }[];
+  compact?: boolean;
+}) {
+  const [showWarnings, setShowWarnings] = useState(false);
+  const [showSections, setShowSections] = useState(false);
+  const errorCount = warnings.filter(w => w.severity === 'error').length;
+  const warningCount = warnings.filter(w => w.severity === 'warning').length;
+  const infoCount = warnings.filter(w => w.severity === 'info').length;
+
+  const hasIssues = errorCount > 0 || warningCount > 0;
+  const overallStatus = errorCount > 0 ? 'error' : warningCount > 0 ? 'warning' : 'success';
+  const statusColors = {
+    error: 'bg-red-50 border-red-200 text-red-800',
+    warning: 'bg-amber-50 border-amber-200 text-amber-800',
+    success: 'bg-green-50 border-green-200 text-green-800',
+  };
+
+  return (
+    <div className={`border rounded-lg ${statusColors[overallStatus]}`}>
+      <div className="p-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {overallStatus === 'success' && <CheckCircle className="h-4 w-4 text-green-600" />}
+            {overallStatus === 'warning' && <AlertTriangle className="h-4 w-4 text-amber-600" />}
+            {overallStatus === 'error' && <AlertTriangle className="h-4 w-4 text-red-600" />}
+            <span className="font-medium text-sm">
+              {overallStatus === 'success' && 'All fields parsed successfully'}
+              {overallStatus === 'warning' && `${warningCount} field${warningCount !== 1 ? 's' : ''} need attention`}
+              {overallStatus === 'error' && `${errorCount} field${errorCount !== 1 ? 's' : ''} with errors`}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-xs bg-white/50">{summary.properlyNamed} parsed</Badge>
+            {summary.skipped > 0 && <Badge variant="destructive" className="text-xs">{summary.skipped} skipped</Badge>}
+            {summary.grouped > 0 && <Badge variant="secondary" className="text-xs">{summary.grouped} grouped</Badge>}
+            <Badge variant="outline" className="text-xs bg-white/50">{summary.sections} sections</Badge>
+          </div>
+        </div>
+
+        {!compact && (
+          <div className="mt-2 text-xs opacity-80">
+            {summary.totalRawFields} raw PDF fields → {summary.properlyNamed} valid fields in {summary.sections} sections
+            {summary.skipped > 0 && ` (${summary.skipped} skipped — see warnings below)`}
+          </div>
+        )}
+      </div>
+
+      {hasIssues && warnings.length > 0 && (
+        <div className="border-t border-inherit">
+          <button 
+            className="w-full p-2 text-xs font-medium flex items-center justify-between hover:bg-black/5 transition-colors"
+            onClick={() => setShowWarnings(!showWarnings)}
+          >
+            <span>
+              {showWarnings ? 'Hide' : 'Show'} {warnings.length} warning{warnings.length !== 1 ? 's' : ''}
+            </span>
+            {showWarnings ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          </button>
+          {showWarnings && (
+            <div className="px-3 pb-3 space-y-1">
+              {warnings.map((w, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs py-1">
+                  {w.severity === 'error' && <AlertTriangle className="h-3 w-3 text-red-500 mt-0.5 shrink-0" />}
+                  {w.severity === 'warning' && <AlertTriangle className="h-3 w-3 text-amber-500 mt-0.5 shrink-0" />}
+                  {w.severity === 'info' && <Info className="h-3 w-3 text-blue-500 mt-0.5 shrink-0" />}
+                  <div>
+                    <span className="font-mono">{w.fieldName}</span>
+                    <span className="mx-1">—</span>
+                    <span>{w.issue.replace(/_/g, ' ')}</span>
+                    {w.suggestion && (
+                      <span className="block text-muted-foreground mt-0.5">Suggestion: {w.suggestion}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!compact && sections && sections.length > 0 && (
+        <div className="border-t border-inherit">
+          <button 
+            className="w-full p-2 text-xs font-medium flex items-center justify-between hover:bg-black/5 transition-colors"
+            onClick={() => setShowSections(prev => !prev)}
+          >
+            <span>Parsed Sections ({sections.length})</span>
+            {showSections ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          </button>
+          {showSections && (
+            <div className="px-3 pb-3">
+              {sections.map((section, idx) => (
+                <div key={idx} className="mb-2 last:mb-0">
+                  <div className="font-medium text-xs mb-1">{section.title} ({section.fieldCount} fields)</div>
+                  <div className="pl-3 space-y-0.5">
+                    {section.fields.map((f, fIdx) => (
+                      <div key={fIdx} className="text-xs flex items-center gap-2">
+                        <span className="font-mono text-[10px] opacity-70">{f.fieldName}</span>
+                        <Badge variant="outline" className="text-[10px] px-1 py-0">{f.fieldType}</Badge>
+                        <span>{f.fieldLabel}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function UploadOriginalPdf({ templateId, hasOriginalPdf }: { templateId: number; hasOriginalPdf: boolean }) {
   const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<{ warnings: ParseWarning[]; summary: ParseSummary } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
+    setUploadResult(null);
     try {
       const formData = new FormData();
       formData.append('pdf', file);
@@ -1113,9 +1341,27 @@ function UploadOriginalPdf({ templateId, hasOriginalPdf }: { templateId: number;
         credentials: 'include',
       });
       if (!res.ok) throw new Error('Upload failed');
+      const data = await res.json();
       queryClient.invalidateQueries({ queryKey: ['/api/acquirer-application-templates'] });
+
+      if (data.parseResult?.warnings && data.parseResult?.summary) {
+        setUploadResult({
+          warnings: data.parseResult.warnings,
+          summary: data.parseResult.summary,
+        });
+      }
+
+      toast({
+        title: 'PDF Uploaded',
+        description: `PDF uploaded successfully. ${data.parseResult?.summary?.properlyNamed || 0} fields parsed.`,
+      });
     } catch (err) {
       console.error('PDF upload error:', err);
+      toast({
+        title: 'Upload Failed',
+        description: 'Failed to upload PDF. Please try again.',
+        variant: 'destructive',
+      });
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -1123,19 +1369,24 @@ function UploadOriginalPdf({ templateId, hasOriginalPdf }: { templateId: number;
   };
 
   return (
-    <div className="flex items-center gap-3">
-      <input ref={fileInputRef} type="file" accept="application/pdf" className="hidden" onChange={handleUpload} />
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={uploading}
-        onClick={() => fileInputRef.current?.click()}
-      >
-        <Upload className="w-4 h-4 mr-2" />
-        {uploading ? 'Uploading...' : hasOriginalPdf ? 'Replace Original PDF' : 'Upload Original PDF'}
-      </Button>
-      {!hasOriginalPdf && (
-        <span className="text-xs text-muted-foreground">Upload the original PDF to enable filled PDF generation from completed applications.</span>
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <input ref={fileInputRef} type="file" accept="application/pdf" className="hidden" onChange={handleUpload} />
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={uploading}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {uploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+          {uploading ? 'Uploading...' : hasOriginalPdf ? 'Replace Original PDF' : 'Upload Original PDF'}
+        </Button>
+        {!hasOriginalPdf && (
+          <span className="text-xs text-muted-foreground">Upload the original PDF to enable filled PDF generation from completed applications.</span>
+        )}
+      </div>
+      {uploadResult && (
+        <ParseResultPanel warnings={uploadResult.warnings} summary={uploadResult.summary} compact />
       )}
     </div>
   );
@@ -1277,6 +1528,110 @@ function PdfFieldMappingView({ template }: { template: AcquirerApplicationTempla
   );
 }
 
+function ParseDiagnosticsPanel({ templateId }: { templateId: number }) {
+  const [diagnostics, setDiagnostics] = useState<ParseDiagnostics | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchDiagnostics = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/acquirer-application-templates/${templateId}/parse-diagnostics`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed to fetch diagnostics');
+      const data = await res.json();
+      setDiagnostics(data);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load diagnostics');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!diagnostics && !loading && !error) {
+    return (
+      <div className="border rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-muted-foreground" />
+            <h4 className="font-medium text-sm">Parse Diagnostics</h4>
+          </div>
+          <Button variant="outline" size="sm" onClick={fetchDiagnostics}>
+            <RefreshCw className="h-3 w-3 mr-2" />
+            Run Diagnostics
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          Re-analyze the original PDF to check field naming, detect issues, and verify the parse output.
+        </p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="border rounded-lg p-4 flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Analyzing PDF...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="border border-red-200 rounded-lg p-4 bg-red-50">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-red-700 text-sm">
+            <AlertTriangle className="h-4 w-4" />
+            {error}
+          </div>
+          <Button variant="outline" size="sm" onClick={fetchDiagnostics}>
+            <RefreshCw className="h-3 w-3 mr-2" />
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (diagnostics && !diagnostics.hasOriginalPdf) {
+    return (
+      <div className="border border-amber-200 rounded-lg p-4 bg-amber-50">
+        <div className="flex items-center gap-2 text-amber-700 text-sm">
+          <Info className="h-4 w-4" />
+          No original PDF stored. Upload a PDF above to see parse diagnostics.
+        </div>
+      </div>
+    );
+  }
+
+  if (diagnostics?.parseResult) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-muted-foreground" />
+            <h4 className="font-medium text-sm">Parse Diagnostics</h4>
+          </div>
+          <Button variant="ghost" size="sm" onClick={fetchDiagnostics}>
+            <RefreshCw className="h-3 w-3 mr-1" />
+            Re-run
+          </Button>
+        </div>
+        <ParseResultPanel
+          warnings={diagnostics.parseResult.warnings}
+          summary={diagnostics.parseResult.summary}
+          sections={diagnostics.parseResult.sections}
+        />
+      </div>
+    );
+  }
+
+  return null;
+}
+
 function ViewTemplateDialog({ 
   isOpen, 
   onClose, 
@@ -1330,6 +1685,8 @@ function ViewTemplateDialog({
           </div>
 
           <UploadOriginalPdf templateId={template.id} hasOriginalPdf={!!(template as any).hasOriginalPdf || !!(template as any).originalPdfFilename} />
+
+          <ParseDiagnosticsPanel templateId={template.id} />
 
           <Separator />
 
