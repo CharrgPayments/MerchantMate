@@ -2,22 +2,470 @@ import { PdfFormField } from '@shared/schema';
 import { getWellsFargoMPAForm } from './wellsFargoMPA';
 import * as fs from 'fs';
 
-interface ParsedFormField {
+export type FieldType =
+  | 'text' | 'email' | 'phone' | 'date' | 'url' | 'textarea'
+  | 'number' | 'currency' | 'percentage'
+  | 'ein' | 'ssn' | 'zipcode'
+  | 'select' | 'checkbox' | 'radio' | 'boolean' | 'checkbox-list'
+  | 'address' | 'signature' | 'mcc-select'
+  | 'bank_account' | 'bank_routing'
+  | 'disclosure' | 'owner_group';
+
+export interface ParsedFormField {
   fieldName: string;
-  fieldType: 'text' | 'number' | 'date' | 'select' | 'checkbox' | 'textarea' | 'phone' | 'email' | 'url';
+  fieldType: FieldType;
   fieldLabel: string;
   isRequired: boolean;
-  options?: string[];
+  options?: any[];
   defaultValue?: string;
   validation?: string;
   position: number;
   section?: string;
+  pdfFieldId?: string;
+  pdfFieldIds?: string[];
+  rawPdfFieldName?: string;
+  rawPdfFieldNames?: string[];
 }
 
-interface ParsedFormSection {
+export interface ParsedFormSection {
   title: string;
   fields: ParsedFormField[];
   order: number;
+}
+
+export interface ParseWarning {
+  field: string;
+  issue: 'no_dot_notation' | 'all_caps' | 'unknown_section' | 'empty_name' | 'duplicate' | 'no_type_detected' | 'unnamed_field';
+  message: string;
+  severity: 'error' | 'warning' | 'info';
+}
+
+export interface ParseResult {
+  sections: ParsedFormSection[];
+  totalFields: number;
+  rawFields: RawFieldInfo[];
+  warnings: ParseWarning[];
+  summary: {
+    source: 'acroform' | 'text' | 'predefined';
+    totalRawFields: number;
+    properlyNamedFields: number;
+    skippedFields: number;
+    groupedFields: number;
+    fieldsByType: Record<string, number>;
+    fieldsBySection: Record<string, number>;
+  };
+}
+
+export interface RawFieldInfo {
+  pdfFieldId: string;
+  fieldName: string;
+  originalLabel: string;
+  detectedType: string;
+  required: boolean;
+  section: string;
+  position: number;
+  rawLine: string;
+  mappedToTemplateField: string;
+  mappingStatus: 'auto' | 'manual' | 'unmapped';
+  source: string;
+}
+
+const SECTION_MAP: Record<string, string> = {
+  'merchant': 'Merchant Information',
+  'business': 'Business Information',
+  'transactionInformation': 'Transaction Information',
+  'transaction': 'Transaction Information',
+  'creditDebitAuth': 'Credit & Debit Authorization',
+  'owners': 'Ownership Information',
+  'ownership': 'Ownership Information',
+  'owner': 'Ownership Information',
+  'agent': 'Agent Information',
+  'equipment': 'Equipment',
+  'pricing': 'Pricing & Fees',
+  'fees': 'Pricing & Fees',
+  'bankInformation': 'Bank Information',
+  'bank': 'Bank Information',
+  'banking': 'Bank Information',
+  'contact': 'Contact Information',
+  'billing': 'Billing Information',
+  'shipping': 'Shipping Information',
+  'compliance': 'Compliance',
+  'security': 'Security Information',
+  'products': 'Products & Services',
+  'services': 'Products & Services',
+};
+
+const FIELD_TYPE_RULES: Array<{
+  pattern: RegExp;
+  type: FieldType;
+}> = [
+  { pattern: /\.address\./i, type: 'address' },
+  { pattern: /\.radio\./i, type: 'radio' },
+  { pattern: /\.checkbox\./i, type: 'checkbox-list' },
+  { pattern: /\.bool\./i, type: 'boolean' },
+
+  { pattern: /e[\-_]?mail$/i, type: 'email' },
+  { pattern: /companyemail$/i, type: 'email' },
+  { pattern: /emailaddress$/i, type: 'email' },
+
+  { pattern: /phone$/i, type: 'phone' },
+  { pattern: /fax$/i, type: 'phone' },
+  { pattern: /faxnumber$/i, type: 'phone' },
+  { pattern: /tel$/i, type: 'phone' },
+  { pattern: /telephone$/i, type: 'phone' },
+  { pattern: /mobile$/i, type: 'phone' },
+  { pattern: /mobilephone$/i, type: 'phone' },
+  { pattern: /cellphone$/i, type: 'phone' },
+  { pattern: /companyphone$/i, type: 'phone' },
+  { pattern: /descriptorphone$/i, type: 'phone' },
+
+  { pattern: /date$/i, type: 'date' },
+  { pattern: /dob$/i, type: 'date' },
+  { pattern: /dateofbirth$/i, type: 'date' },
+  { pattern: /startdate$/i, type: 'date' },
+  { pattern: /enddate$/i, type: 'date' },
+  { pattern: /businessstartdate$/i, type: 'date' },
+  { pattern: /expirationdate$/i, type: 'date' },
+
+  { pattern: /url$/i, type: 'url' },
+  { pattern: /website$/i, type: 'url' },
+  { pattern: /companyurl$/i, type: 'url' },
+  { pattern: /webaddress$/i, type: 'url' },
+
+  { pattern: /taxid$/i, type: 'ein' },
+  { pattern: /ein$/i, type: 'ein' },
+  { pattern: /employerid$/i, type: 'ein' },
+  { pattern: /federaltaxid$/i, type: 'ein' },
+
+  { pattern: /ssn$/i, type: 'ssn' },
+  { pattern: /socialsecurity$/i, type: 'ssn' },
+  { pattern: /socialsecuritynumber$/i, type: 'ssn' },
+
+  { pattern: /postalcode$/i, type: 'zipcode' },
+  { pattern: /zip$/i, type: 'zipcode' },
+  { pattern: /zipcode$/i, type: 'zipcode' },
+
+  { pattern: /bankaccountnumber$/i, type: 'bank_account' },
+  { pattern: /accountnumber$/i, type: 'bank_account' },
+
+  { pattern: /bankroutingnumber$/i, type: 'bank_routing' },
+  { pattern: /routingnumber$/i, type: 'bank_routing' },
+  { pattern: /abanumber$/i, type: 'bank_routing' },
+
+  { pattern: /signature$/i, type: 'signature' },
+
+  { pattern: /mcccode$/i, type: 'mcc-select' },
+  { pattern: /mcc$/i, type: 'mcc-select' },
+  { pattern: /sellsproductsservices$/i, type: 'mcc-select' },
+  { pattern: /merchantcategorycode$/i, type: 'mcc-select' },
+
+  { pattern: /percentage$/i, type: 'percentage' },
+  { pattern: /percent$/i, type: 'percentage' },
+  { pattern: /rate$/i, type: 'percentage' },
+  { pattern: /swipedpercentage$/i, type: 'percentage' },
+  { pattern: /keyedpercentage$/i, type: 'percentage' },
+  { pattern: /internetpercentage$/i, type: 'percentage' },
+  { pattern: /motopercentage$/i, type: 'percentage' },
+
+  { pattern: /amount$/i, type: 'currency' },
+  { pattern: /volume$/i, type: 'currency' },
+  { pattern: /ticket$/i, type: 'currency' },
+  { pattern: /ticketamount$/i, type: 'currency' },
+  { pattern: /price$/i, type: 'currency' },
+  { pattern: /fee$/i, type: 'currency' },
+  { pattern: /cost$/i, type: 'currency' },
+  { pattern: /monthlyvolume$/i, type: 'currency' },
+  { pattern: /annualvolume$/i, type: 'currency' },
+  { pattern: /averagemonthlyvolume$/i, type: 'currency' },
+  { pattern: /averageticket$/i, type: 'currency' },
+  { pattern: /highestticket$/i, type: 'currency' },
+
+  { pattern: /description$/i, type: 'textarea' },
+  { pattern: /comment$/i, type: 'textarea' },
+  { pattern: /comments$/i, type: 'textarea' },
+  { pattern: /notes?$/i, type: 'textarea' },
+  { pattern: /detail$/i, type: 'textarea' },
+  { pattern: /details$/i, type: 'textarea' },
+  { pattern: /explain$/i, type: 'textarea' },
+  { pattern: /explanation$/i, type: 'textarea' },
+  { pattern: /businessdescription$/i, type: 'textarea' },
+];
+
+function humanizeFieldName(dotName: string): string {
+  const lastPart = dotName.split('.').pop() || dotName;
+  return lastPart
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase())
+    .trim();
+}
+
+function deriveSectionFromFieldName(fieldId: string): string {
+  const parts = fieldId.split('.');
+  if (parts.length < 2) return 'Form Fields';
+  const sectionKey = parts[0];
+  return SECTION_MAP[sectionKey] || humanizeFieldName(sectionKey);
+}
+
+function inferFieldTypeFromName(fieldName: string): FieldType {
+  const lastPart = fieldName.split('.').pop()?.toLowerCase() || '';
+
+  for (const rule of FIELD_TYPE_RULES) {
+    if (rule.pattern.test(lastPart) || rule.pattern.test(fieldName)) {
+      return rule.type;
+    }
+  }
+
+  return 'text';
+}
+
+function inferFieldTypeFromLabel(label: string): FieldType {
+  const lower = label.toLowerCase();
+  if (/e[\-_\s]?mail/i.test(lower)) return 'email';
+  if (/phone|fax|tel(?:ephone)?|mobile|cell/i.test(lower)) return 'phone';
+  if (/date|dob|d\.o\.b|birth/i.test(lower)) return 'date';
+  if (/url|website|web\s*site/i.test(lower)) return 'url';
+  if (/signature/i.test(lower)) return 'signature';
+  if (/ssn|social\s*security/i.test(lower)) return 'ssn';
+  if (/ein|tax\s*id|federal\s*id/i.test(lower)) return 'ein';
+  if (/routing|aba/i.test(lower)) return 'bank_routing';
+  if (/account\s*#|account\s*number|acct\s*num/i.test(lower)) return 'bank_account';
+  if (/zip\s*code|postal/i.test(lower)) return 'zipcode';
+  if (/percent|%/i.test(lower)) return 'percentage';
+  if (/amount|volume|ticket|price|\$|revenue|sales|fee|cost/i.test(lower)) return 'currency';
+  if (/description|comment|note|detail|explain|reason/i.test(lower)) return 'textarea';
+  if (/yes.*no|no.*yes/i.test(lower)) return 'select';
+  return 'text';
+}
+
+function isProperlyNamed(name: string): boolean {
+  if (!name || name.trim() === '') return false;
+  if (!name.includes('.')) return false;
+  const firstSegment = name.split('.')[0];
+  if (firstSegment === 'undefined' || firstSegment === '') return false;
+  if (/^[A-Z\s_\d]+$/.test(firstSegment)) return false;
+  if (/[a-z]/.test(firstSegment)) return true;
+  return false;
+}
+
+function classifySkippedField(name: string): ParseWarning {
+  if (!name || name.trim() === '') {
+    return { field: name || '(empty)', issue: 'empty_name', message: 'Field has no name', severity: 'warning' };
+  }
+  if (!name.includes('.')) {
+    return { field: name, issue: 'no_dot_notation', message: `Field "${name}" does not use dot notation (e.g., merchant.fieldName). It will be skipped.`, severity: 'warning' };
+  }
+  const firstSegment = name.split('.')[0];
+  if (/^[A-Z\s_\d]+$/.test(firstSegment)) {
+    return { field: name, issue: 'all_caps', message: `Field "${name}" uses ALL CAPS section prefix "${firstSegment}". Use camelCase (e.g., "${firstSegment.charAt(0).toLowerCase() + firstSegment.slice(1).toLowerCase()}").`, severity: 'warning' };
+  }
+  return { field: name, issue: 'unnamed_field', message: `Field "${name}" could not be classified.`, severity: 'info' };
+}
+
+interface GroupedField {
+  fieldId: string;
+  fieldType: FieldType;
+  fieldLabel: string;
+  options: string[];
+  rawPdfFieldNames: string[];
+  section: string;
+}
+
+function groupAcroFormFields(properFields: string[], skippedNames: string[]): { groups: Map<string, GroupedField>; warnings: ParseWarning[] } {
+  const groups = new Map<string, GroupedField>();
+  const warnings: ParseWarning[] = [];
+
+  for (const name of skippedNames) {
+    warnings.push(classifySkippedField(name));
+  }
+
+  for (const rawName of properFields) {
+    const radioMatch = rawName.match(/^(.+?)\.radio\.(.+)$/);
+    if (radioMatch) {
+      const groupId = radioMatch[1];
+      const optionValue = radioMatch[2];
+      const existing = groups.get(groupId);
+      if (existing) {
+        existing.options.push(optionValue);
+        existing.rawPdfFieldNames.push(rawName);
+      } else {
+        groups.set(groupId, {
+          fieldId: groupId,
+          fieldType: 'radio',
+          fieldLabel: humanizeFieldName(groupId),
+          options: [optionValue],
+          rawPdfFieldNames: [rawName],
+          section: deriveSectionFromFieldName(groupId),
+        });
+      }
+      continue;
+    }
+
+    const boolMatch = rawName.match(/^(.+?)\.bool\.(yes|no)$/i);
+    if (boolMatch) {
+      const groupId = boolMatch[1];
+      if (!groups.has(groupId)) {
+        groups.set(groupId, {
+          fieldId: groupId,
+          fieldType: 'boolean',
+          fieldLabel: humanizeFieldName(groupId),
+          options: ['Yes', 'No'],
+          rawPdfFieldNames: [rawName],
+          section: deriveSectionFromFieldName(groupId),
+        });
+      } else {
+        groups.get(groupId)!.rawPdfFieldNames.push(rawName);
+      }
+      continue;
+    }
+
+    const checkboxMatch = rawName.match(/^(.+?)\.checkbox\.(.+)$/);
+    if (checkboxMatch) {
+      const groupId = checkboxMatch[1];
+      const optionValue = checkboxMatch[2];
+      const existing = groups.get(groupId);
+      if (existing) {
+        existing.options.push(optionValue);
+        existing.rawPdfFieldNames.push(rawName);
+      } else {
+        groups.set(groupId, {
+          fieldId: groupId,
+          fieldType: 'checkbox-list',
+          fieldLabel: humanizeFieldName(groupId),
+          options: [optionValue],
+          rawPdfFieldNames: [rawName],
+          section: deriveSectionFromFieldName(groupId),
+        });
+      }
+      continue;
+    }
+
+    const addressMatch = rawName.match(/^(.+?)\.(address)\.(street1|street2|city|state|postalCode|zip|zipCode|country)$/i);
+    if (addressMatch) {
+      const groupId = `${addressMatch[1]}.${addressMatch[2]}`;
+      if (!groups.has(groupId)) {
+        groups.set(groupId, {
+          fieldId: groupId,
+          fieldType: 'address',
+          fieldLabel: humanizeFieldName(addressMatch[1]) + ' Address',
+          options: [],
+          rawPdfFieldNames: [rawName],
+          section: deriveSectionFromFieldName(addressMatch[1]),
+        });
+      } else {
+        groups.get(groupId)!.rawPdfFieldNames.push(rawName);
+      }
+      continue;
+    }
+
+    const fieldType = inferFieldTypeFromName(rawName);
+    groups.set(rawName, {
+      fieldId: rawName,
+      fieldType,
+      fieldLabel: humanizeFieldName(rawName),
+      options: [],
+      rawPdfFieldNames: [rawName],
+      section: deriveSectionFromFieldName(rawName),
+    });
+  }
+
+  return { groups, warnings };
+}
+
+function groupsToParseResult(
+  groups: Map<string, GroupedField>,
+  warnings: ParseWarning[],
+  source: 'acroform' | 'text' | 'predefined',
+  totalRawFields: number,
+  properCount: number,
+  skippedCount: number,
+): ParseResult {
+  const seenFieldNames = new Set<string>();
+  const rawFields: RawFieldInfo[] = [];
+  const sectionMap = new Map<string, ParsedFormField[]>();
+  const fieldsByType: Record<string, number> = {};
+  let position = 0;
+  let groupedCount = 0;
+
+  for (const [, group] of groups) {
+    if (seenFieldNames.has(group.fieldId)) {
+      warnings.push({ field: group.fieldId, issue: 'duplicate', message: `Duplicate field "${group.fieldId}" — only the first occurrence is used.`, severity: 'info' });
+      continue;
+    }
+    seenFieldNames.add(group.fieldId);
+    position++;
+
+    if (group.rawPdfFieldNames.length > 1) groupedCount++;
+
+    const optionLabels = group.options.map(opt =>
+      opt.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ')
+    );
+
+    const pdfFieldId = `acro_${group.fieldId}`;
+    const section = group.section;
+
+    const parsedField: ParsedFormField = {
+      fieldName: group.fieldId,
+      fieldType: group.fieldType,
+      fieldLabel: group.fieldLabel,
+      isRequired: false,
+      position,
+      section,
+      pdfFieldId,
+      pdfFieldIds: group.rawPdfFieldNames,
+      rawPdfFieldName: group.rawPdfFieldNames[0],
+      rawPdfFieldNames: group.rawPdfFieldNames,
+      ...(optionLabels.length > 0 && group.fieldType !== 'address'
+        ? { options: optionLabels.map((label, i) => ({ label, value: group.options[i] })) }
+        : {}),
+    };
+
+    if (!sectionMap.has(section)) sectionMap.set(section, []);
+    sectionMap.get(section)!.push(parsedField);
+
+    fieldsByType[group.fieldType] = (fieldsByType[group.fieldType] || 0) + 1;
+
+    rawFields.push({
+      pdfFieldId,
+      fieldName: group.fieldId,
+      originalLabel: group.fieldLabel,
+      detectedType: group.fieldType,
+      required: false,
+      section,
+      position,
+      rawLine: group.rawPdfFieldNames[0],
+      mappedToTemplateField: group.fieldId,
+      mappingStatus: 'auto',
+      source,
+    });
+  }
+
+  let sectionOrder = 0;
+  const sections: ParsedFormSection[] = [];
+  const fieldsBySection: Record<string, number> = {};
+  for (const [title, fields] of sectionMap.entries()) {
+    sections.push({ title, fields, order: ++sectionOrder });
+    fieldsBySection[title] = fields.length;
+  }
+
+  const totalFields = sections.reduce((sum, s) => sum + s.fields.length, 0);
+
+  return {
+    sections,
+    totalFields,
+    rawFields,
+    warnings,
+    summary: {
+      source,
+      totalRawFields,
+      properlyNamedFields: properCount,
+      skippedFields: skippedCount,
+      groupedFields: groupedCount,
+      fieldsByType,
+      fieldsBySection,
+    },
+  };
 }
 
 export class PDFFormParser {
@@ -25,29 +473,19 @@ export class PDFFormParser {
     sections: ParsedFormSection[];
     totalFields: number;
   }> {
-    // For now, we'll use the predefined Wells Fargo MPA structure
-    // Future enhancement: actual PDF parsing with pdf-parse
     const sections = this.parseWellsFargoMPA("");
-    
     const totalFields = sections.reduce((sum, section) => sum + section.fields.length, 0);
-    
-    return {
-      sections,
-      totalFields
-    };
+    return { sections, totalFields };
   }
 
   private parseWellsFargoMPA(text: string): ParsedFormSection[] {
-    // Use the enhanced Wells Fargo form structure
     const enhancedSections = getWellsFargoMPAForm();
-    
-    // Convert enhanced sections to ParsedFormSection format
     return enhancedSections.map(section => ({
       title: section.title,
       order: section.order,
       fields: section.fields.map(field => ({
         fieldName: field.fieldName,
-        fieldType: field.fieldType,
+        fieldType: field.fieldType as FieldType,
         fieldLabel: field.fieldLabel,
         isRequired: field.isRequired,
         options: field.options,
@@ -59,520 +497,94 @@ export class PDFFormParser {
     }));
   }
 
-  private parseWellsFargoMPALegacy(text: string): ParsedFormSection[] {
-    const sections: ParsedFormSection[] = [
-      {
-        title: "Merchant Information",
-        order: 1,
-        fields: [
-          {
-            fieldName: 'legalBusinessName',
-            fieldType: 'text',
-            fieldLabel: 'Legal Name of Business / IRS Filing Name',
-            isRequired: true,
-            position: 1,
-            validation: JSON.stringify({ minLength: 2, maxLength: 100 })
-          },
-          {
-            fieldName: 'dbaName',
-            fieldType: 'text',
-            fieldLabel: 'DBA (Doing Business As)',
-            isRequired: false,
-            position: 2,
-            validation: JSON.stringify({ maxLength: 100 })
-          },
-          {
-            fieldName: 'locationAddress',
-            fieldType: 'text',
-            fieldLabel: 'Location / Site Address',
-            isRequired: true,
-            position: 3,
-            validation: JSON.stringify({ minLength: 5, maxLength: 200 })
-          },
-          {
-            fieldName: 'locationCity',
-            fieldType: 'text',
-            fieldLabel: 'City',
-            isRequired: true,
-            position: 4,
-            validation: JSON.stringify({ minLength: 2, maxLength: 50 })
-          },
-          {
-            fieldName: 'locationState',
-            fieldType: 'select',
-            fieldLabel: 'State',
-            isRequired: true,
-            position: 5,
-            options: ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY']
-          },
-          {
-            fieldName: 'locationZipCode',
-            fieldType: 'text',
-            fieldLabel: 'ZIP Code',
-            isRequired: true,
-            position: 6,
-            validation: JSON.stringify({ pattern: '^\\d{5}(-\\d{4})?$' })
-          },
-          {
-            fieldName: 'companyWebsite',
-            fieldType: 'url',
-            fieldLabel: 'Company Website Address (URL)',
-            isRequired: false,
-            position: 7,
-            validation: JSON.stringify({ pattern: '^https?://.*' })
-          },
-          {
-            fieldName: 'mailingAddress',
-            fieldType: 'text',
-            fieldLabel: 'Mailing Address (if different from location)',
-            isRequired: false,
-            position: 8,
-            validation: JSON.stringify({ maxLength: 200 })
-          },
-          {
-            fieldName: 'mailingCity',
-            fieldType: 'text',
-            fieldLabel: 'Mailing City',
-            isRequired: false,
-            position: 9,
-            validation: JSON.stringify({ maxLength: 50 })
-          },
-          {
-            fieldName: 'mailingState',
-            fieldType: 'select',
-            fieldLabel: 'Mailing State',
-            isRequired: false,
-            position: 10,
-            options: ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY']
-          },
-          {
-            fieldName: 'mailingZipCode',
-            fieldType: 'text',
-            fieldLabel: 'Mailing ZIP Code',
-            isRequired: false,
-            position: 11,
-            validation: JSON.stringify({ pattern: '^\\d{5}(-\\d{4})?$' })
-          },
-          {
-            fieldName: 'companyEmail',
-            fieldType: 'email',
-            fieldLabel: 'Company E-mail Address',
-            isRequired: true,
-            position: 12,
-            validation: JSON.stringify({ pattern: '^[^@]+@[^@]+\\.[^@]+$' })
-          },
-          {
-            fieldName: 'companyPhone',
-            fieldType: 'phone',
-            fieldLabel: 'Company Phone #',
-            isRequired: true,
-            position: 13,
-            validation: JSON.stringify({ pattern: '^\\(?\\d{3}\\)?[-.]?\\d{3}[-.]?\\d{4}$' })
-          },
-          {
-            fieldName: 'descriptorPhone',
-            fieldType: 'phone',
-            fieldLabel: 'Descriptor Phone # (E-commerce or MOTO)',
-            isRequired: false,
-            position: 14,
-            validation: JSON.stringify({ pattern: '^\\(?\\d{3}\\)?[-.]?\\d{3}[-.]?\\d{4}$' })
-          },
-          {
-            fieldName: 'mobilePhone',
-            fieldType: 'phone',
-            fieldLabel: 'Mobile Phone #',
-            isRequired: false,
-            position: 15,
-            validation: JSON.stringify({ pattern: '^\\(?\\d{3}\\)?[-.]?\\d{3}[-.]?\\d{4}$' })
-          },
-          {
-            fieldName: 'faxNumber',
-            fieldType: 'phone',
-            fieldLabel: 'Fax #',
-            isRequired: false,
-            position: 16,
-            validation: JSON.stringify({ pattern: '^\\(?\\d{3}\\)?[-.]?\\d{3}[-.]?\\d{4}$' })
-          },
-          {
-            fieldName: 'contactName',
-            fieldType: 'text',
-            fieldLabel: 'Contact Name',
-            isRequired: true,
-            position: 17,
-            validation: JSON.stringify({ minLength: 2, maxLength: 100 })
-          },
-          {
-            fieldName: 'contactTitle',
-            fieldType: 'text',
-            fieldLabel: 'Contact Title',
-            isRequired: false,
-            position: 18,
-            validation: JSON.stringify({ maxLength: 50 })
-          },
-          {
-            fieldName: 'taxId',
-            fieldType: 'text',
-            fieldLabel: 'Tax ID',
-            isRequired: true,
-            position: 19,
-            validation: JSON.stringify({ pattern: '^\\d{2}-\\d{7}$|^\\d{3}-\\d{2}-\\d{4}$' })
-          },
-          {
-            fieldName: 'foreignEntity',
-            fieldType: 'checkbox',
-            fieldLabel: 'I certify that I\'m a foreign entity/nonresident alien',
-            isRequired: false,
-            position: 20
-          }
-        ]
-      },
-      {
-        title: "Business Type & History",
-        order: 2,
-        fields: [
-          {
-            fieldName: 'businessType',
-            fieldType: 'select',
-            fieldLabel: 'Business Type',
-            isRequired: true,
-            position: 21,
-            options: ['Partnership', 'Sole Proprietorship', 'Public Corp.', 'Private Corp.', 'Tax Exempt Corp.', 'Limited Liability Company']
-          },
-          {
-            fieldName: 'stateFiled',
-            fieldType: 'select',
-            fieldLabel: 'State Filed',
-            isRequired: false,
-            position: 22,
-            options: ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY']
-          },
-          {
-            fieldName: 'businessStartDate',
-            fieldType: 'date',
-            fieldLabel: 'Business Start Date',
-            isRequired: true,
-            position: 23,
-            validation: JSON.stringify({ maxDate: new Date().toISOString() })
-          },
-          {
-            fieldName: 'previouslyTerminated',
-            fieldType: 'select',
-            fieldLabel: 'Has this business or any associated principal been terminated as a Visa/MasterCard/Amex/Discover network merchant?',
-            isRequired: true,
-            position: 24,
-            options: ['Yes', 'No']
-          },
-          {
-            fieldName: 'currentlyAccepting',
-            fieldType: 'select',
-            fieldLabel: 'Do you currently accept Visa/MC/Amex/Discover Network?',
-            isRequired: true,
-            position: 25,
-            options: ['Yes', 'No']
-          },
-          {
-            fieldName: 'previousProcessor',
-            fieldType: 'text',
-            fieldLabel: 'Your Previous Card Processor',
-            isRequired: false,
-            position: 26,
-            validation: JSON.stringify({ maxLength: 100 })
-          },
-          {
-            fieldName: 'reasonToChange',
-            fieldType: 'select',
-            fieldLabel: 'Reason to Change',
-            isRequired: false,
-            position: 27,
-            options: ['Rates', 'Service', 'Other']
-          },
-          {
-            fieldName: 'filedBankruptcy',
-            fieldType: 'select',
-            fieldLabel: 'Has merchant or any associated principal filed bankruptcy or been subject to an involuntary bankruptcy?',
-            isRequired: true,
-            position: 28,
-            options: ['Yes', 'No']
-          }
-        ]
-      },
-      {
-        title: "Products & Services",
-        order: 3,
-        fields: [
-          {
-            fieldName: 'merchantSells',
-            fieldType: 'textarea',
-            fieldLabel: 'Merchant Sells (specify product, service and/or information)',
-            isRequired: true,
-            position: 29,
-            validation: JSON.stringify({ minLength: 10, maxLength: 500 })
-          },
-          {
-            fieldName: 'thirdPartyDataStorage',
-            fieldType: 'select',
-            fieldLabel: 'Do you use any third party to store, process or transmit cardholder\'s data?',
-            isRequired: true,
-            position: 30,
-            options: ['Yes', 'No']
-          },
-          {
-            fieldName: 'thirdPartyCompanyName',
-            fieldType: 'text',
-            fieldLabel: 'Third Party Company Name, Address and Phone',
-            isRequired: false,
-            position: 31,
-            validation: JSON.stringify({ maxLength: 200 })
-          },
-          {
-            fieldName: 'refundPolicy',
-            fieldType: 'select',
-            fieldLabel: 'Refund Policy for Visa/MasterCard/Amex/Discover Network Sales',
-            isRequired: true,
-            position: 32,
-            options: ['No Refund. All Sales Final', 'Refund will be granted to a customer as follows']
-          },
-          {
-            fieldName: 'creditExchangeTimeframe',
-            fieldType: 'select',
-            fieldLabel: 'Visa/MC/Amex/Discover Network Credit Exchange Timeframe',
-            isRequired: false,
-            position: 33,
-            options: ['0-3 Days', '4-7 Days', '8-14 Days', 'Over 14 Days']
-          }
-        ]
-      },
-      {
-        title: "Transaction Information",
-        order: 4,
-        fields: [
-          {
-            fieldName: 'averageMonthlyVolume',
-            fieldType: 'number',
-            fieldLabel: 'Average Combined Monthly Visa/MC/Discover/Amex Volume ($)',
-            isRequired: true,
-            position: 34,
-            validation: JSON.stringify({ min: 0, max: 99999999 })
-          },
-          {
-            fieldName: 'averageTicket',
-            fieldType: 'number',
-            fieldLabel: 'Average Visa/MC/Amex/Discover Network Ticket ($)',
-            isRequired: true,
-            position: 35,
-            validation: JSON.stringify({ min: 0, max: 99999 })
-          },
-          {
-            fieldName: 'highestTicket',
-            fieldType: 'number',
-            fieldLabel: 'Highest Ticket Amount ($)',
-            isRequired: true,
-            position: 36,
-            validation: JSON.stringify({ min: 0, max: 99999 })
-          },
-          {
-            fieldName: 'seasonal',
-            fieldType: 'select',
-            fieldLabel: 'Seasonal Business?',
-            isRequired: true,
-            position: 37,
-            options: ['Yes', 'No']
-          },
-          {
-            fieldName: 'merchantType',
-            fieldType: 'select',
-            fieldLabel: 'Merchant Type',
-            isRequired: true,
-            position: 38,
-            options: ['Retail Outlet', 'Restaurant/Food', 'Lodging', 'Home Business, Trade Fairs', 'Outside Sales/Service, Other, etc.', 'Mail/Telephone Order Only', 'Internet', 'Health Care']
-          },
-          {
-            fieldName: 'swipedCreditCards',
-            fieldType: 'number',
-            fieldLabel: 'Swiped Credit Cards (%)',
-            isRequired: true,
-            position: 39,
-            validation: JSON.stringify({ min: 0, max: 100 })
-          },
-          {
-            fieldName: 'keyedCreditCards',
-            fieldType: 'number',
-            fieldLabel: 'Keyed Credit Cards (%)',
-            isRequired: true,
-            position: 40,
-            validation: JSON.stringify({ min: 0, max: 100 })
-          },
-          {
-            fieldName: 'motoPercentage',
-            fieldType: 'number',
-            fieldLabel: 'MO/TO (%)',
-            isRequired: false,
-            position: 41,
-            validation: JSON.stringify({ min: 0, max: 100 })
-          },
-          {
-            fieldName: 'internetPercentage',
-            fieldType: 'number',
-            fieldLabel: 'Internet (%)',
-            isRequired: false,
-            position: 42,
-            validation: JSON.stringify({ min: 0, max: 100 })
-          }
-        ]
-      }
-    ];
-
-    return sections;
-  }
-
-  private inferFieldType(label: string): ParsedFormField['fieldType'] {
-    const lower = label.toLowerCase();
-    if (/e[\-_\s]?mail/i.test(lower)) return 'email';
-    if (/phone|fax|tel(?:ephone)?|mobile|cell/i.test(lower)) return 'phone';
-    if (/date|dob|d\.o\.b|birth/i.test(lower)) return 'date';
-    if (/url|website|web\s*site/i.test(lower)) return 'url';
-    if (/amount|volume|ticket|price|\$|revenue|sales|fee|cost|rate/i.test(lower)) return 'number';
-    if (/yes.*no|no.*yes/i.test(lower)) return 'select';
-    if (/description|comment|note|detail|explain|reason/i.test(lower)) return 'textarea';
-    if (/zip\s*code|postal/i.test(lower)) return 'text';
-    if (/ssn|social\s*security/i.test(lower)) return 'text';
-    if (/ein|tax\s*id|federal/i.test(lower)) return 'text';
-    if (/routing|aba/i.test(lower)) return 'text';
-    if (/account\s*#|account\s*number|acct/i.test(lower)) return 'text';
-    return 'text';
-  }
-
-  private labelToFieldName(label: string): string {
-    return label
-      .toLowerCase()
-      .replace(/[^a-z0-9.]+/g, '_')
-      .replace(/^_|_$/g, '')
-      .slice(0, 80);
-  }
-
-  async parsePDFForm(filePathOrBuffer: string | Buffer): Promise<{
-    sections: ParsedFormSection[];
-    totalFields: number;
-    rawFields: any[];
-  }> {
+  async parsePDFForm(filePathOrBuffer: string | Buffer): Promise<ParseResult> {
     try {
       const buffer = typeof filePathOrBuffer === 'string' ? fs.readFileSync(filePathOrBuffer) : filePathOrBuffer;
 
-      const acroFormFields = await this.extractAcroFormFields(buffer);
+      const acroResult = await this.extractAcroFormFields(buffer);
 
-      const fieldsToProcess = acroFormFields.length > 0
-        ? acroFormFields
-        : await this.extractTextBasedFields(buffer);
-
-      const source = acroFormFields.length > 0 ? 'acroform' : 'text';
-      console.log(`PDF parsing: using ${source} extraction (${fieldsToProcess.length} fields found)`);
-
-      const seenFieldNames = new Set<string>();
-      const rawFields: any[] = [];
-      const sectionMap = new Map<string, ParsedFormField[]>();
-      let position = 0;
-
-      for (const field of fieldsToProcess) {
-        const key = field.fieldName;
-        if (seenFieldNames.has(key)) continue;
-        seenFieldNames.add(key);
-        position++;
-
-        const pdfFieldId = field.pdfFieldId || `pdf_${key}_${position}`;
-        const section = field.section || 'Form Fields';
-
-        const parsedField: any = {
-          fieldName: key,
-          fieldType: field.fieldType,
-          fieldLabel: field.fieldLabel,
-          isRequired: field.isRequired,
-          position,
-          section,
-          pdfFieldId,
-          ...(field.defaultValue ? { defaultValue: field.defaultValue } : {}),
-          ...(field.options ? { options: field.options } : {}),
-        };
-
-        if (!sectionMap.has(section)) sectionMap.set(section, []);
-        sectionMap.get(section)!.push(parsedField);
-
-        rawFields.push({
-          pdfFieldId,
-          fieldName: key,
-          originalLabel: field.fieldLabel,
-          detectedType: field.fieldType,
-          required: field.isRequired,
-          section,
-          position,
-          rawLine: field.rawPdfFieldName || field.rawLine || field.fieldLabel,
-          mappedToTemplateField: key,
-          mappingStatus: 'auto',
-          source,
-        });
+      if (acroResult.sections.length > 0) {
+        console.log(`PDF parsing complete: acroform extraction, ${acroResult.totalFields} fields (${acroResult.summary.properlyNamedFields} properly named, ${acroResult.summary.skippedFields} skipped, ${acroResult.warnings.length} warnings)`);
+        return acroResult;
       }
 
-      let sectionOrder = 0;
-      const sections: ParsedFormSection[] = [];
-      for (const [title, fields] of sectionMap.entries()) {
-        sections.push({ title, fields, order: ++sectionOrder });
+      const textResult = await this.extractTextBasedFields(buffer);
+      if (textResult.sections.length > 0) {
+        console.log(`PDF parsing complete: text extraction, ${textResult.totalFields} fields`);
+        return textResult;
       }
 
-      if (sections.length === 0) {
-        const fallback = await this.parsePDF(buffer);
-        return { ...fallback, rawFields: [] };
-      }
-
-      const totalFields = sections.reduce((sum, s) => sum + s.fields.length, 0);
-      console.log(`PDF parsing complete: ${source} extraction, ${totalFields} total fields (${rawFields.length} unique)`);
-      return { sections, totalFields, rawFields };
+      const fallback = await this.parsePDF(buffer);
+      return {
+        ...fallback,
+        rawFields: [],
+        warnings: [{ field: '(document)', issue: 'unnamed_field', message: 'No form fields found in PDF. Using predefined template as fallback.', severity: 'warning' }],
+        summary: {
+          source: 'predefined',
+          totalRawFields: 0,
+          properlyNamedFields: 0,
+          skippedFields: 0,
+          groupedFields: 0,
+          fieldsByType: {},
+          fieldsBySection: {},
+        },
+      };
     } catch (error) {
       console.error('PDF form parsing error:', error);
       try {
         const buffer = typeof filePathOrBuffer === 'string' ? fs.readFileSync(filePathOrBuffer) : filePathOrBuffer;
         const fallback = await this.parsePDF(buffer);
-        return { ...fallback, rawFields: [] };
+        return {
+          ...fallback,
+          rawFields: [],
+          warnings: [{ field: '(document)', issue: 'unnamed_field', message: `PDF parsing failed: ${error instanceof Error ? error.message : 'Unknown error'}. Using predefined template.`, severity: 'error' }],
+          summary: {
+            source: 'predefined',
+            totalRawFields: 0,
+            properlyNamedFields: 0,
+            skippedFields: 0,
+            groupedFields: 0,
+            fieldsByType: {},
+            fieldsBySection: {},
+          },
+        };
       } catch (fallbackError) {
         console.error('PDF fallback parsing also failed:', fallbackError);
-        return { sections: [], totalFields: 0, rawFields: [] };
+        return {
+          sections: [],
+          totalFields: 0,
+          rawFields: [],
+          warnings: [{ field: '(document)', issue: 'unnamed_field', message: 'All PDF parsing methods failed.', severity: 'error' }],
+          summary: {
+            source: 'predefined',
+            totalRawFields: 0,
+            properlyNamedFields: 0,
+            skippedFields: 0,
+            groupedFields: 0,
+            fieldsByType: {},
+            fieldsBySection: {},
+          },
+        };
       }
     }
   }
 
-  private humanizeFieldName(dotName: string): string {
-    const lastPart = dotName.split('.').pop() || dotName;
-    return lastPart
-      .replace(/([a-z])([A-Z])/g, '$1 $2')
-      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-      .replace(/_/g, ' ')
-      .replace(/\b\w/g, c => c.toUpperCase())
-      .trim();
-  }
-
-  private deriveSectionFromFieldName(fieldId: string): string {
-    const parts = fieldId.split('.');
-    if (parts.length < 2) return 'Form Fields';
-    const sectionKey = parts[0];
-    const sectionMap: Record<string, string> = {
-      'merchant': 'Merchant Information',
-      'transactionInformation': 'Transaction Information',
-      'creditDebitAuth': 'Credit & Debit Authorization',
-      'owners': 'Ownership Information',
-      'agent': 'Agent Information',
-      'equipment': 'Equipment',
-      'pricing': 'Pricing & Fees',
-      'bankInformation': 'Bank Information',
-    };
-    return sectionMap[sectionKey] || this.humanizeFieldName(sectionKey);
-  }
-
-  private async extractAcroFormFields(buffer: Buffer): Promise<any[]> {
+  private async extractAcroFormFields(buffer: Buffer): Promise<ParseResult> {
     try {
       const { PDFDocument } = await import('pdf-lib');
       const pdfDoc = await PDFDocument.load(buffer, { ignoreEncryption: true });
       const form = pdfDoc.getForm();
       const pdfFields = form.getFields();
 
-      if (pdfFields.length === 0) return [];
+      if (pdfFields.length === 0) {
+        return {
+          sections: [],
+          totalFields: 0,
+          rawFields: [],
+          warnings: [],
+          summary: { source: 'acroform', totalRawFields: 0, properlyNamedFields: 0, skippedFields: 0, groupedFields: 0, fieldsByType: {}, fieldsBySection: {} },
+        };
+      }
 
       const rawNames: string[] = [];
       for (const pdfField of pdfFields) {
@@ -582,178 +594,51 @@ export class PDFFormParser {
 
       console.log(`AcroForm: ${rawNames.length} raw PDF fields found`);
 
-      const isProperlyNamed = (name: string): boolean => {
-        if (!name.includes('.')) return false;
-        const firstSegment = name.split('.')[0];
-        if (firstSegment === 'undefined' || firstSegment === '') return false;
-        if (/^[A-Z\s_\d]+$/.test(firstSegment)) return false;
-        if (/[a-z]/.test(firstSegment)) return true;
-        return false;
-      };
-
       const properFields = rawNames.filter(isProperlyNamed);
-      const skippedCount = rawNames.length - properFields.length;
-      if (skippedCount > 0) {
-        console.log(`AcroForm: skipped ${skippedCount} fields without proper naming convention`);
+      const skippedNames = rawNames.filter(n => !isProperlyNamed(n));
+
+      if (skippedNames.length > 0) {
+        console.log(`AcroForm: skipped ${skippedNames.length} fields without proper naming convention`);
       }
 
-      const groupedFields = new Map<string, {
-        fieldId: string;
-        fieldType: string;
-        fieldLabel: string;
-        options: string[];
-        rawPdfFieldNames: string[];
-        section: string;
-      }>();
+      const { groups, warnings } = groupAcroFormFields(properFields, skippedNames);
 
-      for (const rawName of properFields) {
-        const radioMatch = rawName.match(/^(.+?)\.radio\.(.+)$/);
-        if (radioMatch) {
-          const groupId = radioMatch[1];
-          const optionValue = radioMatch[2];
-          const existing = groupedFields.get(groupId);
-          if (existing) {
-            existing.options.push(optionValue);
-            existing.rawPdfFieldNames.push(rawName);
-          } else {
-            groupedFields.set(groupId, {
-              fieldId: groupId,
-              fieldType: 'radio',
-              fieldLabel: this.humanizeFieldName(groupId),
-              options: [optionValue],
-              rawPdfFieldNames: [rawName],
-              section: this.deriveSectionFromFieldName(groupId),
-            });
-          }
-          continue;
-        }
+      const result = groupsToParseResult(
+        groups,
+        warnings,
+        'acroform',
+        rawNames.length,
+        properFields.length,
+        skippedNames.length,
+      );
 
-        const boolMatch = rawName.match(/^(.+?)\.bool\.(yes|no)$/i);
-        if (boolMatch) {
-          const groupId = boolMatch[1];
-          if (!groupedFields.has(groupId)) {
-            groupedFields.set(groupId, {
-              fieldId: groupId,
-              fieldType: 'boolean',
-              fieldLabel: this.humanizeFieldName(groupId),
-              options: ['Yes', 'No'],
-              rawPdfFieldNames: [rawName],
-              section: this.deriveSectionFromFieldName(groupId),
-            });
-          } else {
-            groupedFields.get(groupId)!.rawPdfFieldNames.push(rawName);
-          }
-          continue;
-        }
+      console.log(`AcroForm: grouped ${properFields.length} properly-named fields into ${result.totalFields} logical fields (${skippedNames.length} unnamed/legacy fields skipped)`);
 
-        const checkboxMatch = rawName.match(/^(.+?)\.checkbox\.(.+)$/);
-        if (checkboxMatch) {
-          const groupId = checkboxMatch[1];
-          const optionValue = checkboxMatch[2];
-          const existing = groupedFields.get(groupId);
-          if (existing) {
-            existing.options.push(optionValue);
-            existing.rawPdfFieldNames.push(rawName);
-          } else {
-            groupedFields.set(groupId, {
-              fieldId: groupId,
-              fieldType: 'checkbox-list',
-              fieldLabel: this.humanizeFieldName(groupId),
-              options: [optionValue],
-              rawPdfFieldNames: [rawName],
-              section: this.deriveSectionFromFieldName(groupId),
-            });
-          }
-          continue;
-        }
-
-        const addressMatch = rawName.match(/^(.+?)\.(address)\.(street1|street2|city|state|postalCode|zip|country)$/i);
-        if (addressMatch) {
-          const groupId = `${addressMatch[1]}.${addressMatch[2]}`;
-          if (!groupedFields.has(groupId)) {
-            groupedFields.set(groupId, {
-              fieldId: groupId,
-              fieldType: 'address',
-              fieldLabel: this.humanizeFieldName(addressMatch[1]) + ' Address',
-              options: [],
-              rawPdfFieldNames: [rawName],
-              section: this.deriveSectionFromFieldName(addressMatch[1]),
-            });
-          } else {
-            groupedFields.get(groupId)!.rawPdfFieldNames.push(rawName);
-          }
-          continue;
-        }
-
-        let fieldType = this.inferFieldTypeFromName(rawName);
-        groupedFields.set(rawName, {
-          fieldId: rawName,
-          fieldType,
-          fieldLabel: this.humanizeFieldName(rawName),
-          options: [],
-          rawPdfFieldNames: [rawName],
-          section: this.deriveSectionFromFieldName(rawName),
-        });
-      }
-
-      const results: any[] = [];
-      for (const [, group] of groupedFields) {
-        const optionLabels = group.options.map(opt =>
-          opt.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ')
-        );
-
-        results.push({
-          fieldName: group.fieldId,
-          fieldType: group.fieldType,
-          fieldLabel: group.fieldLabel,
-          isRequired: false,
-          section: group.section,
-          pdfFieldId: `acro_${group.fieldId}`,
-          rawPdfFieldName: group.rawPdfFieldNames[0],
-          rawPdfFieldNames: group.rawPdfFieldNames,
-          ...(optionLabels.length > 0 ? { options: optionLabels.map((label, i) => ({ label, value: group.options[i] })) } : {}),
-        });
-      }
-
-      console.log(`AcroForm: grouped ${properFields.length} properly-named fields into ${results.length} logical fields (${skippedCount} unnamed/legacy fields skipped)`);
-      return results;
+      return result;
     } catch (error) {
       console.error('AcroForm extraction error (non-fatal):', error);
-      return [];
+      return {
+        sections: [],
+        totalFields: 0,
+        rawFields: [],
+        warnings: [{ field: '(document)', issue: 'unnamed_field', message: `AcroForm extraction failed: ${error instanceof Error ? error.message : 'Unknown'}`, severity: 'error' }],
+        summary: { source: 'acroform', totalRawFields: 0, properlyNamedFields: 0, skippedFields: 0, groupedFields: 0, fieldsByType: {}, fieldsBySection: {} },
+      };
     }
   }
 
-  private inferFieldTypeFromName(fieldName: string): string {
-    const lower = fieldName.toLowerCase();
-    const lastPart = fieldName.split('.').pop()?.toLowerCase() || '';
-
-    if (/\.address\./i.test(fieldName) || lastPart === 'address') return 'address';
-    if (lastPart === 'postalcode' || lastPart === 'zip' || lastPart === 'zipcode') return 'zipcode';
-    if (/e[\-_]?mail/i.test(lastPart) || lastPart === 'companyemail') return 'email';
-    if (/phone|fax|tel|mobile|cell/i.test(lastPart)) return 'phone';
-    if (/date|dob|startdate|enddate/i.test(lastPart)) return 'date';
-    if (/url|website/i.test(lastPart) || lastPart === 'companyurl') return 'url';
-    if (/taxid|ein/i.test(lastPart)) return 'ein';
-    if (/ssn|socialsecurity/i.test(lastPart)) return 'ssn';
-    if (/bankaccountnumber|accountnumber/i.test(lastPart)) return 'bank_account';
-    if (/bankroutingnumber|routingnumber|abanumber/i.test(lastPart)) return 'bank_routing';
-    if (/amount|volume|ticket|price|fee|cost|monthly|annual/i.test(lastPart)) return 'currency';
-    if (/percentage|percent|rate|swiped|keyed|internet/i.test(lastPart)) return 'percentage';
-    if (/signature/i.test(lastPart)) return 'signature';
-    if (/sellsproductsservices|mcc/i.test(lastPart)) return 'mcc-select';
-    if (/description|comment|note|detail|explain/i.test(lastPart)) return 'textarea';
-    return 'text';
-  }
-
-  private async extractTextBasedFields(buffer: Buffer): Promise<any[]> {
+  private async extractTextBasedFields(buffer: Buffer): Promise<ParseResult> {
     try {
       const pdfParse = (await import('pdf-parse')).default;
       const pdfData = await pdfParse(buffer);
 
-      const results: any[] = [];
+      const fields: ParsedFormField[] = [];
       const lines = pdfData.text.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 0);
 
       let currentSection = 'General Information';
+      const sectionMap = new Map<string, ParsedFormField[]>();
+      let position = 0;
+      const fieldsByType: Record<string, number> = {};
 
       const sectionPatterns = [
         /^(section|part|article)\s+[\dIVXivx]+[\.:]/i,
@@ -788,32 +673,84 @@ export class PDFFormParser {
         if (!fieldLabel || fieldLabel.length < 2 || fieldLabel.length > 100) continue;
         if (/^(page|©|copyright|www\.|http)/i.test(fieldLabel)) continue;
 
-        const fieldName = this.labelToFieldName(fieldLabel);
-        const fieldType = this.inferFieldType(fieldLabel);
+        const fieldName = fieldLabel
+          .toLowerCase()
+          .replace(/[^a-z0-9.]+/g, '_')
+          .replace(/^_|_$/g, '')
+          .slice(0, 80);
+        const fieldType = inferFieldTypeFromLabel(fieldLabel);
         const isRequired = /required|\*/i.test(fieldLabel);
+        position++;
 
-        results.push({
+        const parsedField: ParsedFormField = {
           fieldName,
           fieldType,
           fieldLabel: fieldLabel.replace(/\s*\*\s*$/, '').replace(/\s*\(required\)\s*$/i, ''),
           isRequired,
+          position,
           section: currentSection,
-          rawLine: line.slice(0, 200),
           ...(defaultValue ? { defaultValue } : {}),
           ...(fieldType === 'select' && /yes.*no|no.*yes/i.test(fieldLabel.toLowerCase()) ? { options: ['Yes', 'No'] } : {}),
-        });
+        };
+
+        fields.push(parsedField);
+        if (!sectionMap.has(currentSection)) sectionMap.set(currentSection, []);
+        sectionMap.get(currentSection)!.push(parsedField);
+        fieldsByType[fieldType] = (fieldsByType[fieldType] || 0) + 1;
       }
 
-      return results;
+      let sectionOrder = 0;
+      const sections: ParsedFormSection[] = [];
+      const fieldsBySection: Record<string, number> = {};
+      for (const [title, sectionFields] of sectionMap.entries()) {
+        sections.push({ title, fields: sectionFields, order: ++sectionOrder });
+        fieldsBySection[title] = sectionFields.length;
+      }
+
+      const rawFields: RawFieldInfo[] = fields.map(f => ({
+        pdfFieldId: `text_${f.fieldName}_${f.position}`,
+        fieldName: f.fieldName,
+        originalLabel: f.fieldLabel,
+        detectedType: f.fieldType,
+        required: f.isRequired,
+        section: f.section || 'General Information',
+        position: f.position,
+        rawLine: f.fieldLabel,
+        mappedToTemplateField: f.fieldName,
+        mappingStatus: 'auto' as const,
+        source: 'text',
+      }));
+
+      return {
+        sections,
+        totalFields: fields.length,
+        rawFields,
+        warnings: [],
+        summary: {
+          source: 'text',
+          totalRawFields: fields.length,
+          properlyNamedFields: fields.length,
+          skippedFields: 0,
+          groupedFields: 0,
+          fieldsByType,
+          fieldsBySection,
+        },
+      };
     } catch (error) {
       console.error('Text-based extraction error (non-fatal):', error);
-      return [];
+      return {
+        sections: [],
+        totalFields: 0,
+        rawFields: [],
+        warnings: [{ field: '(document)', issue: 'unnamed_field', message: `Text extraction failed: ${error instanceof Error ? error.message : 'Unknown'}`, severity: 'error' }],
+        summary: { source: 'text', totalRawFields: 0, properlyNamedFields: 0, skippedFields: 0, groupedFields: 0, fieldsByType: {}, fieldsBySection: {} },
+      };
     }
   }
 
   convertToDbFields(sections: ParsedFormSection[], formId: number): Omit<PdfFormField, 'id' | 'createdAt'>[] {
     const fields: Omit<PdfFormField, 'id' | 'createdAt'>[] = [];
-    
+
     sections.forEach(section => {
       section.fields.forEach(field => {
         fields.push({
@@ -835,3 +772,15 @@ export class PDFFormParser {
 }
 
 export const pdfFormParser = new PDFFormParser();
+
+export {
+  humanizeFieldName,
+  deriveSectionFromFieldName,
+  inferFieldTypeFromName,
+  inferFieldTypeFromLabel,
+  isProperlyNamed,
+  classifySkippedField,
+  groupAcroFormFields,
+  SECTION_MAP,
+  FIELD_TYPE_RULES,
+};

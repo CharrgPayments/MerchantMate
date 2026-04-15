@@ -7628,6 +7628,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get('/api/acquirer-application-templates/:id/parse-diagnostics', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+    try {
+      const templateId = parseInt(req.params.id);
+      const dbToUse = req.dynamicDB;
+      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
+      const { acquirerApplicationTemplates } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [template] = await dbToUse.select().from(acquirerApplicationTemplates).where(eq(acquirerApplicationTemplates.id, templateId)).limit(1);
+      if (!template) return res.status(404).json({ error: "Template not found" });
+
+      if (!template.originalPdfBase64) {
+        return res.json({
+          templateId,
+          templateName: template.templateName,
+          hasOriginalPdf: false,
+          parseResult: null,
+          message: 'No original PDF stored. Upload a PDF to see parse diagnostics.',
+        });
+      }
+
+      const pdfBuffer = Buffer.from(template.originalPdfBase64, 'base64');
+      const parseResult = await pdfFormParser.parsePDFForm(pdfBuffer);
+
+      res.json({
+        templateId,
+        templateName: template.templateName,
+        hasOriginalPdf: true,
+        parseResult: {
+          totalFields: parseResult.totalFields,
+          warnings: parseResult.warnings,
+          summary: parseResult.summary,
+          sections: parseResult.sections.map((s: any) => ({
+            title: s.title,
+            order: s.order,
+            fieldCount: s.fields.length,
+            fields: s.fields.map((f: any) => ({
+              fieldName: f.fieldName,
+              fieldType: f.fieldType,
+              fieldLabel: f.fieldLabel,
+              pdfFieldId: f.pdfFieldId,
+              rawPdfFieldNames: f.rawPdfFieldNames,
+            })),
+          })),
+        },
+      });
+    } catch (error) {
+      console.error('Error fetching parse diagnostics:', error);
+      res.status(500).json({ error: 'Failed to generate parse diagnostics' });
+    }
+  });
+
   app.get('/api/acquirer-application-templates/:id/field-mapping', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
       const templateId = parseInt(req.params.id);
