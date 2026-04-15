@@ -482,7 +482,7 @@ function groupsToParseResult(
       opt.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ')
     );
 
-    const pdfFieldId = `acro_${group.fieldId}`;
+    const pdfFieldId = group.rawPdfFieldNames[0];
     const section = group.section;
 
     const parsedField: ParsedFormField = {
