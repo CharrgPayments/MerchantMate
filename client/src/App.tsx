@@ -49,6 +49,7 @@ import Acquirers from "@/pages/acquirers";
 import MccCodes from "@/pages/mcc-codes";
 import MccPolicies from "@/pages/mcc-policies";
 import DisclosureLibrary from "@/pages/disclosure-library";
+import PdfNamingGuide from "@/pages/pdf-naming-guide";
 import FormDemo from "@/pages/form-demo";
 import ActionTemplates from "@/pages/action-templates";
 import DataView from "@/pages/data-view";
@@ -156,6 +157,11 @@ function AuthenticatedApp() {
         return {
           title: "Application Templates",
           subtitle: "Manage merchant application templates by acquirer"
+        };
+      case "/pdf-naming-guide":
+        return {
+          title: "PDF Field Naming Guide",
+          subtitle: "How to name PDF form fields for automatic wizard generation"
         };
       case "/pdf-form-wizard":
         return {
@@ -405,6 +411,19 @@ function AuthenticatedApp() {
                   <Header title={pageInfo.title} onSearch={setGlobalSearch} />
                   <main className="flex-1 overflow-auto bg-gray-50 p-6">
                     <ApplicationTemplates />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/pdf-naming-guide">
+            {() => {
+              const pageInfo = getPageInfo("/pdf-naming-guide");
+              return (
+                <>
+                  <Header title={pageInfo.title} onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50 p-6">
+                    <PdfNamingGuide />
                   </main>
                 </>
               );

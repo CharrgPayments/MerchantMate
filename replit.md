@@ -1,6 +1,7 @@
 # Core CRM - Merchant Payment Processing System
 
 ## Recent Changes (April 2026)
+- **PDF Field Naming Guide**: Added comprehensive in-app documentation page at `/pdf-naming-guide` (`client/src/pages/pdf-naming-guide.tsx`). Covers the dot-notation naming convention for PDF form fields: section prefixes, auto-detected field types (email, phone, date, currency, etc.), grouped field types (radio, checkbox-list, boolean, address), full examples, and step-by-step PDF creation instructions. Linked from sidebar under Acquirers and from the Application Templates page header via a "Naming Guide" button.
 - **Workflow Definitions system**: Added `workflow_definitions`, `workflow_endpoints`, and `workflow_environment_configs` tables. Full CRUD API at `/api/admin/workflows` with GET/POST/PUT/DELETE for workflows, endpoints, and environment configs. Frontend page `client/src/pages/workflows.tsx` with split-panel UI added; sidebar nav item added with `Zap` icon.
 - **User schema additions**: Added `phone`, `communicationPreference`, and `mustChangePassword` fields to the `users` table (both dev and prod databases updated via `ALTER TABLE`).
 - **Role array support**: `users.roles` is now `text[]`. A `withRole()` shim adds backward-compatible `role = roles[0]` on all user-returning methods. `normalizeLegacyRole()` typed helper converts legacy `role` string to `roles` array without `any` casts.

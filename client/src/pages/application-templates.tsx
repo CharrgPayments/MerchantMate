@@ -15,7 +15,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus, Pencil, Eye, Copy, Download, Upload, Trash2, Settings, Circle, CheckCircle, ChevronDown, ChevronRight, GripVertical, FlaskConical } from 'lucide-react';
+import { Plus, Pencil, Eye, Copy, Download, Upload, Trash2, Settings, Circle, CheckCircle, ChevronDown, ChevronRight, GripVertical, FlaskConical, BookOpen } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useLocation } from 'wouter';
 import {
@@ -484,14 +484,25 @@ export default function ApplicationTemplatesPage() {
             Manage dynamic form templates for acquirer applications
           </p>
         </div>
-        <Button 
-          onClick={openCreateDialog}
-          data-testid="button-create-template"
-          className="flex items-center gap-2"
-        >
-          <Plus className="h-4 w-4" />
-          Create Template
-        </Button>
+        <div className="flex items-center gap-2">
+          <a href="/pdf-naming-guide">
+            <Button
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <BookOpen className="h-4 w-4" />
+              Naming Guide
+            </Button>
+          </a>
+          <Button 
+            onClick={openCreateDialog}
+            data-testid="button-create-template"
+            className="flex items-center gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Create Template
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
