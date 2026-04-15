@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Building, FileText, CheckCircle, ArrowLeft, ArrowRight, Users, Upload, Signature, PenTool, Type, RotateCcw, Check, X, AlertTriangle, Monitor } from 'lucide-react';
 import { MCCSelect } from '@/components/ui/mcc-select';
@@ -133,6 +134,8 @@ export default function EnhancedPdfWizard() {
   const [addressSuggestions, setAddressSuggestions] = useState<any[]>([]);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [validationModalOpen, setValidationModalOpen] = useState(false);
+  const [validationModalMessage, setValidationModalMessage] = useState('');
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -140,39 +143,19 @@ export default function EnhancedPdfWizard() {
   useEffect(() => {
     // Add a small delay to ensure form data is fully loaded
     const timer = setTimeout(async () => {
-      if (!formData.owners || !Array.isArray(formData.owners)) {
-        console.log('No owners array found');
-        return;
-      }
-      
-      console.log('Checking for submitted signatures...', formData.owners);
-      
+      if (!formData.owners || !Array.isArray(formData.owners)) return;
+
       const updatedOwners = [...formData.owners];
       let hasUpdates = false;
-      
+
       for (let i = 0; i < updatedOwners.length; i++) {
         const owner = updatedOwners[i];
-        
-        console.log(`Checking owner ${owner.name}:`, {
-          hasSignature: !!owner.signature,
-          signatureToken: owner.signatureToken
-        });
-        
-        // Skip if owner already has a signature or no signature token
-        if (owner.signature || !owner.signatureToken) {
-          console.log(`Skipping ${owner.name}: ${owner.signature ? 'already has signature' : 'no signature token'}`);
-          continue;
-        }
-        
+        if (owner.signature || !owner.signatureToken) continue;
+
         try {
-          console.log(`Fetching signature for token: ${owner.signatureToken}`);
           const response = await fetch(`/api/signature/${owner.signatureToken}`);
-          console.log(`Response status: ${response.status}`);
-          
           if (response.ok) {
             const result = await response.json();
-            console.log('Signature API response:', result);
-            
             if (result.success && result.signature) {
               updatedOwners[i] = {
                 ...owner,
@@ -180,47 +163,29 @@ export default function EnhancedPdfWizard() {
                 signatureType: result.signature.signatureType
               };
               hasUpdates = true;
-              console.log(`Found submitted signature for ${owner.name}`);
             }
-          } else {
-            console.log(`No signature found for ${owner.name} (${response.status})`);
           }
         } catch (error) {
-          console.log(`Error checking signature for ${owner.name}:`, error);
+          // Signature fetch failed silently — user can retry
         }
       }
-      
+
       if (hasUpdates) {
-        console.log('Updating form data with signatures');
         setFormData(prev => ({
           ...prev,
           owners: updatedOwners
         }));
-      } else {
-        console.log('No signature updates found');
       }
-    }, 100); // Small delay to ensure form data is fully loaded
+    }, 100);
     
     return () => clearTimeout(timer);
   }, [formData.owners]); // Trigger when owners array changes
 
-  // Check for any cached data on component mount
   useEffect(() => {
-    console.log('Component mounted, checking for cached data...');
-    console.log('localStorage keys:', Object.keys(localStorage));
-    console.log('sessionStorage keys:', Object.keys(sessionStorage));
-    
-    // Clear any potential cached address data
     const addressKeys = ['address', 'city', 'state', 'zipCode'];
     addressKeys.forEach(key => {
-      if (localStorage.getItem(key)) {
-        console.log(`Found cached ${key}:`, localStorage.getItem(key));
-        localStorage.removeItem(key);
-      }
-      if (sessionStorage.getItem(key)) {
-        console.log(`Found cached ${key}:`, sessionStorage.getItem(key));
-        sessionStorage.removeItem(key);
-      }
+      localStorage.removeItem(key);
+      sessionStorage.removeItem(key);
     });
   }, []);
 
@@ -370,153 +335,8 @@ export default function EnhancedPdfWizard() {
       
       // Always show validation errors in enhanced modal dialog
       if (errorMessage.includes('Application incomplete') || errorMessage.includes('Missing signatures') || errorMessage.includes('required') || errorMessage.includes('Required signatures missing:')) {
-        // Create enhanced modal dialog for all validation errors
-        const modalOverlay = document.createElement('div');
-        modalOverlay.style.cssText = `
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 100%;
-          background: rgba(0, 0, 0, 0.6);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 9999;
-          backdrop-filter: blur(2px);
-          animation: fadeIn 0.2s ease-out;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        `;
-        
-        // Add CSS animations
-        const style = document.createElement('style');
-        style.textContent = `
-          @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-          }
-          @keyframes slideIn {
-            from { transform: scale(0.95) translateY(-20px); opacity: 0; }
-            to { transform: scale(1) translateY(0); opacity: 1; }
-          }
-          .modal-button:hover {
-            background: #b91c1c !important;
-            transform: translateY(-1px);
-          }
-        `;
-        document.head.appendChild(style);
-        
-        const modalContent = document.createElement('div');
-        modalContent.style.cssText = `
-          background: white;
-          border-radius: 16px;
-          padding: 32px;
-          max-width: 650px;
-          width: 90%;
-          max-height: 80vh;
-          overflow-y: auto;
-          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.3);
-          border: 1px solid #e5e7eb;
-          animation: slideIn 0.3s ease-out;
-        `;
-        
-        modalContent.innerHTML = `
-          <div style="text-align: center; margin-bottom: 24px;">
-            <div style="
-              width: 72px;
-              height: 72px;
-              background: linear-gradient(135deg, #fee2e2, #fecaca);
-              border-radius: 50%;
-              display: inline-flex;
-              align-items: center;
-              justify-content: center;
-              margin-bottom: 16px;
-              box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
-            ">
-              <svg width="32" height="32" fill="#dc2626" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-              </svg>
-            </div>
-            <h3 style="
-              margin: 0; 
-              color: #dc2626; 
-              font-weight: 700; 
-              font-size: 28px; 
-              letter-spacing: -0.5px;
-              margin-bottom: 8px;
-            ">
-              Application Incomplete
-            </h3>
-            <p style="
-              margin: 0;
-              color: #6b7280;
-              font-size: 16px;
-              font-weight: 500;
-            ">
-              Please complete the required information before submitting
-            </p>
-          </div>
-          <div style="
-            white-space: pre-line; 
-            line-height: 1.7; 
-            color: #374151; 
-            margin-bottom: 32px;
-            font-size: 15px;
-            background: linear-gradient(135deg, #f9fafb, #f3f4f6);
-            padding: 24px;
-            border-radius: 12px;
-            border-left: 5px solid #dc2626;
-            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
-          ">${errorMessage}</div>
-          <div style="display: flex; gap: 16px; justify-content: center;">
-            <button id="closeModalBtn" 
-              class="modal-button"
-              style="
-                background: linear-gradient(135deg, #dc2626, #b91c1c); 
-                color: white; 
-                border: none; 
-                padding: 14px 32px; 
-                border-radius: 10px; 
-                cursor: pointer;
-                font-weight: 600;
-                font-size: 16px;
-                letter-spacing: 0.25px;
-                transition: all 0.2s ease;
-                box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
-                min-width: 140px;
-              ">
-              I Understand
-            </button>
-          </div>
-        `;
-        
-        modalOverlay.appendChild(modalContent);
-        
-        // Add close button event listener
-        const closeBtn = modalContent.querySelector('#closeModalBtn');
-        if (closeBtn) {
-          closeBtn.addEventListener('click', () => {
-            modalOverlay.remove();
-          });
-        }
-        
-        // Close modal when clicking overlay
-        modalOverlay.addEventListener('click', (e) => {
-          if (e.target === modalOverlay) {
-            modalOverlay.remove();
-          }
-        });
-        
-        // Close modal with Escape key
-        const handleEscape = (e) => {
-          if (e.key === 'Escape') {
-            modalOverlay.remove();
-            document.removeEventListener('keydown', handleEscape);
-          }
-        };
-        document.addEventListener('keydown', handleEscape);
-        
-        document.body.appendChild(modalOverlay);
+        setValidationModalMessage(errorMessage);
+        setValidationModalOpen(true);
       } else {
         // Standard toast for other errors
         toast({
@@ -595,69 +415,72 @@ export default function EnhancedPdfWizard() {
     return true;
   };
 
+  const scrollToFirstError = () => {
+    requestAnimationFrame(() => {
+      const firstErrorEl = document.querySelector('[data-field-error="true"]');
+      if (firstErrorEl) {
+        firstErrorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+  };
+
+  const getVisibleFieldCount = (sectionIndex: number): number => {
+    const section = sections[sectionIndex];
+    if (!section) return 0;
+    return section.fields.filter(f => isFieldVisible(f)).length;
+  };
+
   const handleNext = () => {
-    // Always mark current section as visited when attempting to advance
     setVisitedSections(prev => {
       const newVisited = new Set([...prev]);
       newVisited.add(currentStep);
       return newVisited;
     });
 
-    // Validate current section before advancing
     if (!validateCurrentSection()) {
+      scrollToFirstError();
       toast({
-        title: "Validation Error",
-        description: "Please complete all required fields before proceeding.",
+        title: "Required Fields Missing",
+        description: "Please fill in the highlighted fields before proceeding.",
         variant: "destructive",
       });
       return;
     }
 
     const nextStep = Math.min(sections.length - 1, currentStep + 1);
-    
-    console.log(`Navigating from step ${currentStep} to step ${nextStep}`);
-    
-    // Mark next section as visited too
+
     setVisitedSections(prev => {
       const newVisited = new Set([...prev]);
       newVisited.add(nextStep);
       return newVisited;
     });
-    
-    // Save current form data before navigating for prospect mode
+
     if (isProspectMode && prospectData?.prospect?.id) {
-      console.log('Saving form data with currentStep:', nextStep);
       saveFormDataMutation.mutate({
         formData: formData,
         currentStep: nextStep
       });
     }
-    
+
     setCurrentStep(nextStep);
   };
 
   const handlePrevious = () => {
     const prevStep = Math.max(0, currentStep - 1);
-    
-    console.log(`Navigating from step ${currentStep} to step ${prevStep}`);
-    
-    // Preserve all previously visited sections - don't reset when going back
+
     setVisitedSections(prev => {
       const newVisited = new Set([...prev]);
-      newVisited.add(currentStep); // Mark current section as visited
-      // Don't remove any previously visited sections when going back
+      newVisited.add(currentStep);
       return newVisited;
     });
-    
-    // Save current form data before navigating for prospect mode
+
     if (isProspectMode && prospectData?.prospect?.id) {
-      console.log('Saving form data with currentStep:', prevStep);
       saveFormDataMutation.mutate({
         formData: formData,
         currentStep: prevStep
       });
     }
-    
+
     setCurrentStep(prevStep);
   };
 
@@ -707,13 +530,6 @@ export default function EnhancedPdfWizard() {
       }
     }
 
-    // For debugging, log validation status
-    if (section.name === 'Merchant Information') {
-      console.log(`Section ${sectionIndex} (${section.name}) validation:`, {
-        hasErrors
-      });
-    }
-
     return hasErrors;
   };
 
@@ -756,12 +572,10 @@ export default function EnhancedPdfWizard() {
   // Load owners with signatures from database
   const loadOwnersWithSignatures = async (prospectId: number) => {
     try {
-      console.log(`Loading owners with signatures for prospect ${prospectId}`);
       const response = await fetch(`/api/prospects/${prospectId}/owners-with-signatures`);
       if (response.ok) {
         const result = await response.json();
         if (result.success && result.owners.length > 0) {
-          console.log("Found owners with signatures from database:", result.owners);
           
           // Merge signature data with existing owners instead of replacing the entire array
           setFormData(prev => {
@@ -791,17 +605,15 @@ export default function EnhancedPdfWizard() {
               return owner;
             });
             
-            console.log("Merged owners with signatures:", updatedOwners);
             return {
               ...prev,
               owners: updatedOwners
             };
           });
         } else {
-          console.log("No owners found in database");
         }
       } else {
-        console.log("Failed to fetch owners:", response.status);
+        console.error("Failed to fetch owners:", response.status);
       }
     } catch (error) {
       console.error("Error loading owners with signatures:", error);
@@ -820,16 +632,10 @@ export default function EnhancedPdfWizard() {
     if (prospectData?.campaignEquipment && prospectData.campaignEquipment.length === 1) {
       const singleEquipment = prospectData.campaignEquipment[0];
       if (!formData.selectedEquipment || formData.selectedEquipment.length === 0) {
-        console.log('Auto-selecting single equipment option:', singleEquipment.name);
         handleFieldChange('selectedEquipment', [singleEquipment.id]);
       }
     }
   }, [prospectData, formData.selectedEquipment]);
-
-  // Debug form data changes
-  useEffect(() => {
-    console.log('Form data updated:', formData);
-  }, [formData]);
 
   // Initialize form data with agent and prospect information for prospects
   useEffect(() => {
@@ -838,7 +644,6 @@ export default function EnhancedPdfWizard() {
         assignedAgent: `${prospectData.agent.firstName} ${prospectData.agent.lastName} (${prospectData.agent.email})`,
         companyEmail: prospectData.prospect.email
       };
-      console.log('Setting initial prospect data:', newData);
       setFormData(newData);
       setInitialDataLoaded(true);
       
@@ -846,8 +651,6 @@ export default function EnhancedPdfWizard() {
       if (prospectData.prospect.formData) {
         try {
           const existingData = JSON.parse(prospectData.prospect.formData);
-          console.log('Loading existing form data:', existingData);
-          
           // Prevent address override by setting addressOverrideActive
           if (existingData.address && existingData.city && existingData.state && existingData.zipCode) {
             setAddressOverrideActive(true);
@@ -885,7 +688,6 @@ export default function EnhancedPdfWizard() {
             newVisited.add(4);
           }
           
-          console.log('Marking sections as visited based on existing data:', Array.from(newVisited));
           setVisitedSections(newVisited);
         } catch (error) {
           console.error('Error parsing existing form data:', error);
@@ -923,17 +725,11 @@ export default function EnhancedPdfWizard() {
             startingStep = 2; // Business Ownership
           }
           
-          console.log('Auto-advancing to step:', startingStep, {
-            merchantInfoComplete,
-            businessTypeComplete,
-            savedStep
-          });
         } catch (error) {
           console.error('Error determining starting step:', error);
         }
       }
-      
-      console.log('Setting starting step:', startingStep);
+
       setCurrentStep(startingStep);
     }
   }, [prospectData, isProspectMode, initialDataLoaded]);
@@ -1111,9 +907,6 @@ export default function EnhancedPdfWizard() {
   const selectAddressSuggestion = async (suggestion: any) => {
     const mainText = suggestion.structured_formatting?.main_text || suggestion.description.split(',')[0];
     
-    console.log('Selecting address suggestion:', suggestion);
-    console.log('Previous form data before selection:', formData);
-    
     // Hide suggestions immediately
     setShowSuggestions(false);
     setSelectedSuggestionIndex(-1);
@@ -1133,18 +926,10 @@ export default function EnhancedPdfWizard() {
       
       if (response.ok) {
         const result = await response.json();
-        console.log('Address validation result:', result);
         
         if (result.isValid) {
           setAddressValidationStatus('valid');
-          
-          console.log('API returned validated address data:', {
-            streetAddress: result.streetAddress,
-            city: result.city,
-            state: result.state,
-            zipCode: result.zipCode
-          });
-          
+
           // Create final validated address data - this OVERWRITES any previous data
           const overwrittenFormData = {
             ...formData,  // Keep all existing form data
@@ -1153,21 +938,6 @@ export default function EnhancedPdfWizard() {
             state: result.state || '',                  // OVERWRITE state
             zipCode: result.zipCode || ''               // OVERWRITE zipCode
           };
-          
-          console.log('OVERWRITING previous address data with selection:', {
-            previous: {
-              address: formData.address,
-              city: formData.city,
-              state: formData.state,
-              zipCode: formData.zipCode
-            },
-            new: {
-              address: overwrittenFormData.address,
-              city: overwrittenFormData.city,
-              state: overwrittenFormData.state,
-              zipCode: overwrittenFormData.zipCode
-            }
-          });
           
           // IMMEDIATELY update form data with the new address - this overwrites any previous data
           setFormData(overwrittenFormData);
@@ -1181,8 +951,6 @@ export default function EnhancedPdfWizard() {
           
           // IMMEDIATELY save to database to ensure persistence and overwrite previous data
           if (isProspectMode && prospectData?.prospect) {
-            console.log('Saving overwritten form data to database:', overwrittenFormData);
-            
             try {
               const saveResponse = await fetch(`/api/prospects/${prospectData.prospect.id}/save-form-data`, {
                 method: 'POST',
@@ -1196,11 +964,8 @@ export default function EnhancedPdfWizard() {
                 }),
               });
               
-              if (saveResponse.ok) {
-                const saveResult = await saveResponse.json();
-                console.log('Database save successful:', saveResult);
-              } else {
-                console.error('Database save failed:', saveResponse.status);
+              if (!saveResponse.ok) {
+                console.error('Address save failed:', saveResponse.status);
               }
             } catch (saveError) {
               console.error('Database save error:', saveError);
@@ -1217,37 +982,25 @@ export default function EnhancedPdfWizard() {
             const stateField = document.querySelector('select[id*="state"], input[id*="state"]') as HTMLInputElement;
             const zipField = document.querySelector('input[id*="zip"]') as HTMLInputElement;
             
-            console.log('Force updating DOM fields with validated address data...');
-            console.log('Forcing fields to show:', {
-              streetAddress: result.streetAddress,
-              city: result.city,
-              state: result.state,
-              zipCode: result.zipCode
-            });
-            
             if (addressField && result.streetAddress) {
               addressField.value = result.streetAddress;
               addressField.dispatchEvent(new Event('input', { bubbles: true }));
               addressField.dispatchEvent(new Event('change', { bubbles: true }));
-              console.log('Force set address field to:', result.streetAddress);
             }
             if (cityField && result.city) {
               cityField.value = result.city;
               cityField.dispatchEvent(new Event('input', { bubbles: true }));
               cityField.dispatchEvent(new Event('change', { bubbles: true }));
-              console.log('Force set city field to:', result.city);
             }
             if (stateField && result.state) {
               stateField.value = result.state;
               stateField.dispatchEvent(new Event('change', { bubbles: true }));
               stateField.dispatchEvent(new Event('input', { bubbles: true }));
-              console.log('Force set state field to:', result.state);
             }
             if (zipField && result.zipCode) {
               zipField.value = result.zipCode;
               zipField.dispatchEvent(new Event('input', { bubbles: true }));
               zipField.dispatchEvent(new Event('change', { bubbles: true }));
-              console.log('Force set zip field to:', result.zipCode);
             }
           };
           
@@ -1283,7 +1036,6 @@ export default function EnhancedPdfWizard() {
     // Prevent address field changes if addressOverrideActive and fields are locked
     if (addressOverrideActive && addressFieldsLocked && 
         (fieldName === 'city' || fieldName === 'state' || fieldName === 'zipCode')) {
-      console.log(`Blocking change to ${fieldName} due to address override protection`);
       return;
     }
     
@@ -1328,7 +1080,7 @@ export default function EnhancedPdfWizard() {
     if (fieldName === 'address') {
       // If user starts typing in a locked address field, unlock it for new selection
       if (addressFieldsLocked && value !== formData.address) {
-        console.log('User typing new address - unlocking fields for new selection');
+        // User typing new address - unlock fields for new selection
         setAddressFieldsLocked(false);
         setAddressOverrideActive(false);
         setAddressValidationStatus('idle');
@@ -1344,7 +1096,7 @@ export default function EnhancedPdfWizard() {
         setSelectedSuggestionIndex(-1);
         // Only clear address-related fields when completely empty (not just short)
         if (value.length === 0 && !addressFieldsLocked) {
-          console.log('Address field completely cleared - clearing dependent fields');
+          // Address field completely cleared - clear dependent fields
           const clearedFormData = { ...newFormData };
           clearedFormData.city = '';
           clearedFormData.state = '';
@@ -2155,8 +1907,6 @@ export default function EnhancedPdfWizard() {
         const campaign = prospectData.campaign;
         
         // Debug logging
-        console.log('Campaign object:', campaign);
-        console.log('Campaign pricingType:', campaign.pricingType);
 
         return (
           <div className="space-y-6">
@@ -2215,7 +1965,6 @@ export default function EnhancedPdfWizard() {
 
       case 'equipment':
         const campaignEquipmentForSelection = prospectData?.campaignEquipment || [];
-        console.log('Equipment section - campaignEquipmentForSelection:', campaignEquipmentForSelection);
         
         return (
           <div className="space-y-6">
@@ -2348,7 +2097,6 @@ export default function EnhancedPdfWizard() {
               });
               
               if (response.ok) {
-                console.log(`Auto-saved owner ${index + 1} data after ${field} entry`);
               } else {
                 console.error('Auto-save failed for owner data:', response.status);
               }
@@ -2543,7 +2291,6 @@ export default function EnhancedPdfWizard() {
                                   
                                   if (response.ok) {
                                     const result = await response.json();
-                                    console.log(`Inline signature saved to database for ${owner.name}`);
                                     // Optionally update owner with signature token
                                     if (result.signatureToken) {
                                       updateOwner(ownerIndex, 'signatureToken', result.signatureToken);
@@ -2606,7 +2353,6 @@ export default function EnhancedPdfWizard() {
                                     if (response.ok && result.success) {
                                       updateOwner(index, 'signatureToken', result.signatureToken);
                                       updateOwner(index, 'emailSent', new Date().toISOString());
-                                      console.log(`Signature request sent to ${owner.email}`);
                                     } else {
                                       console.error('Failed to send signature request:', result.message);
                                     }
@@ -3328,7 +3074,7 @@ export default function EnhancedPdfWizard() {
                             <div className="text-xs opacity-70 mt-1">
                               {showWarning 
                                 ? 'Needs attention' 
-                                : `${section.fields.length} field${section.fields.length !== 1 ? 's' : ''}`
+                                : `${getVisibleFieldCount(index)} field${getVisibleFieldCount(index) !== 1 ? 's' : ''}`
                               }
                             </div>
                           </div>
@@ -3385,8 +3131,9 @@ export default function EnhancedPdfWizard() {
                   <div className="space-y-6">
                     {sections[currentStep]?.fields.map((field) => {
                       if (!isFieldVisible(field)) return null;
+                      const fieldHasError = !!validationErrors[field.fieldName];
                       return (
-                        <div key={field.id}>
+                        <div key={field.id} data-field-error={fieldHasError ? "true" : undefined}>
                           {renderField(field)}
                         </div>
                       );
@@ -3422,9 +3169,10 @@ export default function EnhancedPdfWizard() {
                           onClick={() => {
                             if (isTemplatePreviewMode) return;
                             if (!validateCurrentSection()) {
+                              scrollToFirstError();
                               toast({
-                                title: "Validation Error",
-                                description: "Please complete all required fields before submitting.",
+                                title: "Required Fields Missing",
+                                description: "Please fill in the highlighted fields before submitting.",
                                 variant: "destructive",
                               });
                               return;
@@ -3456,6 +3204,35 @@ export default function EnhancedPdfWizard() {
           </div>
         </div>
       </div>
+
+      <Dialog open={validationModalOpen} onOpenChange={setValidationModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-gradient-to-br from-red-100 to-red-200 rounded-full flex items-center justify-center mb-4 shadow-sm">
+                <AlertTriangle className="w-8 h-8 text-red-600" />
+              </div>
+              <DialogTitle className="text-2xl font-bold text-red-600">
+                Application Incomplete
+              </DialogTitle>
+              <DialogDescription className="text-gray-500 mt-1">
+                Please complete the required information before submitting
+              </DialogDescription>
+            </div>
+          </DialogHeader>
+          <div className="bg-gradient-to-br from-gray-50 to-gray-100 p-6 rounded-xl border-l-4 border-red-600 whitespace-pre-line text-gray-700 leading-relaxed text-sm max-h-[50vh] overflow-y-auto">
+            {validationModalMessage}
+          </div>
+          <DialogFooter className="justify-center sm:justify-center">
+            <Button
+              onClick={() => setValidationModalOpen(false)}
+              className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 px-8"
+            >
+              I Understand
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
