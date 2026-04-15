@@ -438,6 +438,51 @@ export default function Auth() {
                   )}
                 </div>
 
+                {/* Environment selector — same as login tab so the right DB is searched */}
+                {isNonProduction && (
+                  <div className="space-y-2">
+                    <Label htmlFor="forgot-database">Environment</Label>
+                    <div className="relative">
+                      <Database className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                      <Select
+                        value={selectedDatabase}
+                        onValueChange={setSelectedDatabase}
+                      >
+                        <SelectTrigger className="pl-10" id="forgot-database">
+                          <SelectValue placeholder="Select environment" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="dev">
+                            <div className="flex items-center space-x-2">
+                              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                              <span>Development</span>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="test">
+                            <div className="flex items-center space-x-2">
+                              <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                              <span>Test</span>
+                            </div>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      {selectedDatabase === "dev" ? (
+                        <span className="flex items-center space-x-1">
+                          <div className="w-2 h-2 bg-blue-500 rounded-full inline-block"></div>
+                          <span>Will search the Development environment for your account</span>
+                        </span>
+                      ) : (
+                        <span className="flex items-center space-x-1">
+                          <div className="w-2 h-2 bg-orange-500 rounded-full inline-block"></div>
+                          <span>Will search the Test environment for your account</span>
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                )}
+
                 <Button
                   type="submit"
                   className="w-full"
@@ -472,6 +517,18 @@ export default function Auth() {
                 <p className="text-sm text-gray-600">
                   Enter your new password below
                 </p>
+                {/* Show which environment this reset applies to */}
+                {(() => {
+                  const dbEnv = new URLSearchParams(window.location.search).get("db");
+                  if (!dbEnv || dbEnv === 'production') return null;
+                  const isDevEnv = dbEnv === 'dev' || dbEnv === 'development';
+                  return (
+                    <div className={`mt-2 inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${isDevEnv ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
+                      <div className={`w-1.5 h-1.5 rounded-full ${isDevEnv ? 'bg-blue-500' : 'bg-orange-500'}`} />
+                      {isDevEnv ? 'Development' : 'Test'} environment
+                    </div>
+                  );
+                })()}
               </div>
 
               <form onSubmit={resetPasswordForm.handleSubmit(onResetPasswordSubmit)} className="space-y-4">

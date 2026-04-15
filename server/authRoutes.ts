@@ -9,6 +9,7 @@ import {
   twoFactorVerifySchema 
 } from "@shared/schema";
 import { dbEnvironmentMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
+import { getDynamicDatabase } from "./db";
 
 declare module "express-session" {
   interface SessionData {
@@ -138,11 +139,16 @@ export function setupAuthRoutes(app: Express) {
   });
 
   // Forgot password — uses dbEnvironmentMiddleware so dev/test users can reset their passwords
-  app.post('/api/auth/forgot-password', dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+  app.post('/api/auth/forgot-password', async (req: RequestWithDB, res) => {
     try {
       const validatedData = passwordResetRequestSchema.parse(req.body);
-      const dynamicDB = getRequestDB(req);
-      const result = await authService.requestPasswordReset(validatedData, dynamicDB, req.dbEnv);
+      // Always read ?db from query directly — the production-domain override in
+      // dbEnvironmentMiddleware would block dev/test users from resetting their password
+      const dbParam = req.query.db as string | undefined;
+      const allowedEnvs = ['dev', 'development', 'test'];
+      const dbEnv = dbParam && allowedEnvs.includes(dbParam) ? dbParam : 'production';
+      const dynamicDB = getDynamicDatabase(dbEnv);
+      const result = await authService.requestPasswordReset(validatedData, dynamicDB, dbEnv, req);
       res.json(result);
     } catch (error) {
       console.error("Password reset request error:", error);
@@ -153,11 +159,14 @@ export function setupAuthRoutes(app: Express) {
     }
   });
 
-  // Reset password — uses dbEnvironmentMiddleware so token is validated against the correct DB
-  app.post('/api/auth/reset-password', dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+  // Reset password — always reads ?db directly so token is validated in the right DB
+  app.post('/api/auth/reset-password', async (req: RequestWithDB, res) => {
     try {
       const validatedData = passwordResetSchema.parse(req.body);
-      const dynamicDB = getRequestDB(req);
+      const dbParam = req.query.db as string | undefined;
+      const allowedEnvs = ['dev', 'development', 'test'];
+      const dbEnv = dbParam && allowedEnvs.includes(dbParam) ? dbParam : 'production';
+      const dynamicDB = getDynamicDatabase(dbEnv);
       const result = await authService.resetPassword(validatedData, dynamicDB);
       
       if (result.success) {

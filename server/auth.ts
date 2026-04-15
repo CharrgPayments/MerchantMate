@@ -483,7 +483,7 @@ export class AuthService {
   }
 
   // Request password reset
-  async requestPasswordReset(data: PasswordResetRequest, dynamicDB?: any, dbEnv?: string): Promise<{ success: boolean; message: string }> {
+  async requestPasswordReset(data: PasswordResetRequest, dynamicDB?: any, dbEnv?: string, req?: any): Promise<{ success: boolean; message: string }> {
     try {
       let user: any;
       if (dynamicDB) {
@@ -520,8 +520,17 @@ export class AuthService {
         });
       }
 
-      // Build reset link — include db env so the reset page can route back to the right DB
-      const baseUrl = process.env.APP_URL || "http://localhost:5000";
+      // Build reset link — use the request's actual host so the link works in any environment
+      // (dev preview, deployed production, etc.) and include db env so the reset page
+      // routes back to the correct database
+      let baseUrl: string;
+      if (req) {
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+        const host = req.headers['x-forwarded-host'] || req.get('host') || '';
+        baseUrl = `${protocol}://${host}`;
+      } else {
+        baseUrl = process.env.APP_URL || "http://localhost:5000";
+      }
       const dbParam = dbEnv && dbEnv !== 'production' ? `&db=${dbEnv}` : '';
       const resetLink = `${baseUrl}/auth/reset-password?token=${resetToken}${dbParam}`;
 
