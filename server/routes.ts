@@ -1664,8 +1664,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (user.role === 'agent') {
         // Agents can only see their assigned prospects
-        const [agent] = await dynamicDB.select().from(agents).where(eq(agents.email, user.email));
-        
+        let [agent] = await dynamicDB.select().from(agents).where(eq(agents.userId, userId));
+        if (!agent && user.email) {
+          [agent] = await dynamicDB.select().from(agents).where(eq(agents.email, user.email));
+        }
         if (!agent) {
           return res.status(403).json({ message: "Agent not found" });
         }
@@ -3705,7 +3707,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Agent routes (admin only)
-  app.get("/api/agents", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/agents", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin', 'agent']), async (req: RequestWithDB, res) => {
     try {
       const { search } = req.query;
       const dynamicDB = getRequestDB(req);
@@ -5207,7 +5209,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Campaign Management API endpoints
   
   // Campaigns
-  app.get('/api/campaigns', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/campaigns', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'corporate', 'agent']), async (req: RequestWithDB, res: Response) => {
     try {
       console.log(`Fetching campaigns - Database environment: ${req.dbEnv}`);
       
