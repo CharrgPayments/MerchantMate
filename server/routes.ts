@@ -5266,19 +5266,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/campaigns', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
-      const { feeValues, equipmentIds, ...campaignData } = req.body;
-      
-      // Get current user from session
+      const { feeValues, equipmentIds, templateId, ...campaignData } = req.body;
+      const dbToUse = getRequestDB(req);
       const session = req.session as any;
       const userId = session?.userId;
-      
-      const insertCampaign = {
-        ...campaignData,
-        createdBy: userId ? parseInt(userId.replace('admin-demo-', '')) : undefined,
-      };
 
-      const campaign = await storage.createCampaign(insertCampaign, feeValues || [], equipmentIds || []);
-      res.status(201).json(campaign);
+      const { campaigns: campaignsTable, campaignApplicationTemplates: catTable } = await import('@shared/schema');
+
+      // Insert the campaign row
+      const [created] = await dbToUse
+        .insert(campaignsTable)
+        .values({ ...campaignData, createdBy: userId || undefined })
+        .returning();
+
+      // Insert fee values
+      if (feeValues && Object.keys(feeValues).length > 0) {
+        const { campaignFeeValues } = await import('@shared/schema');
+        const feeValueRows = Object.entries(feeValues).map(([feeItemId, value]) => ({
+          campaignId: created.id,
+          feeItemId: parseInt(feeItemId),
+          value: String(value),
+          valueType: 'percentage' as const,
+        }));
+        await dbToUse.insert(campaignFeeValues).values(feeValueRows).onConflictDoNothing();
+      }
+
+      // Insert equipment associations
+      if (equipmentIds && equipmentIds.length > 0) {
+        const { campaignEquipment } = await import('@shared/schema');
+        const equipRows = (equipmentIds as number[]).map((eqId: number, idx: number) => ({
+          campaignId: created.id,
+          equipmentItemId: eqId,
+          isRequired: false,
+          displayOrder: idx,
+        }));
+        await dbToUse.insert(campaignEquipment).values(equipRows).onConflictDoNothing();
+      }
+
+      // Insert application template association
+      if (templateId) {
+        await dbToUse
+          .insert(catTable)
+          .values({ campaignId: created.id, templateId: parseInt(templateId), isPrimary: true, displayOrder: 0 })
+          .onConflictDoNothing();
+      }
+
+      res.status(201).json(created);
     } catch (error) {
       console.error('Error creating campaign:', error);
       res.status(500).json({ error: 'Failed to create campaign' });
@@ -5526,36 +5559,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/campaigns/:id', requireRole(['admin', 'super_admin']), async (req: Request, res: Response) => {
+  app.put('/api/campaigns/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
     try {
       const id = parseInt(req.params.id);
-      const { feeValues, equipmentIds, pricingTypeIds, ...campaignData } = req.body;
-      
-      console.log('Campaign update request:', { id, campaignData, feeValues, equipmentIds, pricingTypeIds });
-      
-      // Get current user from session
+      const { feeValues, equipmentIds, pricingTypeIds, templateId, selectedEquipment, ...campaignData } = req.body;
+      const dbToUse = getRequestDB(req);
       const session = req.session as any;
       const userId = session?.userId;
-      
-      // Handle pricing type ID properly - take the first one if it's an array
-      const pricingTypeId = Array.isArray(pricingTypeIds) && pricingTypeIds.length > 0 
-        ? pricingTypeIds[0] 
-        : campaignData.pricingTypeId;
-      
-      const updateCampaign = {
-        ...campaignData,
-        pricingTypeId,
-        updatedBy: userId ? parseInt(userId.replace('admin-demo-', '')) : undefined,
-      };
 
-      const campaign = await storage.updateCampaign(id, updateCampaign, feeValues || [], equipmentIds || []);
-      
-      if (!campaign) {
-        return res.status(404).json({ error: 'Campaign not found' });
+      // Handle pricing type ID properly
+      const pricingTypeId = Array.isArray(pricingTypeIds) && pricingTypeIds.length > 0
+        ? pricingTypeIds[0]
+        : campaignData.pricingTypeId;
+
+      const { campaigns: campaignsTable, campaignApplicationTemplates: catTable, campaignFeeValues, campaignEquipment } = await import('@shared/schema');
+      const { eq: eqOp } = await import('drizzle-orm');
+
+      // Update campaign row
+      const [updated] = await dbToUse
+        .update(campaignsTable)
+        .set({ ...campaignData, pricingTypeId, updatedAt: new Date() })
+        .where(eqOp(campaignsTable.id, id))
+        .returning();
+
+      if (!updated) return res.status(404).json({ error: 'Campaign not found' });
+
+      // Upsert fee values if provided
+      if (feeValues && Object.keys(feeValues).length > 0) {
+        await dbToUse.delete(campaignFeeValues).where(eqOp(campaignFeeValues.campaignId, id));
+        const feeValueRows = Object.entries(feeValues).map(([feeItemId, value]) => ({
+          campaignId: id,
+          feeItemId: parseInt(feeItemId),
+          value: String(value),
+          valueType: 'percentage' as const,
+        }));
+        await dbToUse.insert(campaignFeeValues).values(feeValueRows).onConflictDoNothing();
       }
-      
-      console.log('Campaign updated successfully:', campaign);
-      res.json(campaign);
+
+      // Upsert equipment if provided
+      const equipIds: number[] = selectedEquipment ?? equipmentIds ?? [];
+      if (equipIds.length >= 0) {
+        await dbToUse.delete(campaignEquipment).where(eqOp(campaignEquipment.campaignId, id));
+        if (equipIds.length > 0) {
+          const equipRows = equipIds.map((eqId: number, idx: number) => ({
+            campaignId: id,
+            equipmentItemId: eqId,
+            isRequired: false,
+            displayOrder: idx,
+          }));
+          await dbToUse.insert(campaignEquipment).values(equipRows).onConflictDoNothing();
+        }
+      }
+
+      // Upsert application template association
+      if (templateId !== undefined) {
+        await dbToUse.delete(catTable).where(eqOp(catTable.campaignId, id));
+        if (templateId) {
+          await dbToUse
+            .insert(catTable)
+            .values({ campaignId: id, templateId: parseInt(templateId), isPrimary: true, displayOrder: 0 })
+            .onConflictDoNothing();
+        }
+      }
+
+      res.json(updated);
     } catch (error) {
       console.error('Error updating campaign:', error);
       res.status(500).json({ error: 'Failed to update campaign' });
