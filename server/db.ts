@@ -2,8 +2,20 @@ import { Pool, neonConfig } from '@neondatabase/serverless';
 import { drizzle } from 'drizzle-orm/neon-serverless';
 import ws from "ws";
 import * as schema from "@shared/schema";
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 neonConfig.webSocketConstructor = ws;
+
+type DrizzleDB = ReturnType<typeof drizzle<typeof schema>>;
+const dbContext = new AsyncLocalStorage<DrizzleDB>();
+
+export function runWithDb<T>(database: DrizzleDB, fn: () => T): T {
+  return dbContext.run(database, fn);
+}
+
+export function getActiveDb(): DrizzleDB {
+  return dbContext.getStore() || (db as DrizzleDB);
+}
 
 // Environment-based database URL selection
 function getDatabaseUrl(environment?: string): string {
@@ -39,7 +51,18 @@ export const pool = new Pool({
   connectionTimeoutMillis: 10000,
 });
 
-export const db = drizzle({ client: pool, schema });
+const staticDb: DrizzleDB = drizzle({ client: pool, schema });
+
+// Proxy that transparently routes to the per-request DB when one is bound
+// via runWithDb(...) (see dbMiddleware), or falls back to the production DB.
+// This lets storage.ts and auditService.ts use `db.*` unchanged.
+export const db: DrizzleDB = new Proxy({} as DrizzleDB, {
+  get(_target, prop, receiver) {
+    const active = dbContext.getStore() || staticDb;
+    const value = Reflect.get(active as any, prop, receiver);
+    return typeof value === 'function' ? value.bind(active) : value;
+  },
+}) as DrizzleDB;
 
 // Environment switching for testing utilities
 const connectionPools = new Map<string, Pool>();

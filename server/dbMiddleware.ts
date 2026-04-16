@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { getDynamicDatabase, extractDbEnv } from './db';
+import { getDynamicDatabase, extractDbEnv, runWithDb } from './db';
 
 // Extend the Request interface to include database environment info
 export interface RequestWithDB extends Request {
@@ -40,7 +40,7 @@ export const dbEnvironmentMiddleware = (req: RequestWithDB, res: Response, next:
     req.db = req.dynamicDB;
     res.setHeader('X-Database-Environment', 'production');
     console.log('Production domain (crm.charrg.com): using production database');
-    next();
+    runWithDb(req.dynamicDB, next);
     return;
   }
 
@@ -52,7 +52,7 @@ export const dbEnvironmentMiddleware = (req: RequestWithDB, res: Response, next:
     req.db = req.dynamicDB;
     res.setHeader('X-Database-Environment', sessionDbEnv);
     console.log(`Session database: using ${sessionDbEnv} database from session`);
-    next();
+    runWithDb(req.dynamicDB, next);
     return;
   }
 
@@ -64,7 +64,7 @@ export const dbEnvironmentMiddleware = (req: RequestWithDB, res: Response, next:
     req.db = req.dynamicDB;
     res.setHeader('X-Database-Environment', paramDbEnv);
     console.log(`Database switching: using ${paramDbEnv} database from query/header`);
-    next();
+    runWithDb(req.dynamicDB, next);
     return;
   }
 
@@ -74,7 +74,7 @@ export const dbEnvironmentMiddleware = (req: RequestWithDB, res: Response, next:
   req.db = req.dynamicDB;
   res.setHeader('X-Database-Environment', 'production');
   console.log('Using default production database');
-  next();
+  runWithDb(req.dynamicDB, next);
 };
 
 /**
