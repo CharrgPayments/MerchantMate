@@ -587,30 +587,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Authentication required" });
       }
 
-      // Get user data
-      const user = await storage.getUser(userId);
+      const dynamicDB = getRequestDB(req);
+
+      const [user] = await dynamicDB.select().from(users).where(eq(users.id, userId));
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Get agent by user email with fallback for development
-      let agent = await storage.getAgentByEmail(user.email);
-      
-      // If no agent found by email, use fallback for development/testing
-      if (!agent && userId === 'user_agent_1') {
-        // For development, fallback to agent ID 2 (Mike Chen)
-        agent = await storage.getAgent(2);
-        console.log('Using fallback agent for development:', agent?.firstName, agent?.lastName);
+      let [agent] = await dynamicDB.select().from(agents).where(eq(agents.userId, userId));
+      if (!agent && user.email) {
+        [agent] = await dynamicDB.select().from(agents).where(eq(agents.email, user.email));
       }
-      
       if (!agent) {
         return res.status(404).json({ message: "Agent not found" });
       }
 
       console.log('Found agent:', agent.id, agent.firstName, agent.lastName);
 
-      // Get all prospects assigned to this agent
-      const prospects = await storage.getProspectsByAgent(agent.id);
+      const prospects = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.agentId, agent.id));
       console.log('Found prospects:', prospects.length);
       
       // Calculate statistics
@@ -653,28 +647,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Authentication required" });
       }
 
-      // Get user data
-      const user = await storage.getUser(userId);
+      const dynamicDB = getRequestDB(req);
+
+      const [user] = await dynamicDB.select().from(users).where(eq(users.id, userId));
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Get agent by user email with fallback for development
-      let agent = await storage.getAgentByEmail(user.email);
-      
-      // If no agent found by email, use fallback for development/testing
-      if (!agent && userId === 'user_agent_1') {
-        // For development, fallback to agent ID 2 (Mike Chen)
-        agent = await storage.getAgent(2);
-        console.log('Using fallback agent for development:', agent?.firstName, agent?.lastName);
+      let [agent] = await dynamicDB.select().from(agents).where(eq(agents.userId, userId));
+      if (!agent && user.email) {
+        [agent] = await dynamicDB.select().from(agents).where(eq(agents.email, user.email));
       }
-      
       if (!agent) {
         return res.status(404).json({ message: "Agent not found" });
       }
 
-      // Get all prospects assigned to this agent with application details
-      const prospects = await storage.getProspectsByAgent(agent.id);
+      const prospects = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.agentId, agent.id));
       
       // Transform prospects to application format
       const applications = await Promise.all(prospects.map(async prospect => {
