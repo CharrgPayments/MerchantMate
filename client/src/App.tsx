@@ -385,6 +385,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/pdf-forms">
             {() => {
+              if (!can(ACTIONS.NAV_PDF_FORMS)) return <NotFound />;
               const pageInfo = getPageInfo("/pdf-forms");
               return (
                 <>
@@ -488,6 +489,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/agent-dashboard">
             {() => {
+              if (!can(ACTIONS.NAV_AGENT_DASHBOARD)) return <NotFound />;
               const pageInfo = { title: "Agent Dashboard" };
               return (
                 <>

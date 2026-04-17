@@ -979,18 +979,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
 
   // User management routes (admin and super admin only) - Development bypass
-  app.get("/api/users", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+  app.get("/api/users", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     try {
-      console.log('Users endpoint - Fetching all users (development mode)...');
-      console.log('Users endpoint - Database environment:', req.dbEnv);
-      
-      // Use dynamic database connection if available, otherwise use default storage
+      // Auth: only admin/super_admin/corporate per default grants on admin:read.
+      // Do NOT log full user list — PII leak risk in production logs.
       const dynamicDB = getRequestDB(req);
-      
-      // Get users from the dynamic database
       const users = await dynamicDB.select().from((await import('@shared/schema')).users);
-      console.log('Users endpoint - Found', users.length, 'users');
-      console.log('Users found:', users.map((u: any) => ({ id: u.id, username: u.username, email: u.email, role: u.role })));
       res.json(users);
     } catch (error) {
       console.error("Error fetching users:", error);

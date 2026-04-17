@@ -1,13 +1,13 @@
 import express from 'express';
 import { spawn } from 'child_process';
-import { requireRole } from '../replitAuth';
+import { requirePerm } from '../replitAuth';
 import fs from 'fs/promises';
 import path from 'path';
 
 const router = express.Router();
 
 // Get list of all test files and their descriptions
-router.get('/test-files', requireRole(['super_admin']), async (req, res) => {
+router.get('/test-files', requirePerm('system:superadmin'), async (req, res) => {
   try {
     const testFiles = [];
     
@@ -55,7 +55,7 @@ router.get('/test-files', requireRole(['super_admin']), async (req, res) => {
 });
 
 // Run specific test file or all tests via Server-Sent Events
-router.get('/run-tests', requireRole(['super_admin']), (req, res) => {
+router.get('/run-tests', requirePerm('system:superadmin'), (req, res) => {
   const { testFile, coverage } = req.query;
   
   // Set up Server-Sent Events for real-time updates
@@ -189,7 +189,7 @@ router.get('/run-tests', requireRole(['super_admin']), (req, res) => {
 });
 
 // Get test coverage summary
-router.get('/coverage-summary', requireRole(['super_admin']), async (req, res) => {
+router.get('/coverage-summary', requirePerm('system:superadmin'), async (req, res) => {
   try {
     const coverageFile = 'coverage/coverage-summary.json';
     try {
