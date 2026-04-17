@@ -140,16 +140,16 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
   });
 
   const onSubmit = (data: AgentFormData) => {
-    const payload: any = { ...data };
-    if (payload.parentAgentId === "__none__" || payload.parentAgentId === "" || payload.parentAgentId == null) {
-      payload.parentAgentId = null;
-    } else if (typeof payload.parentAgentId === "string") {
-      payload.parentAgentId = parseInt(payload.parentAgentId);
-    }
+    const { parentAgentId: rawParent, ...rest } = data;
+    const parentAgentId: number | null =
+      rawParent === undefined || rawParent === "" || rawParent === "__none__"
+        ? null
+        : parseInt(rawParent);
+    const payload = { ...rest, parentAgentId } satisfies Partial<InsertAgent>;
     if (agent) {
       updateMutation.mutate(payload);
     } else {
-      createMutation.mutate(payload);
+      createMutation.mutate(payload as InsertAgent);
     }
   };
 

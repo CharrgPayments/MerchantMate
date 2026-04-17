@@ -150,16 +150,16 @@ export function MerchantModal({ isOpen, onClose, merchant }: MerchantModalProps)
   });
 
   const onSubmit = (data: MerchantFormData) => {
-    const payload: any = { ...data };
-    if (payload.parentMerchantId === "__none__" || payload.parentMerchantId === "") {
-      payload.parentMerchantId = null;
-    } else if (typeof payload.parentMerchantId === "string") {
-      payload.parentMerchantId = parseInt(payload.parentMerchantId);
-    }
+    const { parentMerchantId: rawParent, ...rest } = data;
+    const parentMerchantId: number | null =
+      rawParent === undefined || rawParent === "" || rawParent === "__none__"
+        ? null
+        : parseInt(rawParent);
+    const payload = { ...rest, parentMerchantId } satisfies Partial<InsertMerchant>;
     if (merchant) {
       updateMutation.mutate(payload);
     } else {
-      createMutation.mutate(payload);
+      createMutation.mutate(payload as InsertMerchant);
     }
   };
 

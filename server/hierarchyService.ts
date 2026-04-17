@@ -1,4 +1,6 @@
 import { eq, and, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/neon-serverless";
+import * as schema from "@shared/schema";
 import { agents, merchants, agentHierarchy, merchantHierarchy } from "@shared/schema";
 
 export const MAX_HIERARCHY_DEPTH = 5;
@@ -11,7 +13,10 @@ export class HierarchyError extends Error {
   }
 }
 
-type Db = any;
+/** Accepts either the top-level Drizzle DB or a transaction client (both share the same query API). */
+type DrizzleDB = ReturnType<typeof drizzle<typeof schema>>;
+type TxClient = Parameters<Parameters<DrizzleDB["transaction"]>[0]>[0];
+export type Db = DrizzleDB | TxClient;
 
 /** Insert the self-row (depth 0) for a brand new agent. Idempotent. */
 export async function initAgentClosure(db: Db, agentId: number) {

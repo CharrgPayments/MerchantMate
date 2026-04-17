@@ -18,7 +18,7 @@ import { getDynamicDatabase } from "./db";
 import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity, agentHierarchy, merchantHierarchy } from "@shared/schema";
 import { initAgentClosure, initMerchantClosure, setAgentParent, setMerchantParent, getAgentDescendantIds, getMerchantDescendantIds, HierarchyError, MAX_HIERARCHY_DEPTH } from "./hierarchyService";
 import crypto from "crypto";
-import { eq, or, ilike } from "drizzle-orm";
+import { eq, or, ilike, sql } from "drizzle-orm";
 
 // Helper functions for user account creation
 async function generateUsername(firstName: string, lastName: string, email: string, dynamicDB: any): Promise<string> {
@@ -3859,57 +3859,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Update agent (general fields + optional parentAgentId change)
+  // Update agent (general fields + optional parentAgentId change) — atomic
   app.put("/api/agents/:id", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+    const ALLOWED_AGENT_FIELDS = ["firstName", "lastName", "email", "phone", "territory", "commissionRate", "status"] as const;
+    type AgentUpdate = Partial<Pick<typeof agents.$inferInsert, typeof ALLOWED_AGENT_FIELDS[number]>>;
     try {
       const id = parseInt(req.params.id);
       const dynamicDB = getRequestDB(req);
-      const { parentAgentId, userId, id: _ignoredId, ...rest } = req.body || {};
-      // Build a safe partial update
-      const allowed: any = {};
-      for (const k of ["firstName", "lastName", "email", "phone", "territory", "commissionRate", "status"]) {
-        if (k in rest) allowed[k] = rest[k];
+      const body = (req.body ?? {}) as Record<string, unknown>;
+
+      const allowed: AgentUpdate = {};
+      for (const k of ALLOWED_AGENT_FIELDS) {
+        if (k in body) (allowed as Record<string, unknown>)[k] = body[k];
       }
-      if (Object.keys(allowed).length > 0) {
-        await dynamicDB.update(agents).set(allowed).where(eq(agents.id, id));
-      }
-      if ("parentAgentId" in (req.body || {})) {
-        const newParent = parentAgentId === null || parentAgentId === "" || parentAgentId === undefined
-          ? null : parseInt(parentAgentId);
-        await setAgentParent(dynamicDB, id, newParent);
-      }
-      const [updated] = await dynamicDB.select().from(agents).where(eq(agents.id, id));
+      const hasParentChange = "parentAgentId" in body;
+      const newParent: number | null = hasParentChange
+        ? (body.parentAgentId === null || body.parentAgentId === "" || body.parentAgentId === undefined
+            ? null
+            : parseInt(String(body.parentAgentId)))
+        : 0 as never; // unused unless hasParentChange
+
+      const updated = await dynamicDB.transaction(async (tx) => {
+        if (Object.keys(allowed).length > 0) {
+          await tx.update(agents).set(allowed).where(eq(agents.id, id));
+        }
+        if (hasParentChange) {
+          await setAgentParent(tx, id, newParent);
+        }
+        const [row] = await tx.select().from(agents).where(eq(agents.id, id));
+        return row;
+      });
+
       if (!updated) return res.status(404).json({ message: "Agent not found" });
       res.json(updated);
-    } catch (e: any) {
+    } catch (e) {
       if (e instanceof HierarchyError) return res.status(400).json({ message: e.message, code: e.code });
       console.error("Error updating agent:", e);
       res.status(500).json({ message: "Failed to update agent" });
     }
   });
 
-  // Update merchant (general fields + optional parentMerchantId change)
+  // Update merchant (general fields + optional parentMerchantId change) — atomic
   app.put("/api/merchants/:id", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+    const ALLOWED_MERCHANT_FIELDS = ["businessName", "businessType", "email", "phone", "agentId", "processingFee", "status", "monthlyVolume"] as const;
+    type MerchantUpdate = Partial<Pick<typeof merchants.$inferInsert, typeof ALLOWED_MERCHANT_FIELDS[number]>>;
     try {
       const id = parseInt(req.params.id);
       const dynamicDB = getRequestDB(req);
-      const { parentMerchantId, userId, id: _ignoredId, ...rest } = req.body || {};
-      const allowed: any = {};
-      for (const k of ["businessName", "businessType", "email", "phone", "agentId", "processingFee", "status", "monthlyVolume"]) {
-        if (k in rest) allowed[k] = rest[k];
+      const body = (req.body ?? {}) as Record<string, unknown>;
+
+      const allowed: MerchantUpdate = {};
+      for (const k of ALLOWED_MERCHANT_FIELDS) {
+        if (k in body) (allowed as Record<string, unknown>)[k] = body[k];
       }
-      if (Object.keys(allowed).length > 0) {
-        await dynamicDB.update(merchants).set(allowed).where(eq(merchants.id, id));
-      }
-      if ("parentMerchantId" in (req.body || {})) {
-        const newParent = parentMerchantId === null || parentMerchantId === "" || parentMerchantId === undefined
-          ? null : parseInt(parentMerchantId);
-        await setMerchantParent(dynamicDB, id, newParent);
-      }
-      const [updated] = await dynamicDB.select().from(merchants).where(eq(merchants.id, id));
+      const hasParentChange = "parentMerchantId" in body;
+      const newParent: number | null = hasParentChange
+        ? (body.parentMerchantId === null || body.parentMerchantId === "" || body.parentMerchantId === undefined
+            ? null
+            : parseInt(String(body.parentMerchantId)))
+        : 0 as never;
+
+      const updated = await dynamicDB.transaction(async (tx) => {
+        if (Object.keys(allowed).length > 0) {
+          await tx.update(merchants).set(allowed).where(eq(merchants.id, id));
+        }
+        if (hasParentChange) {
+          await setMerchantParent(tx, id, newParent);
+        }
+        const [row] = await tx.select().from(merchants).where(eq(merchants.id, id));
+        return row;
+      });
+
       if (!updated) return res.status(404).json({ message: "Merchant not found" });
       res.json(updated);
-    } catch (e: any) {
+    } catch (e) {
       if (e instanceof HierarchyError) return res.status(400).json({ message: e.message, code: e.code });
       console.error("Error updating merchant:", e);
       res.status(500).json({ message: "Failed to update merchant" });
