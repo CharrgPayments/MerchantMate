@@ -3273,30 +3273,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   updatedAt: new Date()
                 }).where(eq(prospectApplications.id, prospectApp.id));
 
-                // Auto-trigger underwriting: SUB → CUW + run pipeline.
-                try {
-                  await devDb.update(prospectApplications)
-                    .set({ status: 'CUW', updatedAt: new Date() })
-                    .where(eq(prospectApplications.id, prospectApp.id));
-                  await devDb.insert(underwritingStatusHistory).values({
-                    applicationId: prospectApp.id,
-                    fromStatus: 'SUB',
-                    toStatus: 'CUW',
-                    changedBy: null,
-                    reason: 'Auto-advanced on submission',
-                  });
-                  await notifyTransition(devDb, prospectApp.id, 'CUW', {
-                    fromStatus: 'SUB', reason: 'Auto-advanced on submission',
-                  }).catch(e => console.error('underwriting notif (auto):', e));
-                  // Run the pipeline asynchronously so the HTTP response is not delayed.
-                  setImmediate(() => {
-                    runUnderwritingPipeline({ db: devDb, applicationId: prospectApp.id, startedBy: null })
-                      .catch(e => console.error('underwriting pipeline (auto):', e));
-                  });
-                } catch (autoErr) {
-                  console.error('Failed to auto-start underwriting:', autoErr);
-                }
-
                 console.log(`Filled PDF saved to ${generatedPdfPath}`);
               }
             }
@@ -3310,6 +3286,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       } catch (pdfError) {
         console.error('PDF generation failed:', pdfError);
+      }
+
+      // Auto-trigger underwriting for the prospect's application: SUB → CUW
+      // and run the pipeline. This runs on every successful submission, on
+      // the same DB env used to write the application above, and is idempotent
+      // (it only advances if the application is currently in SUB).
+      try {
+        const { prospectApplications: paTable } = await import("@shared/schema");
+        const { eq: eqOp } = await import("drizzle-orm");
+        const { getDynamicDatabase } = await import("./db");
+        const reqEnv = (req.session as { dbEnvironment?: string } | undefined)?.dbEnvironment || 'development';
+        const submitDb = getDynamicDatabase(reqEnv);
+        if (submitDb) {
+          const [appRow] = await submitDb.select().from(paTable)
+            .where(eqOp(paTable.prospectId, prospectId)).limit(1);
+          if (appRow) {
+            // Ensure the application reaches SUB even if no template was used.
+            if (appRow.status !== 'SUB' && appRow.status !== 'CUW') {
+              await submitDb.update(paTable)
+                .set({ status: 'SUB', submittedAt: new Date(), updatedAt: new Date() })
+                .where(eqOp(paTable.id, appRow.id));
+            }
+            if (appRow.status !== 'CUW') {
+              await submitDb.update(paTable)
+                .set({ status: 'CUW', updatedAt: new Date() })
+                .where(eqOp(paTable.id, appRow.id));
+              await submitDb.insert(underwritingStatusHistory).values({
+                applicationId: appRow.id,
+                fromStatus: 'SUB',
+                toStatus: 'CUW',
+                changedBy: null,
+                reason: 'Auto-advanced on submission',
+              });
+              await notifyTransition(submitDb, appRow.id, 'CUW', {
+                fromStatus: 'SUB', reason: 'Auto-advanced on submission',
+              }).catch(e => console.error('underwriting notif (auto):', e));
+              setImmediate(() => {
+                runUnderwritingPipeline({ db: submitDb, applicationId: appRow.id, startedBy: null })
+                  .catch(e => console.error('underwriting pipeline (auto):', e));
+              });
+            }
+          }
+        }
+      } catch (autoErr) {
+        console.error('Failed to auto-start underwriting:', autoErr);
       }
 
       // Send notification emails

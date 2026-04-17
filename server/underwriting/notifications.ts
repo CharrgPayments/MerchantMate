@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { userAlerts, users, prospectApplications, merchantProspects } from "@shared/schema";
+import { userAlerts, users, prospectApplications, merchantProspects, agents } from "@shared/schema";
 import { ROLE_CODES } from "@shared/permissions";
 import { APP_STATUS, STATUS_FAMILY, STATUS_LABEL, type AppStatus } from "@shared/underwriting";
 import { emailService } from "../emailService";
@@ -84,11 +84,18 @@ export async function notifyTransition(db: DB, applicationId: number, toStatus: 
   }
 
   // 2. Role-targeted in-app alerts + email fan-out per routing matrix.
-  const roleCodes = STATUS_ROLE_ROUTING[status] || [];
-  if (roleCodes.length) {
-    await alertRoles(db, roleCodes, `Application #${applicationId} → ${toStatus} · ${label}`, url, alertType);
+  // IMPORTANT: AGENT alerts are application-scoped (only the prospect's own
+  // agent), never broadcast to every agent in the system. All other internal
+  // roles (Underwriter / Senior UW / Data Processing / Deployment) fan out.
+  const fullRoleCodes = STATUS_ROLE_ROUTING[status] || [];
+  const isAgentRole = (r: string) => r === ROLE_CODES.AGENT;
+  const internalRoles = fullRoleCodes.filter((r) => !isAgentRole(r));
+  const includesAgent = fullRoleCodes.some(isAgentRole);
+
+  if (internalRoles.length) {
+    await alertRoles(db, internalRoles, `Application #${applicationId} → ${toStatus} · ${label}`, url, alertType);
     try {
-      const targets = await targetsForRoles(db, roleCodes);
+      const targets = await targetsForRoles(db, internalRoles);
       await Promise.all(targets.filter((u) => u.email).map((u) =>
         emailService.sendUnderwritingTransitionEmail({
           to: u.email!, firstName: u.firstName ?? undefined,
@@ -97,6 +104,24 @@ export async function notifyTransition(db: DB, applicationId: number, toStatus: 
         }),
       ));
     } catch (e) { console.error("transition email fan-out failed:", e); }
+  }
+
+  // Application-scoped agent notification: only the prospect's owning agent.
+  if (includesAgent && prospect?.agentId) {
+    try {
+      const [agentRow] = await db.select().from(agents).where(eq(agents.id, prospect.agentId)).limit(1);
+      if (agentRow?.userId) {
+        await alertUser(db, agentRow.userId,
+          `Application #${applicationId} → ${toStatus} · ${label}`, url, alertType);
+      }
+      if (agentRow?.email) {
+        await emailService.sendUnderwritingTransitionEmail({
+          to: agentRow.email, firstName: agentRow.firstName ?? undefined,
+          applicationId, fromStatus: opts.fromStatus ?? null, toStatus, statusLabel: label,
+          reason: opts.reason, reviewUrl: fullUrl,
+        });
+      }
+    } catch (e) { console.error("agent transition notify failed:", e); }
   }
 
   // 3. Notify the merchant/agent via email when a final outcome (approved/declined) is reached.
