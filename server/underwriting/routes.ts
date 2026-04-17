@@ -31,8 +31,9 @@ function userId(req: RequestWithDB): string | null {
 }
 
 // Scope-aware ownership check: when the caller's permScope is 'own' they may
-// only view/act on applications they are the assigned reviewer for. 'all' (or
-// SUPER_ADMIN's implicit 'all') passes through. Returns true on allow.
+// view/act on (a) applications they are the assigned reviewer for, OR
+// (b) unassigned applications in their queue (so they can pick up new work).
+// 'all' (or SUPER_ADMIN's implicit 'all') passes through. Returns true on allow.
 async function enforceAppScope(req: RequestWithDB, applicationId: number): Promise<boolean> {
   const scope = req.permScope;
   if (!scope || scope === "all") return true;
@@ -40,6 +41,7 @@ async function enforceAppScope(req: RequestWithDB, applicationId: number): Promi
   const [row] = await db.select({ assignedReviewerId: prospectApplications.assignedReviewerId })
     .from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
   if (!row) return false;
+  if (row.assignedReviewerId === null) return true;
   const uid = userId(req);
   return !!uid && row.assignedReviewerId === uid;
 }
@@ -306,6 +308,9 @@ export function registerUnderwritingRoutes(app: Express) {
         const note = (req.body as { note?: string })?.note;
         if (!["open", "acknowledged", "resolved", "waived"].includes(status)) return res.status(400).json({ message: "Invalid status" });
         const db = getRequestDB(req);
+        const [issueRow] = await db.select().from(underwritingIssues).where(eq(underwritingIssues.id, id)).limit(1);
+        if (!issueRow) return res.status(404).json({ message: "Issue not found" });
+        if (!(await enforceAppScope(req, issueRow.applicationId))) return res.status(403).json({ message: "Out of scope" });
         const updates: Record<string, unknown> = { status };
         if (status === "resolved" || status === "waived") {
           updates.resolvedBy = userId(req);
@@ -497,11 +502,15 @@ export function registerUnderwritingRoutes(app: Express) {
           conds.push(isNull(prospectApplications.assignedReviewerId) as ReturnType<typeof eq>);
         }
 
-        // Scope-aware: 'own' permission scope can only see their own assignments.
+        // Scope-aware: 'own' permission scope sees their own assignments PLUS
+        // unassigned items (so they can pick up new work).
         if (req.permScope === 'own') {
           const uid = userId(req);
-          if (uid) conds.push(eq(prospectApplications.assignedReviewerId, uid));
-          else conds.push(sqlTag`false` as ReturnType<typeof eq>);
+          if (uid) {
+            conds.push(sqlTag`(${prospectApplications.assignedReviewerId} = ${uid} OR ${prospectApplications.assignedReviewerId} IS NULL)` as ReturnType<typeof eq>);
+          } else {
+            conds.push(isNull(prospectApplications.assignedReviewerId) as ReturnType<typeof eq>);
+          }
         }
 
         const rows = await db.select({
@@ -597,6 +606,7 @@ export function registerUnderwritingRoutes(app: Express) {
         const db = getRequestDB(req);
         const [row] = await db.select().from(underwritingFiles).where(eq(underwritingFiles.id, id)).limit(1);
         if (!row) return res.status(404).json({ message: "File not found" });
+        if (!(await enforceAppScope(req, row.applicationId))) return res.status(403).json({ message: "Out of scope" });
         const abs = path.resolve(process.cwd(), row.storedPath);
         if (!fs.existsSync(abs)) return res.status(404).json({ message: "File missing on disk" });
         res.download(abs, row.fileName);
@@ -611,6 +621,7 @@ export function registerUnderwritingRoutes(app: Express) {
         const db = getRequestDB(req);
         const [row] = await db.select().from(underwritingFiles).where(eq(underwritingFiles.id, id)).limit(1);
         if (!row) return res.status(404).json({ message: "File not found" });
+        if (!(await enforceAppScope(req, row.applicationId))) return res.status(403).json({ message: "Out of scope" });
         const abs = path.resolve(process.cwd(), row.storedPath);
         try { if (fs.existsSync(abs)) fs.unlinkSync(abs); } catch { /* ignore */ }
         await db.delete(underwritingFiles).where(eq(underwritingFiles.id, id));
