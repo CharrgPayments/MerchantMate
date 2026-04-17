@@ -405,6 +405,28 @@ This email was sent to ${data.ownerEmail}
     }
   }
 
+  // Epic F — generic dispatcher used by scheduled reports and drift alerts.
+  // Returns true on send, false on disabled/error so callers can record run state.
+  async sendGenericEmail(data: { to: string; subject: string; html: string; text: string }): Promise<boolean> {
+    if (!SENDGRID_ENABLED) {
+      console.log(`[Email disabled] ${data.subject} → ${data.to}`);
+      return false;
+    }
+    try {
+      await mailService.send({
+        to: data.to,
+        from: process.env.SENDGRID_FROM_EMAIL!,
+        subject: data.subject,
+        html: data.html,
+        text: data.text,
+      });
+      return true;
+    } catch (err) {
+      console.error('Generic email send error:', err);
+      return false;
+    }
+  }
+
   async sendPortalInviteEmail(data: { firstName: string; lastName: string; email: string; statusUrl: string; agentName: string }): Promise<boolean> {
     const { firstName, lastName, email, statusUrl, agentName } = data;
     const html = `

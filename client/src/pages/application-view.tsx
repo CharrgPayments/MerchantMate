@@ -29,6 +29,7 @@ import {
   AlertCircle,
   MessageSquare,
   FolderOpen,
+  Activity,
   Send,
   Plus,
   Trash2,
@@ -37,6 +38,7 @@ import {
   FileEdit
 } from 'lucide-react';
 import { Link } from 'wouter';
+import { EntityActivityFeed } from '@/components/EntityActivityFeed';
 
 interface ProspectData {
   id: number;
@@ -703,6 +705,10 @@ export default function ApplicationView() {
                 <FolderOpen className="w-4 h-4 mr-1.5" />
                 Document Requests ({fileRequests.length})
               </TabsTrigger>
+              <TabsTrigger value="activity" data-testid="tab-activity">
+                <Activity className="w-4 h-4 mr-1.5" />
+                Activity
+              </TabsTrigger>
             </TabsList>
 
             {/* Messages Tab */}
@@ -846,6 +852,15 @@ export default function ApplicationView() {
                   ))}
                 </div>
               )}
+            </TabsContent>
+
+            {/* Activity Tab — per-entity audit log feed (Epic F) */}
+            <TabsContent value="activity" className="mt-4">
+              <Card>
+                <CardContent className="p-4">
+                  <EntityActivityFeed resource="prospect" resourceId={prospectId!} />
+                </CardContent>
+              </Card>
             </TabsContent>
           </Tabs>
         </div>

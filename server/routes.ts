@@ -3565,15 +3565,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Create the signature record in database
+      // Create the signature record in database. Epic F: capture IP, user-agent
+      // and a SHA-256 hash of the signed payload for the e-sign trail.
+      const { createHash } = await import("node:crypto");
+      const documentHash = createHash("sha256")
+        .update(JSON.stringify({ token: signatureToken, signature, type: signatureType || "type" }))
+        .digest("hex");
+      const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim()
+        || req.socket?.remoteAddress || req.ip || "unknown";
+      const userAgent = (req.headers["user-agent"] as string) || null;
       await storage.createProspectSignature({
         prospectId: owner.prospectId,
         ownerId: owner.id,
         signatureToken,
         signature,
-        signatureType: signatureType || 'type'
+        signatureType: signatureType || 'type',
+        ipAddress,
+        userAgent,
+        documentHash,
       });
-      
+
       console.log(`Signature submitted for token: ${signatureToken}`);
       console.log(`Signature type: ${signatureType}`);
       console.log(`Owner email: ${owner.email}`);
@@ -3623,15 +3634,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate a signature token for the inline signature
       const signatureToken = `inline_sig_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      // Create the signature record in database
+      // Create the signature record in database. Epic F: capture IP, user-agent
+      // and a SHA-256 hash of the signed payload for the e-sign trail.
+      const { createHash } = await import("node:crypto");
+      const documentHash = createHash("sha256")
+        .update(JSON.stringify({ token: signatureToken, signature, type: signatureType }))
+        .digest("hex");
+      const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim()
+        || req.socket?.remoteAddress || req.ip || "unknown";
+      const userAgent = (req.headers["user-agent"] as string) || null;
       await storage.createProspectSignature({
         prospectId,
         ownerId: owner.id,
         signatureToken,
         signature,
-        signatureType
+        signatureType,
+        ipAddress,
+        userAgent,
+        documentHash,
       });
-      
+
       console.log(`Inline signature saved for owner: ${ownerName} (${ownerEmail})`);
       console.log(`Signature type: ${signatureType}`);
 
@@ -7667,6 +7689,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Import and use dashboard routes
   const { dashboardRouter } = await import("./routes/dashboard");
   app.use("/api/dashboard", dashboardRouter);
+
+  // Epic F — Compliance, SLAs & Operations Polish endpoints. Mounted at /api
+  // so individual routes can use any path (audit/entity, applications/sla,
+  // admin/scheduled-reports, admin/schema-drift-alerts, …).
+  const complianceRouter = (await import("./routes/compliance")).default;
+  app.use("/api", complianceRouter);
 
   // ============================================================================
   // SECURITY & COMPLIANCE API ENDPOINTS 

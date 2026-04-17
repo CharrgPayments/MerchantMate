@@ -40,6 +40,12 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
+  // Epic F — start compliance background tickers (SLA scan, retention archival,
+  // scheduled reports, schema drift detection). No-op on import side effects;
+  // setInterval handles are owned by complianceJobs module.
+  const { startComplianceJobs } = await import("./complianceJobs");
+  startComplianceJobs();
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

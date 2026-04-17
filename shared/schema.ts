@@ -496,7 +496,9 @@ export const prospectOwners = pgTable("prospect_owners", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Prospect signatures table for storing digital signatures
+// Prospect signatures table for storing digital signatures.
+// Epic F (compliance): records IP, user-agent and a SHA-256 hash of the signed
+// payload so we have a tamper-evident e-signature trail per SOC2.
 export const prospectSignatures = pgTable("prospect_signatures", {
   id: serial("id").primaryKey(),
   prospectId: integer("prospect_id").notNull().references(() => merchantProspects.id, { onDelete: 'cascade' }),
@@ -504,6 +506,11 @@ export const prospectSignatures = pgTable("prospect_signatures", {
   signatureToken: text("signature_token").notNull().unique(),
   signature: text("signature").notNull(),
   signatureType: text("signature_type").notNull(), // 'draw' or 'type'
+  // Compliance trail (nullable for backward compatibility with rows captured
+  // before this epic). New writes should always populate these.
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  documentHash: text("document_hash"), // sha256 of normalized payload that was signed
   submittedAt: timestamp("submitted_at").defaultNow(),
 });
 
@@ -1704,3 +1711,110 @@ export type InsertTriggerCatalog = z.infer<typeof insertTriggerCatalogSchema>;
 export type TriggerAction = typeof triggerActions.$inferSelect;
 export type InsertTriggerAction = z.infer<typeof insertTriggerActionSchema>;
 export type ActionActivityRecord = typeof actionActivity.$inferSelect;
+
+// ─── Epic F — Compliance, SLAs & Operations Polish ──────────────────────────
+
+// SLA breach ledger. The compliance ticker writes one row when an open
+// application crosses its slaDeadline. Subsequent ticks for the same
+// application+slaDeadline are deduped on the unique (applicationId, deadlineAt).
+export const slaBreaches = pgTable("sla_breaches", {
+  id: serial("id").primaryKey(),
+  applicationId: integer("application_id").notNull().references(() => prospectApplications.id, { onDelete: "cascade" }),
+  prospectId: integer("prospect_id").notNull().references(() => merchantProspects.id, { onDelete: "cascade" }),
+  pathway: text("pathway").notNull(), // traditional | payfac
+  status: text("status").notNull(),   // application status at breach time
+  deadlineAt: timestamp("deadline_at").notNull(),
+  detectedAt: timestamp("detected_at").defaultNow().notNull(),
+  hoursOverdue: integer("hours_overdue").notNull(),
+  acknowledged: boolean("acknowledged").default(false).notNull(),
+  acknowledgedBy: varchar("acknowledged_by"),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  notes: text("notes"),
+}, (table) => ({
+  uniqueAppDeadline: unique("sla_breaches_app_deadline_unique").on(table.applicationId, table.deadlineAt),
+  applicationIdx: index("sla_breaches_application_idx").on(table.applicationId),
+  detectedAtIdx: index("sla_breaches_detected_at_idx").on(table.detectedAt),
+}));
+
+export const insertSlaBreachSchema = createInsertSchema(slaBreaches).omit({ id: true, detectedAt: true });
+export type SlaBreach = typeof slaBreaches.$inferSelect;
+export type InsertSlaBreach = z.infer<typeof insertSlaBreachSchema>;
+
+// Retention archive — declined/withdrawn applications older than the retention
+// window are moved here by the nightly archive job. We snapshot the row as
+// JSON so the schema can evolve independently.
+export const archivedApplications = pgTable("archived_applications", {
+  id: serial("id").primaryKey(),
+  originalApplicationId: integer("original_application_id").notNull(),
+  prospectId: integer("prospect_id"),
+  finalStatus: text("final_status").notNull(),
+  applicationSnapshot: jsonb("application_snapshot").notNull(),
+  archivedAt: timestamp("archived_at").defaultNow().notNull(),
+  archivedReason: text("archived_reason").notNull(), // e.g. retention_policy_90d
+}, (table) => ({
+  originalIdIdx: index("archived_applications_original_id_idx").on(table.originalApplicationId),
+  archivedAtIdx: index("archived_applications_archived_at_idx").on(table.archivedAt),
+}));
+
+export const insertArchivedApplicationSchema = createInsertSchema(archivedApplications).omit({ id: true, archivedAt: true });
+export type ArchivedApplication = typeof archivedApplications.$inferSelect;
+export type InsertArchivedApplication = z.infer<typeof insertArchivedApplicationSchema>;
+
+// Scheduled reports. A configurable cadence + template definition; a hourly
+// runner picks rows whose nextRunAt <= now() and dispatches via emailService.
+export const scheduledReports = pgTable("scheduled_reports", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  template: text("template").notNull(), // sla_summary | underwriting_pipeline | commission_payouts
+  cadence: text("cadence").notNull(),   // daily | weekly | monthly
+  recipients: text("recipients").array().notNull(), // email addresses
+  enabled: boolean("enabled").default(true).notNull(),
+  lastRunAt: timestamp("last_run_at"),
+  nextRunAt: timestamp("next_run_at").notNull(),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  enabledIdx: index("scheduled_reports_enabled_idx").on(table.enabled),
+  nextRunAtIdx: index("scheduled_reports_next_run_at_idx").on(table.nextRunAt),
+}));
+
+export const insertScheduledReportSchema = createInsertSchema(scheduledReports).omit({
+  id: true, createdAt: true, updatedAt: true, lastRunAt: true,
+});
+export type ScheduledReport = typeof scheduledReports.$inferSelect;
+export type InsertScheduledReport = z.infer<typeof insertScheduledReportSchema>;
+
+export const scheduledReportRuns = pgTable("scheduled_report_runs", {
+  id: serial("id").primaryKey(),
+  reportId: integer("report_id").notNull().references(() => scheduledReports.id, { onDelete: "cascade" }),
+  status: text("status").notNull(), // success | failed
+  rowCount: integer("row_count").default(0).notNull(),
+  errorMessage: text("error_message"),
+  ranAt: timestamp("ran_at").defaultNow().notNull(),
+}, (table) => ({
+  reportIdx: index("scheduled_report_runs_report_idx").on(table.reportId),
+  ranAtIdx: index("scheduled_report_runs_ran_at_idx").on(table.ranAt),
+}));
+
+export type ScheduledReportRun = typeof scheduledReportRuns.$inferSelect;
+
+// Schema drift alerts — daily ticker compares production schema to dev/test
+// using the existing schema-compare utility and inserts a row per detected
+// difference set. Resolution flag flips when a super-admin acknowledges.
+export const schemaDriftAlerts = pgTable("schema_drift_alerts", {
+  id: serial("id").primaryKey(),
+  detectedAt: timestamp("detected_at").defaultNow().notNull(),
+  baseEnvironment: text("base_environment").notNull(),    // production
+  targetEnvironment: text("target_environment").notNull(), // development | test
+  differenceCount: integer("difference_count").notNull(),
+  differences: jsonb("differences").notNull(),
+  acknowledged: boolean("acknowledged").default(false).notNull(),
+  acknowledgedBy: varchar("acknowledged_by"),
+  acknowledgedAt: timestamp("acknowledged_at"),
+}, (table) => ({
+  detectedAtIdx: index("schema_drift_alerts_detected_at_idx").on(table.detectedAt),
+  acknowledgedIdx: index("schema_drift_alerts_acknowledged_idx").on(table.acknowledged),
+}));
+
+export type SchemaDriftAlert = typeof schemaDriftAlerts.$inferSelect;
