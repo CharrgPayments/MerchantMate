@@ -15,8 +15,7 @@ import {
   APP_STATUS, allowedTransitions, findTransition, type AppStatus,
   type TransitionRule, PATHWAYS, PHASES,
 } from "@shared/underwriting";
-import { ACTIONS } from "@shared/permissions";
-import { hasPermission, getActionScope } from "@shared/permissions";
+import { ACTIONS, getActionScope } from "@shared/permissions";
 import { getOverrides } from "../permissionRegistry";
 import { dbEnvironmentMiddleware, getRequestDB, type RequestWithDB } from "../dbMiddleware";
 import { isAuthenticated, requirePerm } from "../replitAuth";
@@ -70,10 +69,6 @@ const SUB_STATUS_VALUES = [
   "withdrawn_by_agent", "withdrawn_by_underwriter",
 ] as const;
 type SubStatus = (typeof SUB_STATUS_VALUES)[number];
-const subStatusSchema = z.object({
-  toSubStatus: z.enum(SUB_STATUS_VALUES),
-  reason: z.string().min(1, "Reason is required for sub-status changes"),
-});
 
 interface AuditOptions {
   riskLevel?: "low" | "medium" | "high";
@@ -283,6 +278,11 @@ export function registerUnderwritingRoutes(app: Express) {
         const [appRow] = await db.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
         if (!appRow) return res.status(404).json({ message: "Application not found" });
         if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
+        // 'own' scope users may only claim to themselves; reassigning to other
+        // reviewers requires 'all' (e.g. Senior Underwriter / Admin).
+        if (req.permScope === 'own' && reviewerId !== userId(req)) {
+          return res.status(403).json({ message: "Your scope only allows claiming applications to yourself" });
+        }
         await db.update(prospectApplications).set({ assignedReviewerId: reviewerId, updatedAt: new Date() }).where(eq(prospectApplications.id, applicationId));
         await audit(req, "update", "application_reviewer", String(applicationId), {
           oldValues: { assignedReviewerId: appRow.assignedReviewerId }, newValues: { assignedReviewerId: reviewerId },
@@ -512,6 +512,7 @@ export function registerUnderwritingRoutes(app: Express) {
         } else if (mode === "final") {
           conds.push(sqlTag`${prospectApplications.slaDeadline} IS NOT NULL` as ReturnType<typeof eq>);
           conds.push(eq(prospectApplications.pathway, PATHWAYS.PAYFAC));
+          conds.push(eq(prospectApplications.status, APP_STATUS.CUW));
         }
 
         if (assignee === "me") {
