@@ -3292,8 +3292,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Auto-advance the application SUB → CUW and kick off the underwriting
       // pipeline. Idempotent — only advances when the app isn't already in CUW.
+      // Uses the same DB env as the rest of the submit flow (session-scoped
+      // when present, otherwise development) so writes stay consistent across
+      // PDF/template/auto-trigger blocks.
       try {
-        const submitDb = getDynamicDatabase('development');
+        const submitEnv = (req.session as { dbEnv?: string } | undefined)?.dbEnv || 'development';
+        const submitDb = getDynamicDatabase(submitEnv);
         let appRow = submittedAppId
           ? (await submitDb.select().from(prospectAppsTable).where(eq(prospectAppsTable.id, submittedAppId)).limit(1))[0]
           : undefined;
