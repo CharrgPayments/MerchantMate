@@ -3055,32 +3055,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/prospects/:id/submit-application", async (req, res) => {
     try {
       const { id } = req.params;
-      const { formData, status, deepLinkCampaignId } = req.body;
+      const { formData, status, deepLinkCampaignId, deepLinkAgentId } = req.body;
       const prospectId = parseInt(id);
 
-      const prospect = await storage.getMerchantProspect(prospectId);
+      let prospect = await storage.getMerchantProspect(prospectId);
       if (!prospect) {
         return res.status(404).json({ message: "Prospect not found" });
       }
 
+      // Epic D — honor ?agentId= deep link.
+      // If the prospect has no agentId yet (or has a placeholder) and a valid
+      // deepLinkAgentId was provided, persist it on the prospect so commission
+      // attribution and downstream rules-engine context use the right agent.
+      try {
+        const dlAgentId = deepLinkAgentId ? Number(deepLinkAgentId) : null;
+        if (dlAgentId && Number.isFinite(dlAgentId) && !prospect.agentId) {
+          const candidate = await storage.getAgent(dlAgentId);
+          if (candidate) {
+            const updated = await storage.updateMerchantProspect(prospectId, { agentId: dlAgentId });
+            if (updated) prospect = updated;
+            console.log(`[Epic D] deep-link agentId ${dlAgentId} attached to prospect ${prospectId}`);
+          } else {
+            console.warn(`[Epic D] deep-link agentId ${dlAgentId} not found; ignoring`);
+          }
+        }
+      } catch (agentErr) {
+        console.warn('[Epic D] deep-link agentId attach skipped:', agentErr);
+      }
+
       // Epic D — submission-time campaign auto-assignment.
-      // If the prospect has no active campaign assignment yet, resolve one
-      // using: explicit deepLinkCampaignId → agent.defaultCampaignId →
-      // assignment-rule match (mcc/acquirerId/agentId from formData/prospect).
+      // Precedence (single place, deterministic):
+      //   1. explicit deepLinkCampaignId from URL
+      //   2. agent.defaultCampaignId (uses prospect.agentId, possibly just
+      //      attached above from deepLinkAgentId)
+      //   3. assignment-rule match using mcc/acquirerId from formData and the
+      //      effective agentId
       try {
         const existing = await storage.getProspectCampaignAssignment(prospectId);
         if (!existing) {
+          const effectiveAgentId =
+            prospect.agentId ?? (deepLinkAgentId ? Number(deepLinkAgentId) : null);
           let resolvedCampaignId: number | undefined =
             deepLinkCampaignId && Number(deepLinkCampaignId) > 0 ? Number(deepLinkCampaignId) : undefined;
-          if (!resolvedCampaignId && prospect.agentId) {
-            const ag = await storage.getAgent(prospect.agentId);
+          if (!resolvedCampaignId && effectiveAgentId) {
+            const ag = await storage.getAgent(effectiveAgentId);
             if (ag?.defaultCampaignId) resolvedCampaignId = ag.defaultCampaignId;
           }
           if (!resolvedCampaignId) {
             const ruleMatch = await storage.findCampaignByRule({
               mcc: formData?.mcc ?? formData?.mccCode ?? null,
               acquirerId: formData?.acquirerId ? Number(formData.acquirerId) : null,
-              agentId: prospect.agentId ?? null,
+              agentId: effectiveAgentId ?? null,
             });
             if (ruleMatch) resolvedCampaignId = ruleMatch;
           }
