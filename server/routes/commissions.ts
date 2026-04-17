@@ -31,10 +31,17 @@ import {
 } from "../commissions";
 
 /** Resolve which agent IDs the current user is allowed to see. */
-async function resolveScopedAgentIds(req: RequestWithDB, requestedAgentId?: number): Promise<number[]> {
+async function resolveScopedAgentIds(
+  req: RequestWithDB,
+  action: string = ACTIONS.COMMISSIONS_VIEW,
+  requestedAgentId?: number,
+): Promise<number[]> {
   const db = req.db!;
   const user = req.currentUser;
-  const scope = getActionScope(user, ACTIONS.COMMISSIONS_VIEW);
+  // Resolve scope against the EXACT action being enforced (read vs manage).
+  // Reusing VIEW scope for MANAGE/PAYOUTS_MANAGE would let a user with
+  // VIEW=all but MANAGE=downline mutate beyond their MANAGE scope.
+  const scope = getActionScope(user, action);
   if (!scope) return [];
 
   // Find agent record for the current user (may be null for non-agent admins)
@@ -172,7 +179,7 @@ export function registerCommissionsRoutes(app: Express) {
         // upline agent managing a sub-agent's override). Admins pass through.
         const manageScope = getActionScope(req.currentUser, ACTIONS.COMMISSIONS_MANAGE);
         if (manageScope !== "all") {
-          const allowedParents = await resolveScopedAgentIds(req);
+          const allowedParents = await resolveScopedAgentIds(req, ACTIONS.COMMISSIONS_MANAGE);
           if (!allowedParents.includes(parsed.data.parentAgentId)) {
             return res.status(403).json({ message: "Forbidden — you can only manage overrides on your own downline edges." });
           }
@@ -207,7 +214,7 @@ export function registerCommissionsRoutes(app: Express) {
         const [row] = await req.db!.select().from(agentOverrides).where(eq(agentOverrides.id, id));
         if (!row) return res.status(404).json({ message: "Not found" });
         if (getActionScope(req.currentUser, ACTIONS.COMMISSIONS_MANAGE) !== "all") {
-          const allowed = await resolveScopedAgentIds(req);
+          const allowed = await resolveScopedAgentIds(req, ACTIONS.COMMISSIONS_MANAGE);
           if (!allowed.includes(row.parentAgentId)) {
             return res.status(403).json({ message: "Forbidden" });
           }
@@ -229,7 +236,7 @@ export function registerCommissionsRoutes(app: Express) {
         const status = typeof req.query.status === "string" ? req.query.status : undefined;
         const periodStart = parseDate(req.query.periodStart);
         const periodEnd = parseDate(req.query.periodEnd);
-        const allowed = await resolveScopedAgentIds(req, agentIdParam);
+        const allowed = await resolveScopedAgentIds(req, ACTIONS.COMMISSIONS_VIEW, agentIdParam);
         if (allowed.length === 0) return res.json([]);
         const conds = [inArray(commissionEvents.beneficiaryAgentId, allowed)];
         if (status && (COMMISSION_EVENT_STATUSES as readonly string[]).includes(status)) {
@@ -253,7 +260,7 @@ export function registerCommissionsRoutes(app: Express) {
         const agentIdParam = req.query.agentId ? Number(req.query.agentId) : undefined;
         const periodStart = parseDate(req.query.periodStart);
         const periodEnd = parseDate(req.query.periodEnd);
-        const allowed = await resolveScopedAgentIds(req, agentIdParam);
+        const allowed = await resolveScopedAgentIds(req, ACTIONS.COMMISSIONS_VIEW, agentIdParam);
         const stmt = await buildStatement(req.db!, { agentIds: allowed, periodStart, periodEnd });
         res.json(stmt);
       } catch (err: unknown) {
@@ -284,7 +291,7 @@ export function registerCommissionsRoutes(app: Express) {
               .where(sql`${merchants.id} = (SELECT merchant_id FROM transactions WHERE id = ${txId})`);
             ownerAgent = direct?.agentId ?? null;
           }
-          const allowed = await resolveScopedAgentIds(req);
+          const allowed = await resolveScopedAgentIds(req, ACTIONS.COMMISSIONS_MANAGE);
           if (!ownerAgent || !allowed.includes(ownerAgent)) {
             return res.status(403).json({ message: "Forbidden" });
           }
@@ -309,7 +316,7 @@ export function registerCommissionsRoutes(app: Express) {
         const parsed = schema.safeParse(req.body);
         if (!parsed.success) return res.status(400).json({ errors: parsed.error.errors });
 
-        const allowed = await resolveScopedAgentIds(req);
+        const allowed = await resolveScopedAgentIds(req, ACTIONS.COMMISSIONS_MANAGE);
         const rows = await req.db!.select({
           id: commissionEvents.id,
           beneficiaryAgentId: commissionEvents.beneficiaryAgentId,
@@ -348,7 +355,7 @@ export function registerCommissionsRoutes(app: Express) {
         const parsed = schema.safeParse(req.body);
         if (!parsed.success) return res.status(400).json({ errors: parsed.error.errors });
 
-        const allowed = await resolveScopedAgentIds(req);
+        const allowed = await resolveScopedAgentIds(req, ACTIONS.PAYOUTS_MANAGE);
         const rows = await req.db!.select({
           id: commissionEvents.id,
           beneficiaryAgentId: commissionEvents.beneficiaryAgentId,
@@ -535,7 +542,7 @@ export function registerCommissionsRoutes(app: Express) {
     async (req: RequestWithDB, res: Response) => {
       try {
         const agentIdParam = req.query.agentId ? Number(req.query.agentId) : undefined;
-        const allowed = await resolveScopedAgentIds(req, agentIdParam);
+        const allowed = await resolveScopedAgentIds(req, ACTIONS.COMMISSIONS_VIEW, agentIdParam);
         if (allowed.length === 0) return res.json([]);
         const rows = await req.db!.select().from(payouts)
           .where(inArray(payouts.agentId, allowed))
@@ -583,7 +590,7 @@ export function registerCommissionsRoutes(app: Express) {
         const pe = parseDate(parsed.data.periodEnd);
         if (!ps || !pe) return res.status(400).json({ message: "Invalid period dates" });
         // Scope-check: target agent must be in the caller's allowed set.
-        const allowed = await resolveScopedAgentIds(req);
+        const allowed = await resolveScopedAgentIds(req, ACTIONS.PAYOUTS_MANAGE);
         if (!allowed.includes(parsed.data.agentId)) {
           return res.status(403).json({ message: "Forbidden" });
         }
@@ -609,7 +616,7 @@ export function registerCommissionsRoutes(app: Express) {
         const id = Number(req.params.id);
         const [target] = await req.db!.select({ agentId: payouts.agentId }).from(payouts).where(eq(payouts.id, id));
         if (!target) return res.status(404).json({ message: "Not found" });
-        const allowed = await resolveScopedAgentIds(req);
+        const allowed = await resolveScopedAgentIds(req, ACTIONS.PAYOUTS_MANAGE);
         if (!allowed.includes(target.agentId)) return res.status(403).json({ message: "Forbidden" });
         const reference = typeof req.body?.reference === "string" ? req.body.reference : null;
         const updated = await markPayoutPaid(req.db!, id, { reference });
@@ -627,7 +634,7 @@ export function registerCommissionsRoutes(app: Express) {
         const id = Number(req.params.id);
         const [target] = await req.db!.select({ agentId: payouts.agentId }).from(payouts).where(eq(payouts.id, id));
         if (!target) return res.status(404).json({ message: "Not found" });
-        const allowed = await resolveScopedAgentIds(req);
+        const allowed = await resolveScopedAgentIds(req, ACTIONS.PAYOUTS_MANAGE);
         if (!allowed.includes(target.agentId)) return res.status(403).json({ message: "Forbidden" });
         const updated = await voidPayout(req.db!, id);
         res.json(updated);
