@@ -1,5 +1,5 @@
 import type { Express, Response } from "express";
-import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
   agents,
@@ -436,14 +436,14 @@ export function registerCommissionsRoutes(app: Express) {
           ? [focusAgentId]
           : (allowed.length ? allowed : [-1]);
 
-        const baseConds = (status?: string, since?: Date) => {
-          const c: any[] = [inArray(commissionEvents.beneficiaryAgentId, beneficiarySet)];
+        const baseConds = (status?: string, since?: Date): SQL | undefined => {
+          const c: SQL[] = [inArray(commissionEvents.beneficiaryAgentId, beneficiarySet)];
           if (status) c.push(eq(commissionEvents.status, status));
           if (since) c.push(gte(commissionEvents.createdAt, since));
           return and(...c);
         };
 
-        const sumRow = async (where: any): Promise<number> => {
+        const sumRow = async (where: SQL | undefined): Promise<number> => {
           const [row] = await req.db!.select({
             v: sql<string>`COALESCE(SUM(${commissionEvents.amount}), 0)`,
           }).from(commissionEvents).where(where);
@@ -481,7 +481,8 @@ export function registerCommissionsRoutes(app: Express) {
         }
 
         // Pending payout = the most recent draft/processing payout for the focus agent.
-        let pendingPayout: any = null;
+        type PendingPayoutSummary = typeof payouts.$inferSelect | null;
+        let pendingPayout: PendingPayoutSummary = null;
         if (focusAgentId) {
           const [p] = await req.db!.select().from(payouts)
             .where(and(
