@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { extractApiErrorMessage } from "@/lib/utils";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -124,7 +125,7 @@ export function MerchantModal({ isOpen, onClose, merchant }: MerchantModalProps)
     onError: (error: any) => {
       toast({
         title: "Error",
-        description: error.message || "Failed to create merchant",
+        description: extractApiErrorMessage(error, "Failed to create merchant"),
         variant: "destructive",
       });
     },
@@ -146,7 +147,7 @@ export function MerchantModal({ isOpen, onClose, merchant }: MerchantModalProps)
     onError: (error: any) => {
       toast({
         title: "Error",
-        description: error.message || "Failed to update merchant",
+        description: extractApiErrorMessage(error, "Failed to update merchant"),
         variant: "destructive",
       });
     },

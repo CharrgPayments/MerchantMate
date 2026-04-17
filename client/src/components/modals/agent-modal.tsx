@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { extractApiErrorMessage } from "@/lib/utils";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -114,7 +115,7 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
     onError: (error: any) => {
       toast({
         title: "Error",
-        description: error.message || "Failed to create agent",
+        description: extractApiErrorMessage(error, "Failed to create agent"),
         variant: "destructive",
       });
     },
@@ -136,7 +137,7 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
     onError: (error: any) => {
       toast({
         title: "Error",
-        description: error.message || "Failed to update agent",
+        description: extractApiErrorMessage(error, "Failed to update agent"),
         variant: "destructive",
       });
     },

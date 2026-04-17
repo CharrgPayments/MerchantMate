@@ -35,6 +35,29 @@ export function unformatEIN(value: string): string {
   return value.replace(/\D/g, '');
 }
 
+/**
+ * `apiRequest` throws errors of the form `${status}: ${rawBody}`. The body is
+ * typically a JSON object like `{ message: "...", code: "..." }`. This helper
+ * returns the cleanest user-facing string available, falling back to the raw
+ * message when no parseable payload is present.
+ */
+export function extractApiErrorMessage(error: unknown, fallback = "Something went wrong"): string {
+  if (!error) return fallback;
+  const raw = error instanceof Error ? error.message : String(error);
+  const colonIdx = raw.indexOf(": ");
+  const body = colonIdx >= 0 ? raw.slice(colonIdx + 2) : raw;
+  try {
+    const parsed = JSON.parse(body);
+    if (parsed && typeof parsed === "object") {
+      const msg = (parsed as { message?: unknown }).message;
+      if (typeof msg === "string" && msg.length > 0) return msg;
+    }
+  } catch {
+    // body wasn't JSON — fall through and return the raw text
+  }
+  return body || fallback;
+}
+
 function getSecureRandomInt(max: number): number {
   const randomBuffer = new Uint32Array(1);
   crypto.getRandomValues(randomBuffer);

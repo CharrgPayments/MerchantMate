@@ -187,15 +187,16 @@ export default function AgentDashboard() {
         <div className="flex items-center gap-3">
           <div className="inline-flex rounded-md border bg-white shadow-sm" role="group" aria-label="Downline scope">
             {([
-              { v: 'me', label: 'Just me' },
-              { v: 'downline', label: 'My downline' },
-              { v: 'all', label: 'All' },
-            ] as { v: DownlineScope; label: string }[]).map(({ v, label }) => (
+              { v: 'me', label: 'Just me', title: 'Only your own prospects' },
+              { v: 'downline', label: 'My downline', title: 'You plus every sub-agent reporting to you' },
+              { v: 'all', label: 'All', title: 'Admins/corporate see every agent. Non-admins see their downline.' },
+            ] as { v: DownlineScope; label: string; title: string }[]).map(({ v, label, title }) => (
               <button
                 key={v}
                 type="button"
                 onClick={() => setScope(v)}
                 aria-pressed={scope === v}
+                title={title}
                 data-testid={`scope-${v}`}
                 className={`px-3 py-1.5 text-sm first:rounded-l-md last:rounded-r-md border-r last:border-r-0 ${
                   scope === v ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-50'
