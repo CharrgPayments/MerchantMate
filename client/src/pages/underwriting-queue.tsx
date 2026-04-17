@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,14 +7,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ShieldCheck, RefreshCw } from "lucide-react";
+import { ShieldCheck, RefreshCw, Clock, AlertOctagon } from "lucide-react";
+import { STATUS_LABEL, STATUS_FAMILY, type AppStatus } from "@shared/underwriting";
 
 interface QueueRow {
   id: number;
   prospectId: number;
-  status: string;
+  status: AppStatus;
   subStatus: string | null;
   underwritingType: string;
+  pathway: "traditional" | "payfac";
+  slaDeadline: string | null;
+  pipelineHaltedAtPhase: string | null;
   riskScore: number | null;
   riskTier: string | null;
   assignedReviewerId: string | null;
@@ -27,14 +31,6 @@ interface QueueRow {
   acquirerName: string | null;
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  submitted: "Submitted",
-  in_review: "In Review",
-  pending_info: "Pending Info",
-  approved: "Approved",
-  declined: "Declined",
-};
-
 function tierBadge(tier: string | null) {
   if (!tier) return <Badge variant="outline">—</Badge>;
   const cls =
@@ -44,29 +40,46 @@ function tierBadge(tier: string | null) {
   return <Badge className={cls}>{tier.toUpperCase()}</Badge>;
 }
 
-function statusBadge(s: string) {
+function statusBadge(s: AppStatus) {
+  const family = STATUS_FAMILY[s];
   const cls =
-    s === "approved" ? "bg-emerald-100 text-emerald-800" :
-    s === "declined" ? "bg-red-100 text-red-800" :
-    s === "pending_info" ? "bg-amber-100 text-amber-800" :
-    s === "in_review" ? "bg-blue-100 text-blue-800" :
+    family === "approved" ? "bg-emerald-100 text-emerald-800" :
+    family === "declined" ? "bg-red-100 text-red-800" :
+    family === "pending"  ? "bg-amber-100 text-amber-800" :
+    family === "in_review" ? "bg-blue-100 text-blue-800" :
+    family === "withdrawn" ? "bg-gray-200 text-gray-700" :
     "bg-gray-100 text-gray-800";
-  return <Badge className={cls}>{STATUS_LABEL[s] || s}</Badge>;
+  return <Badge className={cls}>{s} · {STATUS_LABEL[s]}</Badge>;
+}
+
+function SlaCountdown({ deadline }: { deadline: string }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60_000); return () => clearInterval(t); }, []);
+  const ms = new Date(deadline).getTime() - now;
+  if (ms <= 0) return <Badge className="bg-red-200 text-red-900"><Clock className="h-3 w-3 mr-1" />SLA breached</Badge>;
+  const hrs = Math.floor(ms / 3_600_000);
+  const mins = Math.floor((ms % 3_600_000) / 60_000);
+  const cls = hrs < 4 ? "bg-red-100 text-red-800" : hrs < 12 ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800";
+  return <Badge className={cls}><Clock className="h-3 w-3 mr-1" />{hrs}h {mins}m</Badge>;
 }
 
 export default function UnderwritingQueue() {
-  const [status, setStatus] = useState<string>("all");
-  const [tier, setTier] = useState<string>("all");
-  const [assignee, setAssignee] = useState<string>("all");
+  const [status, setStatus] = useState("all");
+  const [tier, setTier] = useState("all");
+  const [pathway, setPathway] = useState("all");
+  const [mode, setMode] = useState("all");
+  const [assignee, setAssignee] = useState("all");
   const [search, setSearch] = useState("");
 
   const params = new URLSearchParams();
   if (status !== "all") params.set("status", status);
   if (tier !== "all") params.set("tier", tier);
+  if (pathway !== "all") params.set("pathway", pathway);
+  if (mode !== "all") params.set("mode", mode);
   if (assignee !== "all") params.set("assignee", assignee);
 
   const { data: rows, isLoading, refetch, isFetching } = useQuery<QueueRow[]>({
-    queryKey: ["/api/underwriting/queue", status, tier, assignee],
+    queryKey: ["/api/underwriting/queue", status, tier, pathway, mode, assignee],
     queryFn: async () => {
       const r = await fetch(`/api/underwriting/queue?${params.toString()}`);
       if (!r.ok) throw new Error("Failed to load queue");
@@ -90,7 +103,7 @@ export default function UnderwritingQueue() {
             <ShieldCheck className="h-6 w-6 text-blue-600" />
             Underwriting Queue
           </h1>
-          <p className="text-sm text-gray-500">Applications awaiting review and decision</p>
+          <p className="text-sm text-gray-500">SUB → CUW → P1/P2/P3 → APPROVED or D1/D2/D3/D4</p>
         </div>
         <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
           <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? "animate-spin" : ""}`} />
@@ -99,21 +112,39 @@ export default function UnderwritingQueue() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Filters</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle className="text-base">Filters</CardTitle></CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <Input placeholder="Search company, name, email" value={search} onChange={e => setSearch(e.target.value)} />
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+            <Input placeholder="Search company / name / email" value={search} onChange={e => setSearch(e.target.value)} />
             <Select value={status} onValueChange={setStatus}>
               <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All open</SelectItem>
-                <SelectItem value="submitted">Submitted</SelectItem>
-                <SelectItem value="in_review">In Review</SelectItem>
-                <SelectItem value="pending_info">Pending Info</SelectItem>
+                <SelectItem value="submitted">Submitted (SUB)</SelectItem>
+                <SelectItem value="in_review">In Review (CUW)</SelectItem>
+                <SelectItem value="pending">Pending (P1/P2/P3)</SelectItem>
                 <SelectItem value="approved">Approved</SelectItem>
-                <SelectItem value="declined">Declined</SelectItem>
+                <SelectItem value="declined">Declined (D1-D4)</SelectItem>
+                <SelectItem value="withdrawn">Withdrawn (W1-W3)</SelectItem>
+                <SelectItem value="P1">P1 — Info requested</SelectItem>
+                <SelectItem value="P2">P2 — External response</SelectItem>
+                <SelectItem value="P3">P3 — Senior review</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={pathway} onValueChange={setPathway}>
+              <SelectTrigger><SelectValue placeholder="Pathway" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any pathway</SelectItem>
+                <SelectItem value="traditional">Traditional</SelectItem>
+                <SelectItem value="payfac">PayFac</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={mode} onValueChange={setMode}>
+              <SelectTrigger><SelectValue placeholder="Queue mode" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="checkpoint">Checkpoint halts</SelectItem>
+                <SelectItem value="final">Final review (PayFac SLA)</SelectItem>
               </SelectContent>
             </Select>
             <Select value={tier} onValueChange={setTier}>
@@ -146,18 +177,20 @@ export default function UnderwritingQueue() {
                 <TableHead>Company</TableHead>
                 <TableHead>Applicant</TableHead>
                 <TableHead>Acquirer</TableHead>
+                <TableHead>Pathway</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Risk</TableHead>
                 <TableHead>Score</TableHead>
+                <TableHead>SLA / Halt</TableHead>
                 <TableHead>Updated</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={9} className="text-center py-8 text-gray-500">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={11} className="text-center py-8 text-gray-500">Loading…</TableCell></TableRow>
               ) : filtered.length === 0 ? (
-                <TableRow><TableCell colSpan={9} className="text-center py-8 text-gray-500">No applications match your filters</TableCell></TableRow>
+                <TableRow><TableCell colSpan={11} className="text-center py-8 text-gray-500">No applications match your filters</TableCell></TableRow>
               ) : filtered.map(r => (
                 <TableRow key={r.id}>
                   <TableCell className="font-mono">#{r.id}</TableCell>
@@ -167,12 +200,17 @@ export default function UnderwritingQueue() {
                     <div className="text-xs text-gray-500">{r.email}</div>
                   </TableCell>
                   <TableCell>{r.acquirerName || "—"}</TableCell>
-                  <TableCell>
-                    {statusBadge(r.status)}
-                    {r.subStatus && <div className="text-xs text-gray-500 mt-1">{r.subStatus.replace(/_/g, " ")}</div>}
-                  </TableCell>
+                  <TableCell><Badge variant="outline">{r.pathway}</Badge></TableCell>
+                  <TableCell>{statusBadge(r.status)}</TableCell>
                   <TableCell>{tierBadge(r.riskTier)}</TableCell>
                   <TableCell>{r.riskScore ?? "—"}</TableCell>
+                  <TableCell>
+                    {r.pipelineHaltedAtPhase ? (
+                      <Badge className="bg-red-100 text-red-800"><AlertOctagon className="h-3 w-3 mr-1" />{r.pipelineHaltedAtPhase}</Badge>
+                    ) : r.slaDeadline ? (
+                      <SlaCountdown deadline={r.slaDeadline} />
+                    ) : "—"}
+                  </TableCell>
                   <TableCell className="text-sm">{new Date(r.updatedAt).toLocaleString()}</TableCell>
                   <TableCell>
                     <Link href={`/underwriting-review/${r.id}`}>

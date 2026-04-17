@@ -29,7 +29,7 @@ Preferred communication style: Simple, everyday language.
 
 ### Key Features & Design Patterns
 - **Role-Based Access Control**: Granular permissions for various roles (e.g., `underwriter`, `senior_underwriter`, `data_processing`, `deployment`) managed via a central permission registry and runtime overrides.
-- **Underwriting Engine**: A 10-phase underwriting pipeline with status machine, scoring, issue/task management, and audit trails.
+- **Underwriting Engine**: 10-phase pipeline (MCC → Google KYB → Volume → Phone → MATCH/EIN → OFAC → SOS → SSN → Credit → Website) with Traditional vs PayFac pathway branching, checkpoint halts at MCC/MATCH/OFAC, two manual phases (Derogatory, G2), spec-correct status taxonomy (SUB/CUW/P1-P3/W1-W3/D1-D4/APPROVED), per-transition permission matrix with required-reason gating, scoring, issue/task management, audit trails, and PayFac SLA countdown.
 - **Campaign Linkage & Auto-Assignment**: Rules-based system for linking merchant applications to pricing campaigns.
 - **Secure Authentication**: Session management, login attempt tracking, 2FA support, and password reset.
 - **Merchant & Agent Hierarchy**: Supports multi-level agent and merchant hierarchies with parent tracking and closure tables.

@@ -994,6 +994,10 @@ export const prospectApplications = pgTable("prospect_applications", {
   riskScore: integer("risk_score"),
   riskTier: text("risk_tier"), // low | medium | high
   assignedReviewerId: varchar("assigned_reviewer_id"),
+  // Epic B — pathway controls which phases run and which scoring model applies.
+  pathway: text("pathway").notNull().default("traditional"), // traditional | payfac
+  slaDeadline: timestamp("sla_deadline"), // payfac final-review SLA
+  pipelineHaltedAtPhase: text("pipeline_halted_at_phase"), // checkpoint that halted last run
   applicationData: jsonb("application_data").notNull().default('{}'),
   submittedAt: timestamp("submitted_at"),
   approvedAt: timestamp("approved_at"),
