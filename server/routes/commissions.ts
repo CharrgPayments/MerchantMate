@@ -416,8 +416,13 @@ export function registerCommissionsRoutes(app: Express) {
         // If non-agent admin without selfAgent and no explicit ?agentId, fall back
         // to the org-wide totals (sum across all scoped agents).
         const explicit = req.query.agentId ? Number(req.query.agentId) : undefined;
-        const allowed = await resolveScopedAgentIds(req, explicit);
-        const focusAgentId = explicit ?? selfAgent?.id;
+        const allowed = await resolveScopedAgentIds(req);
+        // Enforce scope on the explicit agentId — never trust the query param.
+        if (explicit != null && !allowed.includes(explicit)) {
+          return res.status(403).json({ message: "Forbidden" });
+        }
+        const focusAgentId = explicit
+          ?? (selfAgent?.id != null && allowed.includes(selfAgent.id) ? selfAgent.id : undefined);
 
         const now = new Date();
         const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
