@@ -361,15 +361,23 @@ export async function runUnderwritingPipeline(opts: {
     let tier: "low" | "medium" | "high";
     let slaDeadline: Date | null = null;
 
-    if (pathway === PATHWAYS.TRADITIONAL) {
+    // Always compute a weighted risk score from whatever phases ran. PayFac
+    // applications enumerate fewer phases (only checkpoints + Volume), but a
+    // numeric score is still required so reviewers see a quantitative tier.
+    {
       const outcomes = phases.slice(0, collected.length).map((p, i) => ({
         key: p.key, status: collected[i].status, score: collected[i].score,
       }));
       const agg = computeRiskScore(outcomes);
       score = agg.score;
       tier = agg.tier;
-    } else {
-      tier = tierFromCheckpoints(collected);
+    }
+    if (pathway === PATHWAYS.PAYFAC) {
+      // Worst-of checkpoint tier wins so a single bad checkpoint can't be
+      // hidden by an otherwise rosy weighted average.
+      const checkpointTier = tierFromCheckpoints(collected);
+      const order = { low: 0, medium: 1, high: 2 } as const;
+      if (order[checkpointTier] > order[tier]) tier = checkpointTier;
       slaDeadline = haltedAtPhase ? null : computeSlaDeadline();
     }
 

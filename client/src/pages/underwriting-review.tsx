@@ -83,7 +83,10 @@ function SlaCountdown({ deadline }: { deadline: string }) {
   return <Badge className={cls}><Clock className="h-3 w-3 mr-1" />SLA {hrs}h {mins}m</Badge>;
 }
 
-interface ProspectFile { id: number; fileName: string; fileType?: string; uploadedAt: string }
+interface UnderwritingFile {
+  id: number; fileName: string; contentType: string | null; size: number | null;
+  category: string | null; description: string | null; uploadedBy: string | null; uploadedAt: string;
+}
 
 export default function UnderwritingReview() {
   const [, params] = useRoute("/underwriting-review/:id");
@@ -117,17 +120,50 @@ export default function UnderwritingReview() {
     enabled: !!id,
   });
 
-  // Application files (existing prospect file API).
-  const prospectId = data?.application ? (data as unknown as { application: { prospectId?: number } }).application.prospectId : null;
-  const { data: files } = useQuery<ProspectFile[]>({
-    queryKey: ["/api/prospects", prospectId, "files"],
+  // Underwriting application files.
+  const { data: files } = useQuery<UnderwritingFile[]>({
+    queryKey: ["/api/applications", id, "underwriting/files"],
     queryFn: async () => {
-      const r = await fetch(`/api/prospects/${prospectId}/files`);
+      const r = await fetch(`/api/applications/${id}/underwriting/files`);
       if (!r.ok) return [];
       return r.json();
     },
-    enabled: !!prospectId,
+    enabled: !!id,
   });
+
+  const [uploadCategory, setUploadCategory] = useState("supporting_doc");
+  const [uploadDescription, setUploadDescription] = useState("");
+  const [uploading, setUploading] = useState(false);
+
+  async function handleFileUpload(file: File) {
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      if (uploadCategory) fd.append("category", uploadCategory);
+      if (uploadDescription) fd.append("description", uploadDescription);
+      const r = await fetch(`/api/applications/${id}/underwriting/files`, { method: "POST", body: fd });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || "Upload failed");
+      setUploadDescription("");
+      qc.invalidateQueries({ queryKey: ["/api/applications", id, "underwriting/files"] });
+      toast({ title: "File uploaded" });
+    } catch (e) {
+      toast({ title: "Upload failed", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleFileDelete(fileId: number) {
+    if (!confirm("Delete this file?")) return;
+    const r = await fetch(`/api/underwriting/files/${fileId}`, { method: "DELETE" });
+    if (r.ok) {
+      qc.invalidateQueries({ queryKey: ["/api/applications", id, "underwriting/files"] });
+      toast({ title: "File deleted" });
+    } else {
+      toast({ title: "Delete failed", variant: "destructive" });
+    }
+  }
 
   const runMutation = useMutation<{ haltedAtPhase: string | null; recommendedDecline: string | null }, Error, void>({
     mutationFn: async () => {
@@ -425,22 +461,65 @@ export default function UnderwritingReview() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="files">
+        <TabsContent value="files" className="space-y-3">
+          <Card>
+            <CardHeader><CardTitle className="text-base">Upload File</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div>
+                  <Label>Category</Label>
+                  <Select value={uploadCategory} onValueChange={setUploadCategory}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bank_statement">Bank statement</SelectItem>
+                      <SelectItem value="voided_check">Voided check</SelectItem>
+                      <SelectItem value="business_license">Business license</SelectItem>
+                      <SelectItem value="drivers_license">Driver's license</SelectItem>
+                      <SelectItem value="processing_statement">Processing statement</SelectItem>
+                      <SelectItem value="supporting_doc">Supporting document</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Description (optional)</Label>
+                  <Input value={uploadDescription} onChange={e => setUploadDescription(e.target.value)} />
+                </div>
+              </div>
+              <Input
+                type="file"
+                disabled={uploading}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleFileUpload(f);
+                  e.target.value = "";
+                }}
+              />
+              {uploading && <div className="text-xs text-gray-500">Uploading…</div>}
+              <div className="text-xs text-gray-500">Max 25 MB per file. Uploads are recorded in the audit trail.</div>
+            </CardContent>
+          </Card>
           <Card>
             <CardContent className="p-0">
               {(files || []).length === 0 ? (
-                <div className="py-8 text-center text-gray-500">No files uploaded for this prospect</div>
+                <div className="py-8 text-center text-gray-500">No files uploaded yet</div>
               ) : (
                 <div className="divide-y">
                   {(files || []).map(f => (
-                    <div key={f.id} className="p-4 flex items-center justify-between">
-                      <div>
-                        <div className="font-medium">{f.fileName}</div>
-                        <div className="text-xs text-gray-500">{f.fileType || "—"} · {new Date(f.uploadedAt).toLocaleString()}</div>
+                    <div key={f.id} className="p-4 flex items-center justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">{f.fileName}</div>
+                        <div className="text-xs text-gray-500">
+                          {f.category && <Badge variant="outline" className="mr-2">{f.category}</Badge>}
+                          {f.contentType || "—"} · {f.size != null ? `${Math.round(f.size / 1024)} KB · ` : ""}{new Date(f.uploadedAt).toLocaleString()}
+                        </div>
+                        {f.description && <div className="text-xs text-gray-600 mt-1">{f.description}</div>}
                       </div>
-                      <a href={`/api/prospect-files/${f.id}/download`} target="_blank" rel="noreferrer">
-                        <Button size="sm" variant="outline">Download</Button>
-                      </a>
+                      <div className="flex gap-2">
+                        <a href={`/api/underwriting/files/${f.id}/download`} target="_blank" rel="noreferrer">
+                          <Button size="sm" variant="outline">Download</Button>
+                        </a>
+                        <Button size="sm" variant="outline" onClick={() => handleFileDelete(f.id)}>Delete</Button>
+                      </div>
                     </div>
                   ))}
                 </div>

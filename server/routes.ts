@@ -3265,7 +3265,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 // Update prospect_applications record with the generated PDF path
                 await devDb.update(prospectApplications).set({
                   generatedPdfPath,
-                  status: 'submitted',
+                  status: 'SUB',
                   submittedAt: new Date(),
                   applicationData: { ...formData, ...(prospectApp.applicationData as Record<string, any> || {}) },
                   updatedAt: new Date()

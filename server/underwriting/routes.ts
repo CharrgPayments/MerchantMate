@@ -1,10 +1,14 @@
 import type { Express } from "express";
 import { eq, and, desc, sql as sqlTag, inArray, asc, isNull } from "drizzle-orm";
 import { z } from "zod";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 import {
   prospectApplications, merchantProspects, acquirers,
   underwritingRuns, underwritingPhaseResults, underwritingIssues,
   underwritingTasks, underwritingNotes, underwritingStatusHistory,
+  underwritingFiles,
   insertUnderwritingTaskSchema, insertUnderwritingNoteSchema,
 } from "@shared/schema";
 import {
@@ -188,7 +192,7 @@ export function registerUnderwritingRoutes(app: Express) {
           changedBy: userId(req), reason: reason || rule.description,
         });
 
-        await notifyTransition(db, applicationId, toStatus);
+        await notifyTransition(db, applicationId, toStatus, { fromStatus: appRow.status, reason: reason || rule.description });
         await audit(req, "update", "application_status", String(applicationId), {
           riskLevel: toStatus === APP_STATUS.APPROVED || toStatus.startsWith("D") ? "high" : "medium",
           oldValues: { status: appRow.status },
@@ -431,6 +435,85 @@ export function registerUnderwritingRoutes(app: Express) {
       } catch (err) {
         res.status(500).json({ message: err instanceof Error ? err.message : "Failed" });
       }
+    });
+
+  // ── Files (upload / list / download) ──
+  const filesDir = path.resolve(process.cwd(), "uploads", "underwriting");
+  fs.mkdirSync(filesDir, { recursive: true });
+  const fileStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, filesDir),
+    filename: (_req, file, cb) => {
+      const safe = file.originalname.replace(/[^A-Za-z0-9._-]/g, "_");
+      cb(null, `${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safe}`);
+    },
+  });
+  const upload = multer({ storage: fileStorage, limits: { fileSize: 25 * 1024 * 1024 } });
+
+  app.get("/api/applications/:id/underwriting/files",
+    dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_VIEW_QUEUE),
+    async (req: RequestWithDB, res) => {
+      const db = getRequestDB(req);
+      const rows = await db.select().from(underwritingFiles)
+        .where(eq(underwritingFiles.applicationId, parseInt(req.params.id)))
+        .orderBy(desc(underwritingFiles.uploadedAt));
+      res.json(rows);
+    });
+
+  app.post("/api/applications/:id/underwriting/files",
+    dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_REVIEW),
+    upload.single("file"),
+    async (req: RequestWithDB, res) => {
+      try {
+        const applicationId = parseInt(req.params.id);
+        const file = (req as unknown as { file?: Express.Multer.File }).file;
+        if (!file) return res.status(400).json({ message: "file required" });
+        const db = getRequestDB(req);
+        const body = (req.body || {}) as Record<string, string>;
+        const [row] = await db.insert(underwritingFiles).values({
+          applicationId,
+          fileName: file.originalname,
+          storedPath: path.relative(process.cwd(), file.path),
+          contentType: file.mimetype,
+          size: file.size,
+          category: body.category || null,
+          description: body.description || null,
+          uploadedBy: userId(req),
+        }).returning();
+        await audit(req, "create", "underwriting_file", String(row.id), {
+          newValues: { applicationId, fileName: row.fileName, size: row.size, category: row.category },
+        });
+        res.json(row);
+      } catch (err) { res.status(500).json({ message: err instanceof Error ? err.message : "Upload failed" }); }
+    });
+
+  app.get("/api/underwriting/files/:id/download",
+    dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_VIEW_QUEUE),
+    async (req: RequestWithDB, res) => {
+      try {
+        const id = parseInt(req.params.id);
+        const db = getRequestDB(req);
+        const [row] = await db.select().from(underwritingFiles).where(eq(underwritingFiles.id, id)).limit(1);
+        if (!row) return res.status(404).json({ message: "File not found" });
+        const abs = path.resolve(process.cwd(), row.storedPath);
+        if (!fs.existsSync(abs)) return res.status(404).json({ message: "File missing on disk" });
+        res.download(abs, row.fileName);
+      } catch (err) { res.status(500).json({ message: err instanceof Error ? err.message : "Download failed" }); }
+    });
+
+  app.delete("/api/underwriting/files/:id",
+    dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_REVIEW),
+    async (req: RequestWithDB, res) => {
+      try {
+        const id = parseInt(req.params.id);
+        const db = getRequestDB(req);
+        const [row] = await db.select().from(underwritingFiles).where(eq(underwritingFiles.id, id)).limit(1);
+        if (!row) return res.status(404).json({ message: "File not found" });
+        const abs = path.resolve(process.cwd(), row.storedPath);
+        try { if (fs.existsSync(abs)) fs.unlinkSync(abs); } catch { /* ignore */ }
+        await db.delete(underwritingFiles).where(eq(underwritingFiles.id, id));
+        await audit(req, "delete", "underwriting_file", String(id), { oldValues: { fileName: row.fileName } });
+        res.json({ ok: true });
+      } catch (err) { res.status(500).json({ message: err instanceof Error ? err.message : "Delete failed" }); }
     });
 
   // ── Phase catalogue ──

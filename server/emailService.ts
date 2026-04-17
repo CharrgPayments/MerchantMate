@@ -511,6 +511,39 @@ This email was sent to ${data.ownerEmail}
       return true;
     } catch (err) { console.error('Magic link email error:', err); return false; }
   }
+
+  async sendUnderwritingTransitionEmail(data: {
+    to: string; firstName?: string; applicationId: number;
+    fromStatus: string | null; toStatus: string; statusLabel: string;
+    reason?: string; reviewUrl: string;
+  }): Promise<boolean> {
+    const { to, firstName, applicationId, fromStatus, toStatus, statusLabel, reason, reviewUrl } = data;
+    const subject = `Application #${applicationId} status: ${toStatus} · ${statusLabel}`;
+    const greeting = firstName ? `Hi ${firstName},` : "Hello,";
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background:#1f2937;color:white;padding:24px;text-align:center;">
+          <h1 style="margin:0;font-size:20px;">Underwriting Update</h1>
+        </div>
+        <div style="padding:24px;background:#fff;">
+          <p>${greeting}</p>
+          <p>Application <strong>#${applicationId}</strong> moved
+            ${fromStatus ? `from <strong>${fromStatus}</strong> ` : ""}
+            to <strong>${toStatus}</strong> (${statusLabel}).</p>
+          ${reason ? `<p style="background:#f3f4f6;padding:12px;border-radius:6px;">${reason}</p>` : ""}
+          <div style="text-align:center;margin:24px 0;">
+            <a href="${reviewUrl}" style="background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;">Open Review</a>
+          </div>
+        </div>
+        <div style="padding:12px;text-align:center;color:#6b7280;font-size:12px;">© ${new Date().getFullYear()} Core CRM</div>
+      </div>`;
+    const text = `${greeting}\n\nApplication #${applicationId} moved ${fromStatus ? `from ${fromStatus} ` : ""}to ${toStatus} (${statusLabel}).\n${reason ? `\nReason: ${reason}\n` : ""}\nOpen review: ${reviewUrl}`;
+    if (!SENDGRID_ENABLED) { console.log(`[Email disabled] Underwriting transition to ${to}: app #${applicationId} → ${toStatus}`); return false; }
+    try {
+      await mailService.send({ to, from: process.env.SENDGRID_FROM_EMAIL!, subject, html, text });
+      return true;
+    } catch (err) { console.error("Underwriting transition email error:", err); return false; }
+  }
 }
 
 export const emailService = new EmailService();

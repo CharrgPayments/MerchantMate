@@ -1082,6 +1082,19 @@ export const underwritingNotes = pgTable("underwriting_notes", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const underwritingFiles = pgTable("underwriting_files", {
+  id: serial("id").primaryKey(),
+  applicationId: integer("application_id").notNull().references(() => prospectApplications.id, { onDelete: "cascade" }),
+  fileName: text("file_name").notNull(),
+  storedPath: text("stored_path").notNull(),
+  contentType: text("content_type"),
+  size: integer("size"),
+  category: text("category"), // e.g. bank_statement, license, voided_check
+  description: text("description"),
+  uploadedBy: varchar("uploaded_by"),
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+});
+
 export const underwritingStatusHistory = pgTable("underwriting_status_history", {
   id: serial("id").primaryKey(),
   applicationId: integer("application_id").notNull().references(() => prospectApplications.id, { onDelete: "cascade" }),

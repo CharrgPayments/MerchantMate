@@ -209,8 +209,9 @@ export function tierFromCheckpoints(results: PhaseResult[]): "low" | "medium" | 
   return worst;
 }
 
-// PayFac SLA: 24h after a clean pipeline finishes — final-review window.
-export const PAYFAC_SLA_HOURS = 24;
+// PayFac SLA: 48h after a clean pipeline finishes — final-review window
+// (per FRD acceptance criteria).
+export const PAYFAC_SLA_HOURS = 48;
 export function computeSlaDeadline(from: Date = new Date()): Date {
   return new Date(from.getTime() + PAYFAC_SLA_HOURS * 3600 * 1000);
 }
