@@ -77,9 +77,10 @@ export default function RolesPermissionsPage() {
 
   const isSuperAdmin = hasRoleCode(user, ROLE_CODES.SUPER_ADMIN);
 
-  const { data: grants, isLoading } = useQuery<GrantsResponse | null>({
+  const { data: grants, isLoading, error: grantsError, refetch: refetchGrants } = useQuery<GrantsResponse | null>({
     queryKey: ["/api/admin/role-action-grants"],
     enabled: isSuperAdmin,
+    staleTime: 0,
   });
 
   // The default queryFn returns `null` (not `undefined`) on 401, and JS
@@ -128,8 +129,24 @@ export default function RolesPermissionsPage() {
     );
   }
 
-  if (isLoading || !grants) {
+  if (isLoading) {
     return <div className="p-8"><Skeleton className="h-96 w-full" /></div>;
+  }
+
+  if (!grants) {
+    return (
+      <div className="p-8 max-w-2xl">
+        <Card>
+          <CardContent className="p-8 text-center space-y-3">
+            <p className="text-lg font-medium">Couldn't load permission matrix</p>
+            <p className="text-sm text-gray-500">
+              {grantsError instanceof Error ? grantsError.message : "The server returned an empty response. Try again?"}
+            </p>
+            <Button onClick={() => refetchGrants()} data-testid="btn-retry-grants">Retry</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   const allRoles = (roleDefs.length ? roleDefs.map((r) => r.code) : Object.values(ROLE_CODES))
