@@ -1,4 +1,4 @@
-import { merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, equipmentItems, campaignEquipment, apiKeys, apiRequestLogs, emailTemplates, emailActivity, emailTriggers, workflowDefinitions, workflowEndpoints, workflowEnvironmentConfigs, type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type InsertProspectSignature, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowEndpoint, type InsertWorkflowEndpoint, type WorkflowEnvironmentConfig, type InsertWorkflowEnvironmentConfig, type WorkflowDefinitionWithDetails } from "@shared/schema";
+import { merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, campaignAssignmentRules, equipmentItems, campaignEquipment, apiKeys, apiRequestLogs, emailTemplates, emailActivity, emailTriggers, workflowDefinitions, workflowEndpoints, workflowEnvironmentConfigs, type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type InsertProspectSignature, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type CampaignAssignmentRule, type InsertCampaignAssignmentRule, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowEndpoint, type InsertWorkflowEndpoint, type WorkflowEnvironmentConfig, type InsertWorkflowEnvironmentConfig, type WorkflowDefinitionWithDetails } from "@shared/schema";
 import { db } from "./db";
 import { eq, or, and, gte, sql, desc, inArray, like, ilike, not } from "drizzle-orm";
 
@@ -327,6 +327,15 @@ export interface IStorage {
   assignCampaignToProspect(campaignId: number, prospectId: number, assignedBy: string): Promise<CampaignAssignment>;
   getCampaignAssignments(campaignId: number): Promise<CampaignAssignment[]>;
   getProspectCampaignAssignment(prospectId: number): Promise<CampaignAssignment | undefined>;
+  swapCampaignForProspect(prospectId: number, campaignId: number, assignedBy: string): Promise<CampaignAssignment>;
+  getProspectsForCampaign(campaignId: number): Promise<MerchantProspect[]>;
+
+  // Campaign Assignment Rules
+  getCampaignAssignmentRules(): Promise<CampaignAssignmentRule[]>;
+  createCampaignAssignmentRule(rule: InsertCampaignAssignmentRule): Promise<CampaignAssignmentRule>;
+  updateCampaignAssignmentRule(id: number, updates: Partial<InsertCampaignAssignmentRule>): Promise<CampaignAssignmentRule | undefined>;
+  deleteCampaignAssignmentRule(id: number): Promise<boolean>;
+  findCampaignByRule(ctx: { mcc?: string | null; acquirerId?: number | null; agentId?: number | null }): Promise<number | undefined>;
 
   // Equipment Items
   getAllEquipmentItems(): Promise<EquipmentItem[]>;
@@ -938,8 +947,78 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getProspectCampaignAssignment(prospectId: number): Promise<CampaignAssignment | undefined> {
-    const [assignment] = await db.select().from(campaignAssignments).where(eq(campaignAssignments.prospectId, prospectId));
+    const [assignment] = await db
+      .select()
+      .from(campaignAssignments)
+      .where(and(eq(campaignAssignments.prospectId, prospectId), eq(campaignAssignments.isActive, true)))
+      .orderBy(desc(campaignAssignments.assignedAt))
+      .limit(1);
     return assignment || undefined;
+  }
+
+  async swapCampaignForProspect(prospectId: number, campaignId: number, assignedBy: string): Promise<CampaignAssignment> {
+    // Deactivate prior active assignment(s) — keeps history.
+    await db
+      .update(campaignAssignments)
+      .set({ isActive: false })
+      .where(and(eq(campaignAssignments.prospectId, prospectId), eq(campaignAssignments.isActive, true)));
+    const [created] = await db
+      .insert(campaignAssignments)
+      .values({ campaignId, prospectId, assignedBy, isActive: true })
+      .returning();
+    return created;
+  }
+
+  async getProspectsForCampaign(campaignId: number): Promise<MerchantProspect[]> {
+    const rows = await db
+      .select({ p: merchantProspects })
+      .from(campaignAssignments)
+      .innerJoin(merchantProspects, eq(merchantProspects.id, campaignAssignments.prospectId))
+      .where(and(eq(campaignAssignments.campaignId, campaignId), eq(campaignAssignments.isActive, true)));
+    return rows.map(r => r.p);
+  }
+
+  // Campaign Assignment Rules
+  async getCampaignAssignmentRules(): Promise<CampaignAssignmentRule[]> {
+    return await db.select().from(campaignAssignmentRules).orderBy(campaignAssignmentRules.priority, campaignAssignmentRules.id);
+  }
+  async createCampaignAssignmentRule(rule: InsertCampaignAssignmentRule): Promise<CampaignAssignmentRule> {
+    const [r] = await db.insert(campaignAssignmentRules).values(rule).returning();
+    return r;
+  }
+  async updateCampaignAssignmentRule(id: number, updates: Partial<InsertCampaignAssignmentRule>): Promise<CampaignAssignmentRule | undefined> {
+    const [r] = await db.update(campaignAssignmentRules)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(campaignAssignmentRules.id, id))
+      .returning();
+    return r || undefined;
+  }
+  async deleteCampaignAssignmentRule(id: number): Promise<boolean> {
+    const res = await db.delete(campaignAssignmentRules).where(eq(campaignAssignmentRules.id, id));
+    return (res.rowCount ?? 0) > 0;
+  }
+  async findCampaignByRule(ctx: { mcc?: string | null; acquirerId?: number | null; agentId?: number | null }): Promise<number | undefined> {
+    const rules = await db.select().from(campaignAssignmentRules)
+      .where(eq(campaignAssignmentRules.isActive, true))
+      .orderBy(campaignAssignmentRules.priority, campaignAssignmentRules.id);
+    const matches = (rule: CampaignAssignmentRule, key: 'mcc' | 'acquirerId' | 'agentId', value: any) =>
+      rule[key] == null || rule[key] === value;
+    const matched = rules
+      .filter(r =>
+        matches(r, 'mcc', ctx.mcc ?? null) &&
+        matches(r, 'acquirerId', ctx.acquirerId ?? null) &&
+        matches(r, 'agentId', ctx.agentId ?? null)
+      )
+      .map(r => ({
+        r,
+        // specificity: count of non-null criteria that exactly matched
+        specificity:
+          (r.mcc != null && r.mcc === (ctx.mcc ?? null) ? 1 : 0) +
+          (r.acquirerId != null && r.acquirerId === (ctx.acquirerId ?? null) ? 1 : 0) +
+          (r.agentId != null && r.agentId === (ctx.agentId ?? null) ? 1 : 0),
+      }))
+      .sort((a, b) => (b.specificity - a.specificity) || (a.r.priority - b.r.priority) || (a.r.id - b.r.id));
+    return matched[0]?.r.campaignId;
   }
 
   // Equipment Items implementation

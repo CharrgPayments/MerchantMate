@@ -713,6 +713,18 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
     },
   });
 
+  // Auto-preselect campaign from selected agent's defaultCampaignId
+  const watchedAgentId = form.watch("agentId");
+  useEffect(() => {
+    if (prospect) return; // only on create
+    const currentCampaign = form.getValues("campaignId");
+    if (currentCampaign && currentCampaign !== 0) return;
+    const selectedAgent = (agents as Agent[]).find((a) => a.id === watchedAgentId);
+    if (selectedAgent?.defaultCampaignId) {
+      form.setValue("campaignId", selectedAgent.defaultCampaignId, { shouldValidate: true });
+    }
+  }, [watchedAgentId, agents, form, prospect]);
+
   const createMutation = useMutation({
     mutationFn: async (data: FormData) => {
       const response = await fetch("/api/prospects", {

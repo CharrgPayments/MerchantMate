@@ -38,6 +38,7 @@ import RolesPermissionsPage from "@/pages/roles-permissions";
 import Workflows from "@/pages/workflows";
 import ApplicationTemplates from "@/pages/application-templates";
 import CampaignView from "@/pages/campaign-view";
+import CampaignRulesPage from "@/pages/campaign-rules";
 import Acquirers from "@/pages/acquirers";
 import MccCodes from "@/pages/mcc-codes";
 import MccPolicies from "@/pages/mcc-policies";
@@ -516,6 +517,19 @@ function AuthenticatedApp() {
                   />
                   <main className="flex-1 overflow-auto bg-gray-50">
                     <ApplicationView />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/campaign-rules">
+            {() => {
+              if (!can(ACTIONS.NAV_CAMPAIGNS)) return <NotFound />;
+              return (
+                <>
+                  <Header title="Campaign Assignment Rules" onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <CampaignRulesPage />
                   </main>
                 </>
               );

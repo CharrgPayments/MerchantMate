@@ -1797,22 +1797,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Extract campaignId from request body for campaign assignment
-      const { campaignId, ...prospectData } = req.body;
-      
-      // Validate campaign assignment is provided
-      if (!campaignId || campaignId === 0) {
-        return res.status(400).json({ message: "Campaign assignment is required" });
-      }
-      
+      const { campaignId: explicitCampaignId, mcc, acquirerId, ...prospectData } = req.body;
+
       const result = insertMerchantProspectSchema.safeParse(prospectData);
       if (!result.success) {
         return res.status(400).json({ message: "Invalid prospect data", errors: result.error.errors });
       }
 
+      // Resolve campaign via fallback chain: explicit → agent default → rules engine
+      let resolvedCampaignId: number | undefined =
+        explicitCampaignId && explicitCampaignId !== 0 ? Number(explicitCampaignId) : undefined;
+      let campaignSource: 'explicit' | 'agent_default' | 'rule' | 'none' = resolvedCampaignId ? 'explicit' : 'none';
+
+      if (!resolvedCampaignId && result.data.agentId) {
+        const agent = await storage.getAgent(result.data.agentId);
+        if (agent?.defaultCampaignId) {
+          resolvedCampaignId = agent.defaultCampaignId;
+          campaignSource = 'agent_default';
+        }
+      }
+      if (!resolvedCampaignId) {
+        const ruleMatch = await storage.findCampaignByRule({
+          mcc: mcc ?? null,
+          acquirerId: acquirerId ?? null,
+          agentId: result.data.agentId ?? null,
+        });
+        if (ruleMatch) {
+          resolvedCampaignId = ruleMatch;
+          campaignSource = 'rule';
+        }
+      }
+      if (!resolvedCampaignId) {
+        return res.status(400).json({ message: "Campaign assignment is required (no default or matching rule found)" });
+      }
+
       const prospect = await storage.createMerchantProspect(result.data);
       
       // Create campaign assignment
-      await storage.assignCampaignToProspect(campaignId, prospect.id, userId);
+      await storage.assignCampaignToProspect(resolvedCampaignId, prospect.id, userId);
+      console.log(`Prospect ${prospect.id} assigned to campaign ${resolvedCampaignId} via ${campaignSource}`);
       
       // Fetch agent information for email
       const agent = await storage.getAgent(prospect.agentId);
@@ -5976,6 +5999,115 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error updating campaign:', error);
       res.status(500).json({ error: 'Failed to update campaign' });
+    }
+  });
+
+  // ===== Campaign Assignment Rules (Epic D) =====
+  app.get('/api/campaign-rules', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (_req: RequestWithDB, res: Response) => {
+    try {
+      const rules = await storage.getCampaignAssignmentRules();
+      res.json(rules);
+    } catch (e) {
+      console.error('Error listing campaign rules:', e);
+      res.status(500).json({ message: 'Failed to list campaign rules' });
+    }
+  });
+
+  app.post('/api/campaign-rules', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
+    try {
+      const { insertCampaignAssignmentRuleSchema } = await import('@shared/schema');
+      const userId = (req.session as any)?.userId;
+      const parsed = insertCampaignAssignmentRuleSchema.safeParse({ ...req.body, createdBy: userId });
+      if (!parsed.success) return res.status(400).json({ message: 'Invalid rule', errors: parsed.error.errors });
+      const created = await storage.createCampaignAssignmentRule(parsed.data);
+      res.status(201).json(created);
+    } catch (e) {
+      console.error('Error creating campaign rule:', e);
+      res.status(500).json({ message: 'Failed to create rule' });
+    }
+  });
+
+  app.patch('/api/campaign-rules/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updated = await storage.updateCampaignAssignmentRule(id, req.body);
+      if (!updated) return res.status(404).json({ message: 'Rule not found' });
+      res.json(updated);
+    } catch (e) {
+      console.error('Error updating campaign rule:', e);
+      res.status(500).json({ message: 'Failed to update rule' });
+    }
+  });
+
+  app.delete('/api/campaign-rules/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const ok = await storage.deleteCampaignAssignmentRule(id);
+      if (!ok) return res.status(404).json({ message: 'Rule not found' });
+      res.json({ ok: true });
+    } catch (e) {
+      console.error('Error deleting campaign rule:', e);
+      res.status(500).json({ message: 'Failed to delete rule' });
+    }
+  });
+
+  // ===== Set / swap campaign for a prospect =====
+  app.post('/api/prospects/:id/set-campaign', dbEnvironmentMiddleware, requirePerm('agent:read'), async (req: RequestWithDB, res: Response) => {
+    try {
+      const prospectId = parseInt(req.params.id);
+      const { campaignId, regenerate } = req.body as { campaignId: number; regenerate?: boolean };
+      if (!campaignId) return res.status(400).json({ message: 'campaignId is required' });
+      const userId = (req.session as any)?.userId;
+      const assignment = await storage.swapCampaignForProspect(prospectId, Number(campaignId), userId);
+      let regenerated = false;
+      if (regenerate) {
+        try {
+          const { pdfGenerator } = await import('./pdfGenerator');
+          await pdfGenerator.generateFilledPDF(prospectId);
+          regenerated = true;
+        } catch (regenErr) {
+          console.error('PDF regeneration failed:', regenErr);
+        }
+      }
+      res.json({ assignment, regenerated });
+    } catch (e) {
+      console.error('Error setting campaign for prospect:', e);
+      res.status(500).json({ message: 'Failed to set campaign' });
+    }
+  });
+
+  // ===== Affected applications for a campaign =====
+  app.get('/api/campaigns/:id/affected-applications', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
+    try {
+      const campaignId = parseInt(req.params.id);
+      const prospects = await storage.getProspectsForCampaign(campaignId);
+      res.json({ count: prospects.length, prospects });
+    } catch (e) {
+      console.error('Error listing affected applications:', e);
+      res.status(500).json({ message: 'Failed to list affected applications' });
+    }
+  });
+
+  // ===== Bulk-regenerate PDFs for all prospects on a campaign =====
+  app.post('/api/campaigns/:id/regenerate-pdfs', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
+    try {
+      const campaignId = parseInt(req.params.id);
+      const prospects = await storage.getProspectsForCampaign(campaignId);
+      const { pdfGenerator } = await import('./pdfGenerator');
+      const results: Array<{ prospectId: number; ok: boolean; error?: string }> = [];
+      for (const p of prospects) {
+        try {
+          await pdfGenerator.generateFilledPDF(p.id);
+          results.push({ prospectId: p.id, ok: true });
+        } catch (err: any) {
+          results.push({ prospectId: p.id, ok: false, error: String(err?.message || err) });
+        }
+      }
+      const succeeded = results.filter(r => r.ok).length;
+      res.json({ total: results.length, succeeded, failed: results.length - succeeded, results });
+    } catch (e) {
+      console.error('Error regenerating PDFs:', e);
+      res.status(500).json({ message: 'Failed to regenerate PDFs' });
     }
   });
 

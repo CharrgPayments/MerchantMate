@@ -289,10 +289,34 @@ export function EnhancedCampaignDialog({
       if (!r.ok) throw new Error(await r.text() || 'Failed to update campaign');
       return r.json();
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast({ title: 'Campaign Updated', description: 'Campaign has been updated successfully' });
       queryClient.invalidateQueries({ queryKey: ['/api/campaigns'] });
       queryClient.invalidateQueries({ queryKey: ['/api/campaigns', String(editCampaignId)] });
+
+      // Epic D — offer to regenerate filled PDFs for affected applications
+      try {
+        const r = await fetch(`/api/campaigns/${editCampaignId}/affected-applications`, { credentials: 'include' });
+        if (r.ok) {
+          const { count } = await r.json();
+          if (count > 0 && window.confirm(`${count} application(s) use this campaign. Regenerate their filled PDFs now?`)) {
+            const regen = await fetch(`/api/campaigns/${editCampaignId}/regenerate-pdfs`, {
+              method: 'POST',
+              credentials: 'include',
+            });
+            if (regen.ok) {
+              const result = await regen.json();
+              toast({
+                title: 'PDFs Regenerated',
+                description: `${result.succeeded}/${result.total} succeeded${result.failed ? `, ${result.failed} failed` : ''}.`,
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Affected-applications check failed:', err);
+      }
+
       resetForm();
       onOpenChange(false);
       onCampaignCreated?.();

@@ -29,7 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { agentsApi } from "@/lib/api";
-import type { Agent, InsertAgent } from "@shared/schema";
+import type { Agent, InsertAgent, Campaign } from "@shared/schema";
 
 const agentSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -40,6 +40,7 @@ const agentSchema = z.object({
   commissionRate: z.string().default("5.00"),
   status: z.enum(["active", "inactive"]).default("active"),
   parentAgentId: z.string().optional(),
+  defaultCampaignId: z.string().optional(),
 });
 
 type AgentFormData = z.infer<typeof agentSchema>;
@@ -65,7 +66,18 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
       commissionRate: agent?.commissionRate || "5.00",
       status: agent?.status || "active",
       parentAgentId: agent?.parentAgentId ? String(agent.parentAgentId) : "__none__",
+      defaultCampaignId: agent?.defaultCampaignId ? String(agent.defaultCampaignId) : "__none__",
     },
+  });
+
+  const { data: campaigns = [] } = useQuery<Campaign[]>({
+    queryKey: ["/api/campaigns"],
+    queryFn: async () => {
+      const res = await fetch("/api/campaigns", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load campaigns");
+      return res.json();
+    },
+    enabled: isOpen,
   });
 
   // For the parent picker: load all agents and exclude self/descendants
@@ -144,12 +156,16 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
   });
 
   const onSubmit = (data: AgentFormData) => {
-    const { parentAgentId: rawParent, ...rest } = data;
+    const { parentAgentId: rawParent, defaultCampaignId: rawDefaultCampaign, ...rest } = data;
     const parentAgentId: number | null =
       rawParent === undefined || rawParent === "" || rawParent === "__none__"
         ? null
         : parseInt(rawParent);
-    const payload = { ...rest, parentAgentId } satisfies Partial<InsertAgent>;
+    const defaultCampaignId: number | null =
+      rawDefaultCampaign === undefined || rawDefaultCampaign === "" || rawDefaultCampaign === "__none__"
+        ? null
+        : parseInt(rawDefaultCampaign);
+    const payload = { ...rest, parentAgentId, defaultCampaignId } satisfies Partial<InsertAgent>;
     if (agent) {
       updateMutation.mutate(payload);
     } else {
@@ -290,6 +306,35 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
                     </FormControl>
                     <p className="text-xs text-muted-foreground mt-1">
                       Sub-agents roll up to a parent agent. Max chain: 5 levels.
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="defaultCampaignId"
+                render={({ field }) => (
+                  <FormItem className="md:col-span-2">
+                    <FormLabel>Default Campaign</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value || "__none__"}>
+                      <FormControl>
+                        <SelectTrigger data-testid="default-campaign-select">
+                          <SelectValue placeholder="None — fall back to rules engine" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="__none__">None</SelectItem>
+                        {campaigns.map((c) => (
+                          <SelectItem key={c.id} value={String(c.id)}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Auto-applied to new prospects this agent creates when no campaign is chosen.
                     </p>
                     <FormMessage />
                   </FormItem>

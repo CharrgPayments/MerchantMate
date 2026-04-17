@@ -48,6 +48,20 @@ export default function MerchantApplicationPage() {
   const prospectToken = urlParams.get('token');
   const isProspectMode = !!prospectToken;
 
+  // Epic D — public-form deep linking: ?campaignId= and ?agentId=
+  const campaignIdParam = urlParams.get('campaignId');
+  const agentIdParam = urlParams.get('agentId');
+
+  const { data: deepLinkCampaign } = useQuery({
+    queryKey: ['/api/campaigns', campaignIdParam],
+    queryFn: async () => {
+      const res = await fetch(`/api/campaigns/${campaignIdParam}`, { credentials: 'include' });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!campaignIdParam && !isProspectMode,
+  });
+
   // Fetch prospect data if token is present
   const { data: prospectData } = useQuery({
     queryKey: ['/api/prospects/token', prospectToken],

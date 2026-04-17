@@ -61,6 +61,7 @@ export const agents = pgTable("agents", {
   commissionRate: decimal("commission_rate", { precision: 5, scale: 2 }).default("5.00"),
   status: text("status").notNull().default("active"), // active, inactive
   parentAgentId: integer("parent_agent_id"),
+  defaultCampaignId: integer("default_campaign_id"), // FK to campaigns.id (no .references — campaigns table defined later)
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -803,6 +804,30 @@ export const campaignAssignments = pgTable("campaign_assignments", {
   assignedAt: timestamp("assigned_at").defaultNow().notNull(),
   isActive: boolean("is_active").notNull().default(true),
 });
+
+// Campaign auto-assignment rules. Any of mcc/acquirerId/agentId may be null (wildcard).
+// Lower priority value = higher precedence. Most-specific match wins; ties broken by priority then id.
+export const campaignAssignmentRules = pgTable("campaign_assignment_rules", {
+  id: serial("id").primaryKey(),
+  mcc: text("mcc"), // null = any MCC
+  acquirerId: integer("acquirer_id").references(() => acquirers.id, { onDelete: "set null" }),
+  agentId: integer("agent_id").references(() => agents.id, { onDelete: "set null" }),
+  campaignId: integer("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  priority: integer("priority").notNull().default(100),
+  isActive: boolean("is_active").notNull().default(true),
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCampaignAssignmentRuleSchema = createInsertSchema(campaignAssignmentRules).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertCampaignAssignmentRule = z.infer<typeof insertCampaignAssignmentRuleSchema>;
+export type CampaignAssignmentRule = typeof campaignAssignmentRules.$inferSelect;
 
 // Insert schemas for campaign management
 export const insertFeeGroupSchema = createInsertSchema(feeGroups).omit({

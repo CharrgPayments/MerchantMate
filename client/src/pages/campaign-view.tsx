@@ -3,7 +3,8 @@ import { useParams, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Edit, ExternalLink, FileText, Users, BarChart3, CheckCircle2, XCircle, Clock, FileEdit, AlertCircle } from "lucide-react";
+import { ArrowLeft, Edit, ExternalLink, FileText, Users, BarChart3, CheckCircle2, XCircle, Clock, FileEdit, AlertCircle, Copy } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 
@@ -38,6 +39,7 @@ function StatCard({ label, value, sub }: { label: string; value: number | string
 
 export default function CampaignView() {
   const { id } = useParams();
+  const { toast } = useToast();
 
   const { data: campaign, isLoading, error } = useQuery({
     queryKey: ['/api/campaigns', id],
@@ -131,11 +133,27 @@ export default function CampaignView() {
             </Button>
           </Link>
           <Button
-            onClick={() => window.open(`/merchant-application?campaign=${campaign.id}`, '_blank')}
+            variant="outline"
+            onClick={async () => {
+              const url = `${window.location.origin}/merchant-application?campaignId=${campaign.id}`;
+              try {
+                await navigator.clipboard.writeText(url);
+                toast({ title: "Link copied", description: "Prefilled MPA link copied to clipboard." });
+              } catch {
+                toast({ title: "Copy failed", description: url, variant: "destructive" });
+              }
+            }}
+            data-testid="button-copy-mpa-link"
+          >
+            <Copy className="w-4 h-4 mr-2" />
+            Copy Prefilled MPA Link
+          </Button>
+          <Button
+            onClick={() => window.open(`/merchant-application?campaignId=${campaign.id}`, '_blank')}
             data-testid="button-application-form"
           >
             <ExternalLink className="w-4 h-4 mr-2" />
-            Application Form
+            Open Prefilled MPA
           </Button>
         </div>
       </div>

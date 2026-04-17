@@ -33,7 +33,8 @@ import {
   Plus,
   Trash2,
   Upload,
-  Shield
+  Shield,
+  FileEdit
 } from 'lucide-react';
 import { Link } from 'wouter';
 
@@ -259,6 +260,7 @@ export default function ApplicationView() {
               </Button>
             </Link>
             <div className="flex items-center space-x-3">
+              <SetCampaignButton prospectId={prospectId} />
               <a href={`/api/prospects/${prospectId}/download-pdf`} target="_blank" rel="noopener noreferrer">
                 <Button>
                   <Download className="h-4 w-4 mr-2" />
@@ -867,3 +869,100 @@ export default function ApplicationView() {
     </div>
   );
 }
+
+function SetCampaignButton({ prospectId }: { prospectId: string | undefined }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [campaignId, setCampaignId] = useState<string>("");
+  const [regenerate, setRegenerate] = useState(true);
+
+  const { data: campaigns = [] } = useQuery<Array<{ id: number; name: string }>>({
+    queryKey: ["/api/campaigns"],
+    enabled: open,
+  });
+  const { data: currentAssignment } = useQuery<{ campaignId: number } | undefined>({
+    queryKey: ["/api/prospects", prospectId, "campaign-assignment"],
+    enabled: open && !!prospectId,
+    queryFn: async () => {
+      const res = await fetch(`/api/prospects/${prospectId}`, { credentials: "include" });
+      if (!res.ok) return undefined;
+      return res.json();
+    },
+  });
+
+  const setMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/prospects/${prospectId}/set-campaign`, {
+        campaignId: parseInt(campaignId),
+        regenerate,
+      });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "Campaign updated",
+        description: data.regenerated ? "Filled PDF regenerated." : "Campaign assignment swapped.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/prospects"] });
+      setOpen(false);
+    },
+    onError: (e: any) => {
+      toast({ title: "Failed", description: e?.message || "Could not set campaign", variant: "destructive" });
+    },
+  });
+
+  if (!prospectId) return null;
+
+  return (
+    <>
+      <Button variant="outline" onClick={() => setOpen(true)} data-testid="button-set-campaign">
+        <FileEdit className="h-4 w-4 mr-2" />
+        Set Campaign
+      </Button>
+      {open && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setOpen(false)}>
+          <div className="bg-background rounded-lg p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-semibold mb-4">Set Campaign</h2>
+            <div className="space-y-4">
+              <div>
+                <Label>Campaign</Label>
+                <select
+                  className="w-full mt-1 border rounded px-3 py-2 bg-background"
+                  value={campaignId}
+                  onChange={(e) => setCampaignId(e.target.value)}
+                  data-testid="select-set-campaign"
+                >
+                  <option value="">— Choose a campaign —</option>
+                  {campaigns.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={regenerate}
+                  onChange={(e) => setRegenerate(e.target.checked)}
+                  data-testid="checkbox-regenerate-pdf"
+                />
+                Regenerate filled PDF using new campaign
+              </label>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+                <Button
+                  onClick={() => setMutation.mutate()}
+                  disabled={!campaignId || setMutation.isPending}
+                  data-testid="button-confirm-set-campaign"
+                >
+                  {setMutation.isPending ? "Saving..." : "Apply"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+

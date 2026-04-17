@@ -40,7 +40,10 @@ const baseNavigation: NavItem[] = [
   { name: "Prospects", href: "/prospects", icon: UserPlus, requiresAction: ACTIONS.NAV_PROSPECTS },
   {
     name: "Campaigns", href: "/campaigns", icon: DollarSign, requiresAction: ACTIONS.NAV_CAMPAIGNS,
-    subItems: [{ name: "Equipment", href: "/equipment", icon: Monitor, requiresAction: ACTIONS.NAV_CAMPAIGNS }],
+    subItems: [
+      { name: "Equipment", href: "/equipment", icon: Monitor, requiresAction: ACTIONS.NAV_CAMPAIGNS },
+      { name: "Assignment Rules", href: "/campaign-rules", icon: BookOpen, requiresAction: ACTIONS.NAV_CAMPAIGNS },
+    ],
   },
   {
     name: "Acquirers", href: "/acquirers", icon: Building2, requiresAction: ACTIONS.NAV_ACQUIRERS,
