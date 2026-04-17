@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { ACTIONS, getUserRoleCodes, type Action } from "@shared/permissions";
+import { ACTIONS, getUserRoleCodes, ROLE_CODES, type Action, type RoleCode } from "@shared/permissions";
 import { usePermissions } from "@/hooks/usePermissions";
 import type { LucideIcon } from "lucide-react";
 import type { PdfForm } from "@shared/schema";
@@ -18,6 +18,10 @@ type NavItem = {
   href: string;
   icon: LucideIcon;
   requiresAction: Action;
+  // Optional: also require the user to actually hold one of these roles, even
+  // if they are super_admin. Used for role-specific surfaces like the agent
+  // dashboard where being a super_admin doesn't mean the user *is* an agent.
+  requiresAnyRole?: RoleCode[];
   subItems?: NavItem[];
 };
 
@@ -33,7 +37,7 @@ type RenderedNavItem = (NavItem | DynamicNavItem) & { subItems: NavItem[] };
 
 const baseNavigation: NavItem[] = [
   { name: "Dashboard", href: "/", icon: BarChart3, requiresAction: ACTIONS.NAV_DASHBOARD },
-  { name: "Agent Dashboard", href: "/agent-dashboard", icon: CreditCard, requiresAction: ACTIONS.NAV_AGENT_DASHBOARD },
+  { name: "Agent Dashboard", href: "/agent-dashboard", icon: CreditCard, requiresAction: ACTIONS.NAV_AGENT_DASHBOARD, requiresAnyRole: [ROLE_CODES.AGENT] },
   { name: "Merchants", href: "/merchants", icon: Store, requiresAction: ACTIONS.NAV_MERCHANTS },
   { name: "Locations", href: "/locations", icon: MapPin, requiresAction: ACTIONS.NAV_LOCATIONS },
   { name: "Agents", href: "/agents", icon: Users, requiresAction: ACTIONS.NAV_AGENTS },
@@ -93,8 +97,10 @@ export function Sidebar() {
   const getFilteredNavigation = (): RenderedNavItem[] => {
     if (!user) return [];
 
+    const userRoleCodes = getUserRoleCodes(user);
     const filteredBase: RenderedNavItem[] = baseNavigation
       .filter((item) => can(item.requiresAction))
+      .filter((item) => !item.requiresAnyRole || item.requiresAnyRole.some((r) => userRoleCodes.includes(r)))
       .map((item) => ({
         ...item,
         subItems: item.subItems?.filter((sub) => can(sub.requiresAction)) ?? [],
