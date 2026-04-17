@@ -141,8 +141,10 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
 
   const onSubmit = (data: AgentFormData) => {
     const payload: any = { ...data };
-    if (payload.parentAgentId === "__none__" || payload.parentAgentId === "") {
+    if (payload.parentAgentId === "__none__" || payload.parentAgentId === "" || payload.parentAgentId == null) {
       payload.parentAgentId = null;
+    } else if (typeof payload.parentAgentId === "string") {
+      payload.parentAgentId = parseInt(payload.parentAgentId);
     }
     if (agent) {
       updateMutation.mutate(payload);

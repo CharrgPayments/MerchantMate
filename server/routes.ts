@@ -3664,18 +3664,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid merchant data", errors: result.error.errors });
       }
 
+      // Pre-validate parent BEFORE any creation (no node yet → no cycle possible;
+      // we only need to check parent existence and that its depth allows a child).
+      const dbMod = await import("./db");
+      const requestedParent = result.data.parentMerchantId;
+      if (requestedParent !== null && requestedParent !== undefined) {
+        const [parent] = await dbMod.db.select({ id: merchants.id }).from(merchants).where(eq(merchants.id, requestedParent));
+        if (!parent) {
+          return res.status(400).json({ message: `Parent merchant ${requestedParent} not found`, code: "PARENT_MISSING" });
+        }
+        const [{ maxParentDepth }] = await dbMod.db
+          .select({ maxParentDepth: sql<number>`COALESCE(MAX(${merchantHierarchy.depth}), 0)` })
+          .from(merchantHierarchy)
+          .where(eq(merchantHierarchy.descendantId, requestedParent));
+        if (Number(maxParentDepth) + 1 > MAX_HIERARCHY_DEPTH) {
+          return res.status(400).json({ message: `Hierarchy would exceed max depth of ${MAX_HIERARCHY_DEPTH}`, code: "MAX_DEPTH" });
+        }
+      }
+
       // Create merchant with automatic user account creation
       const { merchant, user, temporaryPassword } = await storage.createMerchantWithUser(result.data);
 
       // Hierarchy: initialize closure (self-row), apply parent if provided
       try {
-        const dbMod = await import("./db");
         await initMerchantClosure(dbMod.db, merchant.id);
-        if (result.data.parentMerchantId !== null && result.data.parentMerchantId !== undefined) {
-          await setMerchantParent(dbMod.db, merchant.id, result.data.parentMerchantId);
+        if (requestedParent !== null && requestedParent !== undefined) {
+          await setMerchantParent(dbMod.db, merchant.id, requestedParent);
         }
       } catch (e: any) {
         if (e instanceof HierarchyError) {
+          // Best-effort cleanup: remove the just-created merchant + its user
+          try { await dbMod.db.delete(merchants).where(eq(merchants.id, merchant.id)); } catch {}
+          try { await dbMod.db.delete(users).where(eq(users.id, user.id)); } catch {}
           return res.status(400).json({ message: e.message, code: e.code });
         }
         throw e;
@@ -3797,8 +3817,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Self-row in closure (depth 0)
         await tx.insert(agentHierarchy).values({ ancestorId: agent.id, descendantId: agent.id, depth: 0 }).onConflictDoNothing();
 
+        // Apply parent INSIDE the transaction so any HierarchyError rolls everything back.
+        const rawParent = req.body.parentAgentId;
+        if (rawParent !== null && rawParent !== undefined && rawParent !== "") {
+          await setAgentParent(tx, agent.id, parseInt(rawParent));
+        }
+        const [persisted] = await tx.select().from(agents).where(eq(agents.id, agent.id));
+
         return {
-          agent,
+          agent: persisted,
           user: {
             id: user.id,
             username: user.username,
@@ -3810,27 +3837,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       console.log(`Agent created in ${req.dbEnv} database:`, result.agent.firstName, result.agent.lastName);
-
-      // Apply parent (outside transaction; uses request DB) if provided
-      if (req.body.parentAgentId !== null && req.body.parentAgentId !== undefined && req.body.parentAgentId !== "") {
-        try {
-          await setAgentParent(dynamicDB, result.agent.id, parseInt(req.body.parentAgentId));
-          // Re-fetch to include parentAgentId in response
-          const [updated] = await dynamicDB.select().from(agents).where(eq(agents.id, result.agent.id));
-          (result as any).agent = updated;
-        } catch (e: any) {
-          if (e instanceof HierarchyError) {
-            return res.status(400).json({ message: e.message, code: e.code });
-          }
-          throw e;
-        }
-      }
-
       res.status(201).json(result);
       
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating agent:", error);
-      
+
+      if (error instanceof HierarchyError) {
+        return res.status(400).json({ message: error.message, code: error.code });
+      }
+
       // Handle specific error types properly
       if (error.message?.includes('Invalid agent data')) {
         res.status(400).json({ message: error.message });

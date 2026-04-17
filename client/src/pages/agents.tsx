@@ -36,13 +36,8 @@ export default function Agents() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: agents = [], isLoading } = useQuery({
-    queryKey: ["/api/agents", searchQuery],
-    queryFn: () => agentsApi.getAll(searchQuery || undefined),
-  });
-
-  // Depth lookup from hierarchy tree (used to indent rows)
-  const { data: hierarchyTree = [] } = useQuery<(Agent & { depth: number })[]>({
+  // Hierarchy tree (DFS-ordered with depth) — primary source when no search.
+  const { data: hierarchyTree = [], isLoading: isHierarchyLoading } = useQuery<(Agent & { depth: number })[]>({
     queryKey: ["/api/agents/hierarchy/tree"],
     queryFn: async () => {
       const res = await fetch("/api/agents/hierarchy/tree", { credentials: "include" });
@@ -50,7 +45,19 @@ export default function Agents() {
       return res.json();
     },
   });
+
+  // Search results (flat list from server-side search)
+  const { data: searchResults = [], isLoading: isSearchLoading } = useQuery({
+    queryKey: ["/api/agents", searchQuery],
+    queryFn: () => agentsApi.getAll(searchQuery || undefined),
+    enabled: !!searchQuery,
+  });
+
   const depthById = new Map<number, number>(hierarchyTree.map((a) => [a.id, a.depth]));
+  const agents: Agent[] = searchQuery
+    ? searchResults
+    : (hierarchyTree as Agent[]); // already DFS-ordered: roots → children
+  const isLoading = searchQuery ? isSearchLoading : isHierarchyLoading;
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => agentsApi.delete(id),
