@@ -3655,65 +3655,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/merchants", requireRole(['admin', 'corporate', 'super_admin']), async (req, res) => {
+  app.post("/api/merchants", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+    const dynamicDB = getRequestDB(req);
     try {
       // Remove userId from validation since it's auto-generated
       const { userId, ...merchantData } = req.body;
-      const result = insertMerchantSchema.omit({ userId: true }).safeParse(merchantData);
-      if (!result.success) {
-        return res.status(400).json({ message: "Invalid merchant data", errors: result.error.errors });
+      const validation = insertMerchantSchema.omit({ userId: true }).safeParse(merchantData);
+      if (!validation.success) {
+        return res.status(400).json({ message: "Invalid merchant data", errors: validation.error.errors });
       }
 
-      // Pre-validate parent BEFORE any creation (no node yet → no cycle possible;
-      // we only need to check parent existence and that its depth allows a child).
-      const dbMod = await import("./db");
-      const requestedParent = result.data.parentMerchantId;
-      if (requestedParent !== null && requestedParent !== undefined) {
-        const [parent] = await dbMod.db.select({ id: merchants.id }).from(merchants).where(eq(merchants.id, requestedParent));
-        if (!parent) {
-          return res.status(400).json({ message: `Parent merchant ${requestedParent} not found`, code: "PARENT_MISSING" });
-        }
-        const [{ maxParentDepth }] = await dbMod.db
-          .select({ maxParentDepth: sql<number>`COALESCE(MAX(${merchantHierarchy.depth}), 0)` })
-          .from(merchantHierarchy)
-          .where(eq(merchantHierarchy.descendantId, requestedParent));
-        if (Number(maxParentDepth) + 1 > MAX_HIERARCHY_DEPTH) {
-          return res.status(400).json({ message: `Hierarchy would exceed max depth of ${MAX_HIERARCHY_DEPTH}`, code: "MAX_DEPTH" });
-        }
+      // Validate parent ID format up front (structured 400 instead of throwing later)
+      const requestedParent = validation.data.parentMerchantId ?? null;
+      if (requestedParent !== null && !Number.isInteger(requestedParent)) {
+        return res.status(400).json({ message: "parentMerchantId must be an integer", code: "INVALID_PARENT_ID" });
       }
 
-      // Create merchant with automatic user account creation
-      const { merchant, user, temporaryPassword } = await storage.createMerchantWithUser(result.data);
+      // Single transaction: create user + merchant + closure self-row + apply parent.
+      const result = await dynamicDB.transaction(async (tx) => {
+        const firstName = "Merchant";
+        const lastName = "User";
+        const username = await generateUsername(firstName, lastName, validation.data.email, tx);
+        const temporaryPassword = generateTemporaryPassword();
+        const bcrypt = await import("bcrypt");
+        const passwordHash = await bcrypt.hash(temporaryPassword, 10);
 
-      // Hierarchy: initialize closure (self-row), apply parent if provided
-      try {
-        await initMerchantClosure(dbMod.db, merchant.id);
-        if (requestedParent !== null && requestedParent !== undefined) {
-          await setMerchantParent(dbMod.db, merchant.id, requestedParent);
+        const [user] = await tx.insert(users).values({
+          id: crypto.randomUUID(),
+          email: validation.data.email,
+          username,
+          passwordHash,
+          firstName,
+          lastName,
+          roles: ["merchant"],
+          status: "active" as const,
+          emailVerified: true,
+        }).returning();
+
+        const [merchant] = await tx.insert(merchants).values({
+          ...validation.data,
+          userId: user.id,
+        }).returning();
+
+        await tx.insert(merchantHierarchy).values({ ancestorId: merchant.id, descendantId: merchant.id, depth: 0 }).onConflictDoNothing();
+
+        if (requestedParent !== null) {
+          await setMerchantParent(tx, merchant.id, requestedParent);
         }
-      } catch (e: any) {
-        if (e instanceof HierarchyError) {
-          // Best-effort cleanup: remove the just-created merchant + its user
-          try { await dbMod.db.delete(merchants).where(eq(merchants.id, merchant.id)); } catch {}
-          try { await dbMod.db.delete(users).where(eq(users.id, user.id)); } catch {}
-          return res.status(400).json({ message: e.message, code: e.code });
-        }
-        throw e;
-      }
+        const [persisted] = await tx.select().from(merchants).where(eq(merchants.id, merchant.id));
+
+        return { merchant: persisted, user, temporaryPassword };
+      });
 
       res.status(201).json({
-        merchant,
+        merchant: result.merchant,
         user: {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          role: user.role,
-          temporaryPassword // Include for admin to share with merchant
-        }
+          id: result.user.id,
+          username: result.user.username,
+          email: result.user.email,
+          role: result.user.roles?.[0] ?? null,
+          temporaryPassword: result.temporaryPassword,
+        },
       });
     } catch (error) {
+      if (error instanceof HierarchyError) {
+        return res.status(400).json({ message: error.message, code: error.code });
+      }
       console.error("Error creating merchant:", error);
-      if (error.message?.includes('unique constraint')) {
+      const message = error instanceof Error ? error.message : "";
+      if (message.includes("unique constraint")) {
         res.status(409).json({ message: "Email address already exists" });
       } else {
         res.status(500).json({ message: "Failed to create merchant" });
@@ -3818,9 +3828,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await tx.insert(agentHierarchy).values({ ancestorId: agent.id, descendantId: agent.id, depth: 0 }).onConflictDoNothing();
 
         // Apply parent INSIDE the transaction so any HierarchyError rolls everything back.
-        const rawParent = req.body.parentAgentId;
+        const rawParent: unknown = req.body?.parentAgentId;
         if (rawParent !== null && rawParent !== undefined && rawParent !== "") {
-          await setAgentParent(tx, agent.id, parseInt(rawParent));
+          const parentId = typeof rawParent === "number" ? rawParent : parseInt(String(rawParent));
+          if (!Number.isInteger(parentId)) {
+            throw new HierarchyError("PARENT_MISSING", "parentAgentId must be an integer");
+          }
+          await setAgentParent(tx, agent.id, parentId);
         }
         const [persisted] = await tx.select().from(agents).where(eq(agents.id, agent.id));
 
@@ -3830,7 +3844,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             id: user.id,
             username: user.username,
             email: user.email,
-            role: user.role,
+            role: user.roles?.[0] ?? null,
             temporaryPassword // Include for admin to share with agent
           }
         };
@@ -3859,6 +3873,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Parse a parent-change request from a body. Returns:
+  //   { changed: false } when the field is absent
+  //   { changed: true, value: number | null } when it is present and valid (null/empty → null)
+  //   { error: { message, code } } when present but malformed
+  type ParentChange =
+    | { changed: false; error?: undefined }
+    | { changed: true; value: number | null; error?: undefined }
+    | { changed?: undefined; error: { message: string; code: string } };
+  function parseParentChange(body: Record<string, unknown>, key: string): ParentChange {
+    if (!(key in body)) return { changed: false };
+    const raw = body[key];
+    if (raw === null || raw === undefined || raw === "") return { changed: true, value: null };
+    const parsed = typeof raw === "number" ? raw : parseInt(String(raw));
+    if (!Number.isInteger(parsed)) {
+      return { error: { message: `${key} must be an integer or null`, code: "INVALID_PARENT_ID" } };
+    }
+    return { changed: true, value: parsed };
+  }
+
   // Update agent (general fields + optional parentAgentId change) — atomic
   app.put("/api/agents/:id", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
     const ALLOWED_AGENT_FIELDS = ["firstName", "lastName", "email", "phone", "territory", "commissionRate", "status"] as const;
@@ -3872,19 +3905,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const k of ALLOWED_AGENT_FIELDS) {
         if (k in body) (allowed as Record<string, unknown>)[k] = body[k];
       }
-      const hasParentChange = "parentAgentId" in body;
-      const newParent: number | null = hasParentChange
-        ? (body.parentAgentId === null || body.parentAgentId === "" || body.parentAgentId === undefined
-            ? null
-            : parseInt(String(body.parentAgentId)))
-        : 0 as never; // unused unless hasParentChange
+      const parentChange = parseParentChange(body, "parentAgentId");
+      if (parentChange.error) return res.status(400).json(parentChange.error);
 
       const updated = await dynamicDB.transaction(async (tx) => {
         if (Object.keys(allowed).length > 0) {
           await tx.update(agents).set(allowed).where(eq(agents.id, id));
         }
-        if (hasParentChange) {
-          await setAgentParent(tx, id, newParent);
+        if (parentChange.changed) {
+          await setAgentParent(tx, id, parentChange.value);
         }
         const [row] = await tx.select().from(agents).where(eq(agents.id, id));
         return row;
@@ -3912,19 +3941,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const k of ALLOWED_MERCHANT_FIELDS) {
         if (k in body) (allowed as Record<string, unknown>)[k] = body[k];
       }
-      const hasParentChange = "parentMerchantId" in body;
-      const newParent: number | null = hasParentChange
-        ? (body.parentMerchantId === null || body.parentMerchantId === "" || body.parentMerchantId === undefined
-            ? null
-            : parseInt(String(body.parentMerchantId)))
-        : 0 as never;
+      const parentChange = parseParentChange(body, "parentMerchantId");
+      if (parentChange.error) return res.status(400).json(parentChange.error);
 
       const updated = await dynamicDB.transaction(async (tx) => {
         if (Object.keys(allowed).length > 0) {
           await tx.update(merchants).set(allowed).where(eq(merchants.id, id));
         }
-        if (hasParentChange) {
-          await setMerchantParent(tx, id, newParent);
+        if (parentChange.changed) {
+          await setMerchantParent(tx, id, parentChange.value);
         }
         const [row] = await tx.select().from(merchants).where(eq(merchants.id, id));
         return row;
@@ -3940,28 +3965,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ---- Hierarchy: tree + descendants ----
+  // Generic DFS-flatten that preserves the input row type and adds a `depth` field.
+  function flattenHierarchy<T extends { id: number }>(
+    rows: T[],
+    getParentId: (row: T) => number | null,
+    sortKey: (row: T) => string,
+  ): (T & { depth: number })[] {
+    const byParent = new Map<number | null, T[]>();
+    for (const row of rows) {
+      const p = getParentId(row) ?? null;
+      const bucket = byParent.get(p);
+      if (bucket) bucket.push(row);
+      else byParent.set(p, [row]);
+    }
+    const out: (T & { depth: number })[] = [];
+    const walk = (parent: number | null, depth: number) => {
+      const children = (byParent.get(parent) ?? []).sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+      for (const c of children) {
+        out.push({ ...c, depth });
+        if (depth < MAX_HIERARCHY_DEPTH) walk(c.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    return out;
+  }
+
   app.get("/api/agents/hierarchy/tree", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin', 'agent']), async (req: RequestWithDB, res) => {
     try {
       const dynamicDB = getRequestDB(req);
       const all = await dynamicDB.select().from(agents);
-      // Build a flattened tree (DFS order with depth)
-      const byParent = new Map<number | null, any[]>();
-      for (const a of all) {
-        const p = (a as any).parentAgentId ?? null;
-        if (!byParent.has(p)) byParent.set(p, []);
-        byParent.get(p)!.push(a);
-      }
-      const result: any[] = [];
-      const walk = (parent: number | null, depth: number) => {
-        const children = (byParent.get(parent) || []).sort((a: any, b: any) => `${a.lastName}${a.firstName}`.localeCompare(`${b.lastName}${b.firstName}`));
-        for (const c of children) {
-          result.push({ ...c, depth });
-          if (depth < MAX_HIERARCHY_DEPTH) walk(c.id, depth + 1);
-        }
-      };
-      walk(null, 0);
-      res.json(result);
-    } catch (e: any) {
+      res.json(flattenHierarchy(all, (a) => a.parentAgentId, (a) => `${a.lastName}${a.firstName}`));
+    } catch (e) {
       console.error("Error building agent hierarchy:", e);
       res.status(500).json({ message: "Failed to load agent hierarchy" });
     }
@@ -3971,23 +4005,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const dynamicDB = getRequestDB(req);
       const all = await dynamicDB.select().from(merchants);
-      const byParent = new Map<number | null, any[]>();
-      for (const m of all) {
-        const p = (m as any).parentMerchantId ?? null;
-        if (!byParent.has(p)) byParent.set(p, []);
-        byParent.get(p)!.push(m);
-      }
-      const result: any[] = [];
-      const walk = (parent: number | null, depth: number) => {
-        const children = (byParent.get(parent) || []).sort((a: any, b: any) => a.businessName.localeCompare(b.businessName));
-        for (const c of children) {
-          result.push({ ...c, depth });
-          if (depth < MAX_HIERARCHY_DEPTH) walk(c.id, depth + 1);
-        }
-      };
-      walk(null, 0);
-      res.json(result);
-    } catch (e: any) {
+      res.json(flattenHierarchy(all, (m) => m.parentMerchantId, (m) => m.businessName));
+    } catch (e) {
       console.error("Error building merchant hierarchy:", e);
       res.status(500).json({ message: "Failed to load merchant hierarchy" });
     }
@@ -3999,7 +4018,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dynamicDB = getRequestDB(req);
       const ids = await getAgentDescendantIds(dynamicDB, id);
       res.json({ agentId: id, descendantIds: ids, count: ids.length });
-    } catch (e: any) {
+    } catch (e) {
       console.error("Error fetching agent descendants:", e);
       res.status(500).json({ message: "Failed to load descendants" });
     }
@@ -4011,7 +4030,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dynamicDB = getRequestDB(req);
       const ids = await getMerchantDescendantIds(dynamicDB, id);
       res.json({ merchantId: id, descendantIds: ids, count: ids.length });
-    } catch (e: any) {
+    } catch (e) {
       console.error("Error fetching merchant descendants:", e);
       res.status(500).json({ message: "Failed to load descendants" });
     }
