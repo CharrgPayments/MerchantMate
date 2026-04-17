@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { usePermissions } from "@/hooks/usePermissions";
+import { ACTIONS } from "@shared/permissions";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { DollarSign, RefreshCw, Plus, Trash2, CheckCircle2, XOctagon, Calculator } from "lucide-react";
 import type { Agent } from "@shared/schema";
@@ -79,6 +81,9 @@ const fmtCurrency = (v: number | string) => new Intl.NumberFormat("en-US", {
 
 export default function CommissionsPage() {
   const { toast } = useToast();
+  const { can } = usePermissions();
+  const canManage = can(ACTIONS.COMMISSIONS_MANAGE);
+  const canManagePayouts = can(ACTIONS.PAYOUTS_MANAGE);
   const [tab, setTab] = useState("statement");
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
@@ -160,10 +165,12 @@ export default function CommissionsPage() {
           <p className="text-gray-500 text-sm">Track earnings across the agent hierarchy and manage payouts.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => recalcAll.mutate()} disabled={recalcAll.isPending} data-testid="button-recalc-all">
-            <Calculator className="w-4 h-4 mr-2" />
-            {recalcAll.isPending ? "Recalculating…" : "Recalculate (last 90d)"}
-          </Button>
+          {canManage && (
+            <Button variant="outline" onClick={() => recalcAll.mutate()} disabled={recalcAll.isPending} data-testid="button-recalc-all">
+              <Calculator className="w-4 h-4 mr-2" />
+              {recalcAll.isPending ? "Recalculating…" : "Recalculate (last 90d)"}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -304,18 +311,29 @@ function EventsTable({ events, loading, nameOf }: {
 
   return (
     <Card><CardContent className="p-4 space-y-3">
-      {ids.length > 0 && (
-        <div className="flex items-center gap-2 text-sm bg-blue-50 border border-blue-200 rounded p-2">
-          <span className="font-medium">{ids.length} selected</span>
-          <Button size="sm" variant="outline" onClick={() => promote.mutate()} disabled={promote.isPending} data-testid="button-bulk-promote">
-            Promote to payable
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => payNow.mutate()} disabled={payNow.isPending} data-testid="button-bulk-pay">
-            <CheckCircle2 className="w-4 h-4 mr-1" /> Mark paid
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
-        </div>
-      )}
+      {ids.length > 0 && (() => {
+        const selRows = events.filter((e) => selected.has(e.id));
+        const allPayable = selRows.length > 0 && selRows.every((e) => e.status === "payable");
+        const anyPending = selRows.some((e) => e.status === "pending");
+        return (
+          <div className="flex items-center gap-2 text-sm bg-blue-50 border border-blue-200 rounded p-2">
+            <span className="font-medium">{ids.length} selected</span>
+            <Button size="sm" variant="outline" onClick={() => promote.mutate()}
+              disabled={promote.isPending || !anyPending}
+              title={!anyPending ? "Selection contains no pending events" : ""}
+              data-testid="button-bulk-promote">
+              Promote to payable
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => payNow.mutate()}
+              disabled={payNow.isPending || !allPayable}
+              title={!allPayable ? "Mark paid requires every selected event to be 'payable'. Promote pending events first." : ""}
+              data-testid="button-bulk-pay">
+              <CheckCircle2 className="w-4 h-4 mr-1" /> Mark paid
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
+          </div>
+        );
+      })()}
       <Table>
         <TableHeader><TableRow>
           <TableHead className="w-8"></TableHead>
@@ -459,6 +477,8 @@ function PayoutsPanel({ payouts, agents, nameOf }: {
   payouts: Payout[]; agents: Agent[]; nameOf: (id?: number | null) => string;
 }) {
   const { toast } = useToast();
+  const { can } = usePermissions();
+  const canManagePayouts = can(ACTIONS.PAYOUTS_MANAGE);
   const [agentId, setAgentId] = useState<string>("");
   const [periodStart, setPeriodStart] = useState<string>("");
   const [periodEnd, setPeriodEnd] = useState<string>("");
@@ -499,6 +519,7 @@ function PayoutsPanel({ payouts, agents, nameOf }: {
 
   return (
     <div className="space-y-4">
+      {canManagePayouts && (
       <Card>
         <CardHeader><CardTitle className="text-base">Create payout from payable events</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
@@ -531,6 +552,7 @@ function PayoutsPanel({ payouts, agents, nameOf }: {
           </Button>
         </CardContent>
       </Card>
+      )}
 
       <Card><CardContent className="p-4">
         <Table>

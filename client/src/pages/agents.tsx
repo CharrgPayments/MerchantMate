@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,12 @@ function EdgeOverrideEditor({ parentAgentId, childAgentId }: { parentAgentId: nu
     (o) => o.parentAgentId === parentAgentId && o.childAgentId === childAgentId,
   );
   const [value, setValue] = useState<string>(existing?.percent ?? "");
+  // Sync local input when the fetched override row arrives or changes
+  // (initial load is async; without this the input stays empty until the
+  // user types something even though the saved value exists).
+  useEffect(() => {
+    setValue(existing?.percent ?? "");
+  }, [existing?.percent]);
   const save = useMutation({
     mutationFn: async (pct: number) =>
       apiRequest("POST", "/api/commissions/overrides", {
