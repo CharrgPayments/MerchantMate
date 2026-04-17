@@ -1,11 +1,10 @@
-// Client-side RBAC bridge. Shared registry lives in @shared/permissions.ts so the
-// same definitions are used by server middleware and by client UI gates.
+// Client RBAC bridge. Authoritative registry: @shared/permissions.ts.
 import type { User } from "@shared/schema";
 import {
   ACTIONS,
   ROLE_CODES,
-  hasPermission as hasActionPermission,
-  hasAnyPermission as hasAnyActionPermission,
+  hasPermission as registryHasAction,
+  hasAnyPermission as registryHasAnyAction,
   hasRoleCode,
   hasAnyRoleCode,
   getUserRoleCodes,
@@ -13,11 +12,9 @@ import {
   type RoleCode,
 } from "@shared/permissions";
 
-// Re-export for direct callers
 export { ACTIONS, ROLE_CODES, getUserRoleCodes, hasRoleCode, hasAnyRoleCode };
 export type { Action, RoleCode };
 
-// ── Backward-compatible legacy ROLES + PERMISSIONS api (used by users.tsx etc.)
 export const ROLES = {
   SUPER_ADMIN: ROLE_CODES.SUPER_ADMIN,
   ADMIN: ROLE_CODES.ADMIN,
@@ -29,11 +26,11 @@ export const ROLES = {
   DATA_PROCESSING: ROLE_CODES.DATA_PROCESSING,
   DEPLOYMENT: ROLE_CODES.DEPLOYMENT,
 } as const;
-
 export type Role = (typeof ROLES)[keyof typeof ROLES];
 
-// Fine-grained permission catalog (mirrors role_definitions.permissions[] strings).
-// Kept here for the Users → Role Definitions UI.
+// DISPLAY-ONLY: labels for the Role Definitions / Permission Matrix UI in
+// users.tsx. NOT consulted for any authorization decision — all gating goes
+// through ACTIONS + the runtime permission registry.
 export const PERMISSIONS = {
   VIEW_ALL_USERS: "view_all_users",
   CREATE_USERS: "create_users",
@@ -70,9 +67,8 @@ export const PERMISSIONS = {
 } as const;
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
-// Static (frontend display) role -> permissions map. Used by the matrix tab.
-// Server-side authorisation does NOT rely on this map — it uses ACTION_TO_ROLES
-// in shared/permissions.ts. Keep in rough sync with migrations/0005 seed data.
+// DISPLAY-ONLY map for the Permission Matrix tab. Server authorization uses
+// ACTION_TO_ROLES in shared/permissions.ts + DB overrides — never this map.
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   [ROLES.SUPER_ADMIN]: Object.values(PERMISSIONS) as Permission[],
   [ROLES.ADMIN]: [
@@ -117,103 +113,27 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   ],
 };
 
-// ── Permission checks ───────────────────────────────────────────────────────
-
-// Legacy fine-grained permission check (uses static ROLE_PERMISSIONS map above).
-// Existing call sites pass strings like PERMISSIONS.VIEW_ANALYTICS.
-export function hasPermission(user: User | null, permission: Permission): boolean {
-  if (!user) return false;
-  const roles = getUserRoleCodes(user);
-  if (roles.length === 0) return false;
-  if (roles.includes(ROLE_CODES.SUPER_ADMIN)) return true;
-  return roles.some((r) => {
-    const perms = ROLE_PERMISSIONS[r as Role];
-    return perms ? perms.includes(permission) : false;
-  });
-}
-
-export function hasAnyPermission(user: User | null, permissions: Permission[]): boolean {
-  return permissions.some((p) => hasPermission(user, p));
-}
-
-export function hasAllPermissions(user: User | null, permissions: Permission[]): boolean {
-  return permissions.every((p) => hasPermission(user, p));
-}
-
-// Action-based check that mirrors the server's requirePerm middleware.
-// Prefer this for new UI gates so the registry is the single source of truth.
+// Authorization helpers — ALL delegate to the runtime registry.
 export function canPerformAction(user: User | null, action: Action | string): boolean {
-  return hasActionPermission(user, action);
+  return registryHasAction(user, action);
 }
-
 export function canPerformAnyAction(user: User | null, actions: (Action | string)[]): boolean {
-  return hasAnyActionPermission(user, actions);
+  return registryHasAnyAction(user, actions);
 }
 
-// Role checks (use roles[] array; tolerate legacy single-role users)
 export function hasRole(user: User | null, role: Role): boolean {
   return hasRoleCode(user, role);
 }
-
 export function hasAnyRole(user: User | null, roles: Role[]): boolean {
   return hasAnyRoleCode(user, roles);
 }
 
-// ── Higher-level access control helpers ─────────────────────────────────────
-// These are thin shims over the runtime permission registry (DEFAULT_ACTION_GRANTS
-// + DB overrides) so the static `ROLE_PERMISSIONS` map below is NEVER consulted
-// for authorization. Display-only consumers (e.g. role-definitions UI) may still
-// read `ROLE_PERMISSIONS` and `PERMISSIONS` for human-readable labels.
-export function canAccessUserManagement(user: User | null): boolean {
-  return hasActionPermission(user, ACTIONS.NAV_USERS);
-}
-
-export function canAccessMerchantManagement(user: User | null): boolean {
-  return hasActionPermission(user, ACTIONS.NAV_MERCHANTS);
-}
-
-export function canAccessAgentManagement(user: User | null): boolean {
-  return hasActionPermission(user, ACTIONS.NAV_AGENTS);
-}
-
-export function canAccessTransactionManagement(user: User | null): boolean {
-  return hasActionPermission(user, ACTIONS.NAV_TRANSACTIONS);
-}
-
-export function canAccessLocationManagement(user: User | null): boolean {
-  return hasActionPermission(user, ACTIONS.NAV_LOCATIONS);
-}
-
-export function canAccessAnalytics(user: User | null): boolean {
-  return hasActionPermission(user, ACTIONS.ADMIN_READ);
-}
-
-export function canAccessReports(user: User | null): boolean {
-  return hasActionPermission(user, ACTIONS.NAV_REPORTS);
-}
-
-export function canAccessSystemAdmin(user: User | null): boolean {
-  return hasActionPermission(user, ACTIONS.ADMIN_MANAGE);
-}
-
-export function canAccessSecurityDashboard(user: User | null): boolean {
-  return hasActionPermission(user, ACTIONS.NAV_SECURITY);
-}
-
-// ── Data filtering helpers ─────────────────────────────────────────────────
-
-export function shouldFilterByUser(user: User | null): boolean {
-  if (!user) return true;
-  return !hasAnyRole(user, [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.CORPORATE]);
-}
-
-export function getUserDataScope(user: User | null): "all" | "own" | "none" {
-  if (!user) return "none";
-  if (hasAnyRole(user, [
-    ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.CORPORATE,
-    ROLES.UNDERWRITER, ROLES.SENIOR_UNDERWRITER,
-    ROLES.DATA_PROCESSING, ROLES.DEPLOYMENT,
-  ])) return "all";
-  if (hasAnyRole(user, [ROLES.AGENT, ROLES.MERCHANT])) return "own";
-  return "none";
-}
+export const canAccessUserManagement       = (u: User | null) => registryHasAction(u, ACTIONS.NAV_USERS);
+export const canAccessMerchantManagement   = (u: User | null) => registryHasAction(u, ACTIONS.NAV_MERCHANTS);
+export const canAccessAgentManagement      = (u: User | null) => registryHasAction(u, ACTIONS.NAV_AGENTS);
+export const canAccessTransactionManagement= (u: User | null) => registryHasAction(u, ACTIONS.NAV_TRANSACTIONS);
+export const canAccessLocationManagement   = (u: User | null) => registryHasAction(u, ACTIONS.NAV_LOCATIONS);
+export const canAccessAnalytics            = (u: User | null) => registryHasAction(u, ACTIONS.ADMIN_READ);
+export const canAccessReports              = (u: User | null) => registryHasAction(u, ACTIONS.NAV_REPORTS);
+export const canAccessSystemAdmin          = (u: User | null) => registryHasAction(u, ACTIONS.ADMIN_MANAGE);
+export const canAccessSecurityDashboard    = (u: User | null) => registryHasAction(u, ACTIONS.NAV_SECURITY);

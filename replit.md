@@ -7,6 +7,10 @@ Core CRM is a comprehensive merchant payment processing management system design
 Preferred communication style: Simple, everyday language.
 
 ## Recent Changes (April 2026)
+- **Epic C — Roles & Permission Matrix (rev 11)**: Closes tenth-pass review (lingering hardcoded auth helpers in `client/src/lib/rbac.ts`, missing 4 new roles in users-page fallback, AI-slop comments).
+  - **`client/src/lib/rbac.ts` rewritten as a pure registry-bridge**: removed the role-based authorization functions `hasPermission` / `hasAnyPermission` / `hasAllPermissions` / `shouldFilterByUser` / `getUserDataScope`. `ROLE_PERMISSIONS` and `PERMISSIONS` are now explicitly DISPLAY-ONLY (consumed only by the Permission Matrix tab in `users.tsx` for human-readable labels). Every exported authorization helper (`canAccess*`, `canPerformAction`, `hasRole`, `hasAnyRole`) now delegates to the runtime registry via `hasActionPermission` / `hasRoleCode` from `@shared/permissions`.
+  - **`users.tsx` fallback role list completed**: added the 4 system roles introduced in rev 1 (`underwriter`, `senior_underwriter`, `data_processing`, `deployment`) so admins can still assign them in the multi-role checkbox even if `/api/role-definitions` hasn't been fetched yet.
+  - **AI-slop comments trimmed**: the verbose narrative blocks in `server/replitAuth.ts` (above `requirePerm`) and `client/src/lib/rbac.ts` (above the `ROLE_PERMISSIONS` map) are now concise, local-style comments.
 - **Epic C — Roles & Permission Matrix (rev 10)**: Closes ninth-pass review (sidebar/route action mismatch on `/pdf-naming-guide`, lingering `as any` in dashboard).
   - **Sidebar/route parity for `/pdf-naming-guide`**: route guard switched to `can(ACTIONS.NAV_ACQUIRERS)` (sidebar already groups it under Acquirers). Toggling NAV_ACQUIRERS now consistently shows/hides nav AND grants/denies the route.
   - **Removed `as any` cast in `PersonalizedDashboard`**: `hasRole(r as any)` → typed `hasRole(r: RoleCode)` against `getUserRoleCodes(user)`.

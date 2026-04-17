@@ -383,12 +383,9 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
   };
 };
 
-// Permission-based access control driven by the central registry in shared/permissions.ts.
-// Resolves action → effective grants by merging the file-defined defaults with runtime
-// overrides loaded from the role_action_grants DB table (cached in permissionRegistry).
-// Iterates ALL of the user's roles[] (not just roles[0]) so multi-role users get the
-// union of access. Attaches the effective Scope to req.permScope for downstream filters.
-import { getActionScope, ROLE_CODES, type Scope } from "@shared/permissions";
+// Action-based authorization. Resolves per-env override grants and unions
+// scope across all of the user's roles. Attaches Scope to req.permScope.
+import { getActionScope, type Scope } from "@shared/permissions";
 import { type RequestWithDB } from "./dbMiddleware";
 import { getOverrides } from "./permissionRegistry";
 import { getDynamicDatabase, runWithDb } from "./db";
@@ -396,12 +393,8 @@ import { getDynamicDatabase, runWithDb } from "./db";
 export const requirePerm = (action: string): RequestHandler => {
   return async (req, res, next) => {
     const reqWithCtx = req as RequestWithDB;
-    // Defensive ordering: if dbEnvironmentMiddleware did not run before this
-    // guard, resolve env directly here. We do NOT try to ride the middleware's
-    // AsyncLocalStorage frame across an `await` boundary (that frame is lost
-    // when the wrapping callback returns). Instead we determine the env, take
-    // a direct handle to its DB, and run the full permission check inside a
-    // `runWithDb(...)` block so storage.* calls hit the right environment.
+    // Order-tolerant env resolution. If dbEnvironmentMiddleware did not run,
+    // derive env from session and take a direct DB handle (no ALS reliance).
     if (!reqWithCtx.dbEnv) {
       const sessionDbEnv = (req.session as any)?.dbEnv;
       const fallbackEnv =
@@ -418,9 +411,8 @@ export const requirePerm = (action: string): RequestHandler => {
 
     const finishWith = async (userId: string): Promise<void> => {
       try {
-        // Run user lookup inside the env's ALS frame so storage.getUser() is
-        // guaranteed to query the per-env DB even when no upstream middleware
-        // established the context.
+        // runWithDb ensures storage.getUser hits the env-specific DB even on
+        // routes that mounted requirePerm before dbEnvironmentMiddleware.
         const dbUser = await runWithDb(dbForEnv, () => storage.getUser(userId));
         if (!dbUser) {
           res.status(401).json({ message: "User not found" });

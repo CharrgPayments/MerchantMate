@@ -665,6 +665,10 @@ export default function UsersPage() {
                     { id: -3, code: "admin", label: "Admin" },
                     { id: -4, code: "corporate", label: "Corporate" },
                     { id: -5, code: "super_admin", label: "Super Admin" },
+                    { id: -6, code: "underwriter", label: "Underwriter" },
+                    { id: -7, code: "senior_underwriter", label: "Senior Underwriter" },
+                    { id: -8, code: "data_processing", label: "Data Processing" },
+                    { id: -9, code: "deployment", label: "Deployment" },
                   ] as RoleDefinition[]);
                   const selected = new Set<string>(field.value ?? []);
                   return (
