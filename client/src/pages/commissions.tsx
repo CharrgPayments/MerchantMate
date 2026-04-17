@@ -143,13 +143,13 @@ export default function CommissionsPage() {
 
   const recalcAll = useMutation({
     mutationFn: async () => apiRequest("POST", "/api/commissions/recalculate-all", { sinceDays: 90 }),
-    onSuccess: async (res: any) => {
+    onSuccess: async (res: unknown) => {
       const json = await res.json();
       toast({ title: "Recalculated", description: `Processed ${json.processed} transactions.` });
       queryClient.invalidateQueries({ queryKey: ["/api/commissions/statement"] });
       queryClient.invalidateQueries({ queryKey: ["/api/commissions/events"] });
     },
-    onError: (e: any) => toast({ title: "Recalc failed", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Recalc failed", description: e.message, variant: "destructive" }),
   });
 
   return (
@@ -280,26 +280,26 @@ function EventsTable({ events, loading, nameOf }: {
 
   const promote = useMutation({
     mutationFn: async () => apiRequest("POST", "/api/commissions/events/mark-payable", { eventIds: ids }),
-    onSuccess: async (res: any) => {
+    onSuccess: async (res: unknown) => {
       const j = await res.json();
       toast({ title: `Promoted ${j.updated} events to payable` });
       setSelected(new Set());
       queryClient.invalidateQueries({ queryKey: ["/api/commissions/events"] });
       queryClient.invalidateQueries({ queryKey: ["/api/commissions/statement"] });
     },
-    onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
 
   const payNow = useMutation({
     mutationFn: async () => apiRequest("POST", "/api/commissions/events/mark-paid", { eventIds: ids }),
-    onSuccess: async (res: any) => {
+    onSuccess: async (res: unknown) => {
       const j = await res.json();
       toast({ title: `Marked ${j.updated} events paid` });
       setSelected(new Set());
       queryClient.invalidateQueries({ queryKey: ["/api/commissions/events"] });
       queryClient.invalidateQueries({ queryKey: ["/api/commissions/statement"] });
     },
-    onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
 
   return (
@@ -381,7 +381,7 @@ function OverridesPanel({ overrides, agents, nameOf }: {
       setParentId(""); setChildId(""); setPercent(""); setNotes("");
       queryClient.invalidateQueries({ queryKey: ["/api/commissions/overrides"] });
     },
-    onError: (e: any) => toast({ title: "Save failed", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Save failed", description: e.message, variant: "destructive" }),
   });
 
   const remove = useMutation({
@@ -478,7 +478,7 @@ function PayoutsPanel({ payouts, agents, nameOf }: {
       queryClient.invalidateQueries({ queryKey: ["/api/payouts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/commissions/statement"] });
     },
-    onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
 
   const markPaid = useMutation({
@@ -589,7 +589,7 @@ function SettingsPanel({ settings }: { settings?: { defaultOverridePct: number; 
       queryClient.invalidateQueries({ queryKey: ["/api/commissions/settings"] });
       setPct(""); setBasis("");
     },
-    onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
 
   return (

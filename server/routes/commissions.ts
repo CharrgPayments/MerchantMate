@@ -75,7 +75,7 @@ export function registerCommissionsRoutes(app: Express) {
       try {
         const cfg = await getCommissionConfig(req.db!);
         res.json(cfg);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[commissions] settings GET failed", err);
         res.status(500).json({ message: "Failed to load settings" });
       }
@@ -106,7 +106,7 @@ export function registerCommissionsRoutes(app: Express) {
         }
         const cfg = await getCommissionConfig(req.db!);
         res.json(cfg);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[commissions] settings PUT failed", err);
         res.status(500).json({ message: "Failed to update settings" });
       }
@@ -131,7 +131,7 @@ export function registerCommissionsRoutes(app: Express) {
         const rows = await req.db!.select().from(agentOverrides).where(and(...conds))
           .orderBy(desc(agentOverrides.updatedAt));
         res.json(rows);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[commissions] overrides GET failed", err);
         res.status(500).json({ message: "Failed to fetch overrides" });
       }
@@ -192,7 +192,7 @@ export function registerCommissionsRoutes(app: Express) {
         }
         const [row] = await req.db!.insert(agentOverrides).values(parsed.data).returning();
         res.status(201).json(row);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[commissions] overrides POST failed", err);
         res.status(500).json({ message: "Failed to save override" });
       }
@@ -214,7 +214,7 @@ export function registerCommissionsRoutes(app: Express) {
         }
         await req.db!.delete(agentOverrides).where(eq(agentOverrides.id, id));
         res.status(204).end();
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[commissions] overrides DELETE failed", err);
         res.status(500).json({ message: "Failed to delete override" });
       }
@@ -240,7 +240,7 @@ export function registerCommissionsRoutes(app: Express) {
         const rows = await req.db!.select().from(commissionEvents).where(and(...conds))
           .orderBy(desc(commissionEvents.createdAt)).limit(500);
         res.json(rows);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[commissions] events GET failed", err);
         res.status(500).json({ message: "Failed to fetch commission events" });
       }
@@ -256,7 +256,7 @@ export function registerCommissionsRoutes(app: Express) {
         const allowed = await resolveScopedAgentIds(req, agentIdParam);
         const stmt = await buildStatement(req.db!, { agentIds: allowed, periodStart, periodEnd });
         res.json(stmt);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[commissions] statement failed", err);
         res.status(500).json({ message: "Failed to build statement" });
       }
@@ -292,7 +292,7 @@ export function registerCommissionsRoutes(app: Express) {
         const force = req.body?.force === true || req.body?.force === "true";
         const events = await calculateCommissionsForTransaction(req.db!, txId, { force });
         res.json({ transactionId: txId, eventCount: events.length, events });
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[commissions] recalc failed", err);
         res.status(500).json({ message: "Recalculation failed" });
       }
@@ -325,9 +325,9 @@ export function registerCommissionsRoutes(app: Express) {
           ))
           .returning({ id: commissionEvents.id });
         res.json({ updated: updated.length });
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[commissions] events mark-payable failed", err);
-        res.status(500).json({ message: err?.message || "Mark payable failed" });
+        res.status(500).json({ message: err instanceof Error ? err.message : "Mark payable failed" });
       }
     });
 
@@ -373,27 +373,33 @@ export function registerCommissionsRoutes(app: Express) {
           const arr = byAgent.get(r.beneficiaryAgentId) ?? [];
           arr.push(r); byAgent.set(r.beneficiaryAgentId, arr);
         }
-        const createdPayouts: any[] = [];
-        let updatedCount = 0;
-        for (const [agentId, agentRows] of Array.from(byAgent.entries())) {
-          // Attach EXACTLY the selected event IDs — never date-range sweep.
-          const payout = await createPayoutFromEventIds(req.db!, {
-            agentId,
-            eventIds: agentRows.map((r) => r.id),
-            method: parsed.data.method,
-            notes: `Bulk mark-paid (${agentRows.length} events)`,
-            createdBy: (req.currentUser)?.id ?? null,
-          });
-          const paid = await markPayoutPaid(req.db!, payout.id, {
-            reference: parsed.data.reference ?? null,
-          });
-          createdPayouts.push(paid);
-          updatedCount += agentRows.length;
-        }
-        res.json({ updated: updatedCount, payouts: createdPayouts });
-      } catch (err: any) {
+        // Wrap the per-agent payout-create + mark-paid loop in a single DB
+        // transaction so the bulk operation is atomic: either every selected
+        // event is paid (with its payout row) or none are. This avoids the
+        // ledger drift of partial bulk failures.
+        const result = await req.db!.transaction(async (tx) => {
+          const createdPayouts: Awaited<ReturnType<typeof markPayoutPaid>>[] = [];
+          let updatedCount = 0;
+          for (const [agentId, agentRows] of Array.from(byAgent.entries())) {
+            const payout = await createPayoutFromEventIds(tx, {
+              agentId,
+              eventIds: agentRows.map((r) => r.id),
+              method: parsed.data.method,
+              notes: `Bulk mark-paid (${agentRows.length} events)`,
+              createdBy: req.currentUser?.id ?? null,
+            });
+            const paid = await markPayoutPaid(tx, payout.id, {
+              reference: parsed.data.reference ?? null,
+            });
+            createdPayouts.push(paid);
+            updatedCount += agentRows.length;
+          }
+          return { updated: updatedCount, payouts: createdPayouts };
+        });
+        res.json(result);
+      } catch (err: unknown) {
         console.error("[commissions] events mark-paid failed", err);
-        res.status(500).json({ message: err?.message || "Mark paid failed" });
+        res.status(500).json({ message: err instanceof Error ? err.message : "Mark paid failed" });
       }
     });
 
@@ -494,7 +500,7 @@ export function registerCommissionsRoutes(app: Express) {
           payable: payableTotal,
           pendingPayout,
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[commissions] dashboard-summary failed", err);
         res.status(500).json({ message: "Failed to build summary" });
       }
@@ -511,7 +517,7 @@ export function registerCommissionsRoutes(app: Express) {
         const sinceDays = req.body?.sinceDays ? Number(req.body.sinceDays) : undefined;
         const result = await recalcAll(req.db!, { sinceDays });
         res.json(result);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[commissions] recalc-all failed", err);
         res.status(500).json({ message: "Bulk recalculation failed" });
       }
@@ -529,7 +535,7 @@ export function registerCommissionsRoutes(app: Express) {
           .where(inArray(payouts.agentId, allowed))
           .orderBy(desc(payouts.createdAt));
         res.json(rows);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[commissions] payouts GET failed", err);
         res.status(500).json({ message: "Failed to fetch payouts" });
       }
@@ -548,7 +554,7 @@ export function registerCommissionsRoutes(app: Express) {
           .where(eq(commissionEvents.payoutId, id))
           .orderBy(desc(commissionEvents.createdAt));
         res.json({ payout, events });
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[commissions] payout GET failed", err);
         res.status(500).json({ message: "Failed to fetch payout" });
       }
@@ -584,9 +590,9 @@ export function registerCommissionsRoutes(app: Express) {
           createdBy: (req.currentUser)?.id ?? null,
         });
         res.status(201).json(payout);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[commissions] payout create failed", err);
-        res.status(500).json({ message: err?.message || "Failed to create payout" });
+        res.status(500).json({ message: err instanceof Error ? err.message : "Failed to create payout" });
       }
     });
 
@@ -602,9 +608,9 @@ export function registerCommissionsRoutes(app: Express) {
         const reference = typeof req.body?.reference === "string" ? req.body.reference : null;
         const updated = await markPayoutPaid(req.db!, id, { reference });
         res.json(updated);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[commissions] mark-paid failed", err);
-        res.status(400).json({ message: err?.message || "Mark paid failed" });
+        res.status(400).json({ message: err instanceof Error ? err.message : "Mark paid failed" });
       }
     });
 
@@ -619,9 +625,9 @@ export function registerCommissionsRoutes(app: Express) {
         if (!allowed.includes(target.agentId)) return res.status(403).json({ message: "Forbidden" });
         const updated = await voidPayout(req.db!, id);
         res.json(updated);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("[commissions] void failed", err);
-        res.status(400).json({ message: err?.message || "Void failed" });
+        res.status(400).json({ message: err instanceof Error ? err.message : "Void failed" });
       }
     });
 }
