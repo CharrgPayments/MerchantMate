@@ -4020,7 +4020,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Update agent (general fields + optional parentAgentId change) — atomic
   app.put("/api/agents/:id", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
-    const ALLOWED_AGENT_FIELDS = ["firstName", "lastName", "email", "phone", "territory", "commissionRate", "status"] as const;
+    const ALLOWED_AGENT_FIELDS = ["firstName", "lastName", "email", "phone", "territory", "commissionRate", "status", "defaultCampaignId"] as const;
     type AgentUpdate = Partial<Pick<typeof agents.$inferInsert, typeof ALLOWED_AGENT_FIELDS[number]>>;
     try {
       const id = parseInt(req.params.id);
@@ -4030,6 +4030,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allowed: AgentUpdate = {};
       for (const k of ALLOWED_AGENT_FIELDS) {
         if (k in body) (allowed as Record<string, unknown>)[k] = body[k];
+      }
+      // Epic D — coerce defaultCampaignId to number | null (UI may send '', 'null', or numeric string)
+      if ("defaultCampaignId" in allowed) {
+        const v = (allowed as Record<string, unknown>).defaultCampaignId;
+        if (v === '' || v === null || v === 'null' || v === undefined) {
+          (allowed as Record<string, unknown>).defaultCampaignId = null;
+        } else {
+          const n = Number(v);
+          (allowed as Record<string, unknown>).defaultCampaignId = Number.isFinite(n) ? n : null;
+        }
       }
       const parentChange = parseParentChange(body, "parentAgentId");
       if (parentChange.error) return res.status(400).json(parentChange.error);
