@@ -1079,9 +1079,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       delete updates.passwordResetExpires;
       delete updates.id;
       delete updates.createdAt;
-      
-      // Use dynamic database connection if available, otherwise use default storage
+
       const dynamicDB = getRequestDB(req);
+
+      // If a roles[] update is being attempted, validate every code against
+      // the live role_definitions catalog (same check as PATCH /:id/role) so
+      // non-catalog roles can't sneak in via the generic edit form.
+      if (Array.isArray(updates.roles)) {
+        const known = await dynamicDB.execute(sql`SELECT code FROM role_definitions`);
+        const validCodes = (known.rows as { code: string }[]).map((r) => r.code);
+        const invalid = (updates.roles as string[]).filter((r) => !validCodes.includes(r));
+        if (invalid.length > 0) {
+          return res.status(400).json({ message: "Invalid role(s)", invalid, validCodes });
+        }
+      }
+
       const schema = await import('@shared/schema');
       const { eq } = await import('drizzle-orm');
       

@@ -175,6 +175,7 @@ export const DEFAULT_ACTION_GRANTS: Record<Action, ActionGrants> = {
   },
   [ACTIONS.NAV_AGENTS]: {
     [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.CORPORATE]: "all", [ROLE_CODES.SUPER_ADMIN]: "all",
+    [ROLE_CODES.AGENT]: "downline",
     [ROLE_CODES.UNDERWRITER]: "all", [ROLE_CODES.SENIOR_UNDERWRITER]: "all",
   },
   [ACTIONS.NAV_PROSPECTS]: {
