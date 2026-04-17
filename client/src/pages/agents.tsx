@@ -54,9 +54,34 @@ export default function Agents() {
   });
 
   const depthById = new Map<number, number>(hierarchyTree.map((a) => [a.id, a.depth]));
-  const agents: Agent[] = searchQuery
-    ? searchResults
-    : (hierarchyTree as Agent[]); // already DFS-ordered: roots → children
+  // True hierarchy expand/collapse: collapsed parents hide their entire subtree.
+  const [collapsedHierarchy, setCollapsedHierarchy] = useState<Set<number>>(new Set());
+  const toggleHierarchyCollapse = (id: number) => {
+    setCollapsedHierarchy((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+  // Set of parent agent IDs (for showing the chevron only on rows that have children)
+  const parentIdsWithChildren = new Set<number>(
+    hierarchyTree.map((a) => a.parentAgentId).filter((p): p is number => p != null),
+  );
+  // Filter the DFS tree by collapsed ancestors. When `node.depth > suppressDepth`
+  // the node is hidden because some ancestor is collapsed.
+  const visibleHierarchy: Agent[] = (() => {
+    if (searchQuery) return searchResults; // search bypasses tree
+    let suppressDepth: number | null = null;
+    const out: Agent[] = [];
+    for (const node of hierarchyTree) {
+      if (suppressDepth !== null && node.depth > suppressDepth) continue;
+      suppressDepth = null;
+      out.push(node);
+      if (collapsedHierarchy.has(node.id)) suppressDepth = node.depth;
+    }
+    return out;
+  })();
+  const agents: Agent[] = visibleHierarchy;
   const isLoading = searchQuery ? isSearchLoading : isHierarchyLoading;
 
   const deleteMutation = useMutation({
@@ -288,6 +313,9 @@ export default function Agents() {
                       key={agent.id} 
                       agent={agent}
                       depth={depthById.get(agent.id) ?? 0}
+                      hasHierarchyChildren={parentIdsWithChildren.has(agent.id)}
+                      isHierarchyCollapsed={collapsedHierarchy.has(agent.id)}
+                      onToggleHierarchyCollapse={() => toggleHierarchyCollapse(agent.id)}
                       isExpanded={expandedRows.has(agent.id)}
                       onToggleExpand={() => toggleRowExpansion(agent.id)}
                       onEdit={() => handleEdit(agent)}
@@ -330,6 +358,9 @@ export default function Agents() {
 interface AgentRowWithMerchantsProps {
   agent: Agent;
   depth: number;
+  hasHierarchyChildren: boolean;
+  isHierarchyCollapsed: boolean;
+  onToggleHierarchyCollapse: () => void;
   isExpanded: boolean;
   onToggleExpand: () => void;
   onEdit: () => void;
@@ -346,6 +377,9 @@ interface AgentRowWithMerchantsProps {
 function AgentRowWithMerchants({
   agent,
   depth,
+  hasHierarchyChildren,
+  isHierarchyCollapsed,
+  onToggleHierarchyCollapse,
   isExpanded,
   onToggleExpand,
   onEdit,
@@ -381,6 +415,24 @@ function AgentRowWithMerchants({
           <div className="flex items-center space-x-3" style={{ paddingLeft: depth * 24 }}>
             {depth > 0 && (
               <span className="text-gray-300 text-xs" title={`Sub-agent (level ${depth})`}>└─</span>
+            )}
+            {hasHierarchyChildren ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="p-0 h-5 w-5"
+                onClick={onToggleHierarchyCollapse}
+                title={isHierarchyCollapsed ? "Expand sub-agents" : "Collapse sub-agents"}
+                data-testid={`hierarchy-toggle-agent-${agent.id}`}
+              >
+                {isHierarchyCollapsed ? (
+                  <ChevronRight className="w-3.5 h-3.5" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5" />
+                )}
+              </Button>
+            ) : (
+              <span className="inline-block w-5" />
             )}
             <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
               <span className="text-purple-600 font-medium text-sm">

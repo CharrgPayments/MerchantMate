@@ -162,11 +162,39 @@ export default function Merchants() {
   // — mixing parent rows with filtered-out children would be misleading.
   const isFiltered = !!searchQuery || statusFilter !== "all";
   const merchantsById = new Map<number, Merchant>(merchants.map((m) => [m.id, m]));
+  // Hierarchy expand/collapse — same pattern as the Agents page. Collapsed
+  // parents hide their entire subtree until expanded again.
+  const [collapsedHierarchy, setCollapsedHierarchy] = useState<Set<number>>(new Set());
+  const toggleHierarchyCollapse = (id: number) => {
+    setCollapsedHierarchy((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+  const parentIdsWithChildren = new Set<number>(
+    merchants.map((m) => m.parentMerchantId).filter((p): p is number => p != null),
+  );
+  // DFS-ordered tree rows hydrated with full merchant data
+  const dfsHydrated = hierarchyTree
+    .map((node) => {
+      const m = merchantsById.get(node.id);
+      return m ? { merchant: m, depth: node.depth } : null;
+    })
+    .filter((n): n is { merchant: Merchant; depth: number } => !!n);
   const orderedMerchants: Merchant[] = isFiltered
     ? merchants.filter((m) => statusFilter === "all" || m.status === statusFilter)
-    : (hierarchyTree
-        .map((node) => merchantsById.get(node.id))
-        .filter((m): m is Merchant => !!m));
+    : (() => {
+        let suppressDepth: number | null = null;
+        const out: Merchant[] = [];
+        for (const { merchant, depth } of dfsHydrated) {
+          if (suppressDepth !== null && depth > suppressDepth) continue;
+          suppressDepth = null;
+          out.push(merchant);
+          if (collapsedHierarchy.has(merchant.id)) suppressDepth = depth;
+        }
+        return out;
+      })();
   // Append any merchants the tree endpoint hasn't returned yet (race during
   // create/refetch), so nothing disappears from the page.
   if (!isFiltered) {
@@ -320,6 +348,24 @@ export default function Merchants() {
                           <div className="flex items-center space-x-3" style={{ paddingLeft: depth * 24 }}>
                             {depth > 0 && (
                               <span className="text-gray-400 select-none" aria-hidden="true">└─</span>
+                            )}
+                            {parentIdsWithChildren.has(merchant.id) ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="p-0 h-5 w-5"
+                                onClick={() => toggleHierarchyCollapse(merchant.id)}
+                                title={collapsedHierarchy.has(merchant.id) ? "Expand sub-merchants" : "Collapse sub-merchants"}
+                                data-testid={`hierarchy-toggle-merchant-${merchant.id}`}
+                              >
+                                {collapsedHierarchy.has(merchant.id) ? (
+                                  <ChevronRight className="w-3.5 h-3.5" />
+                                ) : (
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                )}
+                              </Button>
+                            ) : (
+                              <span className="inline-block w-5" />
                             )}
                             {showExpandButton && (
                               <Button
