@@ -5,7 +5,7 @@
 // Audit history of changes shown in a panel below the matrix.
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, getQueryFn } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -77,8 +77,15 @@ export default function RolesPermissionsPage() {
 
   const isSuperAdmin = hasRoleCode(user, ROLE_CODES.SUPER_ADMIN);
 
+  // Pass an explicit queryFn — under HMR the default queryFn on the shared
+  // QueryClient can be lost, leading to a "Missing queryFn" runtime error.
+  const grantsFn = getQueryFn<GrantsResponse | null>({ on401: "returnNull" });
+  const roleDefsFn = getQueryFn<{ code: string; label: string }[] | null>({ on401: "returnNull" });
+  const auditFn = getQueryFn<AuditRow[] | null>({ on401: "returnNull" });
+
   const { data: grants, isLoading, error: grantsError, refetch: refetchGrants } = useQuery<GrantsResponse | null>({
     queryKey: ["/api/admin/role-action-grants"],
+    queryFn: grantsFn,
     enabled: isSuperAdmin,
     staleTime: 0,
   });
@@ -88,12 +95,14 @@ export default function RolesPermissionsPage() {
   // to avoid `.map`/`.length` on null crashing the page.
   const { data: roleDefsRaw } = useQuery<{ code: string; label: string }[] | null>({
     queryKey: ["/api/admin/role-definitions"],
+    queryFn: roleDefsFn,
     enabled: isSuperAdmin,
   });
   const roleDefs = roleDefsRaw ?? [];
 
   const { data: auditRaw } = useQuery<AuditRow[] | null>({
     queryKey: ["/api/admin/role-action-audit"],
+    queryFn: auditFn,
     enabled: isSuperAdmin,
   });
   const audit = auditRaw ?? [];
