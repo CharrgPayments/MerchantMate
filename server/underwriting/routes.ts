@@ -30,10 +30,9 @@ function userId(req: RequestWithDB): string | null {
   return sess?.userId || claims?.sub || null;
 }
 
-// Scope-aware ownership check: when the caller's permScope is 'own' they may
-// view/act on (a) applications they are the assigned reviewer for, OR
-// (b) unassigned applications in their queue (so they can pick up new work).
-// 'all' (or SUPER_ADMIN's implicit 'all') passes through. Returns true on allow.
+// Lenient scope check (read + pickup): when permScope is 'own', allow access
+// to apps assigned to self OR unassigned (so the user can see/pick up work).
+// Used on read endpoints and the assign endpoint.
 async function enforceAppScope(req: RequestWithDB, applicationId: number): Promise<boolean> {
   const scope = req.permScope;
   if (!scope || scope === "all") return true;
@@ -42,6 +41,21 @@ async function enforceAppScope(req: RequestWithDB, applicationId: number): Promi
     .from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
   if (!row) return false;
   if (row.assignedReviewerId === null) return true;
+  const uid = userId(req);
+  return !!uid && row.assignedReviewerId === uid;
+}
+
+// Strict scope check (mutating): when permScope is 'own', the application
+// MUST be assigned to the caller — unassigned apps must be claimed via the
+// assign endpoint first. Prevents 'own' scope users from mutating apps they
+// haven't taken responsibility for.
+async function enforceAppScopeStrict(req: RequestWithDB, applicationId: number): Promise<boolean> {
+  const scope = req.permScope;
+  if (!scope || scope === "all") return true;
+  const db = getRequestDB(req);
+  const [row] = await db.select({ assignedReviewerId: prospectApplications.assignedReviewerId })
+    .from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
+  if (!row) return false;
   const uid = userId(req);
   return !!uid && row.assignedReviewerId === uid;
 }
@@ -95,7 +109,7 @@ export function registerUnderwritingRoutes(app: Express) {
 
         const [appRow] = await db.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
         if (!appRow) return res.status(404).json({ message: "Application not found" });
-        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
+        if (!(await enforceAppScopeStrict(req, applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
         if (appRow.status === APP_STATUS.DRAFT) return res.status(400).json({ message: "Cannot run underwriting on draft application" });
 
         const result = await runUnderwritingPipeline({ db, applicationId, startedBy: userId(req) });
@@ -138,7 +152,7 @@ export function registerUnderwritingRoutes(app: Express) {
         const db = getRequestDB(req);
         const [appRow] = await db.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
         if (!appRow) return res.status(404).json({ message: "Application not found" });
-        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
+        if (!(await enforceAppScopeStrict(req, applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
         if (appRow.pathway !== PATHWAYS.TRADITIONAL) {
           return res.status(400).json({ message: "Manual checks only available on Traditional pathway" });
         }
@@ -173,9 +187,14 @@ export function registerUnderwritingRoutes(app: Express) {
           .where(eq(underwritingRuns.applicationId, applicationId))
           .orderBy(asc(underwritingPhaseResults.phaseOrder));
         const issues = await db.select().from(underwritingIssues).where(eq(underwritingIssues.applicationId, applicationId)).orderBy(desc(underwritingIssues.createdAt));
-        // also enumerate allowed transitions for the current actor so the UI can gate buttons.
-        const transitions = allowedTransitions(appRow.status as AppStatus).filter((t: TransitionRule) =>
-          hasPermission(req.currentUser as Parameters<typeof hasPermission>[0], t.requires));
+        // Enumerate allowed transitions for the current actor so the UI can gate buttons.
+        // Use override-aware permission check (same as POST /transition) so what we
+        // expose here matches what the server will actually allow.
+        const overrides = await getOverrides(req.dbEnv ?? 'production', db);
+        const actor = req.currentUser as Parameters<typeof getActionScope>[0];
+        const transitions = allowedTransitions(appRow.status as AppStatus).filter(
+          (t: TransitionRule) => !!getActionScope(actor, t.requires, overrides),
+        );
         res.json({ application: appRow, latestRun: latest, runs, phases, allPhases, issues, transitions });
       } catch (err) {
         res.status(500).json({ message: err instanceof Error ? err.message : "Failed" });
@@ -201,7 +220,7 @@ export function registerUnderwritingRoutes(app: Express) {
         const db = getRequestDB(req);
         const [appRow] = await db.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
         if (!appRow) return res.status(404).json({ message: "Application not found" });
-        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
+        if (!(await enforceAppScopeStrict(req, applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
 
         const rule = findTransition(appRow.status as AppStatus, toStatus as AppStatus);
         if (!rule) return res.status(409).json({ message: `Illegal transition: ${appRow.status} → ${toStatus}` });
@@ -287,7 +306,7 @@ export function registerUnderwritingRoutes(app: Express) {
         const db = getRequestDB(req);
         const [appRow] = await db.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
         if (!appRow) return res.status(404).json({ message: "Application not found" });
-        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
+        if (!(await enforceAppScopeStrict(req, applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
         await db.update(prospectApplications).set({ pathway, updatedAt: new Date() }).where(eq(prospectApplications.id, applicationId));
         await audit(req, "update", "application_pathway", String(applicationId), {
           oldValues: { pathway: appRow.pathway }, newValues: { pathway },
@@ -310,7 +329,7 @@ export function registerUnderwritingRoutes(app: Express) {
         const db = getRequestDB(req);
         const [issueRow] = await db.select().from(underwritingIssues).where(eq(underwritingIssues.id, id)).limit(1);
         if (!issueRow) return res.status(404).json({ message: "Issue not found" });
-        if (!(await enforceAppScope(req, issueRow.applicationId))) return res.status(403).json({ message: "Out of scope" });
+        if (!(await enforceAppScopeStrict(req, issueRow.applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
         const updates: Record<string, unknown> = { status };
         if (status === "resolved" || status === "waived") {
           updates.resolvedBy = userId(req);
@@ -342,7 +361,7 @@ export function registerUnderwritingRoutes(app: Express) {
     async (req: RequestWithDB, res) => {
       try {
         const applicationId = parseInt(req.params.id);
-        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
+        if (!(await enforceAppScopeStrict(req, applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
         const body = (req.body || {}) as Record<string, unknown>;
         const parsed = insertUnderwritingTaskSchema.safeParse({ ...body, applicationId, createdBy: userId(req) });
         if (!parsed.success) return res.status(400).json({ message: "Invalid task", errors: parsed.error.flatten() });
@@ -366,7 +385,7 @@ export function registerUnderwritingRoutes(app: Express) {
         const db = getRequestDB(req);
         const [existing] = await db.select().from(underwritingTasks).where(eq(underwritingTasks.id, id)).limit(1);
         if (!existing) return res.status(404).json({ message: "Task not found" });
-        if (!(await enforceAppScope(req, existing.applicationId))) return res.status(403).json({ message: "Out of scope" });
+        if (!(await enforceAppScopeStrict(req, existing.applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
         const [t] = await db.update(underwritingTasks).set(updates).where(eq(underwritingTasks.id, id)).returning();
         if (!t) return res.status(404).json({ message: "Task not found" });
         await audit(req, "update", "underwriting_task", String(id), { newValues: updates });
@@ -392,7 +411,7 @@ export function registerUnderwritingRoutes(app: Express) {
     async (req: RequestWithDB, res) => {
       try {
         const applicationId = parseInt(req.params.id);
-        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
+        if (!(await enforceAppScopeStrict(req, applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
         const body = (req.body || {}) as Record<string, unknown>;
         const parsed = insertUnderwritingNoteSchema.safeParse({ ...body, applicationId, authorUserId: userId(req) });
         if (!parsed.success) return res.status(400).json({ message: "Invalid note", errors: parsed.error.flatten() });
@@ -432,7 +451,7 @@ export function registerUnderwritingRoutes(app: Express) {
         const db = getRequestDB(req);
         const [appRow] = await db.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
         if (!appRow) return res.status(404).json({ message: "Application not found" });
-        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
+        if (!(await enforceAppScopeStrict(req, applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
         await db.update(prospectApplications)
           .set({ subStatus, updatedAt: new Date() })
           .where(eq(prospectApplications.id, applicationId));
@@ -576,7 +595,7 @@ export function registerUnderwritingRoutes(app: Express) {
     async (req: RequestWithDB, res) => {
       try {
         const applicationId = parseInt(req.params.id);
-        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
+        if (!(await enforceAppScopeStrict(req, applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
         const file = (req as unknown as { file?: Express.Multer.File }).file;
         if (!file) return res.status(400).json({ message: "file required" });
         const db = getRequestDB(req);
@@ -621,7 +640,7 @@ export function registerUnderwritingRoutes(app: Express) {
         const db = getRequestDB(req);
         const [row] = await db.select().from(underwritingFiles).where(eq(underwritingFiles.id, id)).limit(1);
         if (!row) return res.status(404).json({ message: "File not found" });
-        if (!(await enforceAppScope(req, row.applicationId))) return res.status(403).json({ message: "Out of scope" });
+        if (!(await enforceAppScopeStrict(req, row.applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
         const abs = path.resolve(process.cwd(), row.storedPath);
         try { if (fs.existsSync(abs)) fs.unlinkSync(abs); } catch { /* ignore */ }
         await db.delete(underwritingFiles).where(eq(underwritingFiles.id, id));
