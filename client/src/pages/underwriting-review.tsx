@@ -210,6 +210,13 @@ export default function UnderwritingReview() {
     onSuccess: () => { toast({ title: "Pathway updated" }); invalidateAll(); },
   });
 
+  const subStatusMutation = useMutation({
+    mutationFn: async (vars: { subStatus: string | null; reason: string }) =>
+      apiRequest("PATCH", `/api/applications/${id}/underwriting/sub-status`, vars),
+    onSuccess: () => { toast({ title: "Sub-status updated" }); invalidateAll(); },
+    onError: (e: Error) => toast({ title: "Sub-status update failed", description: e.message, variant: "destructive" }),
+  });
+
   function invalidateAll() {
     qc.invalidateQueries({ queryKey: ["/api/applications", id, "underwriting"] });
     qc.invalidateQueries({ queryKey: ["/api/applications", id, "underwriting/history"] });
@@ -221,6 +228,8 @@ export default function UnderwritingReview() {
   const [pendingTo, setPendingTo] = useState<AppStatus | "">("");
   const [reason, setReason] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
+  const [subStatusDraft, setSubStatusDraft] = useState<string>("__none__");
+  const [subStatusReason, setSubStatusReason] = useState("");
 
   const [taskTitle, setTaskTitle] = useState("");
   const [taskDesc, setTaskDesc] = useState("");
@@ -340,6 +349,47 @@ export default function UnderwritingReview() {
           {transitions.length === 0 && (
             <div className="mt-4 text-xs text-gray-500">No transitions available — either you don't hold the required permissions, or the application is in a terminal state.</div>
           )}
+          <div className="mt-6 border-t pt-4">
+            <div className="text-sm font-medium mb-2">Sub-status</div>
+            <div className="text-xs text-gray-500 mb-2">
+              Current: <span className="font-mono">{app.subStatus || "—"}</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <Select value={subStatusDraft} onValueChange={setSubStatusDraft}>
+                <SelectTrigger data-testid="select-sub-status"><SelectValue placeholder="Choose sub-status" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">— None (clear) —</SelectItem>
+                  {[
+                    "awaiting_docs","awaiting_owner_signature","awaiting_bank_info",
+                    "awaiting_processing_statement","awaiting_credit_review",
+                    "awaiting_match_review","awaiting_ofac_review","awaiting_senior_review",
+                    "awaiting_data_processing","awaiting_deployment",
+                    "withdrawn_by_merchant","withdrawn_by_agent","withdrawn_by_underwriter",
+                  ].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Input
+                placeholder="Reason (required)"
+                value={subStatusReason}
+                onChange={e => setSubStatusReason(e.target.value)}
+                data-testid="input-sub-status-reason"
+              />
+              <Button
+                onClick={() => {
+                  if (!subStatusReason.trim()) {
+                    toast({ title: "Reason required", description: "Sub-status changes require an audit reason.", variant: "destructive" });
+                    return;
+                  }
+                  subStatusMutation.mutate(
+                    { subStatus: subStatusDraft === "__none__" ? null : subStatusDraft, reason: subStatusReason.trim() },
+                    { onSuccess: () => setSubStatusReason("") },
+                  );
+                }}
+                disabled={subStatusMutation.isPending}
+                data-testid="button-sub-status-save"
+              >Save sub-status</Button>
+            </div>
+          </div>
           {app.riskScoreBreakdown && app.riskScoreBreakdown.components.length > 0 && (
             <div className="mt-6">
               <div className="text-sm font-medium mb-2">Risk Score Breakdown</div>

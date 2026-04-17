@@ -16,12 +16,12 @@ import { v4 as uuidv4 } from "uuid";
 import { dbEnvironmentMiddleware, adminDbMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
 import { registerUnderwritingRoutes } from "./underwriting/routes";
 import { getDynamicDatabase } from "./db";
-import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity, agentHierarchy, merchantHierarchy, underwritingStatusHistory } from "@shared/schema";
+import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity, agentHierarchy, merchantHierarchy, underwritingStatusHistory, prospectApplications as prospectAppsTable } from "@shared/schema";
 import { runUnderwritingPipeline } from "./underwriting/orchestrator";
 import { notifyTransition } from "./underwriting/notifications";
 import { initAgentClosure, initMerchantClosure, setAgentParent, setMerchantParent, getAgentDescendantIds, getMerchantDescendantIds, isAgentDescendantOf, detachAgentForDelete, detachMerchantForDelete, HierarchyError, MAX_HIERARCHY_DEPTH } from "./hierarchyService";
 import crypto from "crypto";
-import { eq, or, ilike, sql, inArray } from "drizzle-orm";
+import { eq, or, ilike, sql, inArray, desc } from "drizzle-orm";
 
 // Helper functions for user account creation
 async function generateUsername(firstName: string, lastName: string, email: string, dynamicDB: any): Promise<string> {
@@ -3290,79 +3290,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error('PDF generation failed:', pdfError);
       }
 
-      // Auto-trigger underwriting for the prospect's application: SUB → CUW
-      // and run the pipeline. This runs on every successful submission, on
-      // the same DB env (development) used to write the application above,
-      // and is idempotent (it only advances if the application is in SUB).
-      // The public submit route is not wrapped in dbEnvironmentMiddleware,
-      // so we explicitly use the development DB — the same env the PDF/
-      // submission write block uses — to guarantee the trigger always runs.
+      // Auto-advance the application SUB → CUW and kick off the underwriting
+      // pipeline. Idempotent — only advances when the app isn't already in CUW.
       try {
-        const { prospectApplications: paTable } = await import("@shared/schema");
-        const { eq: eqOp, desc: descOp } = await import("drizzle-orm");
-        const { getDynamicDatabase } = await import("./db");
-        const reqEnv =
-          (req as unknown as { dbEnv?: string }).dbEnv
-          || (req.session as { dbEnv?: string } | undefined)?.dbEnv
-          || (typeof req.headers['x-db-env'] === 'string' ? req.headers['x-db-env'] as string : undefined)
-          || 'development';
-        const submitDb = getDynamicDatabase(reqEnv);
-        if (submitDb) {
-          // Resolve the exact application that was just submitted. Prefer the
-          // ID captured during the PDF block; otherwise pick the most-recently
-          // updated application for this prospect (the one we just touched).
-          let appRow: typeof paTable.$inferSelect | undefined;
-          if (typeof submittedAppId === 'number') {
-            const [r] = await submitDb.select().from(paTable)
-              .where(eqOp(paTable.id, submittedAppId)).limit(1);
-            appRow = r;
+        const submitDb = getDynamicDatabase('development');
+        let appRow = submittedAppId
+          ? (await submitDb.select().from(prospectAppsTable).where(eq(prospectAppsTable.id, submittedAppId)).limit(1))[0]
+          : undefined;
+        if (!appRow) {
+          [appRow] = await submitDb.select().from(prospectAppsTable)
+            .where(eq(prospectAppsTable.prospectId, prospectId))
+            .orderBy(desc(prospectAppsTable.updatedAt))
+            .limit(1);
+        }
+        if (appRow && appRow.status !== 'CUW') {
+          if (appRow.status !== 'SUB') {
+            await submitDb.update(prospectAppsTable)
+              .set({ status: 'SUB', submittedAt: new Date(), updatedAt: new Date() })
+              .where(eq(prospectAppsTable.id, appRow.id));
+            await submitDb.insert(underwritingStatusHistory).values({
+              applicationId: appRow.id,
+              fromStatus: appRow.status, toStatus: 'SUB',
+              fromSubStatus: appRow.subStatus, toSubStatus: null,
+              changedBy: null, reason: 'Application submitted',
+            });
           }
-          if (!appRow) {
-            const [r] = await submitDb.select().from(paTable)
-              .where(eqOp(paTable.prospectId, prospectId))
-              .orderBy(descOp(paTable.updatedAt))
-              .limit(1);
-            appRow = r;
-          }
-          if (appRow) {
-            // Ensure the application reaches SUB even if no template was used.
-            if (appRow.status !== 'SUB' && appRow.status !== 'CUW') {
-              await submitDb.update(paTable)
-                .set({ status: 'SUB', submittedAt: new Date(), updatedAt: new Date() })
-                .where(eqOp(paTable.id, appRow.id));
-              await submitDb.insert(underwritingStatusHistory).values({
-                applicationId: appRow.id,
-                fromStatus: appRow.status,
-                toStatus: 'SUB',
-                fromSubStatus: appRow.subStatus,
-                toSubStatus: null,
-                changedBy: null,
-                reason: 'Application submitted',
-              });
-            }
-            if (appRow.status !== 'CUW') {
-              await submitDb.update(paTable)
-                .set({ status: 'CUW', updatedAt: new Date() })
-                .where(eqOp(paTable.id, appRow.id));
-              await submitDb.insert(underwritingStatusHistory).values({
-                applicationId: appRow.id,
-                fromStatus: 'SUB',
-                toStatus: 'CUW',
-                changedBy: null,
-                reason: 'Auto-advanced on submission',
-              });
-              await notifyTransition(submitDb, appRow.id, 'CUW', {
-                fromStatus: 'SUB', reason: 'Auto-advanced on submission',
-              }).catch(e => console.error('underwriting notif (auto):', e));
-              setImmediate(() => {
-                runUnderwritingPipeline({ db: submitDb, applicationId: appRow.id, startedBy: null })
-                  .catch(e => console.error('underwriting pipeline (auto):', e));
-              });
-            }
-          }
+          await submitDb.update(prospectAppsTable)
+            .set({ status: 'CUW', updatedAt: new Date() })
+            .where(eq(prospectAppsTable.id, appRow.id));
+          await submitDb.insert(underwritingStatusHistory).values({
+            applicationId: appRow.id,
+            fromStatus: 'SUB', toStatus: 'CUW',
+            changedBy: null, reason: 'Auto-advanced on submission',
+          });
+          await notifyTransition(submitDb, appRow.id, 'CUW', {
+            fromStatus: 'SUB', reason: 'Auto-advanced on submission',
+          }).catch(e => console.error('underwriting notif:', e));
+          const appId = appRow.id;
+          setImmediate(() => {
+            runUnderwritingPipeline({ db: submitDb, applicationId: appId, startedBy: null })
+              .catch(e => console.error('underwriting pipeline:', e));
+          });
         }
       } catch (autoErr) {
-        console.error('Failed to auto-start underwriting:', autoErr);
+        console.error('Auto-start underwriting failed:', autoErr);
       }
 
       // Send notification emails

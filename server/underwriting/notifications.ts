@@ -81,59 +81,52 @@ export async function notifyTransition(db: DB, applicationId: number, toStatus: 
     : family === "pending" ? "warning"
     : "info";
 
-  // 1. In-app alert to assigned reviewer (always, when present).
+  const message = `Application #${applicationId} → ${toStatus} · ${label}`;
+  const emailPayload = {
+    applicationId, fromStatus: opts.fromStatus ?? null, toStatus, statusLabel: label,
+    reason: opts.reason, reviewUrl: fullUrl,
+  };
+
   if (app?.assignedReviewerId) {
-    await alertUser(db, app.assignedReviewerId, `Application #${applicationId} → ${toStatus} · ${label}`, url, alertType);
+    await alertUser(db, app.assignedReviewerId, message, url, alertType);
   }
 
-  // 2. Role-targeted in-app alerts + email fan-out per routing matrix.
-  // IMPORTANT: AGENT alerts are application-scoped (only the prospect's own
-  // agent), never broadcast to every agent in the system. All other internal
-  // roles (Underwriter / Senior UW / Data Processing / Deployment) fan out.
   const fullRoleCodes = STATUS_ROLE_ROUTING[status] || [];
-  const isAgentRole = (r: string) => r === ROLE_CODES.AGENT;
-  const internalRoles = fullRoleCodes.filter((r) => !isAgentRole(r));
-  const includesAgent = fullRoleCodes.some(isAgentRole);
+  const internalRoles = fullRoleCodes.filter((r) => r !== ROLE_CODES.AGENT);
+  const includesAgent = fullRoleCodes.includes(ROLE_CODES.AGENT);
 
   if (internalRoles.length) {
-    await alertRoles(db, internalRoles, `Application #${applicationId} → ${toStatus} · ${label}`, url, alertType);
+    await alertRoles(db, internalRoles, message, url, alertType);
     try {
       const targets = await targetsForRoles(db, internalRoles);
       await Promise.all(targets.filter((u) => u.email).map((u) =>
         emailService.sendUnderwritingTransitionEmail({
-          to: u.email!, firstName: u.firstName ?? undefined,
-          applicationId, fromStatus: opts.fromStatus ?? null, toStatus, statusLabel: label,
-          reason: opts.reason, reviewUrl: fullUrl,
+          to: u.email!, firstName: u.firstName ?? undefined, ...emailPayload,
         }),
       ));
     } catch (e) { console.error("transition email fan-out failed:", e); }
   }
 
-  // Application-scoped agent notification: only the prospect's owning agent.
+  // App-scoped agent notify (the prospect's owning agent only).
   if (includesAgent && prospect?.agentId) {
     try {
       const [agentRow] = await db.select().from(agents).where(eq(agents.id, prospect.agentId)).limit(1);
-      if (agentRow?.userId) {
-        await alertUser(db, agentRow.userId,
-          `Application #${applicationId} → ${toStatus} · ${label}`, url, alertType);
-      }
+      if (agentRow?.userId) await alertUser(db, agentRow.userId, message, url, alertType);
       if (agentRow?.email) {
         await emailService.sendUnderwritingTransitionEmail({
-          to: agentRow.email, firstName: agentRow.firstName ?? undefined,
-          applicationId, fromStatus: opts.fromStatus ?? null, toStatus, statusLabel: label,
-          reason: opts.reason, reviewUrl: fullUrl,
+          to: agentRow.email, firstName: agentRow.firstName ?? undefined, ...emailPayload,
         });
       }
     } catch (e) { console.error("agent transition notify failed:", e); }
   }
 
-  // 3. Notify the merchant/agent via email when a final outcome (approved/declined) is reached.
-  if ((family === "approved" || family === "declined") && prospect?.email) {
+  // Email the merchant/prospect for any actionable family (pending/withdrawn/
+  // approved/declined) — the merchant has visibility into all non-internal states.
+  const merchantEmailFamilies = new Set(["pending", "withdrawn", "approved", "declined"]);
+  if (merchantEmailFamilies.has(family) && prospect?.email) {
     try {
       await emailService.sendUnderwritingTransitionEmail({
-        to: prospect.email, firstName: prospect.firstName ?? undefined,
-        applicationId, fromStatus: opts.fromStatus ?? null, toStatus, statusLabel: label,
-        reason: opts.reason, reviewUrl: fullUrl,
+        to: prospect.email, firstName: prospect.firstName ?? undefined, ...emailPayload,
       });
     } catch (e) { console.error("merchant transition email failed:", e); }
   }
