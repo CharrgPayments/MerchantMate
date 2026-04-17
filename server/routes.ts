@@ -16,7 +16,7 @@ import { v4 as uuidv4 } from "uuid";
 import { dbEnvironmentMiddleware, adminDbMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
 import { getDynamicDatabase } from "./db";
 import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity, agentHierarchy, merchantHierarchy } from "@shared/schema";
-import { initAgentClosure, initMerchantClosure, setAgentParent, setMerchantParent, getAgentDescendantIds, getMerchantDescendantIds, HierarchyError, MAX_HIERARCHY_DEPTH } from "./hierarchyService";
+import { initAgentClosure, initMerchantClosure, setAgentParent, setMerchantParent, getAgentDescendantIds, getMerchantDescendantIds, detachAgentForDelete, detachMerchantForDelete, HierarchyError, MAX_HIERARCHY_DEPTH } from "./hierarchyService";
 import crypto from "crypto";
 import { eq, or, ilike, sql, inArray } from "drizzle-orm";
 
@@ -3990,6 +3990,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Delete merchant — keeps closure tables consistent (reattach children
+  // to the deleted merchant's parent, drop closure rows for this node).
+  app.delete("/api/merchants/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+    try {
+      const merchantId = parseInt(req.params.id);
+      if (!Number.isInteger(merchantId)) {
+        return res.status(400).json({ message: "Invalid merchant id" });
+      }
+      const dynamicDB = getRequestDB(req);
+      const [existingMerchant] = await dynamicDB.select().from(merchants).where(eq(merchants.id, merchantId));
+      if (!existingMerchant) {
+        return res.status(404).json({ message: "Merchant not found" });
+      }
+      const result = await dynamicDB.transaction(async (tx) => {
+        await detachMerchantForDelete(tx, merchantId);
+        const merchantDeleteResult = await tx.delete(merchants).where(eq(merchants.id, merchantId));
+        if (existingMerchant.userId) {
+          await tx.delete(users).where(eq(users.id, existingMerchant.userId));
+        }
+        return merchantDeleteResult.rowCount || 0;
+      });
+      if (result > 0) {
+        res.json({ success: true, message: "Merchant deleted successfully" });
+      } else {
+        res.status(404).json({ message: "Merchant not found" });
+      }
+    } catch (error) {
+      console.error("Error deleting merchant:", error);
+      const message = error instanceof Error ? error.message : "";
+      if (message.includes("violates foreign key constraint")) {
+        return res.status(409).json({ message: "Cannot delete merchant: still has related data" });
+      }
+      res.status(500).json({ message: "Failed to delete merchant" });
+    }
+  });
+
   // ---- Hierarchy: tree + descendants ----
   // Generic DFS-flatten that preserves the input row type and adds a `depth` field.
   function flattenHierarchy<T extends { id: number }>(
@@ -4078,7 +4114,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Use database transaction to ensure ACID compliance
       const result = await dynamicDB.transaction(async (tx) => {
-        // Delete agent record first
+        // Hierarchy first: reattach direct children to the deleted agent's
+        // parent and remove all closure rows referencing this node, so
+        // descendant queries stay correct after deletion.
+        await detachAgentForDelete(tx, agentId);
+
+        // Delete agent record
         const agentDeleteResult = await tx.delete(agents).where(eq(agents.id, agentId));
         
         // Delete associated user account if it exists

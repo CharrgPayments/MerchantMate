@@ -106,6 +106,37 @@ async function rebuildMerchantClosureForSubtree(db: Db, nodeId: number, newParen
   }
 }
 
+/**
+ * Maintain closure-table integrity when a node is about to be deleted.
+ * Direct children are reattached to the deleted node's current parent
+ * (so the chain "grandparent → child" survives), then every closure row
+ * referencing the deleted node is removed. Call this BEFORE deleting the
+ * node row itself.
+ */
+export async function detachAgentForDelete(db: Db, agentId: number) {
+  const [self] = await db.select({ parentAgentId: agents.parentAgentId }).from(agents).where(eq(agents.id, agentId));
+  if (!self) return;
+  const grandparentId = self.parentAgentId ?? null;
+  const directChildren = await db.select({ id: agents.id }).from(agents).where(eq(agents.parentAgentId, agentId));
+  for (const child of directChildren) {
+    await setAgentParent(db, child.id, grandparentId);
+  }
+  await db.delete(agentHierarchy).where(eq(agentHierarchy.ancestorId, agentId));
+  await db.delete(agentHierarchy).where(eq(agentHierarchy.descendantId, agentId));
+}
+
+export async function detachMerchantForDelete(db: Db, merchantId: number) {
+  const [self] = await db.select({ parentMerchantId: merchants.parentMerchantId }).from(merchants).where(eq(merchants.id, merchantId));
+  if (!self) return;
+  const grandparentId = self.parentMerchantId ?? null;
+  const directChildren = await db.select({ id: merchants.id }).from(merchants).where(eq(merchants.parentMerchantId, merchantId));
+  for (const child of directChildren) {
+    await setMerchantParent(db, child.id, grandparentId);
+  }
+  await db.delete(merchantHierarchy).where(eq(merchantHierarchy.ancestorId, merchantId));
+  await db.delete(merchantHierarchy).where(eq(merchantHierarchy.descendantId, merchantId));
+}
+
 /** Returns descendant IDs (including self at depth 0). */
 export async function getAgentDescendantIds(db: Db, agentId: number): Promise<number[]> {
   const rows = await db.select({ id: agentHierarchy.descendantId })
