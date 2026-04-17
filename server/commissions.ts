@@ -238,8 +238,11 @@ export async function voidPayout(db: Db, payoutId: number) {
   const [payout] = await db.select().from(payouts).where(eq(payouts.id, payoutId));
   if (!payout) throw new Error("Payout not found");
   if (payout.status === "paid") throw new Error("Cannot void a paid payout — reverse it instead");
+  // Detach events back to "payable" — they were promoted from pending when the
+  // payout was created, so returning them to payable preserves their accounting
+  // state (ready-to-pay, not freshly accrued).
   await db.update(commissionEvents)
-    .set({ payoutId: null, status: "pending", updatedAt: new Date() })
+    .set({ payoutId: null, status: "payable", updatedAt: new Date() })
     .where(eq(commissionEvents.payoutId, payoutId));
   const [updated] = await db.update(payouts)
     .set({ status: "void" })

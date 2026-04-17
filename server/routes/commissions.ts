@@ -304,8 +304,17 @@ export function registerCommissionsRoutes(app: Express) {
         const now = new Date();
         const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
+        // Residual totals must be computed for the focus agent only
+        // (not the whole scope), otherwise an upline agent's "earned this
+        // month" would double-count their downline's own beneficiary events.
+        // When there's no focus agent (e.g. a non-agent admin viewing a global
+        // dashboard), fall back to the full scoped agent list.
+        const beneficiarySet = focusAgentId
+          ? [focusAgentId]
+          : (allowed.length ? allowed : [-1]);
+
         const baseConds = (status?: string, since?: Date) => {
-          const c: any[] = [inArray(commissionEvents.beneficiaryAgentId, allowed.length ? allowed : [-1])];
+          const c: any[] = [inArray(commissionEvents.beneficiaryAgentId, beneficiarySet)];
           if (status) c.push(eq(commissionEvents.status, status));
           if (since) c.push(gte(commissionEvents.createdAt, since));
           return and(...c);
