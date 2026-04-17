@@ -224,6 +224,63 @@ export async function createPayoutForAgent(db: Db, params: {
   return payout;
 }
 
+/**
+ * Build a payout that attaches an EXPLICIT set of event IDs (not a
+ * date-range scan). Used by the bulk events/mark-paid flow so callers can pay
+ * exactly the events they selected without sweeping in other payable events
+ * that happen to fall in the same date span.
+ */
+export async function createPayoutFromEventIds(db: Db, params: {
+  agentId: number;
+  eventIds: number[];
+  method?: "ach" | "check" | "manual" | "wire";
+  notes?: string | null;
+  createdBy?: string | null;
+}): Promise<Payout> {
+  const { agentId, eventIds } = params;
+  if (eventIds.length === 0) throw new Error("eventIds required");
+
+  // Re-load and validate: must belong to agent, status=payable, unattached.
+  const rows = await db.select({
+    id: commissionEvents.id,
+    amount: commissionEvents.amount,
+    createdAt: commissionEvents.createdAt,
+    beneficiaryAgentId: commissionEvents.beneficiaryAgentId,
+    status: commissionEvents.status,
+    payoutId: commissionEvents.payoutId,
+  }).from(commissionEvents).where(inArray(commissionEvents.id, eventIds));
+  for (const r of rows) {
+    if (r.beneficiaryAgentId !== agentId) throw new Error(`Event ${r.id} does not belong to agent ${agentId}`);
+    if (r.status !== "payable" || r.payoutId != null) {
+      throw new Error(`Event ${r.id} is not eligible (must be payable & unattached)`);
+    }
+  }
+
+  const dates = rows.map((r) => +new Date(r.createdAt as any));
+  const periodStart = new Date(Math.min(...dates));
+  const periodEnd = new Date(Math.max(...dates));
+  const gross = rows.reduce((acc, e) => acc + Number(e.amount), 0);
+
+  const [payout] = await db.insert(payouts).values({
+    agentId,
+    periodStart,
+    periodEnd,
+    grossAmount: round2(gross),
+    adjustments: "0",
+    netAmount: round2(gross),
+    method: params.method ?? "ach",
+    status: "draft",
+    notes: params.notes ?? null,
+    createdBy: params.createdBy ?? null,
+  }).returning();
+
+  await db.update(commissionEvents)
+    .set({ payoutId: payout.id, updatedAt: new Date() })
+    .where(inArray(commissionEvents.id, rows.map((r) => r.id)));
+
+  return payout;
+}
+
 /** Mark a payout paid; locks its events to status=paid. */
 export async function markPayoutPaid(db: Db, payoutId: number, opts?: { reference?: string | null }) {
   const [payout] = await db.select().from(payouts).where(eq(payouts.id, payoutId));

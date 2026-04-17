@@ -22,6 +22,7 @@ import {
   buildStatement,
   calculateCommissionsForTransaction,
   createPayoutForAgent,
+  createPayoutFromEventIds,
   getCommissionConfig,
   markPayoutPaid,
   recalcAll,
@@ -373,14 +374,12 @@ export function registerCommissionsRoutes(app: Express) {
           arr.push(r); byAgent.set(r.beneficiaryAgentId, arr);
         }
         const createdPayouts: any[] = [];
+        let updatedCount = 0;
         for (const [agentId, agentRows] of Array.from(byAgent.entries())) {
-          const dates = agentRows.map((r) => +new Date(r.createdAt as any));
-          const ps = new Date(Math.min(...dates));
-          const pe = new Date(Math.max(...dates));
-          const payout = await createPayoutForAgent(req.db!, {
+          // Attach EXACTLY the selected event IDs — never date-range sweep.
+          const payout = await createPayoutFromEventIds(req.db!, {
             agentId,
-            periodStart: ps,
-            periodEnd: pe,
+            eventIds: agentRows.map((r) => r.id),
             method: parsed.data.method,
             notes: `Bulk mark-paid (${agentRows.length} events)`,
             createdBy: (req.currentUser as any)?.id ?? null,
@@ -389,8 +388,9 @@ export function registerCommissionsRoutes(app: Express) {
             reference: parsed.data.reference ?? null,
           });
           createdPayouts.push(paid);
+          updatedCount += agentRows.length;
         }
-        res.json({ payouts: createdPayouts });
+        res.json({ updated: updatedCount, payouts: createdPayouts });
       } catch (err: any) {
         console.error("[commissions] events mark-paid failed", err);
         res.status(500).json({ message: err?.message || "Mark paid failed" });
