@@ -910,11 +910,13 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {campaigns.map((campaign: any) => (
-                        <SelectItem key={campaign.id} value={campaign.id.toString()}>
-                          {campaign.name} - {campaign.acquirer}
-                        </SelectItem>
-                      ))}
+                      {campaigns
+                        .filter((campaign: any) => campaign.isActive)
+                        .map((campaign: any) => (
+                          <SelectItem key={campaign.id} value={campaign.id.toString()}>
+                            {campaign.name} - {campaign.acquirer}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                   <FormMessage />
