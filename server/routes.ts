@@ -3219,6 +3219,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate PDF document
       let pdfBuffer: Buffer | undefined;
       let generatedPdfPath: string | undefined;
+      let submittedAppId: number | undefined;
       try {
         const { pdfGenerator } = await import('./pdfGenerator');
         const fs = await import('fs');
@@ -3235,6 +3236,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const [prospectApp] = await devDb.select().from(prospectApplications)
               .where(eq(prospectApplications.prospectId, prospectId)).limit(1);
             if (prospectApp) {
+              submittedAppId = prospectApp.id;
               const [template] = await devDb.select().from(acquirerApplicationTemplates)
                 .where(eq(acquirerApplicationTemplates.id, prospectApp.templateId)).limit(1);
               if (template?.originalPdfBase64) {
@@ -3290,24 +3292,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Auto-trigger underwriting for the prospect's application: SUB → CUW
       // and run the pipeline. This runs on every successful submission, on
-      // the same DB env used to write the application above, and is idempotent
-      // (it only advances if the application is currently in SUB).
+      // the same DB env (development) used to write the application above,
+      // and is idempotent (it only advances if the application is in SUB).
+      // The public submit route is not wrapped in dbEnvironmentMiddleware,
+      // so we explicitly use the development DB — the same env the PDF/
+      // submission write block uses — to guarantee the trigger always runs.
       try {
         const { prospectApplications: paTable } = await import("@shared/schema");
-        const { eq: eqOp } = await import("drizzle-orm");
+        const { eq: eqOp, desc: descOp } = await import("drizzle-orm");
         const { getDynamicDatabase } = await import("./db");
-        // Use the same DB env source as dbEnvironmentMiddleware
-        // (req.dbEnv ▸ req.session.dbEnv ▸ x-db-env header). No silent
-        // fallback to development — if no env can be resolved, skip the
-        // auto-trigger so we never write to the wrong database.
         const reqEnv =
           (req as unknown as { dbEnv?: string }).dbEnv
           || (req.session as { dbEnv?: string } | undefined)?.dbEnv
-          || (typeof req.headers['x-db-env'] === 'string' ? req.headers['x-db-env'] as string : undefined);
-        const submitDb = reqEnv ? getDynamicDatabase(reqEnv) : null;
+          || (typeof req.headers['x-db-env'] === 'string' ? req.headers['x-db-env'] as string : undefined)
+          || 'development';
+        const submitDb = getDynamicDatabase(reqEnv);
         if (submitDb) {
-          const [appRow] = await submitDb.select().from(paTable)
-            .where(eqOp(paTable.prospectId, prospectId)).limit(1);
+          // Resolve the exact application that was just submitted. Prefer the
+          // ID captured during the PDF block; otherwise pick the most-recently
+          // updated application for this prospect (the one we just touched).
+          let appRow: typeof paTable.$inferSelect | undefined;
+          if (typeof submittedAppId === 'number') {
+            const [r] = await submitDb.select().from(paTable)
+              .where(eqOp(paTable.id, submittedAppId)).limit(1);
+            appRow = r;
+          }
+          if (!appRow) {
+            const [r] = await submitDb.select().from(paTable)
+              .where(eqOp(paTable.prospectId, prospectId))
+              .orderBy(descOp(paTable.updatedAt))
+              .limit(1);
+            appRow = r;
+          }
           if (appRow) {
             // Ensure the application reaches SUB even if no template was used.
             if (appRow.status !== 'SUB' && appRow.status !== 'CUW') {
