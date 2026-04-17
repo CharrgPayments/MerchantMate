@@ -12,6 +12,7 @@ import {
 } from "@shared/underwriting";
 import { computeRiskScore } from "./scoring";
 import type { getDynamicDatabase } from "../db";
+import { BUILTIN_VERIFIERS, hasBuiltin } from "./verifiers";
 
 type DB = ReturnType<typeof getDynamicDatabase>;
 
@@ -124,16 +125,10 @@ async function phaseMccValidation(ctx: PhaseContext): Promise<PhaseResult> {
 }
 
 async function phaseGoogleKyb(ctx: PhaseContext): Promise<PhaseResult> {
-  const ep = await lookupEndpoint(ctx.db, "uw_google_kyb");
-  if (!ep) return skippedNoEndpoint("uw_google_kyb");
-  const data = appData(ctx.app);
-  const req = { legalName: data.companyName, ein: data.federalTaxId, address: data.address, state: data.state };
-  const resp = await callEndpoint(ep, req);
-  const result = adaptExternal("google_kyb", resp);
-  result.endpointId = ep.id;
-  result.externalRequest = req;
-  result.externalResponse = resp;
-  return result;
+  return runEndpointOrBuiltin(ctx, "uw_google_kyb", "google_kyb", () => {
+    const data = appData(ctx.app);
+    return { legalName: data.companyName, ein: data.federalTaxId, address: data.address, state: data.state };
+  });
 }
 
 async function phaseVolumeThreshold(ctx: PhaseContext): Promise<PhaseResult> {
@@ -154,78 +149,50 @@ async function phaseVolumeThreshold(ctx: PhaseContext): Promise<PhaseResult> {
 }
 
 async function phasePhoneVerification(ctx: PhaseContext): Promise<PhaseResult> {
-  const ep = await lookupEndpoint(ctx.db, "uw_phone_verification");
-  if (!ep) return skippedNoEndpoint("uw_phone_verification");
-  const data = appData(ctx.app);
-  const req = { phone: data.businessPhone || data.phone, name: data.companyName };
-  const resp = await callEndpoint(ep, req);
-  const r = adaptExternal("phone_verification", resp);
-  r.endpointId = ep.id; r.externalRequest = req; r.externalResponse = resp;
-  return r;
+  return runEndpointOrBuiltin(ctx, "uw_phone_verification", "phone_verification", () => {
+    const data = appData(ctx.app);
+    return { phone: data.businessPhone || data.phone, name: data.companyName };
+  });
 }
 
 async function phaseMatchEin(ctx: PhaseContext): Promise<PhaseResult> {
-  const ep = await lookupEndpoint(ctx.db, "uw_match_ein");
-  if (!ep) return skippedNoEndpoint("uw_match_ein");
-  const data = appData(ctx.app);
-  const req = { ein: data.federalTaxId, legalName: data.companyName, owners: ctx.owners.map((o) => ({ name: o.name, email: o.email })) };
-  const resp = await callEndpoint(ep, req);
-  const r = adaptExternal("match_ein", resp);
-  r.endpointId = ep.id; r.externalRequest = req; r.externalResponse = resp;
-  return r;
+  return runEndpointOrBuiltin(ctx, "uw_match_ein", "match_ein", () => {
+    const data = appData(ctx.app);
+    return { ein: data.federalTaxId, legalName: data.companyName, owners: ctx.owners.map((o) => ({ name: o.name, email: o.email })) };
+  });
 }
 
 async function phaseOfac(ctx: PhaseContext): Promise<PhaseResult> {
-  const ep = await lookupEndpoint(ctx.db, "uw_ofac_sanctions");
-  if (!ep) return skippedNoEndpoint("uw_ofac_sanctions");
-  const data = appData(ctx.app);
-  const req = { entity: data.companyName, owners: ctx.owners.map((o) => ({ name: o.name, email: o.email })) };
-  const resp = await callEndpoint(ep, req);
-  const r = adaptExternal("ofac_sanctions", resp);
-  r.endpointId = ep.id; r.externalRequest = req; r.externalResponse = resp;
-  return r;
+  return runEndpointOrBuiltin(ctx, "uw_ofac_sanctions", "ofac_sanctions", () => {
+    const data = appData(ctx.app);
+    return { entity: data.companyName, owners: ctx.owners.map((o) => ({ name: o.name, email: o.email })) };
+  });
 }
 
 async function phaseSosLookup(ctx: PhaseContext): Promise<PhaseResult> {
-  const ep = await lookupEndpoint(ctx.db, "uw_sos_lookup");
-  if (!ep) return skippedNoEndpoint("uw_sos_lookup");
-  const data = appData(ctx.app);
-  const req = { legalName: data.companyName, state: data.state };
-  const resp = await callEndpoint(ep, req);
-  const r = adaptExternal("sos_lookup", resp);
-  r.endpointId = ep.id; r.externalRequest = req; r.externalResponse = resp;
-  return r;
+  return runEndpointOrBuiltin(ctx, "uw_sos_lookup", "sos_lookup", () => {
+    const data = appData(ctx.app);
+    return { legalName: data.companyName, state: data.state };
+  });
 }
 
 async function phaseSsn(ctx: PhaseContext): Promise<PhaseResult> {
-  const ep = await lookupEndpoint(ctx.db, "uw_ssn_verification");
-  if (!ep) return skippedNoEndpoint("uw_ssn_verification");
-  const req = { owners: ctx.owners.map((o) => ({ name: o.name, email: o.email })) };
-  const resp = await callEndpoint(ep, req);
-  const r = adaptExternal("ssn_verification", resp);
-  r.endpointId = ep.id; r.externalRequest = req; r.externalResponse = resp;
-  return r;
+  return runEndpointOrBuiltin(ctx, "uw_ssn_verification", "ssn_verification", () => ({
+    owners: ctx.owners.map((o) => ({ name: o.name, email: o.email })),
+  }));
 }
 
 async function phaseCredit(ctx: PhaseContext): Promise<PhaseResult> {
-  const ep = await lookupEndpoint(ctx.db, "uw_credit_check");
-  if (!ep) return skippedNoEndpoint("uw_credit_check");
-  const req = { owners: ctx.owners.map((o) => ({ name: o.name, email: o.email })) };
-  const resp = await callEndpoint(ep, req);
-  const r = adaptExternal("credit_check", resp);
-  r.endpointId = ep.id; r.externalRequest = req; r.externalResponse = resp;
-  return r;
+  return runEndpointOrBuiltin(ctx, "uw_credit_check", "credit_check", () => ({
+    owners: ctx.owners.map((o) => ({ name: o.name, email: o.email })),
+  }));
 }
 
 async function phaseWebsite(ctx: PhaseContext): Promise<PhaseResult> {
-  const ep = await lookupEndpoint(ctx.db, "uw_website_review");
-  if (!ep) return skippedNoEndpoint("uw_website_review");
-  const data = appData(ctx.app);
-  const req = { url: data.websiteUrl || data.website };
-  const resp = await callEndpoint(ep, req);
-  const r = adaptExternal("website_review", resp);
-  r.endpointId = ep.id; r.externalRequest = req; r.externalResponse = resp;
-  return r;
+  return runEndpointOrBuiltin(ctx, "uw_website_review", "website_review", () => {
+    const data = appData(ctx.app);
+    return { url: data.websiteUrl || data.website };
+  });
 }
 
 // Manual phases — same shape, different invocation path (see runManualPhase).
@@ -254,6 +221,39 @@ function skippedNoEndpoint(name: string): PhaseResult {
     status: "skipped", score: 0,
     findings: [{ severity: "info", code: "endpoint_unconfigured", message: `Workflow endpoint '${name}' not configured` }],
   };
+}
+
+// Endpoint-or-builtin: prefers the operator-configured workflow_endpoint, but
+// when none exists falls back to the in-process verifier (OFAC, Phone, Website,
+// Google KYB). Phases without a built-in continue returning the legacy
+// `skipped` PhaseResult so paid integrations (SSN/Credit/MATCH) remain opt-in.
+async function runEndpointOrBuiltin(
+  ctx: PhaseContext,
+  endpointName: string,
+  phaseKey: string,
+  buildRequest: () => Record<string, unknown>,
+): Promise<PhaseResult> {
+  const ep = await lookupEndpoint(ctx.db, endpointName);
+  if (ep) {
+    const req = buildRequest();
+    const resp = await callEndpoint(ep, req);
+    const r = adaptExternal(phaseKey, resp);
+    r.endpointId = ep.id;
+    r.externalRequest = req;
+    r.externalResponse = resp;
+    return r;
+  }
+  if (hasBuiltin(phaseKey)) {
+    try {
+      return await BUILTIN_VERIFIERS[phaseKey]({ app: ctx.app, owners: ctx.owners });
+    } catch (e) {
+      return {
+        status: "error", score: 0,
+        findings: [{ severity: "error", code: `${phaseKey}_builtin_error`, message: e instanceof Error ? e.message : String(e) }],
+      };
+    }
+  }
+  return skippedNoEndpoint(endpointName);
 }
 
 const PHASE_ADAPTERS: Record<string, (ctx: PhaseContext) => Promise<PhaseResult>> = {
