@@ -294,6 +294,9 @@ export default function EnhancedPdfWizard() {
   const isProspectMode = !!prospectToken;
   const previewTemplateId = urlParams.get('templateId');
   const isTemplatePreviewMode = !!previewTemplateId && urlParams.get('preview') === 'true';
+  // Epic D — deep-link campaign / agent (propagated from /merchant-application)
+  const deepLinkCampaignId = urlParams.get('campaignId');
+  const deepLinkAgentId = urlParams.get('agentId');
 
   // Fetch prospect data if token is present
   const { data: prospectData } = useQuery({
@@ -374,13 +377,29 @@ export default function EnhancedPdfWizard() {
       if (!prospectData?.prospect?.id) {
         throw new Error('No prospect ID available');
       }
-      
+
+      // Epic D — if a deep-link campaignId came in via the URL, ensure the
+      // prospect's active campaign assignment matches it before submission so
+      // the generated PDF uses the correct pricing.
+      if (deepLinkCampaignId) {
+        try {
+          await fetch(`/api/prospects/${prospectData.prospect.id}/set-campaign`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ campaignId: Number(deepLinkCampaignId) }),
+          });
+        } catch (err) {
+          console.warn('Deep-link campaign assignment failed (non-fatal):', err);
+        }
+      }
+
       const response = await fetch(`/api/prospects/${prospectData.prospect.id}/submit-application`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ formData }),
+        body: JSON.stringify({ formData, deepLinkCampaignId, deepLinkAgentId }),
       });
       
       if (!response.ok) {

@@ -3055,12 +3055,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/prospects/:id/submit-application", async (req, res) => {
     try {
       const { id } = req.params;
-      const { formData, status } = req.body;
+      const { formData, status, deepLinkCampaignId } = req.body;
       const prospectId = parseInt(id);
 
       const prospect = await storage.getMerchantProspect(prospectId);
       if (!prospect) {
         return res.status(404).json({ message: "Prospect not found" });
+      }
+
+      // Epic D — submission-time campaign auto-assignment.
+      // If the prospect has no active campaign assignment yet, resolve one
+      // using: explicit deepLinkCampaignId → agent.defaultCampaignId →
+      // assignment-rule match (mcc/acquirerId/agentId from formData/prospect).
+      try {
+        const existing = await storage.getProspectCampaignAssignment(prospectId);
+        if (!existing) {
+          let resolvedCampaignId: number | undefined =
+            deepLinkCampaignId && Number(deepLinkCampaignId) > 0 ? Number(deepLinkCampaignId) : undefined;
+          if (!resolvedCampaignId && prospect.agentId) {
+            const ag = await storage.getAgent(prospect.agentId);
+            if (ag?.defaultCampaignId) resolvedCampaignId = ag.defaultCampaignId;
+          }
+          if (!resolvedCampaignId) {
+            const ruleMatch = await storage.findCampaignByRule({
+              mcc: formData?.mcc ?? formData?.mccCode ?? null,
+              acquirerId: formData?.acquirerId ? Number(formData.acquirerId) : null,
+              agentId: prospect.agentId ?? null,
+            });
+            if (ruleMatch) resolvedCampaignId = ruleMatch;
+          }
+          if (resolvedCampaignId) {
+            const userId = (req.session as any)?.userId;
+            await storage.swapCampaignForProspect(prospectId, resolvedCampaignId, userId);
+            console.log(`[Epic D] auto-assigned prospect ${prospectId} to campaign ${resolvedCampaignId} on submit`);
+          }
+        }
+      } catch (assignErr) {
+        console.warn('[Epic D] submission-time auto-assign skipped:', assignErr);
       }
 
       // Comprehensive validation before submission
@@ -6102,6 +6133,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===== Set / swap campaign for a prospect =====
+  // Epic D — Regenerate the filled MPA PDF for a single prospect using its
+  // existing prospect_application + acquirer template. Mirrors the same
+  // generation pattern used in /api/prospects/:id/submit-application.
+  async function regenerateProspectPdf(
+    prospectId: number,
+    db: any,
+  ): Promise<{ ok: boolean; pdfPath?: string; error?: string }> {
+    try {
+      const { pdfGenerator } = await import('./pdfGenerator');
+      const fs = await import('fs');
+      const path = await import('path');
+      const { prospectApplications, acquirerApplicationTemplates, merchantProspects } =
+        await import('@shared/schema');
+      const { eq } = await import('drizzle-orm');
+
+      const [prospect] = await db
+        .select()
+        .from(merchantProspects)
+        .where(eq(merchantProspects.id, prospectId))
+        .limit(1);
+      if (!prospect) return { ok: false, error: 'Prospect not found' };
+
+      const [prospectApp] = await db
+        .select()
+        .from(prospectApplications)
+        .where(eq(prospectApplications.prospectId, prospectId))
+        .limit(1);
+      if (!prospectApp) return { ok: false, error: 'No prospect application to regenerate' };
+
+      const [template] = await db
+        .select()
+        .from(acquirerApplicationTemplates)
+        .where(eq(acquirerApplicationTemplates.id, prospectApp.templateId))
+        .limit(1);
+      if (!template?.originalPdfBase64) {
+        return { ok: false, error: 'Template missing original PDF' };
+      }
+
+      let formData: Record<string, any> = {};
+      if (prospect.formData) {
+        try {
+          formData = typeof prospect.formData === 'string'
+            ? JSON.parse(prospect.formData)
+            : prospect.formData;
+        } catch {
+          formData = {};
+        }
+      }
+      const merged = {
+        ...formData,
+        ...(prospectApp.applicationData as Record<string, any> || {}),
+      };
+
+      const pdfBuffer = await pdfGenerator.generateFilledPDF(
+        template.originalPdfBase64,
+        merged,
+        template.fieldConfiguration,
+        Array.isArray(template.pdfMappingConfiguration)
+          ? template.pdfMappingConfiguration as any[]
+          : [],
+      );
+
+      const uploadsDir = path.default.join(process.cwd(), 'uploads', 'generated-pdfs');
+      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+      const safeCompany = String(merged.companyName || 'application').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const fileName = `${safeCompany}_${prospectId}_${Date.now()}.pdf`;
+      const filePath = path.default.join(uploadsDir, fileName);
+      fs.writeFileSync(filePath, pdfBuffer);
+      const generatedPdfPath = `uploads/generated-pdfs/${fileName}`;
+
+      await db
+        .update(prospectApplications)
+        .set({ generatedPdfPath, updatedAt: new Date() })
+        .where(eq(prospectApplications.id, prospectApp.id));
+
+      return { ok: true, pdfPath: generatedPdfPath };
+    } catch (err: any) {
+      return { ok: false, error: String(err?.message || err) };
+    }
+  }
+
   app.post('/api/prospects/:id/set-campaign', dbEnvironmentMiddleware, requirePerm('agent:read'), async (req: RequestWithDB, res: Response) => {
     try {
       const prospectId = parseInt(req.params.id);
@@ -6109,15 +6221,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!campaignId) return res.status(400).json({ message: 'campaignId is required' });
       const userId = (req.session as any)?.userId;
       const assignment = await storage.swapCampaignForProspect(prospectId, Number(campaignId), userId);
-      let regenerated = false;
+      let regenerated: { ok: boolean; pdfPath?: string; error?: string } | null = null;
       if (regenerate) {
-        try {
-          const { pdfGenerator } = await import('./pdfGenerator');
-          await pdfGenerator.generateFilledPDF(prospectId);
-          regenerated = true;
-        } catch (regenErr) {
-          console.error('PDF regeneration failed:', regenErr);
-        }
+        regenerated = await regenerateProspectPdf(prospectId, getRequestDB(req));
+        if (!regenerated.ok) console.error('PDF regeneration failed:', regenerated.error);
       }
       res.json({ assignment, regenerated });
     } catch (e) {
@@ -6131,7 +6238,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const campaignId = parseInt(req.params.id);
       const prospects = await storage.getProspectsForCampaign(campaignId);
-      res.json({ count: prospects.length, prospects });
+      // Return as both `prospects` (back-compat) and `applications` (current UI)
+      res.json({ count: prospects.length, prospects, applications: prospects });
     } catch (e) {
       console.error('Error listing affected applications:', e);
       res.status(500).json({ message: 'Failed to list affected applications' });
@@ -6143,15 +6251,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const campaignId = parseInt(req.params.id);
       const prospects = await storage.getProspectsForCampaign(campaignId);
-      const { pdfGenerator } = await import('./pdfGenerator');
-      const results: Array<{ prospectId: number; ok: boolean; error?: string }> = [];
+      const dbToUse = getRequestDB(req);
+      const results: Array<{ prospectId: number; ok: boolean; pdfPath?: string; error?: string }> = [];
       for (const p of prospects) {
-        try {
-          await pdfGenerator.generateFilledPDF(p.id);
-          results.push({ prospectId: p.id, ok: true });
-        } catch (err: any) {
-          results.push({ prospectId: p.id, ok: false, error: String(err?.message || err) });
-        }
+        const r = await regenerateProspectPdf(p.id, dbToUse);
+        results.push({ prospectId: p.id, ...r });
       }
       const succeeded = results.filter(r => r.ok).length;
       res.json({ total: results.length, succeeded, failed: results.length - succeeded, results });
