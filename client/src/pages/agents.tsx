@@ -63,6 +63,7 @@ export default function Agents() {
     mutationFn: (id: number) => agentsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents/hierarchy/tree"] });
       queryClient.invalidateQueries({ queryKey: ["/api/analytics/dashboard"] });
       toast({
         title: "Success",
@@ -140,6 +141,7 @@ export default function Agents() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents/hierarchy/tree"] });
       toast({
         title: "User Account Deleted",
         description: "Agent and associated user account deleted successfully",

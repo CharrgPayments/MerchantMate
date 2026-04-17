@@ -93,6 +93,7 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
     mutationFn: (data: InsertAgent) => agentsApi.create(data),
     onSuccess: (response: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents/hierarchy/tree"] });
       queryClient.invalidateQueries({ queryKey: ["/api/analytics/dashboard"] });
       
       // Show user account creation details
@@ -123,6 +124,7 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
       agentsApi.update(agent!.id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents/hierarchy/tree"] });
       queryClient.invalidateQueries({ queryKey: ["/api/analytics/dashboard"] });
       toast({
         title: "Success",
