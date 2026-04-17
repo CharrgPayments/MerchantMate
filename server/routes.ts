@@ -3063,79 +3063,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Prospect not found" });
       }
 
-      // Epic D — ?agentId= deep link is treated as a CONTEXT HINT only on this
-      // public/unauthenticated endpoint. We never mutate prospect.agentId from
-      // arbitrary URL input (that would let anyone reassign commission
-      // attribution by guessing prospect IDs). The hint is only used below to
-      // resolve a campaign via the agent's defaultCampaignId or rules engine
-      // when the prospect itself doesn't yet have an agent. If you need to
-      // persist agent attribution from a public link, use a signed invite
-      // token rather than a raw query parameter.
-
-      // Epic D — submission-time campaign auto-assignment.
-      // Precedence (single place, deterministic):
-      //   1. explicit deepLinkCampaignId from URL — AUTHORITATIVE: applied
-      //      even if a prior assignment exists, so MPA links always carry
-      //      their campaign pricing through to the generated PDF.
-      //   2. existing active assignment (no-op if already set)
-      //   3. agent.defaultCampaignId (uses prospect.agentId, possibly just
-      //      attached above from deepLinkAgentId)
-      //   4. assignment-rule match using mcc/acquirerId from formData and the
-      //      effective agentId
-      // If a deepLinkCampaignId was provided and we cannot apply it, the
-      // submission fails fast (rather than silently dropping pricing).
+      // Epic D — ?agentId= and ?campaignId= are CONTEXT HINTS only on this
+      // public endpoint. We never mutate prospect.agentId from URL input, and
+      // we never override an existing different campaign assignment from URL
+      // input either (both would enable IDOR-style tampering by guessing
+      // prospect IDs). Deep-link values are honored only when:
+      //   - prospect has no active assignment yet (initial assignment), OR
+      //   - the value matches what's already assigned (idempotent).
+      // Anything stronger (cross-session deep-link binding) requires a signed
+      // invite token, which is out of scope for Epic D.
       const dlCampaignId =
         deepLinkCampaignId && Number(deepLinkCampaignId) > 0 ? Number(deepLinkCampaignId) : null;
       try {
-        const sessionUserId = (req.session as any)?.userId;
-        if (dlCampaignId) {
-          // Validate the campaign exists and is active before swapping.
-          const camp = await storage.getCampaign(dlCampaignId);
-          if (!camp || camp.isActive === false) {
-            return res.status(400).json({
-              message: 'Deep-link campaign is invalid or inactive',
-              campaignId: dlCampaignId,
-            });
-          }
-          const existing = await storage.getProspectCampaignAssignment(prospectId);
-          if (!existing || existing.campaignId !== dlCampaignId) {
-            await storage.swapCampaignForProspect(prospectId, dlCampaignId, sessionUserId);
-            console.log(`[Epic D] deep-link campaign ${dlCampaignId} applied to prospect ${prospectId} on submit`);
-          }
-        } else {
-          const existing = await storage.getProspectCampaignAssignment(prospectId);
-          if (!existing) {
-            const effectiveAgentId =
-              prospect.agentId ?? (deepLinkAgentId ? Number(deepLinkAgentId) : null);
-            let resolvedCampaignId: number | undefined;
-            if (effectiveAgentId) {
-              const ag = await storage.getAgent(effectiveAgentId);
-              if (ag?.defaultCampaignId) resolvedCampaignId = ag.defaultCampaignId;
-            }
-            if (!resolvedCampaignId) {
-              const ruleMatch = await storage.findCampaignByRule({
-                mcc: formData?.mcc ?? formData?.mccCode ?? null,
-                acquirerId: formData?.acquirerId ? Number(formData.acquirerId) : null,
-                agentId: effectiveAgentId ?? null,
+        const sessionUserId = (req.session as { userId?: string } | undefined)?.userId;
+        const existing = await storage.getProspectCampaignAssignment(prospectId);
+
+        if (dlCampaignId && existing && existing.campaignId !== dlCampaignId) {
+          // Refuse to silently swap a campaign that was set by an authenticated
+          // user. The merchant must contact the agent/admin to change pricing.
+          return res.status(409).json({
+            message: 'Prospect already has a different campaign assigned; deep-link campaign ignored',
+            existingCampaignId: existing.campaignId,
+            deepLinkCampaignId: dlCampaignId,
+          });
+        }
+
+        if (!existing) {
+          // Resolution chain (most specific → least specific):
+          //   1. deepLinkCampaignId  2. agent.defaultCampaignId  3. rules engine
+          const effectiveAgentId =
+            prospect.agentId ?? (deepLinkAgentId ? Number(deepLinkAgentId) : null);
+          let resolved: number | undefined;
+          if (dlCampaignId) {
+            const camp = await storage.getCampaign(dlCampaignId);
+            if (!camp || camp.isActive === false) {
+              return res.status(400).json({
+                message: 'Deep-link campaign is invalid or inactive',
+                campaignId: dlCampaignId,
               });
-              if (ruleMatch) resolvedCampaignId = ruleMatch;
             }
-            if (resolvedCampaignId) {
-              await storage.swapCampaignForProspect(prospectId, resolvedCampaignId, sessionUserId);
-              console.log(`[Epic D] auto-assigned prospect ${prospectId} to campaign ${resolvedCampaignId} on submit`);
-            }
+            resolved = dlCampaignId;
+          }
+          if (!resolved && effectiveAgentId) {
+            const ag = await storage.getAgent(effectiveAgentId);
+            if (ag?.defaultCampaignId) resolved = ag.defaultCampaignId;
+          }
+          if (!resolved) {
+            const ruleMatch = await storage.findCampaignByRule({
+              mcc: formData?.mcc ?? formData?.mccCode ?? null,
+              acquirerId: formData?.acquirerId ? Number(formData.acquirerId) : null,
+              agentId: effectiveAgentId ?? null,
+            });
+            if (ruleMatch) resolved = ruleMatch;
+          }
+          if (resolved) {
+            await storage.swapCampaignForProspect(prospectId, resolved, sessionUserId);
           }
         }
       } catch (assignErr) {
-        // Deep-link assignment failures are FATAL (the link's whole purpose is
-        // to lock pricing); fallback-only failures are logged and tolerated so
-        // submission can still proceed without a campaign.
+        // Deep-link supplied → fail fast so pricing is never silently dropped.
         if (dlCampaignId) {
           console.error('[Epic D] deep-link campaign assignment failed:', assignErr);
-          return res.status(500).json({
-            message: 'Failed to apply deep-link campaign',
-            campaignId: dlCampaignId,
-          });
+          return res.status(500).json({ message: 'Failed to apply deep-link campaign' });
         }
         console.warn('[Epic D] submission-time auto-assign skipped:', assignErr);
       }
@@ -6194,7 +6183,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // generation pattern used in /api/prospects/:id/submit-application.
   async function regenerateProspectPdf(
     prospectId: number,
-    db: any,
+    db: ReturnType<typeof getRequestDB>,
   ): Promise<{ ok: boolean; pdfPath?: string; error?: string }> {
     try {
       const { pdfGenerator } = await import('./pdfGenerator');
