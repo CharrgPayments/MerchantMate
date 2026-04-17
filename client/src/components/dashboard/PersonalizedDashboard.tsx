@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Settings, Eye, EyeOff, GripVertical } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { ACTIONS, getUserRoleCodes, ROLE_CODES } from "@shared/permissions";
+import { ACTIONS, getUserRoleCodes, ROLE_CODES, type RoleCode } from "@shared/permissions";
 import { usePermissions } from "@/hooks/usePermissions";
 import { DashboardWidget } from "./DashboardWidget";
 import { toast } from "@/hooks/use-toast";
@@ -29,7 +29,7 @@ export function PersonalizedDashboard() {
   const [editMode, setEditMode] = useState(false);
   const userRoles = getUserRoleCodes(user);
   const primaryRole = userRoles[0] ?? "";
-  const hasRole = (r: string) => userRoles.includes(r as any);
+  const hasRole = (r: RoleCode) => userRoles.includes(r);
 
   const { data: widgets = [], isLoading } = useQuery({
     queryKey: ["/api/dashboard/widgets"],

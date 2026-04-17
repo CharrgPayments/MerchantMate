@@ -7,6 +7,9 @@ Core CRM is a comprehensive merchant payment processing management system design
 Preferred communication style: Simple, everyday language.
 
 ## Recent Changes (April 2026)
+- **Epic C — Roles & Permission Matrix (rev 10)**: Closes ninth-pass review (sidebar/route action mismatch on `/pdf-naming-guide`, lingering `as any` in dashboard).
+  - **Sidebar/route parity for `/pdf-naming-guide`**: route guard switched to `can(ACTIONS.NAV_ACQUIRERS)` (sidebar already groups it under Acquirers). Toggling NAV_ACQUIRERS now consistently shows/hides nav AND grants/denies the route.
+  - **Removed `as any` cast in `PersonalizedDashboard`**: `hasRole(r as any)` → typed `hasRole(r: RoleCode)` against `getUserRoleCodes(user)`.
 - **Epic C — Roles & Permission Matrix (rev 9)**: Fixes ALS-context loss in rev 8's order-tolerant `requirePerm` fallback (storage.getUser was silently hitting prod after the await boundary).
   - **`requirePerm` env resolution is now ALS-safe**: instead of awaiting an inline `dbEnvironmentMiddleware` (whose `runWithDb(...)` ALS frame is dropped at the `await` boundary), the guard now (a) reads `req.session.dbEnv` directly to derive the env when upstream middleware was skipped, (b) takes a direct `dbForEnv` handle via `getDynamicDatabase(env)`, and (c) wraps the `storage.getUser(userId)` lookup in `runWithDb(dbForEnv, …)` so the per-env DB is guaranteed to be queried regardless of upstream middleware order.
 - **Epic C — Roles & Permission Matrix (rev 8)**: Closes seventh-pass review (middleware ordering, lingering hardcoded role checks, `/pdf-naming-guide` guard, sidebar `any` casts).
