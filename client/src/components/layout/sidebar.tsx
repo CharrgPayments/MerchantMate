@@ -7,6 +7,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ACTIONS, getUserRoleCodes, type Action } from "@shared/permissions";
 import { usePermissions } from "@/hooks/usePermissions";
+import type { LucideIcon } from "lucide-react";
+import type { PdfForm } from "@shared/schema";
 
 // Single source of truth for nav visibility — every item declares the action(s)
 // it requires. Action defaults + DB overrides live in shared/permissions.ts and
@@ -14,10 +16,20 @@ import { usePermissions } from "@/hooks/usePermissions";
 type NavItem = {
   name: string;
   href: string;
-  icon: any;
+  icon: LucideIcon;
   requiresAction: Action;
   subItems?: NavItem[];
 };
+
+// Dynamic PDF-form-driven items don't carry a registry action — visibility is
+// scoped per-form by the form's `allowedRoles[]`.
+type DynamicNavItem = {
+  name: string;
+  href: string;
+  icon: LucideIcon;
+  subItems: NavItem[];
+};
+type RenderedNavItem = (NavItem | DynamicNavItem) & { subItems: NavItem[] };
 
 const baseNavigation: NavItem[] = [
   { name: "Dashboard", href: "/", icon: BarChart3, requiresAction: ACTIONS.NAV_DASHBOARD },
@@ -58,12 +70,12 @@ export function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
 
-  const { data: pdfForms = [] } = useQuery({
+  const { data: pdfForms = [] } = useQuery<PdfForm[]>({
     queryKey: ['/api/pdf-forms'],
     queryFn: async () => {
       const response = await fetch('/api/pdf-forms', { credentials: 'include' });
-      if (!response.ok) return [];
-      return response.json();
+      if (!response.ok) return [] as PdfForm[];
+      return response.json() as Promise<PdfForm[]>;
     },
     enabled: !!user,
   });
@@ -73,22 +85,22 @@ export function Sidebar() {
 
   const { can } = usePermissions();
 
-  const getFilteredNavigation = () => {
+  const getFilteredNavigation = (): RenderedNavItem[] => {
     if (!user) return [];
 
-    const filteredBase = baseNavigation
+    const filteredBase: RenderedNavItem[] = baseNavigation
       .filter((item) => can(item.requiresAction))
       .map((item) => ({
         ...item,
-        subItems: item.subItems?.filter((sub) => can(sub.requiresAction)) || [],
+        subItems: item.subItems?.filter((sub) => can(sub.requiresAction)) ?? [],
       }));
 
     // Dynamic PDF-form-driven nav items still use the form-defined allowedRoles
     // because each form is user-owned data, not a permission registry concern.
     const userRoleList = getUserRoleCodes(user);
-    const dynamicNavItems = (pdfForms as any[])
+    const dynamicNavItems: RenderedNavItem[] = pdfForms
       .filter((form) =>
-        form.showInNavigation && userRoleList.some((r) => form.allowedRoles.includes(r)),
+        form.showInNavigation && (form.allowedRoles ?? []).some((r) => userRoleList.includes(r)),
       )
       .map((form) => ({
         name: form.navigationTitle || form.name,
@@ -123,7 +135,7 @@ export function Sidebar() {
       </div>
 
       <nav className={cn("flex-1 overflow-y-auto space-y-1", isCollapsed ? "p-2" : "p-4")}>
-        {getFilteredNavigation().map((item: any) => {
+        {getFilteredNavigation().map((item) => {
           const isActive = location === item.href;
           const hasSubItems = item.subItems && item.subItems.length > 0;
           const isExpanded = expandedItems.includes(item.name);
@@ -154,7 +166,7 @@ export function Sidebar() {
 
               {hasSubItems && !isCollapsed && isExpanded && (
                 <div className="ml-4 mt-1 space-y-1 border-l border-gray-200 pl-4">
-                  {item.subItems.map((subItem: any) => {
+                  {item.subItems.map((subItem) => {
                     const isSubActive = location === subItem.href;
                     const SubIcon = subItem.icon;
                     return (
@@ -178,7 +190,7 @@ export function Sidebar() {
                 <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap">
                   {item.name}
                   {hasSubItems && (
-                    <div className="mt-1 text-xs text-gray-300">{item.subItems.map((sub: any) => sub.name).join(', ')}</div>
+                    <div className="mt-1 text-xs text-gray-300">{item.subItems.map((sub) => sub.name).join(', ')}</div>
                   )}
                 </div>
               )}

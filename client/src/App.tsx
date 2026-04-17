@@ -401,7 +401,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/application-templates">
             {() => {
-              if (!can(ACTIONS.NAV_SECURITY)) return <NotFound />;
+              if (!can(ACTIONS.NAV_ACQUIRERS)) return <NotFound />;
               const pageInfo = getPageInfo("/application-templates");
               return (
                 <>
@@ -471,7 +471,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/prospects">
             {() => {
-              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
+              if (!can(ACTIONS.NAV_PROSPECTS)) return <NotFound />;
               const pageInfo = { title: "Merchant Prospects" };
               return (
                 <>
@@ -520,7 +520,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/campaigns">
             {() => {
-              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
+              if (!can(ACTIONS.NAV_CAMPAIGNS)) return <NotFound />;
               const pageInfo = getPageInfo("/campaigns");
               return (
                 <>
@@ -537,7 +537,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/campaigns/:id">
             {() => {
-              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
+              if (!can(ACTIONS.NAV_CAMPAIGNS)) return <NotFound />;
               const pageInfo = { title: "Campaign Details" };
               return (
                 <>
@@ -554,7 +554,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/campaigns/:id/edit">
             {() => {
-              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
+              if (!can(ACTIONS.NAV_CAMPAIGNS)) return <NotFound />;
               const pageInfo = { title: "Edit Campaign" };
               return (
                 <>
@@ -571,7 +571,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/equipment">
             {() => {
-              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
+              if (!can(ACTIONS.NAV_CAMPAIGNS)) return <NotFound />;
               const pageInfo = getPageInfo("/equipment");
               return (
                 <>
@@ -588,7 +588,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/workflows">
             {() => {
-              if (!can(ACTIONS.NAV_SECURITY)) return <NotFound />;
+              if (!can(ACTIONS.NAV_WORKFLOWS)) return <NotFound />;
               const pageInfo = getPageInfo("/workflows");
               return (
                 <>
@@ -605,7 +605,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/api-documentation">
             {() => {
-              if (!can(ACTIONS.NAV_SECURITY)) return <NotFound />;
+              if (!can(ACTIONS.NAV_API_DOCS)) return <NotFound />;
               const pageInfo = getPageInfo("/api-documentation");
               return (
                 <>
@@ -635,7 +635,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/testing-utilities">
             {() => {
-              if (!can(ACTIONS.NAV_SECURITY)) return <NotFound />;
+              if (!can(ACTIONS.NAV_TESTING)) return <NotFound />;
               const pageInfo = { title: "Testing Utilities" };
               return (
                 <>
@@ -654,7 +654,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/acquirers">
             {() => {
-              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
+              if (!can(ACTIONS.NAV_ACQUIRERS)) return <NotFound />;
               const pageInfo = getPageInfo("/acquirers");
               return (
                 <>
@@ -668,7 +668,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/mcc-codes">
             {() => {
-              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
+              if (!can(ACTIONS.NAV_ACQUIRERS)) return <NotFound />;
               const pageInfo = getPageInfo("/mcc-codes");
               return (
                 <>
@@ -682,7 +682,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/mcc-policies">
             {() => {
-              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
+              if (!can(ACTIONS.NAV_ACQUIRERS)) return <NotFound />;
               const pageInfo = getPageInfo("/mcc-policies");
               return (
                 <>
@@ -696,7 +696,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/disclosure-library">
             {() => {
-              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
+              if (!can(ACTIONS.NAV_ACQUIRERS)) return <NotFound />;
               const pageInfo = getPageInfo("/disclosure-library");
               return (
                 <>
@@ -793,7 +793,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/campaign-view/:id">
             {() => {
-              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
+              if (!can(ACTIONS.NAV_CAMPAIGNS)) return <NotFound />;
               return (
                 <>
                   <Header title="Campaign Details" onSearch={setGlobalSearch} />
