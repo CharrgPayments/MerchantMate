@@ -83,6 +83,12 @@ export const ACTIONS = {
   NAV_PERMISSION_MATRIX: "nav:permission-matrix",
   NAV_ACTION_TEMPLATES: "nav:action-templates",
   NAV_DATA_VIEW: "nav:data-view",
+  NAV_COMMISSIONS: "nav:commissions",
+
+  // Epic E — Commission ledger & residuals
+  COMMISSIONS_VIEW: "commissions:view",       // see your own (or downline) statement
+  COMMISSIONS_MANAGE: "commissions:manage",   // edit overrides, recalc, settings
+  PAYOUTS_MANAGE: "payouts:manage",           // create / mark paid / void payouts
 } as const;
 export type Action = (typeof ACTIONS)[keyof typeof ACTIONS];
 export const ALL_ACTIONS: Action[] = Object.values(ACTIONS);
@@ -205,6 +211,20 @@ export const DEFAULT_ACTION_GRANTS: Record<Action, ActionGrants> = {
   [ACTIONS.NAV_PERMISSION_MATRIX]: { [ROLE_CODES.SUPER_ADMIN]: "all" },
   [ACTIONS.NAV_ACTION_TEMPLATES]: { [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.SUPER_ADMIN]: "all" },
   [ACTIONS.NAV_DATA_VIEW]: { [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.SUPER_ADMIN]: "all" },
+  [ACTIONS.NAV_COMMISSIONS]: {
+    [ROLE_CODES.AGENT]: "downline", [ROLE_CODES.ADMIN]: "all",
+    [ROLE_CODES.CORPORATE]: "all", [ROLE_CODES.SUPER_ADMIN]: "all",
+  },
+  [ACTIONS.COMMISSIONS_VIEW]: {
+    [ROLE_CODES.AGENT]: "downline", [ROLE_CODES.ADMIN]: "all",
+    [ROLE_CODES.CORPORATE]: "all", [ROLE_CODES.SUPER_ADMIN]: "all",
+  },
+  [ACTIONS.COMMISSIONS_MANAGE]: {
+    [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.SUPER_ADMIN]: "all",
+  },
+  [ACTIONS.PAYOUTS_MANAGE]: {
+    [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.SUPER_ADMIN]: "all",
+  },
 };
 
 export const ACTION_GROUPS: { label: string; actions: Action[] }[] = [
@@ -235,8 +255,12 @@ export const ACTION_GROUPS: { label: string; actions: Action[] }[] = [
       ACTIONS.NAV_PDF_FORMS, ACTIONS.NAV_USERS, ACTIONS.NAV_REPORTS,
       ACTIONS.NAV_SECURITY, ACTIONS.NAV_COMMUNICATIONS, ACTIONS.NAV_WORKFLOWS,
       ACTIONS.NAV_API_DOCS, ACTIONS.NAV_TESTING, ACTIONS.NAV_PERMISSION_MATRIX,
-      ACTIONS.NAV_ACTION_TEMPLATES, ACTIONS.NAV_DATA_VIEW,
+      ACTIONS.NAV_ACTION_TEMPLATES, ACTIONS.NAV_DATA_VIEW, ACTIONS.NAV_COMMISSIONS,
     ],
+  },
+  {
+    label: "Commissions & Payouts",
+    actions: [ACTIONS.COMMISSIONS_VIEW, ACTIONS.COMMISSIONS_MANAGE, ACTIONS.PAYOUTS_MANAGE],
   },
 ];
 
@@ -273,6 +297,10 @@ export const ACTION_LABELS: Record<Action, string> = {
   [ACTIONS.NAV_PERMISSION_MATRIX]: "Sidebar: Roles & Permissions",
   [ACTIONS.NAV_ACTION_TEMPLATES]: "Sidebar: Action Templates",
   [ACTIONS.NAV_DATA_VIEW]: "Sidebar: Data View",
+  [ACTIONS.NAV_COMMISSIONS]: "Sidebar: Commissions",
+  [ACTIONS.COMMISSIONS_VIEW]: "Commissions: View statement",
+  [ACTIONS.COMMISSIONS_MANAGE]: "Commissions: Manage overrides & recalc",
+  [ACTIONS.PAYOUTS_MANAGE]: "Payouts: Create / mark paid / void",
 };
 
 // Destructive actions (UI confirms before granting "all" scope on these).

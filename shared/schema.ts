@@ -1594,6 +1594,104 @@ export const actionActivity = pgTable("action_activity", {
   retryCount: integer("retry_count").default(0),
 });
 
+// ============================================================================
+// Epic E — Commission Ledger & Residuals
+// ============================================================================
+
+// Per-edge override percentage. When a transaction earned by `childAgentId`
+// flows up to `parentAgentId`, this row's `percent` decides the parent's slice.
+// If no row exists, the engine falls back to commission_settings.defaultOverridePct.
+export const agentOverrides = pgTable("agent_overrides", {
+  id: serial("id").primaryKey(),
+  parentAgentId: integer("parent_agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  childAgentId: integer("child_agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  percent: decimal("percent", { precision: 5, scale: 2 }).notNull(), // e.g. 0.50 = 0.5%
+  notes: text("notes"),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  uniqEdge: unique("agent_overrides_edge_uq").on(t.parentAgentId, t.childAgentId),
+  parentIdx: index("agent_overrides_parent_idx").on(t.parentAgentId),
+  childIdx: index("agent_overrides_child_idx").on(t.childAgentId),
+}));
+
+// One row per beneficiary per transaction. `depth` = 0 means the merchant's
+// own (direct) agent; depth>=1 means upline override slice. Status flow:
+//   pending -> payable -> paid (or reversed at any point).
+export const commissionEvents = pgTable("commission_events", {
+  id: serial("id").primaryKey(),
+  transactionId: integer("transaction_id").notNull().references(() => transactions.id, { onDelete: "cascade" }),
+  merchantId: integer("merchant_id").notNull(),
+  sourceAgentId: integer("source_agent_id"), // the merchant's primary agent
+  beneficiaryAgentId: integer("beneficiary_agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  depth: integer("depth").notNull(), // 0 = direct, 1+ = upline override
+  basisAmount: decimal("basis_amount", { precision: 14, scale: 2 }).notNull(), // amount used for the calculation
+  ratePct: decimal("rate_pct", { precision: 6, scale: 3 }).notNull(),          // commission rate % applied
+  amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),            // basis * rate / 100
+  status: text("status").notNull().default("pending"), // pending | payable | paid | reversed
+  payoutId: integer("payout_id"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  txIdx: index("commission_events_tx_idx").on(t.transactionId),
+  benIdx: index("commission_events_beneficiary_idx").on(t.beneficiaryAgentId),
+  statusIdx: index("commission_events_status_idx").on(t.status),
+  payoutIdx: index("commission_events_payout_idx").on(t.payoutId),
+}));
+
+// Payout batch header. Aggregates payable events for one agent over a period.
+export const payouts = pgTable("payouts", {
+  id: serial("id").primaryKey(),
+  agentId: integer("agent_id").notNull().references(() => agents.id, { onDelete: "restrict" }),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  grossAmount: decimal("gross_amount", { precision: 14, scale: 2 }).notNull().default("0"),
+  adjustments: decimal("adjustments", { precision: 14, scale: 2 }).notNull().default("0"),
+  netAmount: decimal("net_amount", { precision: 14, scale: 2 }).notNull().default("0"),
+  method: text("method").notNull().default("ach"), // ach | check | manual | wire
+  reference: text("reference"),
+  status: text("status").notNull().default("draft"), // draft | processing | paid | void
+  notes: text("notes"),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  paidAt: timestamp("paid_at"),
+}, (t) => ({
+  agentIdx: index("payouts_agent_idx").on(t.agentId),
+  statusIdx: index("payouts_status_idx").on(t.status),
+}));
+
+// Singleton-ish settings. Keep keyed so we can grow without schema changes.
+export const commissionSettings = pgTable("commission_settings", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  value: text("value").notNull(),
+  updatedBy: varchar("updated_by"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertAgentOverrideSchema = createInsertSchema(agentOverrides).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCommissionEventSchema = createInsertSchema(commissionEvents).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertPayoutSchema = createInsertSchema(payouts).omit({ id: true, createdAt: true, paidAt: true, grossAmount: true, netAmount: true });
+export const insertCommissionSettingSchema = createInsertSchema(commissionSettings).omit({ id: true, updatedAt: true });
+
+export type AgentOverride = typeof agentOverrides.$inferSelect;
+export type InsertAgentOverride = z.infer<typeof insertAgentOverrideSchema>;
+export type CommissionEvent = typeof commissionEvents.$inferSelect;
+export type InsertCommissionEvent = z.infer<typeof insertCommissionEventSchema>;
+export type Payout = typeof payouts.$inferSelect;
+export type InsertPayout = z.infer<typeof insertPayoutSchema>;
+export type CommissionSetting = typeof commissionSettings.$inferSelect;
+
+export const COMMISSION_EVENT_STATUSES = ["pending", "payable", "paid", "reversed"] as const;
+export const PAYOUT_STATUSES = ["draft", "processing", "paid", "void"] as const;
+export const PAYOUT_METHODS = ["ach", "check", "manual", "wire"] as const;
+export const COMMISSION_SETTING_KEYS = {
+  DEFAULT_OVERRIDE_PCT: "default_override_pct",
+  COMMISSION_BASIS: "commission_basis", // "amount" | "processing_fee"
+} as const;
+
 export const insertActionTemplateSchema = createInsertSchema(actionTemplates).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertTriggerCatalogSchema = createInsertSchema(triggerCatalog).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertTriggerActionSchema = createInsertSchema(triggerActions).omit({ id: true, createdAt: true, updatedAt: true });

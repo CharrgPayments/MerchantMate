@@ -52,6 +52,7 @@ import DataView from "@/pages/data-view";
 import CommunicationsManagement from "@/pages/communications-management";
 import AlertsPage from "@/pages/AlertsPage";
 import ProfilePage from "@/pages/profile";
+import CommissionsPage from "@/pages/commissions";
 import PortalLogin from "@/pages/portal-login";
 import ProspectPortal from "@/pages/portal";
 import PortalMagicLogin from "@/pages/portal-magic-login";
@@ -831,6 +832,19 @@ function AuthenticatedApp() {
                     <div className="container mx-auto p-6">
                       <ProfilePage />
                     </div>
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/commissions">
+            {() => {
+              if (!can(ACTIONS.NAV_COMMISSIONS)) return <NotFound />;
+              return (
+                <>
+                  <Header title="Commissions & Residuals" onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <CommissionsPage />
                   </main>
                 </>
               );

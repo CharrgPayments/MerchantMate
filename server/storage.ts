@@ -1605,6 +1605,13 @@ export class DatabaseStorage implements IStorage {
       .insert(transactions)
       .values(insertTransaction)
       .returning();
+    // Auto-calc commission ledger entries (best-effort — never blocks a tx insert).
+    try {
+      const { calculateCommissionsForTransaction } = await import("./commissions");
+      await calculateCommissionsForTransaction(db, transaction.id);
+    } catch (err) {
+      console.warn("[commissions] auto-calc on createTransaction failed:", (err as Error).message);
+    }
     return transaction;
   }
 
