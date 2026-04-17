@@ -283,23 +283,28 @@ async function getSchemaSnapshot(env: string): Promise<any | null> {
   }
 }
 
-function diffSchemas(base: any, target: any): any[] {
-  const baseSet = new Map<string, any>();
+type ColumnInfo = { table_name: string; column_name: string; data_type: string; is_nullable: string };
+type SchemaSnapshot = { columns: ColumnInfo[] };
+type SchemaDiff =
+  | { kind: "missing_in_target"; column: string; base: ColumnInfo }
+  | { kind: "extra_in_target"; column: string; target: ColumnInfo }
+  | { kind: "type_mismatch"; column: string; base: ColumnInfo; target: ColumnInfo };
+
+function diffSchemas(base: SchemaSnapshot, target: SchemaSnapshot): SchemaDiff[] {
+  const baseSet = new Map<string, ColumnInfo>();
   for (const c of base.columns) baseSet.set(`${c.table_name}.${c.column_name}`, c);
-  const targetSet = new Map<string, any>();
+  const targetSet = new Map<string, ColumnInfo>();
   for (const c of target.columns) targetSet.set(`${c.table_name}.${c.column_name}`, c);
-  const diffs: any[] = [];
+  const diffs: SchemaDiff[] = [];
   baseSet.forEach((v, k) => {
     if (!targetSet.has(k)) diffs.push({ kind: "missing_in_target", column: k, base: v });
   });
   targetSet.forEach((v, k) => {
-    if (!baseSet.has(k)) {
+    const b = baseSet.get(k);
+    if (!b) {
       diffs.push({ kind: "extra_in_target", column: k, target: v });
-    } else {
-      const b = baseSet.get(k);
-      if (b.data_type !== v.data_type || b.is_nullable !== v.is_nullable) {
-        diffs.push({ kind: "type_mismatch", column: k, base: b, target: v });
-      }
+    } else if (b.data_type !== v.data_type || b.is_nullable !== v.is_nullable) {
+      diffs.push({ kind: "type_mismatch", column: k, base: b, target: v });
     }
   });
   return diffs;
@@ -326,7 +331,7 @@ export async function detectSchemaDrift(): Promise<{ alerts: number }> {
         baseEnvironment: "production",
         targetEnvironment: target,
         differenceCount: diffs.length,
-        differences: diffs as any,
+        differences: diffs,
       });
       alerts += 1;
       await auditService.logAction("schema_drift_detected", "system", { ipAddress: "system" }, {
