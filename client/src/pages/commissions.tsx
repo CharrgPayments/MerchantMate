@@ -271,10 +271,54 @@ export default function CommissionsPage() {
 function EventsTable({ events, loading, nameOf }: {
   events: CommissionEvent[]; loading: boolean; nameOf: (id?: number | null) => string;
 }) {
+  const { toast } = useToast();
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const toggle = (id: number) => setSelected((s) => {
+    const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;
+  });
+  const ids = Array.from(selected);
+
+  const promote = useMutation({
+    mutationFn: async () => apiRequest("POST", "/api/commissions/events/mark-payable", { eventIds: ids }),
+    onSuccess: async (res: any) => {
+      const j = await res.json();
+      toast({ title: `Promoted ${j.updated} events to payable` });
+      setSelected(new Set());
+      queryClient.invalidateQueries({ queryKey: ["/api/commissions/events"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/commissions/statement"] });
+    },
+    onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+  });
+
+  const payNow = useMutation({
+    mutationFn: async () => apiRequest("POST", "/api/commissions/events/mark-paid", { eventIds: ids }),
+    onSuccess: async (res: any) => {
+      const j = await res.json();
+      toast({ title: `Marked ${j.updated} events paid` });
+      setSelected(new Set());
+      queryClient.invalidateQueries({ queryKey: ["/api/commissions/events"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/commissions/statement"] });
+    },
+    onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+  });
+
   return (
-    <Card><CardContent className="p-4">
+    <Card><CardContent className="p-4 space-y-3">
+      {ids.length > 0 && (
+        <div className="flex items-center gap-2 text-sm bg-blue-50 border border-blue-200 rounded p-2">
+          <span className="font-medium">{ids.length} selected</span>
+          <Button size="sm" variant="outline" onClick={() => promote.mutate()} disabled={promote.isPending} data-testid="button-bulk-promote">
+            Promote to payable
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => payNow.mutate()} disabled={payNow.isPending} data-testid="button-bulk-pay">
+            <CheckCircle2 className="w-4 h-4 mr-1" /> Mark paid
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
+        </div>
+      )}
       <Table>
         <TableHeader><TableRow>
+          <TableHead className="w-8"></TableHead>
           <TableHead>Created</TableHead>
           <TableHead>Tx ID</TableHead>
           <TableHead>Beneficiary</TableHead>
@@ -287,22 +331,31 @@ function EventsTable({ events, loading, nameOf }: {
         </TableRow></TableHeader>
         <TableBody>
           {loading ? Array.from({ length: 5 }).map((_, i) => (
-            <TableRow key={i}><TableCell colSpan={9}><Skeleton className="h-5 w-full" /></TableCell></TableRow>
+            <TableRow key={i}><TableCell colSpan={10}><Skeleton className="h-5 w-full" /></TableCell></TableRow>
           )) : events.length === 0 ? (
-            <TableRow><TableCell colSpan={9} className="text-center py-8 text-gray-500">No commission events.</TableCell></TableRow>
-          ) : events.map((e) => (
-            <TableRow key={e.id} data-testid={`event-row-${e.id}`}>
-              <TableCell className="text-xs">{new Date(e.createdAt).toLocaleString()}</TableCell>
-              <TableCell className="font-mono text-xs">#{e.transactionId}</TableCell>
-              <TableCell>{nameOf(e.beneficiaryAgentId)}</TableCell>
-              <TableCell className="text-gray-500">{nameOf(e.sourceAgentId)}</TableCell>
-              <TableCell className="text-right">{e.depth}</TableCell>
-              <TableCell className="text-right">{fmtCurrency(e.basisAmount)}</TableCell>
-              <TableCell className="text-right">{Number(e.ratePct).toFixed(3)}</TableCell>
-              <TableCell className="text-right font-semibold">{fmtCurrency(e.amount)}</TableCell>
-              <TableCell><Badge className={statusBadge(e.status)}>{e.status}</Badge></TableCell>
-            </TableRow>
-          ))}
+            <TableRow><TableCell colSpan={10} className="text-center py-8 text-gray-500">No commission events.</TableCell></TableRow>
+          ) : events.map((e) => {
+            const selectable = e.status === "pending" || e.status === "payable";
+            return (
+              <TableRow key={e.id} data-testid={`event-row-${e.id}`}>
+                <TableCell>
+                  {selectable && (
+                    <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggle(e.id)}
+                           data-testid={`checkbox-event-${e.id}`} />
+                  )}
+                </TableCell>
+                <TableCell className="text-xs">{new Date(e.createdAt).toLocaleString()}</TableCell>
+                <TableCell className="font-mono text-xs">#{e.transactionId}</TableCell>
+                <TableCell>{nameOf(e.beneficiaryAgentId)}</TableCell>
+                <TableCell className="text-gray-500">{nameOf(e.sourceAgentId)}</TableCell>
+                <TableCell className="text-right">{e.depth}</TableCell>
+                <TableCell className="text-right">{fmtCurrency(e.basisAmount)}</TableCell>
+                <TableCell className="text-right">{Number(e.ratePct).toFixed(3)}</TableCell>
+                <TableCell className="text-right font-semibold">{fmtCurrency(e.amount)}</TableCell>
+                <TableCell><Badge className={statusBadge(e.status)}>{e.status}</Badge></TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </CardContent></Card>

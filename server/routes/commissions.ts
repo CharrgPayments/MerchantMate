@@ -255,6 +255,39 @@ export function registerCommissionsRoutes(app: Express) {
       }
     });
 
+  // Bulk promote pending commission events to payable (approval gate).
+  app.post("/api/commissions/events/mark-payable",
+    isAuthenticated, dbEnvironmentMiddleware, requirePerm(ACTIONS.COMMISSIONS_MANAGE),
+    async (req: RequestWithDB, res: Response) => {
+      try {
+        const schema = z.object({
+          eventIds: z.array(z.coerce.number().int().positive()).min(1),
+        });
+        const parsed = schema.safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ errors: parsed.error.errors });
+
+        const allowed = await resolveScopedAgentIds(req);
+        const rows = await req.db!.select({
+          id: commissionEvents.id,
+          beneficiaryAgentId: commissionEvents.beneficiaryAgentId,
+        }).from(commissionEvents).where(inArray(commissionEvents.id, parsed.data.eventIds));
+        const denied = rows.filter((r) => !allowed.includes(r.beneficiaryAgentId));
+        if (denied.length > 0) return res.status(403).json({ message: "Forbidden" });
+
+        const updated = await req.db!.update(commissionEvents)
+          .set({ status: "payable", updatedAt: new Date() })
+          .where(and(
+            inArray(commissionEvents.id, rows.map((r) => r.id)),
+            eq(commissionEvents.status, "pending"),
+          ))
+          .returning({ id: commissionEvents.id });
+        res.json({ updated: updated.length });
+      } catch (err: any) {
+        console.error("[commissions] events mark-payable failed", err);
+        res.status(500).json({ message: err?.message || "Mark payable failed" });
+      }
+    });
+
   // Bulk mark commission events as paid (without creating a payout batch).
   app.post("/api/commissions/events/mark-paid",
     isAuthenticated, dbEnvironmentMiddleware, requirePerm(ACTIONS.PAYOUTS_MANAGE),

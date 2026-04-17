@@ -184,11 +184,13 @@ export async function createPayoutForAgent(db: Db, params: {
 }): Promise<Payout> {
   const { agentId, periodStart, periodEnd } = params;
 
+  // Only events already promoted to "payable" are eligible. Pending events
+  // must be explicitly approved (markEventsPayable) before they can be paid.
   const eligible = await db.select({ id: commissionEvents.id, amount: commissionEvents.amount })
     .from(commissionEvents)
     .where(and(
       eq(commissionEvents.beneficiaryAgentId, agentId),
-      inArray(commissionEvents.status, ["pending", "payable"]),
+      eq(commissionEvents.status, "payable"),
       gte(commissionEvents.createdAt, periodStart),
       lte(commissionEvents.createdAt, periodEnd),
     ));
@@ -209,8 +211,9 @@ export async function createPayoutForAgent(db: Db, params: {
   }).returning();
 
   if (eligible.length > 0) {
+    // Attach to payout (status remains "payable" until the payout is marked paid).
     await db.update(commissionEvents)
-      .set({ payoutId: payout.id, status: "payable", updatedAt: new Date() })
+      .set({ payoutId: payout.id, updatedAt: new Date() })
       .where(inArray(commissionEvents.id, eligible.map((e) => e.id)));
   }
 
@@ -251,44 +254,68 @@ export async function voidPayout(db: Db, payoutId: number) {
   return updated;
 }
 
-/** Aggregate statement for an agent (or a list of agents) over a period. */
+/**
+ * Aggregate statement for an agent (or a list of agents) over a period.
+ *
+ * Totals and per-agent rollups are computed via DB-side SUM aggregates over
+ * the FULL filtered dataset (no limit). The `events` list returned alongside
+ * is a recent slice (default 500, newest first) intended for display only.
+ */
 export async function buildStatement(db: Db, params: {
   agentIds: number[];
   periodStart?: Date;
   periodEnd?: Date;
+  eventLimit?: number;
 }) {
-  const { agentIds, periodStart, periodEnd } = params;
+  const { agentIds, periodStart, periodEnd, eventLimit = 500 } = params;
   if (agentIds.length === 0) return { totals: emptyTotals(), events: [], byAgent: [] };
 
   const conds = [inArray(commissionEvents.beneficiaryAgentId, agentIds)];
   if (periodStart) conds.push(gte(commissionEvents.createdAt, periodStart));
   if (periodEnd) conds.push(lte(commissionEvents.createdAt, periodEnd));
 
-  const events = await db.select().from(commissionEvents).where(and(...conds))
-    .orderBy(desc(commissionEvents.createdAt)).limit(500);
+  // Full-population aggregates by status — independent of event display limit.
+  const totalsRows = await db.select({
+    status: commissionEvents.status,
+    sum: sql<string>`COALESCE(SUM(${commissionEvents.amount}), 0)`,
+  }).from(commissionEvents).where(and(...conds))
+    .groupBy(commissionEvents.status);
 
-  const totals = events.reduce((t, e) => {
-    const amt = Number(e.amount);
-    t.total += amt;
-    if (e.status === "pending") t.pending += amt;
-    else if (e.status === "payable") t.payable += amt;
-    else if (e.status === "paid") t.paid += amt;
-    else if (e.status === "reversed") t.reversed += amt;
-    return t;
-  }, emptyTotals());
+  const totals = emptyTotals();
+  for (const r of totalsRows) {
+    const amt = Number(r.sum);
+    totals.total += amt;
+    if (r.status === "pending") totals.pending += amt;
+    else if (r.status === "payable") totals.payable += amt;
+    else if (r.status === "paid") totals.paid += amt;
+    else if (r.status === "reversed") totals.reversed += amt;
+  }
 
-  const byAgentMap = new Map<number, typeof totals>();
-  for (const e of events) {
-    const cur = byAgentMap.get(e.beneficiaryAgentId) ?? emptyTotals();
-    const amt = Number(e.amount);
+  // Per-agent rollups by status — also full-population.
+  const perAgentRows = await db.select({
+    agentId: commissionEvents.beneficiaryAgentId,
+    status: commissionEvents.status,
+    sum: sql<string>`COALESCE(SUM(${commissionEvents.amount}), 0)`,
+  }).from(commissionEvents).where(and(...conds))
+    .groupBy(commissionEvents.beneficiaryAgentId, commissionEvents.status);
+
+  const byAgentMap = new Map<number, ReturnType<typeof emptyTotals>>();
+  for (const r of perAgentRows) {
+    const cur = byAgentMap.get(r.agentId) ?? emptyTotals();
+    const amt = Number(r.sum);
     cur.total += amt;
-    if (e.status === "pending") cur.pending += amt;
-    else if (e.status === "payable") cur.payable += amt;
-    else if (e.status === "paid") cur.paid += amt;
-    else if (e.status === "reversed") cur.reversed += amt;
-    byAgentMap.set(e.beneficiaryAgentId, cur);
+    if (r.status === "pending") cur.pending += amt;
+    else if (r.status === "payable") cur.payable += amt;
+    else if (r.status === "paid") cur.paid += amt;
+    else if (r.status === "reversed") cur.reversed += amt;
+    byAgentMap.set(r.agentId, cur);
   }
   const byAgent = Array.from(byAgentMap.entries()).map(([agentId, t]) => ({ agentId, ...t }));
+
+  // Recent events for display only — limited.
+  const events = await db.select().from(commissionEvents).where(and(...conds))
+    .orderBy(desc(commissionEvents.createdAt)).limit(eventLimit);
+
   return { totals, events, byAgent };
 }
 
