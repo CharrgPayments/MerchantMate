@@ -29,8 +29,18 @@ interface EntityActivityFeedProps {
 }
 
 export function EntityActivityFeed({ resource, resourceId, limit = 100 }: EntityActivityFeedProps) {
+  // Default queryFn fetches only queryKey[0]; this endpoint needs the
+  // resource/id path segments and a query string, so supply an explicit fn.
   const { data, isLoading } = useQuery<AuditLogRow[]>({
     queryKey: ["/api/audit/entity", resource, String(resourceId), { limit }],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/audit/entity/${encodeURIComponent(resource)}/${encodeURIComponent(String(resourceId))}?limit=${limit}`,
+        { credentials: "include" }
+      );
+      if (!res.ok) throw new Error(`Failed to load activity (${res.status})`);
+      return (await res.json()) as AuditLogRow[];
+    },
   });
 
   if (isLoading) {

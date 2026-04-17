@@ -34,16 +34,27 @@ const router = Router();
 
 // ─── Per-entity activity feed (audit_logs scoped) ────────────────────────────
 //
-// Returns the recent audit-log entries for a single resource. Used by the
-// "Activity" tab on application/prospect/agent/merchant detail pages.
-router.get("/audit/entity/:resource/:resourceId", isAuthenticated, async (req, res) => {
+// Returns recent audit-log entries for a single resource. Restricted to users
+// with `audit:read` (admins, underwriters, deployment) so audit metadata cannot
+// be enumerated cross-tenant by ordinary authenticated users (IDOR mitigation).
+// Whitelist of resources we expose through this generic endpoint.
+const ALLOWED_AUDIT_RESOURCES = new Set([
+  "prospect", "application", "merchant", "agent", "user", "campaign",
+]);
+
+router.get("/audit/entity/:resource/:resourceId", isAuthenticated, requirePerm("admin:read"), async (req, res) => {
   try {
     const { resource, resourceId } = req.params;
-    const limit = Math.min(Number(req.query.limit ?? 100), 500);
+    if (!ALLOWED_AUDIT_RESOURCES.has(resource)) {
+      return res.status(400).json({ message: "Unsupported resource" });
+    }
+    const limit = Math.min(Math.max(Number(req.query.limit ?? 100), 1), 500);
+    const offset = Math.max(Number(req.query.offset ?? 0), 0);
     const rows = await db.select().from(auditLogs)
       .where(and(eq(auditLogs.resource, resource), eq(auditLogs.resourceId, resourceId)))
       .orderBy(desc(auditLogs.createdAt))
-      .limit(limit);
+      .limit(limit)
+      .offset(offset);
     res.json(rows);
   } catch (err) {
     console.error("[compliance] entity activity failed", err);

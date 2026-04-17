@@ -124,7 +124,7 @@ export async function archiveExpiredApplications(): Promise<{ archived: number }
             originalApplicationId: a.id,
             prospectId: a.prospectId,
             finalStatus: a.status,
-            applicationSnapshot: a as any,
+            applicationSnapshot: a,
             archivedReason: `retention_policy_${RETENTION_DAYS}d`,
           });
           await tx.delete(prospectApplications).where(eq(prospectApplications.id, a.id));
@@ -173,7 +173,7 @@ export async function buildReport(template: ReportTemplate): Promise<{ subject: 
       SELECT status, COUNT(*)::int as count
       FROM prospect_applications
       GROUP BY status ORDER BY status`);
-    const rows = (counts.rows as any[]) || [];
+    const rows = (counts.rows as Array<{ status: string; count: number }>) || [];
     const tableRows = rows.map((r) => `<tr><td>${r.status}</td><td>${r.count}</td></tr>`).join("");
     const total = rows.reduce((s, r) => s + Number(r.count), 0);
     return {
@@ -190,8 +190,8 @@ export async function buildReport(template: ReportTemplate): Promise<{ subject: 
     SELECT status, COUNT(*)::int AS count, COALESCE(SUM(amount),0)::numeric AS total
     FROM commission_events
     WHERE created_at >= NOW() - INTERVAL '30 days'
-    GROUP BY status ORDER BY status`).catch(() => ({ rows: [] as any[] }));
-  const rows = (commissionData.rows as any[]) || [];
+    GROUP BY status ORDER BY status`).catch(() => ({ rows: [] as Array<{ status: string; count: number; total: string }> }));
+  const rows = (commissionData.rows as Array<{ status: string; count: number; total: string }>) || [];
   const tableRows = rows.map((r) => `<tr><td>${r.status}</td><td>${r.count}</td><td>$${Number(r.total).toFixed(2)}</td></tr>`).join("");
   const total = rows.reduce((s, r) => s + Number(r.count), 0);
   return {
