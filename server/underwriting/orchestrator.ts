@@ -360,6 +360,7 @@ export async function runUnderwritingPipeline(opts: {
     let score: number | null = null;
     let tier: "low" | "medium" | "high";
     let slaDeadline: Date | null = null;
+    let breakdown: ReturnType<typeof computeRiskScore>["breakdown"] | null = null;
 
     // Always compute a weighted risk score from whatever phases ran. PayFac
     // applications enumerate fewer phases (only checkpoints + Volume), but a
@@ -371,6 +372,7 @@ export async function runUnderwritingPipeline(opts: {
       const agg = computeRiskScore(outcomes);
       score = agg.score;
       tier = agg.tier;
+      breakdown = agg.breakdown;
     }
     if (pathway === PATHWAYS.PAYFAC) {
       // Worst-of checkpoint tier wins so a single bad checkpoint can't be
@@ -383,11 +385,11 @@ export async function runUnderwritingPipeline(opts: {
 
     await db.update(underwritingRuns).set({
       status: "completed", currentPhase: null,
-      riskScore: score, riskTier: tier, completedAt: new Date(),
+      riskScore: score, riskTier: tier, riskScoreBreakdown: breakdown, completedAt: new Date(),
     }).where(eq(underwritingRuns.id, run.id));
 
     await db.update(prospectApplications).set({
-      riskScore: score, riskTier: tier,
+      riskScore: score, riskTier: tier, riskScoreBreakdown: breakdown,
       slaDeadline, pipelineHaltedAtPhase: haltedAtPhase,
       updatedAt: new Date(),
     }).where(eq(prospectApplications.id, applicationId));

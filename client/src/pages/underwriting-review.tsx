@@ -29,9 +29,13 @@ interface PhaseRow {
   score: number; findings: { severity: string; message: string; code?: string; fieldPath?: string }[];
   durationMs: number | null; completedAt: string | null;
 }
+interface ScoreBreakdownComponent {
+  key: string; weight: number; status: string; rawScore: number; weightedScore: number;
+}
 interface ApplicationRow {
   id: number; status: AppStatus; subStatus: string | null; pathway: Pathway;
   underwritingType: string; riskScore: number | null; riskTier: string | null;
+  riskScoreBreakdown: { components: ScoreBreakdownComponent[]; totalWeight: number; weightedSum: number } | null;
   assignedReviewerId: string | null; submittedAt: string | null;
   slaDeadline: string | null; pipelineHaltedAtPhase: string | null;
   rejectionReason: string | null;
@@ -335,6 +339,41 @@ export default function UnderwritingReview() {
           )}
           {transitions.length === 0 && (
             <div className="mt-4 text-xs text-gray-500">No transitions available — either you don't hold the required permissions, or the application is in a terminal state.</div>
+          )}
+          {app.riskScoreBreakdown && app.riskScoreBreakdown.components.length > 0 && (
+            <div className="mt-6">
+              <div className="text-sm font-medium mb-2">Risk Score Breakdown</div>
+              <div className="border rounded overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Phase</th>
+                      <th className="px-3 py-2 text-right">Status</th>
+                      <th className="px-3 py-2 text-right">Weight</th>
+                      <th className="px-3 py-2 text-right">Raw</th>
+                      <th className="px-3 py-2 text-right">Weighted</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {app.riskScoreBreakdown.components.map(c => (
+                      <tr key={c.key} className="border-t">
+                        <td className="px-3 py-2 font-mono">{c.key}</td>
+                        <td className="px-3 py-2 text-right">{c.status}</td>
+                        <td className="px-3 py-2 text-right">{c.weight}</td>
+                        <td className="px-3 py-2 text-right">{c.rawScore}</td>
+                        <td className="px-3 py-2 text-right">{c.weightedScore.toFixed(1)}</td>
+                      </tr>
+                    ))}
+                    <tr className="border-t bg-gray-50 font-medium">
+                      <td className="px-3 py-2" colSpan={2}>Total</td>
+                      <td className="px-3 py-2 text-right">{app.riskScoreBreakdown.totalWeight}</td>
+                      <td className="px-3 py-2 text-right">—</td>
+                      <td className="px-3 py-2 text-right">{app.riskScoreBreakdown.weightedSum.toFixed(1)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -993,6 +993,9 @@ export const prospectApplications = pgTable("prospect_applications", {
   underwritingType: text("underwriting_type").notNull().default("new_app"), // new_app | change_request
   riskScore: integer("risk_score"),
   riskTier: text("risk_tier"), // low | medium | high
+  // Per-phase weighted score breakdown so the review UI can show derivation.
+  // Shape: { components: Array<{ key, weight, status, rawScore, weightedScore }>, totalWeight, weightedSum }
+  riskScoreBreakdown: jsonb("risk_score_breakdown"),
   assignedReviewerId: varchar("assigned_reviewer_id"),
   // Epic B — pathway controls which phases run and which scoring model applies.
   pathway: text("pathway").notNull().default("traditional"), // traditional | payfac
@@ -1022,6 +1025,8 @@ export const underwritingRuns = pgTable("underwriting_runs", {
   totalPhases: integer("total_phases").notNull().default(10),
   riskScore: integer("risk_score"),
   riskTier: text("risk_tier"),
+  // Per-phase weighted score breakdown for this run.
+  riskScoreBreakdown: jsonb("risk_score_breakdown"),
   errorMessage: text("error_message"),
   startedAt: timestamp("started_at").defaultNow().notNull(),
   completedAt: timestamp("completed_at"),

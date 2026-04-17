@@ -416,10 +416,10 @@ export function registerUnderwritingRoutes(app: Express) {
       res.json(rows);
     });
 
-  // ── Sub-status PATCH ──
+  // ── Sub-status PATCH ── reason is mandatory (audit trail requirement).
   const subStatusPatchSchema = z.object({
     subStatus: z.enum(SUB_STATUS_VALUES).nullable(),
-    reason: z.string().max(2000).optional(),
+    reason: z.string().trim().min(1, "Reason is required for sub-status changes").max(2000),
   });
   app.patch("/api/applications/:id/underwriting/sub-status",
     dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_REVIEW),
