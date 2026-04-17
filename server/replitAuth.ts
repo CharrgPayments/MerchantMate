@@ -384,23 +384,16 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
 };
 
 // Permission-based access control driven by the central registry in shared/permissions.ts.
-// Resolves the action -> allowed role list via getAllowedRolesForAction() and then runs
-// the same auth/session/dev-fallback flow as requireRole, but checks ALL of the user's
-// roles[] (not just role[0]) so multi-role users get the union of access.
-import { getAllowedRolesForAction, ROLE_CODES } from "@shared/permissions";
-
-function userHasAllowedRole(dbUser: any, allowedRoles: string[]): boolean {
-  if (!dbUser) return false;
-  const roles: string[] = Array.isArray(dbUser.roles) && dbUser.roles.length > 0
-    ? dbUser.roles
-    : (dbUser.role ? [dbUser.role] : []);
-  if (roles.includes(ROLE_CODES.SUPER_ADMIN)) return true;
-  return roles.some((r) => allowedRoles.includes(r));
-}
+// Resolves action → effective grants by merging the file-defined defaults with runtime
+// overrides loaded from the role_action_grants DB table (cached in permissionRegistry).
+// Iterates ALL of the user's roles[] (not just roles[0]) so multi-role users get the
+// union of access. Attaches the effective Scope to req.permScope for downstream filters.
+import { getActionScope, ROLE_CODES, type Scope } from "@shared/permissions";
+import { getOverrides } from "./permissionRegistry";
 
 export const requirePerm = (action: string): RequestHandler => {
   return async (req, res, next) => {
-    const allowedRoles = getAllowedRolesForAction(action);
+    const overrides = await getOverrides();
 
     const finishWith = async (userId: string): Promise<void> => {
       try {
@@ -413,10 +406,12 @@ export const requirePerm = (action: string): RequestHandler => {
           res.status(403).json({ message: "Account suspended" });
           return;
         }
-        if (!userHasAllowedRole(dbUser, allowedRoles)) {
+        const scope: Scope | null = getActionScope(dbUser as any, action, overrides);
+        if (!scope) {
           res.status(403).json({ message: `Permission '${action}' required` });
           return;
         }
+        (req as any).permScope = scope;
         (req as any).currentUser = dbUser;
         req.user = {
           id: userId,

@@ -301,6 +301,30 @@ export const roleDefinitions = pgTable("role_definitions", {
 export type RoleDefinition = typeof roleDefinitions.$inferSelect;
 export type InsertRoleDefinition = typeof roleDefinitions.$inferInsert;
 
+// Role × Action scope grants (runtime overrides over DEFAULT_ACTION_GRANTS in
+// shared/permissions.ts). NULL/missing row = use file-defined default.
+export const roleActionGrants = pgTable("role_action_grants", {
+  roleCode: varchar("role_code", { length: 50 }).notNull(),
+  action: varchar("action", { length: 100 }).notNull(),
+  scope: varchar("scope", { length: 20 }).notNull(), // 'own' | 'downline' | 'all' | 'none'
+  updatedAt: timestamp("updated_at").defaultNow(),
+  updatedBy: varchar("updated_by"),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.roleCode, t.action] }),
+}));
+export type RoleActionGrant = typeof roleActionGrants.$inferSelect;
+
+export const roleActionAudit = pgTable("role_action_audit", {
+  id: serial("id").primaryKey(),
+  roleCode: varchar("role_code", { length: 50 }).notNull(),
+  action: varchar("action", { length: 100 }).notNull(),
+  prevScope: varchar("prev_scope", { length: 20 }),
+  newScope: varchar("new_scope", { length: 20 }),
+  changedBy: varchar("changed_by"),
+  changedAt: timestamp("changed_at").defaultNow(),
+});
+export type RoleActionAudit = typeof roleActionAudit.$inferSelect;
+
 // User management tables
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().notNull(),

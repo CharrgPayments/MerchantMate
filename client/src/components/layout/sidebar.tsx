@@ -1,54 +1,54 @@
 import { Link, useLocation } from "wouter";
-import { CreditCard, BarChart3, Store, Users, Receipt, FileText, LogOut, User, MapPin, Shield, Upload, UserPlus, DollarSign, ChevronLeft, ChevronRight, Monitor, ChevronDown, ChevronUp, Book, BookOpen, TestTube, Mail, Crown, Building2, Zap, ScrollText } from "lucide-react";
+import { CreditCard, BarChart3, Store, Users, Receipt, FileText, LogOut, User, MapPin, Shield, Upload, UserPlus, DollarSign, ChevronLeft, ChevronRight, Monitor, ChevronDown, ChevronUp, Book, BookOpen, TestTube, Mail, Crown, Building2, Zap, ScrollText, KeyRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
-import { canAccessAnalytics, canAccessMerchants, canAccessAgents, canAccessTransactions } from "@/lib/authUtils";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { ACTIONS, hasPermission, type Action } from "@shared/permissions";
 
-const ALL_INTERNAL = ['agent', 'admin', 'corporate', 'super_admin', 'underwriter', 'senior_underwriter', 'data_processing', 'deployment'];
-const ADMIN_TIER = ['admin', 'corporate', 'super_admin'];
-const UNDERWRITING_TIER = ['admin', 'corporate', 'super_admin', 'underwriter', 'senior_underwriter'];
+// Single source of truth for nav visibility — every item declares the action(s)
+// it requires. Action defaults + DB overrides live in shared/permissions.ts and
+// can be tweaked at runtime from /roles-permissions.
+type NavItem = {
+  name: string;
+  href: string;
+  icon: any;
+  requiresAction: Action;
+  subItems?: NavItem[];
+};
 
-const baseNavigation = [
-  { name: "Dashboard", href: "/", icon: BarChart3, requiresRole: ['merchant', ...ALL_INTERNAL] },
-  { name: "Agent Dashboard", href: "/agent-dashboard", icon: CreditCard, requiresRole: ['agent'] },
-  { name: "Merchants", href: "/merchants", icon: Store, requiresRole: ALL_INTERNAL },
-  { name: "Locations", href: "/locations", icon: MapPin, requiresRole: ['merchant', 'deployment'] },
-  { name: "Agents", href: "/agents", icon: Users, requiresRole: [...ADMIN_TIER, 'underwriter', 'senior_underwriter'] },
-  { name: "Prospects", href: "/prospects", icon: UserPlus, requiresRole: UNDERWRITING_TIER },
+const baseNavigation: NavItem[] = [
+  { name: "Dashboard", href: "/", icon: BarChart3, requiresAction: ACTIONS.NAV_DASHBOARD },
+  { name: "Agent Dashboard", href: "/agent-dashboard", icon: CreditCard, requiresAction: ACTIONS.NAV_AGENT_DASHBOARD },
+  { name: "Merchants", href: "/merchants", icon: Store, requiresAction: ACTIONS.NAV_MERCHANTS },
+  { name: "Locations", href: "/locations", icon: MapPin, requiresAction: ACTIONS.NAV_LOCATIONS },
+  { name: "Agents", href: "/agents", icon: Users, requiresAction: ACTIONS.NAV_AGENTS },
+  { name: "Prospects", href: "/prospects", icon: UserPlus, requiresAction: ACTIONS.NAV_PROSPECTS },
   {
-    name: "Campaigns",
-    href: "/campaigns",
-    icon: DollarSign,
-    requiresRole: ['admin', 'super_admin'],
-    subItems: [
-      { name: "Equipment", href: "/equipment", icon: Monitor, requiresRole: ['admin', 'super_admin'] }
-    ]
+    name: "Campaigns", href: "/campaigns", icon: DollarSign, requiresAction: ACTIONS.NAV_CAMPAIGNS,
+    subItems: [{ name: "Equipment", href: "/equipment", icon: Monitor, requiresAction: ACTIONS.NAV_CAMPAIGNS }],
   },
   {
-    name: "Acquirers",
-    href: "/acquirers",
-    icon: Building2,
-    requiresRole: ['admin', 'super_admin'],
+    name: "Acquirers", href: "/acquirers", icon: Building2, requiresAction: ACTIONS.NAV_ACQUIRERS,
     subItems: [
-      { name: "Application Templates", href: "/application-templates", icon: FileText, requiresRole: ['admin', 'super_admin'] },
-      { name: "PDF Naming Guide", href: "/pdf-naming-guide", icon: BookOpen, requiresRole: ['admin', 'super_admin'] },
-      { name: "Disclosure Library", href: "/disclosure-library", icon: ScrollText, requiresRole: ['admin', 'super_admin'] },
-      { name: "MCC Codes", href: "/mcc-codes", icon: CreditCard, requiresRole: ['admin', 'super_admin'] },
-      { name: "MCC Policies", href: "/mcc-policies", icon: Shield, requiresRole: ['admin', 'super_admin'] },
-    ]
+      { name: "Application Templates", href: "/application-templates", icon: FileText, requiresAction: ACTIONS.NAV_ACQUIRERS },
+      { name: "PDF Naming Guide", href: "/pdf-naming-guide", icon: BookOpen, requiresAction: ACTIONS.NAV_ACQUIRERS },
+      { name: "Disclosure Library", href: "/disclosure-library", icon: ScrollText, requiresAction: ACTIONS.NAV_ACQUIRERS },
+      { name: "MCC Codes", href: "/mcc-codes", icon: CreditCard, requiresAction: ACTIONS.NAV_ACQUIRERS },
+      { name: "MCC Policies", href: "/mcc-policies", icon: Shield, requiresAction: ACTIONS.NAV_ACQUIRERS },
+    ],
   },
-  { name: "Transactions", href: "/transactions", icon: Receipt, requiresRole: ['merchant', 'agent', 'admin', 'corporate', 'super_admin', 'data_processing'] },
-  { name: "PDF Forms", href: "/pdf-forms", icon: Upload, requiresRole: ['admin', 'super_admin'] },
-  { name: "Users", href: "/users", icon: User, requiresRole: ['admin', 'corporate', 'super_admin'] },
-  { name: "Reports", href: "/reports", icon: FileText, requiresRole: [...ADMIN_TIER, 'underwriter', 'senior_underwriter', 'data_processing', 'deployment'] },
-  { name: "Security", href: "/security", icon: Shield, requiresRole: ['admin', 'super_admin'] },
-  { name: "Communications", href: "/communications", icon: Mail, requiresRole: ['admin', 'super_admin'] },
-  { name: "Workflows", href: "/workflows", icon: Zap, requiresRole: ['admin', 'super_admin'] },
-  { name: "API Documentation", href: "/api-documentation", icon: Book, requiresRole: ['admin', 'super_admin'] },
-  { name: "Testing Utilities", href: "/testing-utilities", icon: TestTube, requiresRole: ['super_admin'] },
+  { name: "Transactions", href: "/transactions", icon: Receipt, requiresAction: ACTIONS.NAV_TRANSACTIONS },
+  { name: "PDF Forms", href: "/pdf-forms", icon: Upload, requiresAction: ACTIONS.NAV_PDF_FORMS },
+  { name: "Users", href: "/users", icon: User, requiresAction: ACTIONS.NAV_USERS },
+  { name: "Reports", href: "/reports", icon: FileText, requiresAction: ACTIONS.NAV_REPORTS },
+  { name: "Security", href: "/security", icon: Shield, requiresAction: ACTIONS.NAV_SECURITY },
+  { name: "Communications", href: "/communications", icon: Mail, requiresAction: ACTIONS.NAV_COMMUNICATIONS },
+  { name: "Workflows", href: "/workflows", icon: Zap, requiresAction: ACTIONS.NAV_WORKFLOWS },
+  { name: "API Documentation", href: "/api-documentation", icon: Book, requiresAction: ACTIONS.NAV_API_DOCS },
+  { name: "Roles & Permissions", href: "/roles-permissions", icon: KeyRound, requiresAction: ACTIONS.NAV_PERMISSION_MATRIX },
+  { name: "Testing Utilities", href: "/testing-utilities", icon: TestTube, requiresAction: ACTIONS.NAV_TESTING },
 ];
 
 export function Sidebar() {
@@ -64,45 +64,36 @@ export function Sidebar() {
       if (!response.ok) return [];
       return response.json();
     },
-    enabled: !!user
+    enabled: !!user,
   });
 
-  const toggleExpanded = (itemName: string) => {
-    setExpandedItems(prev =>
-      prev.includes(itemName)
-        ? prev.filter(name => name !== itemName)
-        : [...prev, itemName]
-    );
-  };
+  const toggleExpanded = (itemName: string) =>
+    setExpandedItems((prev) => prev.includes(itemName) ? prev.filter((n) => n !== itemName) : [...prev, itemName]);
 
   const getFilteredNavigation = () => {
     if (!user) return [];
 
-    const userRoles: string[] = (user as any)?.roles || [(user as any)?.role] || [];
+    const can = (action: Action) => hasPermission(user as any, action);
 
-    const hasRequiredRole = (requiredRoles: string[]) =>
-      userRoles.some((r: string) => requiredRoles.includes(r));
+    const filteredBase = baseNavigation
+      .filter((item) => can(item.requiresAction))
+      .map((item) => ({
+        ...item,
+        subItems: item.subItems?.filter((sub) => can(sub.requiresAction)) || [],
+      }));
 
-    const filteredBase = baseNavigation.filter(item =>
-      hasRequiredRole(item.requiresRole)
-    ).map(item => ({
-      ...item,
-      subItems: (item as any).subItems?.filter((sub: any) =>
-        hasRequiredRole(sub.requiresRole)
-      ) || []
-    }));
-
-    const dynamicNavItems = pdfForms
-      .filter((form: any) =>
-        form.showInNavigation &&
-        userRoles.some((r: string) => form.allowedRoles.includes(r))
+    // Dynamic PDF-form-driven nav items still use the form-defined allowedRoles
+    // because each form is user-owned data, not a permission registry concern.
+    const userRoleList: string[] = (user as any)?.roles || [(user as any)?.role].filter(Boolean);
+    const dynamicNavItems = (pdfForms as any[])
+      .filter((form) =>
+        form.showInNavigation && userRoleList.some((r) => form.allowedRoles.includes(r)),
       )
-      .map((form: any) => ({
+      .map((form) => ({
         name: form.navigationTitle || form.name,
         href: `/form-application/${form.id}`,
         icon: FileText,
-        requiresRole: form.allowedRoles,
-        subItems: []
+        subItems: [],
       }));
 
     return [...filteredBase, ...dynamicNavItems];
@@ -110,7 +101,6 @@ export function Sidebar() {
 
   return (
     <div className={cn("corecrm-sidebar min-h-screen flex flex-col transition-all duration-300", isCollapsed ? "w-16" : "w-64")}>
-      {/* Logo */}
       <div className={cn("border-b border-gray-200 relative flex-shrink-0", isCollapsed ? "p-4" : "p-6")}>
         <div className="flex items-center space-x-3">
           <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
@@ -127,15 +117,10 @@ export function Sidebar() {
           onClick={() => setIsCollapsed(!isCollapsed)}
           className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-white border border-gray-200 rounded-full flex items-center justify-center hover:bg-gray-50 transition-colors shadow-sm"
         >
-          {isCollapsed ? (
-            <ChevronRight className="w-3 h-3 text-gray-600" />
-          ) : (
-            <ChevronLeft className="w-3 h-3 text-gray-600" />
-          )}
+          {isCollapsed ? <ChevronRight className="w-3 h-3 text-gray-600" /> : <ChevronLeft className="w-3 h-3 text-gray-600" />}
         </button>
       </div>
 
-      {/* Navigation */}
       <nav className={cn("flex-1 overflow-y-auto space-y-1", isCollapsed ? "p-2" : "p-4")}>
         {getFilteredNavigation().map((item: any) => {
           const isActive = location === item.href;
@@ -152,7 +137,7 @@ export function Sidebar() {
                     "corecrm-nav-item flex-1",
                     isActive && "active",
                     isCollapsed ? "justify-center px-3 py-3" : "px-4 py-2",
-                    hasSubItems && !isCollapsed && "pr-2"
+                    hasSubItems && !isCollapsed && "pr-2",
                   )}
                 >
                   <Icon className="w-5 h-5" />
@@ -160,15 +145,8 @@ export function Sidebar() {
                 </Link>
 
                 {hasSubItems && !isCollapsed && (
-                  <button
-                    onClick={() => toggleExpanded(item.name)}
-                    className="p-1 hover:bg-gray-100 rounded transition-colors"
-                  >
-                    {isExpanded ? (
-                      <ChevronUp className="w-4 h-4 text-gray-500" />
-                    ) : (
-                      <ChevronDown className="w-4 h-4 text-gray-500" />
-                    )}
+                  <button onClick={() => toggleExpanded(item.name)} className="p-1 hover:bg-gray-100 rounded transition-colors">
+                    {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
                   </button>
                 )}
               </div>
@@ -184,9 +162,7 @@ export function Sidebar() {
                         href={subItem.href}
                         className={cn(
                           "flex items-center space-x-3 px-3 py-2 text-sm rounded-lg transition-colors",
-                          isSubActive
-                            ? "bg-primary text-primary-foreground font-medium"
-                            : "text-gray-700 hover:bg-gray-100"
+                          isSubActive ? "bg-primary text-primary-foreground font-medium" : "text-gray-700 hover:bg-gray-100",
                         )}
                       >
                         <SubIcon className="w-4 h-4" />
@@ -201,9 +177,7 @@ export function Sidebar() {
                 <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap">
                   {item.name}
                   {hasSubItems && (
-                    <div className="mt-1 text-xs text-gray-300">
-                      {item.subItems.map((sub: any) => sub.name).join(', ')}
-                    </div>
+                    <div className="mt-1 text-xs text-gray-300">{item.subItems.map((sub: any) => sub.name).join(', ')}</div>
                   )}
                 </div>
               )}
@@ -212,7 +186,6 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* User Profile & Logout */}
       {user && (
         <div className={cn("border-t border-gray-200 flex-shrink-0", isCollapsed ? "p-2" : "p-4")}>
           {!isCollapsed && (
@@ -226,7 +199,7 @@ export function Sidebar() {
                     {(user as any)?.firstName} {(user as any)?.lastName}
                   </p>
                   {(user as any)?.roles?.includes('super_admin') && (
-                    <Crown className="w-4 h-4 text-yellow-500" title="Super Administrator" />
+                    <Crown className="w-4 h-4 text-yellow-500" />
                   )}
                 </div>
                 <p className="text-xs text-gray-500 capitalize">
@@ -237,16 +210,10 @@ export function Sidebar() {
           )}
 
           <div className="relative group">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={logout}
-              className={cn("transition-colors", isCollapsed ? "w-10 h-10 p-0" : "w-full")}
-            >
+            <Button variant="outline" size="sm" onClick={logout} className={cn("transition-colors", isCollapsed ? "w-10 h-10 p-0" : "w-full")}>
               <LogOut className="w-4 h-4" />
               {!isCollapsed && <span className="ml-2">Sign Out</span>}
             </Button>
-
             {isCollapsed && (
               <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap">
                 Sign Out

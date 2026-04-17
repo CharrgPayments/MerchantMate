@@ -976,9 +976,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const { role } = req.body;
-      
-      if (!['merchant', 'agent', 'admin', 'corporate', 'super_admin'].includes(role)) {
-        return res.status(400).json({ message: "Invalid role" });
+
+      // Validate against the live role_definitions table so all system + custom
+      // roles (including underwriter, senior_underwriter, data_processing,
+      // deployment) are assignable.
+      const dbForRoles = getRequestDB(req);
+      const knownRoles = await dbForRoles.execute(sql`SELECT code FROM role_definitions`);
+      const validCodes = (knownRoles.rows as any[]).map((r) => r.code);
+      if (!validCodes.includes(role)) {
+        return res.status(400).json({ message: "Invalid role", validCodes });
       }
 
       const user = await storage.updateUserRole(id, role);
@@ -9466,6 +9472,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting role definition:", error);
       res.status(500).json({ message: "Failed to delete role definition" });
+    }
+  });
+
+  // ─── Role × Action Permission Matrix ─────────────────────────────────────
+  // Super-admin only. Surfaces the merged registry (defaults + DB overrides),
+  // accepts toggle writes with audit, and exposes change history.
+  app.get("/api/admin/role-action-grants", dbEnvironmentMiddleware, requirePerm('system:superadmin'), async (req: RequestWithDB, res) => {
+    try {
+      const { getOverrides } = await import("./permissionRegistry");
+      const { DEFAULT_ACTION_GRANTS, ACTIONS, ACTION_LABELS, ACTION_GROUPS, DESTRUCTIVE_ACTIONS } = await import("@shared/permissions");
+      const overrides = await getOverrides(true);
+      res.json({
+        actions: ACTIONS,
+        actionLabels: ACTION_LABELS,
+        actionGroups: ACTION_GROUPS,
+        destructiveActions: Array.from(DESTRUCTIVE_ACTIONS),
+        defaults: DEFAULT_ACTION_GRANTS,
+        overrides,
+      });
+    } catch (error) {
+      console.error("Error fetching role-action grants:", error);
+      res.status(500).json({ message: "Failed to fetch grants" });
+    }
+  });
+
+  app.put("/api/admin/role-action-grants", dbEnvironmentMiddleware, requirePerm('system:superadmin'), async (req: RequestWithDB, res) => {
+    try {
+      const { roleCode, action, scope } = req.body as { roleCode: string; action: string; scope: string };
+      if (!roleCode || !action || !scope) return res.status(400).json({ message: "roleCode, action, scope required" });
+      if (!['own', 'downline', 'all', 'none'].includes(scope)) return res.status(400).json({ message: "Invalid scope" });
+
+      // Block edits to the implicit super_admin grant — it's hard-coded to 'all'.
+      if (roleCode === 'super_admin') return res.status(400).json({ message: "super_admin grants cannot be modified" });
+
+      const { setGrant } = await import("./permissionRegistry");
+      const changedBy = (req as any).currentUser?.id ?? null;
+      const result = await setGrant(roleCode, action, scope as any, changedBy);
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      console.error("Error updating role-action grant:", error);
+      res.status(500).json({ message: "Failed to update grant" });
+    }
+  });
+
+  app.get("/api/admin/role-action-audit", dbEnvironmentMiddleware, requirePerm('system:superadmin'), async (req: RequestWithDB, res) => {
+    try {
+      const dynamicDB = getRequestDB(req);
+      const limit = Math.min(parseInt((req.query.limit as string) ?? '100', 10) || 100, 500);
+      const result = await dynamicDB.execute(sql`
+        SELECT id, role_code, action, prev_scope, new_scope, changed_by, changed_at
+        FROM role_action_audit
+        ORDER BY changed_at DESC
+        LIMIT ${limit}
+      `);
+      res.json(result.rows ?? result);
+    } catch (error: any) {
+      if (error?.code === '42P01') return res.json([]);
+      console.error("Error fetching role-action audit:", error);
+      res.status(500).json({ message: "Failed to fetch audit" });
     }
   });
 

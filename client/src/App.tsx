@@ -42,6 +42,7 @@ import Campaigns from "@/pages/campaigns";
 import Equipment from "@/pages/equipment";
 import ApiDocumentation from "@/pages/api-documentation";
 import TestingUtilities from "@/pages/testing-utilities";
+import RolesPermissionsPage from "@/pages/roles-permissions";
 import Workflows from "@/pages/workflows";
 import ApplicationTemplates from "@/pages/application-templates";
 import CampaignView from "@/pages/campaign-view";
@@ -621,6 +622,20 @@ function AuthenticatedApp() {
                   />
                   <main className="flex-1 overflow-auto bg-gray-50">
                     <ApiDocumentation />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/roles-permissions">
+            {() => {
+              const roles: string[] = (user as any)?.roles || [];
+              if (!roles.includes('super_admin')) return <NotFound />;
+              return (
+                <>
+                  <Header title="Roles & Permissions" onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <RolesPermissionsPage />
                   </main>
                 </>
               );
