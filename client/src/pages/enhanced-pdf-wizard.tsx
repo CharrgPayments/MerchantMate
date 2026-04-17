@@ -378,22 +378,11 @@ export default function EnhancedPdfWizard() {
         throw new Error('No prospect ID available');
       }
 
-      // Epic D — if a deep-link campaignId came in via the URL, ensure the
-      // prospect's active campaign assignment matches it before submission so
-      // the generated PDF uses the correct pricing.
-      if (deepLinkCampaignId) {
-        try {
-          await fetch(`/api/prospects/${prospectData.prospect.id}/set-campaign`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ campaignId: Number(deepLinkCampaignId) }),
-          });
-        } catch (err) {
-          console.warn('Deep-link campaign assignment failed (non-fatal):', err);
-        }
-      }
-
+      // Epic D — deepLinkCampaignId/deepLinkAgentId are forwarded directly to
+      // the public submit endpoint, which authoritatively applies the campaign
+      // assignment server-side. We intentionally do NOT call the auth-protected
+      // /set-campaign endpoint here because the public/MPA flow is
+      // unauthenticated and that call would silently fail.
       const response = await fetch(`/api/prospects/${prospectData.prospect.id}/submit-application`, {
         method: 'POST',
         headers: {
