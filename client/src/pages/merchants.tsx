@@ -43,6 +43,13 @@ export default function Merchants() {
     queryFn: () => merchantsApi.getAll(searchQuery || undefined),
   });
 
+  // Hierarchy tree (used purely as a depth lookup so the table can show
+  // parent/child indentation matching the agents page).
+  const { data: hierarchyTree = [] } = useQuery<Array<{ id: number; depth: number }>>({
+    queryKey: ["/api/merchants/hierarchy/tree"],
+  });
+  const depthByMerchantId = new Map<number, number>(hierarchyTree.map((m) => [m.id, m.depth]));
+
   // Fetch all locations for merchants to determine location counts
   const { data: allLocationsData = {} } = useQuery({
     queryKey: ["/api/merchants/locations"],
@@ -284,15 +291,27 @@ export default function Merchants() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredMerchants.flatMap((merchant) => {
+                  filteredMerchants
+                    .slice()
+                    .sort((a, b) => {
+                      const da = depthByMerchantId.get(a.id) ?? 0;
+                      const db = depthByMerchantId.get(b.id) ?? 0;
+                      if (da !== db) return da - db;
+                      return a.businessName.localeCompare(b.businessName);
+                    })
+                    .flatMap((merchant) => {
                     const locationCount = getMerchantLocationCount(merchant.id);
                     const isExpanded = expandedMerchants.has(merchant.id);
                     const showExpandButton = locationCount > 1;
-                    
+                    const depth = depthByMerchantId.get(merchant.id) ?? 0;
+
                     const rows = [
                       <TableRow key={merchant.id}>
                         <TableCell>
-                          <div className="flex items-center space-x-3">
+                          <div className="flex items-center space-x-3" style={{ paddingLeft: depth * 24 }}>
+                            {depth > 0 && (
+                              <span className="text-gray-400 select-none" aria-hidden="true">└─</span>
+                            )}
                             {showExpandButton && (
                               <Button
                                 variant="ghost"

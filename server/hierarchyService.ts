@@ -110,13 +110,13 @@ async function rebuildMerchantClosureForSubtree(db: Db, nodeId: number, newParen
 export async function getAgentDescendantIds(db: Db, agentId: number): Promise<number[]> {
   const rows = await db.select({ id: agentHierarchy.descendantId })
     .from(agentHierarchy).where(eq(agentHierarchy.ancestorId, agentId));
-  return rows.map((r: any) => r.id);
+  return rows.map((r) => r.id);
 }
 
 export async function getMerchantDescendantIds(db: Db, merchantId: number): Promise<number[]> {
   const rows = await db.select({ id: merchantHierarchy.descendantId })
     .from(merchantHierarchy).where(eq(merchantHierarchy.ancestorId, merchantId));
-  return rows.map((r: any) => r.id);
+  return rows.map((r) => r.id);
 }
 
 /** Rebuild closure for ALL existing nodes from scratch. Used for backfill. */

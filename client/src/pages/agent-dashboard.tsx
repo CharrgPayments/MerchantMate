@@ -72,14 +72,17 @@ const statusIcons = {
   rejected: XCircle,
 };
 
+type DownlineScope = 'me' | 'downline' | 'all';
+
 export default function AgentDashboard() {
   const [selectedTab, setSelectedTab] = useState('overview');
+  const [scope, setScope] = useState<DownlineScope>('me');
 
   // Fetch dashboard statistics
   const { data: stats, isLoading: statsLoading, error: statsError } = useQuery<DashboardStats>({
-    queryKey: ['/api/agent/dashboard/stats'],
+    queryKey: ['/api/agent/dashboard/stats', scope],
     queryFn: async () => {
-      const response = await fetch('/api/agent/dashboard/stats', {
+      const response = await fetch(`/api/agent/dashboard/stats?scope=${scope}`, {
         credentials: 'include'
       });
       if (!response.ok) {
@@ -93,9 +96,9 @@ export default function AgentDashboard() {
 
   // Fetch applications
   const { data: applications, isLoading: applicationsLoading, error: applicationsError } = useQuery<Application[]>({
-    queryKey: ['/api/agent/applications'],
+    queryKey: ['/api/agent/applications', scope],
     queryFn: async () => {
-      const response = await fetch('/api/agent/applications', {
+      const response = await fetch(`/api/agent/applications?scope=${scope}`, {
         credentials: 'include'
       });
       if (!response.ok) {
@@ -181,12 +184,34 @@ export default function AgentDashboard() {
           <h1 className="text-3xl font-bold text-gray-900">Agent Dashboard</h1>
           <p className="text-gray-600">Manage your merchant applications and track progress</p>
         </div>
-        <Link href="/prospects">
-          <Button className="bg-blue-600 hover:bg-blue-700">
-            <Users className="h-4 w-4 mr-2" />
-            Manage Prospects
-          </Button>
-        </Link>
+        <div className="flex items-center gap-3">
+          <div className="inline-flex rounded-md border bg-white shadow-sm" role="group" aria-label="Downline scope">
+            {([
+              { v: 'me', label: 'Just me' },
+              { v: 'downline', label: 'My downline' },
+              { v: 'all', label: 'All' },
+            ] as { v: DownlineScope; label: string }[]).map(({ v, label }) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setScope(v)}
+                aria-pressed={scope === v}
+                data-testid={`scope-${v}`}
+                className={`px-3 py-1.5 text-sm first:rounded-l-md last:rounded-r-md border-r last:border-r-0 ${
+                  scope === v ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <Link href="/prospects">
+            <Button className="bg-blue-600 hover:bg-blue-700">
+              <Users className="h-4 w-4 mr-2" />
+              Manage Prospects
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Statistics Cards */}

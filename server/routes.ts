@@ -18,7 +18,7 @@ import { getDynamicDatabase } from "./db";
 import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity, agentHierarchy, merchantHierarchy } from "@shared/schema";
 import { initAgentClosure, initMerchantClosure, setAgentParent, setMerchantParent, getAgentDescendantIds, getMerchantDescendantIds, HierarchyError, MAX_HIERARCHY_DEPTH } from "./hierarchyService";
 import crypto from "crypto";
-import { eq, or, ilike, sql } from "drizzle-orm";
+import { eq, or, ilike, sql, inArray } from "drizzle-orm";
 
 // Helper functions for user account creation
 async function generateUsername(firstName: string, lastName: string, email: string, dynamicDB: any): Promise<string> {
@@ -578,11 +578,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Agent dashboard endpoints
+  // Resolve the set of agent IDs in scope for an agent dashboard request.
+  // scope=me → just the agent; downline → agent + all descendants;
+  // all → only honored for admin/corporate/super_admin (falls back to downline otherwise).
+  type AgentScope = "me" | "downline" | "all";
+  function parseScope(raw: unknown): AgentScope {
+    if (raw === "me" || raw === "downline" || raw === "all") return raw;
+    return "me";
+  }
+  async function resolveAgentScope(
+    db: ReturnType<typeof getRequestDB>,
+    agentId: number,
+    user: { roles?: string[] | null },
+    scope: AgentScope,
+  ): Promise<number[]> {
+    if (scope === "all") {
+      const isPrivileged = (user.roles ?? []).some((r) => ["admin", "corporate", "super_admin"].includes(r));
+      if (isPrivileged) {
+        const all = await db.select({ id: agents.id }).from(agents);
+        return all.map((a) => a.id);
+      }
+      scope = "downline";
+    }
+    if (scope === "downline") return getAgentDescendantIds(db, agentId);
+    return [agentId];
+  }
+
   app.get("/api/agent/dashboard/stats", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
-      console.log('Agent Dashboard Stats - Session ID:', req.sessionID);
-      console.log('Agent Dashboard Stats - Session data:', req.session);
-      
       const userId = (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ message: "Authentication required" });
@@ -603,9 +626,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Agent not found" });
       }
 
-      console.log('Found agent:', agent.id, agent.firstName, agent.lastName);
-
-      const prospects = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.agentId, agent.id));
+      const scope = parseScope(req.query.scope);
+      const scopedAgentIds = await resolveAgentScope(dynamicDB, agent.id, user, scope);
+      const prospects = scopedAgentIds.length === 0
+        ? []
+        : await dynamicDB.select().from(merchantProspects).where(inArray(merchantProspects.agentId, scopedAgentIds));
       console.log('Found prospects:', prospects.length);
       
       // Calculate statistics
@@ -640,9 +665,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/agent/applications", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
-      console.log('Agent Applications - Session ID:', req.sessionID);
-      console.log('Agent Applications - Session data:', req.session);
-      
       const userId = (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ message: "Authentication required" });
@@ -663,7 +685,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Agent not found" });
       }
 
-      const prospects = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.agentId, agent.id));
+      const scope = parseScope(req.query.scope);
+      const scopedAgentIds = await resolveAgentScope(dynamicDB, agent.id, user, scope);
+      const prospects = scopedAgentIds.length === 0
+        ? []
+        : await dynamicDB.select().from(merchantProspects).where(inArray(merchantProspects.agentId, scopedAgentIds));
       
       // Transform prospects to application format
       const applications = await Promise.all(prospects.map(async prospect => {
