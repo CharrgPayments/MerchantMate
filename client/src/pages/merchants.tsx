@@ -43,8 +43,11 @@ export default function Merchants() {
     queryFn: () => merchantsApi.getAll(searchQuery || undefined),
   });
 
-  // Hierarchy tree (used purely as a depth lookup so the table can show
-  // parent/child indentation matching the agents page).
+  // Hierarchy tree (DFS-ordered with depth) — used as the primary row order
+  // so children render directly under their parent. Same pattern as the
+  // agents page. We hydrate each tree node with the enriched merchant from
+  // /api/merchants (which carries agent + business fields the tree
+  // endpoint doesn't return).
   const { data: hierarchyTree = [] } = useQuery<Array<{ id: number; depth: number }>>({
     queryKey: ["/api/merchants/hierarchy/tree"],
   });
@@ -138,6 +141,7 @@ export default function Merchants() {
     mutationFn: (id: number) => merchantsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/merchants"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/merchants/hierarchy/tree"] });
       queryClient.invalidateQueries({ queryKey: ["/api/analytics/dashboard"] });
       toast({
         title: "Success",
@@ -153,10 +157,23 @@ export default function Merchants() {
     },
   });
 
-  const filteredMerchants = merchants.filter((merchant) => {
-    if (statusFilter === "all") return true;
-    return merchant.status === statusFilter;
-  });
+  // When no search/status filter is active, render in DFS hierarchy order
+  // (roots → children). Otherwise fall back to the flat search-filtered list
+  // — mixing parent rows with filtered-out children would be misleading.
+  const isFiltered = !!searchQuery || statusFilter !== "all";
+  const merchantsById = new Map<number, Merchant>(merchants.map((m) => [m.id, m]));
+  const orderedMerchants: Merchant[] = isFiltered
+    ? merchants.filter((m) => statusFilter === "all" || m.status === statusFilter)
+    : (hierarchyTree
+        .map((node) => merchantsById.get(node.id))
+        .filter((m): m is Merchant => !!m));
+  // Append any merchants the tree endpoint hasn't returned yet (race during
+  // create/refetch), so nothing disappears from the page.
+  if (!isFiltered) {
+    const seen = new Set(orderedMerchants.map((m) => m.id));
+    for (const m of merchants) if (!seen.has(m.id)) orderedMerchants.push(m);
+  }
+  const filteredMerchants = orderedMerchants;
 
   const handleEdit = (merchant: Merchant) => {
     setEditingMerchant(merchant);
@@ -291,15 +308,7 @@ export default function Merchants() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredMerchants
-                    .slice()
-                    .sort((a, b) => {
-                      const da = depthByMerchantId.get(a.id) ?? 0;
-                      const db = depthByMerchantId.get(b.id) ?? 0;
-                      if (da !== db) return da - db;
-                      return a.businessName.localeCompare(b.businessName);
-                    })
-                    .flatMap((merchant) => {
+                  filteredMerchants.flatMap((merchant) => {
                     const locationCount = getMerchantLocationCount(merchant.id);
                     const isExpanded = expandedMerchants.has(merchant.id);
                     const showExpandButton = locationCount > 1;

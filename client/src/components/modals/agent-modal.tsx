@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ParentPicker } from "@/components/hierarchy/parent-picker";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -273,21 +274,19 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
                 render={({ field }) => (
                   <FormItem className="md:col-span-2">
                     <FormLabel>Parent Agent (Hierarchy)</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || "__none__"}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="None (top-level agent)" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="__none__">None (top-level agent)</SelectItem>
-                        {parentChoices.map((a) => (
-                          <SelectItem key={a.id} value={String(a.id)}>
-                            {a.firstName} {a.lastName} {a.email ? `(${a.email})` : ""}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormControl>
+                      <ParentPicker
+                        value={field.value || "__none__"}
+                        onChange={field.onChange}
+                        placeholder="None (top-level agent)"
+                        testId="parent-agent-picker"
+                        options={parentChoices.map((a) => ({
+                          id: a.id,
+                          label: `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim() || `Agent #${a.id}`,
+                          hint: a.email ?? undefined,
+                        }))}
+                      />
+                    </FormControl>
                     <p className="text-xs text-muted-foreground mt-1">
                       Sub-agents roll up to a parent agent. Max chain: 5 levels.
                     </p>

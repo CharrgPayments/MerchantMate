@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ParentPicker } from "@/components/hierarchy/parent-picker";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -103,6 +104,7 @@ export function MerchantModal({ isOpen, onClose, merchant }: MerchantModalProps)
     mutationFn: (data: InsertMerchant) => merchantsApi.create(data),
     onSuccess: (response: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/merchants"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/merchants/hierarchy/tree"] });
       queryClient.invalidateQueries({ queryKey: ["/api/analytics/dashboard"] });
       
       // Show user account creation details
@@ -133,6 +135,7 @@ export function MerchantModal({ isOpen, onClose, merchant }: MerchantModalProps)
       merchantsApi.update(merchant!.id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/merchants"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/merchants/hierarchy/tree"] });
       queryClient.invalidateQueries({ queryKey: ["/api/analytics/dashboard"] });
       toast({
         title: "Success",
@@ -345,21 +348,19 @@ export function MerchantModal({ isOpen, onClose, merchant }: MerchantModalProps)
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Parent Merchant (Hierarchy)</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value || "__none__"}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="None (top-level merchant)" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="__none__">None (top-level merchant)</SelectItem>
-                      {parentMerchantChoices.map((m) => (
-                        <SelectItem key={m.id} value={String(m.id)}>
-                          {m.businessName} {m.email ? `(${m.email})` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FormControl>
+                    <ParentPicker
+                      value={field.value || "__none__"}
+                      onChange={field.onChange}
+                      placeholder="None (top-level merchant)"
+                      testId="parent-merchant-picker"
+                      options={parentMerchantChoices.map((m) => ({
+                        id: m.id,
+                        label: m.businessName,
+                        hint: m.email ?? undefined,
+                      }))}
+                    />
+                  </FormControl>
                   <p className="text-xs text-muted-foreground mt-1">
                     Sub-merchants roll up to a parent merchant. Max chain: 5 levels.
                   </p>
