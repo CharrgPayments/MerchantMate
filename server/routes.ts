@@ -3058,30 +3058,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { formData, status, deepLinkCampaignId, deepLinkAgentId } = req.body;
       const prospectId = parseInt(id);
 
-      let prospect = await storage.getMerchantProspect(prospectId);
+      const prospect = await storage.getMerchantProspect(prospectId);
       if (!prospect) {
         return res.status(404).json({ message: "Prospect not found" });
       }
 
-      // Epic D — honor ?agentId= deep link.
-      // If the prospect has no agentId yet (or has a placeholder) and a valid
-      // deepLinkAgentId was provided, persist it on the prospect so commission
-      // attribution and downstream rules-engine context use the right agent.
-      try {
-        const dlAgentId = deepLinkAgentId ? Number(deepLinkAgentId) : null;
-        if (dlAgentId && Number.isFinite(dlAgentId) && !prospect.agentId) {
-          const candidate = await storage.getAgent(dlAgentId);
-          if (candidate) {
-            const updated = await storage.updateMerchantProspect(prospectId, { agentId: dlAgentId });
-            if (updated) prospect = updated;
-            console.log(`[Epic D] deep-link agentId ${dlAgentId} attached to prospect ${prospectId}`);
-          } else {
-            console.warn(`[Epic D] deep-link agentId ${dlAgentId} not found; ignoring`);
-          }
-        }
-      } catch (agentErr) {
-        console.warn('[Epic D] deep-link agentId attach skipped:', agentErr);
-      }
+      // Epic D — ?agentId= deep link is treated as a CONTEXT HINT only on this
+      // public/unauthenticated endpoint. We never mutate prospect.agentId from
+      // arbitrary URL input (that would let anyone reassign commission
+      // attribution by guessing prospect IDs). The hint is only used below to
+      // resolve a campaign via the agent's defaultCampaignId or rules engine
+      // when the prospect itself doesn't yet have an agent. If you need to
+      // persist agent attribution from a public link, use a signed invite
+      // token rather than a raw query parameter.
 
       // Epic D — submission-time campaign auto-assignment.
       // Precedence (single place, deterministic):
@@ -6211,9 +6200,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { pdfGenerator } = await import('./pdfGenerator');
       const fs = await import('fs');
       const path = await import('path');
-      const { prospectApplications, acquirerApplicationTemplates, merchantProspects } =
+      const { prospectApplications, acquirerApplicationTemplates, merchantProspects, campaignAssignments, campaignFeeValues, feeItems } =
         await import('@shared/schema');
-      const { eq } = await import('drizzle-orm');
+      const { eq, and, desc } = await import('drizzle-orm');
 
       const [prospect] = await db
         .select()
@@ -6248,9 +6237,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
           formData = {};
         }
       }
+      // Epic D — pull pricing from the prospect's CURRENTLY active campaign
+      // assignment and inject those values into the merged formData so the
+      // regenerated PDF reflects the new/current campaign pricing (not the
+      // pricing that happened to be persisted in applicationData at first
+      // submission). Field naming convention: `fee_<feeItemId>` and the
+      // human-readable `<feeItemName>` (lowercased + underscores) — both
+      // populated to maximize template compatibility.
+      const campaignFees: Record<string, any> = {};
+      try {
+        const [activeAssignment] = await db
+          .select()
+          .from(campaignAssignments)
+          .where(and(
+            eq(campaignAssignments.prospectId, prospectId),
+            eq(campaignAssignments.isActive, true),
+          ))
+          .orderBy(desc(campaignAssignments.assignedAt))
+          .limit(1);
+        if (activeAssignment?.campaignId) {
+          const feeRows = await db
+            .select({
+              feeItemId: campaignFeeValues.feeItemId,
+              value: campaignFeeValues.value,
+              valueType: campaignFeeValues.valueType,
+              feeName: feeItems.name,
+            })
+            .from(campaignFeeValues)
+            .leftJoin(feeItems, eq(campaignFeeValues.feeItemId, feeItems.id))
+            .where(eq(campaignFeeValues.campaignId, activeAssignment.campaignId));
+          for (const r of feeRows) {
+            campaignFees[`fee_${r.feeItemId}`] = r.value;
+            if (r.feeName) {
+              const key = String(r.feeName).trim().toLowerCase().replace(/\s+/g, '_');
+              campaignFees[key] = r.value;
+            }
+          }
+          campaignFees.campaignId = activeAssignment.campaignId;
+        }
+      } catch (feeErr) {
+        console.warn('[Epic D] regen: failed to load campaign fees, falling back to stored data:', feeErr);
+      }
+
+      // Precedence: stored applicationData (snapshot at submission) overrides
+      // base formData; fresh campaign fees override both so re-pricing wins.
       const merged = {
         ...formData,
         ...(prospectApp.applicationData as Record<string, any> || {}),
+        ...campaignFees,
       };
 
       const pdfBuffer = await pdfGenerator.generateFilledPDF(
