@@ -77,20 +77,25 @@ export default function RolesPermissionsPage() {
 
   const isSuperAdmin = hasRoleCode(user, ROLE_CODES.SUPER_ADMIN);
 
-  const { data: grants, isLoading } = useQuery<GrantsResponse>({
+  const { data: grants, isLoading } = useQuery<GrantsResponse | null>({
     queryKey: ["/api/admin/role-action-grants"],
     enabled: isSuperAdmin,
   });
 
-  const { data: roleDefs = [] } = useQuery<{ code: string; label: string }[]>({
+  // The default queryFn returns `null` (not `undefined`) on 401, and JS
+  // destructuring defaults only kick in for `undefined` — so coerce explicitly
+  // to avoid `.map`/`.length` on null crashing the page.
+  const { data: roleDefsRaw } = useQuery<{ code: string; label: string }[] | null>({
     queryKey: ["/api/admin/role-definitions"],
     enabled: isSuperAdmin,
   });
+  const roleDefs = roleDefsRaw ?? [];
 
-  const { data: audit = [] } = useQuery<AuditRow[]>({
+  const { data: auditRaw } = useQuery<AuditRow[] | null>({
     queryKey: ["/api/admin/role-action-audit"],
     enabled: isSuperAdmin,
   });
+  const audit = auditRaw ?? [];
 
   const setMutation = useMutation({
     mutationFn: async (args: { roleCode: string; action: string; scope: Scope | "none" }) => {
