@@ -23,7 +23,6 @@ import {
   calculateCommissionsForTransaction,
   createPayoutForAgent,
   getCommissionConfig,
-  markEventsPaid,
   markPayoutPaid,
   recalcAll,
   setSetting,
@@ -84,6 +83,11 @@ export function registerCommissionsRoutes(app: Express) {
   app.put("/api/commissions/settings",
     isAuthenticated, dbEnvironmentMiddleware, requirePerm(ACTIONS.COMMISSIONS_MANAGE),
     async (req: RequestWithDB, res: Response) => {
+      // Settings are org-wide and must NOT be writable by scoped (downline)
+      // managers. Require the caller to hold "all" scope for COMMISSIONS_MANAGE.
+      if (getActionScope(req.currentUser as any, ACTIONS.COMMISSIONS_MANAGE) !== "all") {
+        return res.status(403).json({ message: "Org-wide settings require admin." });
+      }
       try {
         const schema = z.object({
           defaultOverridePct: z.coerce.number().min(0).max(100).optional(),
@@ -198,6 +202,15 @@ export function registerCommissionsRoutes(app: Express) {
     async (req: RequestWithDB, res: Response) => {
       try {
         const id = Number(req.params.id);
+        // Load the override so we can scope-check the parent agent before deletion.
+        const [row] = await req.db!.select().from(agentOverrides).where(eq(agentOverrides.id, id));
+        if (!row) return res.status(404).json({ message: "Not found" });
+        if (getActionScope(req.currentUser as any, ACTIONS.COMMISSIONS_MANAGE) !== "all") {
+          const allowed = await resolveScopedAgentIds(req);
+          if (!allowed.includes(row.parentAgentId)) {
+            return res.status(403).json({ message: "Forbidden" });
+          }
+        }
         await req.db!.delete(agentOverrides).where(eq(agentOverrides.id, id));
         res.status(204).end();
       } catch (err: any) {
@@ -254,8 +267,27 @@ export function registerCommissionsRoutes(app: Express) {
     async (req: RequestWithDB, res: Response) => {
       try {
         const txId = Number(req.params.transactionId);
-        // Explicit operator action → force=true so paid rows are preserved
-        // but pending/payable rows are recomputed for this single tx.
+        // Scope-check: the merchant's owning agent must be in the caller's
+        // allowed set when the caller is not org-wide.
+        if (getActionScope(req.currentUser as any, ACTIONS.COMMISSIONS_MANAGE) !== "all") {
+          const [m] = await req.db!.select({ agentId: merchants.agentId })
+            .from(merchants)
+            .innerJoin(commissionEvents, eq(commissionEvents.merchantId, merchants.id))
+            .where(eq(commissionEvents.transactionId, txId))
+            .limit(1);
+          // Fall back to looking up the tx → merchant directly if no events yet.
+          let ownerAgent = m?.agentId ?? null;
+          if (ownerAgent == null) {
+            const [direct] = await req.db!.select({ agentId: merchants.agentId })
+              .from(merchants)
+              .where(sql`${merchants.id} = (SELECT merchant_id FROM transactions WHERE id = ${txId})`);
+            ownerAgent = direct?.agentId ?? null;
+          }
+          const allowed = await resolveScopedAgentIds(req);
+          if (!ownerAgent || !allowed.includes(ownerAgent)) {
+            return res.status(403).json({ message: "Forbidden" });
+          }
+        }
         const force = req.body?.force === true || req.body?.force === "true";
         const events = await calculateCommissionsForTransaction(req.db!, txId, { force });
         res.json({ transactionId: txId, eventCount: events.length, events });
@@ -298,7 +330,11 @@ export function registerCommissionsRoutes(app: Express) {
       }
     });
 
-  // Bulk mark commission events as paid (without creating a payout batch).
+  // Bulk pay events. Per accounting policy, paid transitions ALWAYS occur
+  // through a payout batch so every paid event has a payout_id, method,
+  // reference, and timestamp. This endpoint groups events by beneficiary
+  // agent, creates one payout per agent for the spanning period, attaches
+  // its events, then marks each payout paid.
   app.post("/api/commissions/events/mark-paid",
     isAuthenticated, dbEnvironmentMiddleware, requirePerm(ACTIONS.PAYOUTS_MANAGE),
     async (req: RequestWithDB, res: Response) => {
@@ -306,22 +342,55 @@ export function registerCommissionsRoutes(app: Express) {
         const schema = z.object({
           eventIds: z.array(z.coerce.number().int().positive()).min(1),
           reference: z.string().optional().nullable(),
+          method: z.enum(PAYOUT_METHODS).optional(),
         });
         const parsed = schema.safeParse(req.body);
         if (!parsed.success) return res.status(400).json({ errors: parsed.error.errors });
 
-        // Scope check: every event's beneficiary must be in the caller's allowed set.
         const allowed = await resolveScopedAgentIds(req);
         const rows = await req.db!.select({
           id: commissionEvents.id,
           beneficiaryAgentId: commissionEvents.beneficiaryAgentId,
+          status: commissionEvents.status,
+          payoutId: commissionEvents.payoutId,
+          createdAt: commissionEvents.createdAt,
         }).from(commissionEvents).where(inArray(commissionEvents.id, parsed.data.eventIds));
+
         const denied = rows.filter((r) => !allowed.includes(r.beneficiaryAgentId));
         if (denied.length > 0) return res.status(403).json({ message: "Forbidden" });
+        const ineligible = rows.filter((r) => r.status !== "payable" || r.payoutId != null);
+        if (ineligible.length > 0) {
+          return res.status(400).json({
+            message: "Some events are not eligible (must be 'payable' and unattached).",
+            ineligibleIds: ineligible.map((r) => r.id),
+          });
+        }
 
-        const updated = await markEventsPaid(
-          req.db!, rows.map((r) => r.id), parsed.data.reference ?? null);
-        res.json({ updated });
+        // Group by beneficiary agent and span period from min..max createdAt.
+        const byAgent = new Map<number, typeof rows>();
+        for (const r of rows) {
+          const arr = byAgent.get(r.beneficiaryAgentId) ?? [];
+          arr.push(r); byAgent.set(r.beneficiaryAgentId, arr);
+        }
+        const createdPayouts: any[] = [];
+        for (const [agentId, agentRows] of Array.from(byAgent.entries())) {
+          const dates = agentRows.map((r) => +new Date(r.createdAt as any));
+          const ps = new Date(Math.min(...dates));
+          const pe = new Date(Math.max(...dates));
+          const payout = await createPayoutForAgent(req.db!, {
+            agentId,
+            periodStart: ps,
+            periodEnd: pe,
+            method: parsed.data.method,
+            notes: `Bulk mark-paid (${agentRows.length} events)`,
+            createdBy: (req.currentUser as any)?.id ?? null,
+          });
+          const paid = await markPayoutPaid(req.db!, payout.id, {
+            reference: parsed.data.reference ?? null,
+          });
+          createdPayouts.push(paid);
+        }
+        res.json({ payouts: createdPayouts });
       } catch (err: any) {
         console.error("[commissions] events mark-paid failed", err);
         res.status(500).json({ message: err?.message || "Mark paid failed" });
@@ -434,6 +503,10 @@ export function registerCommissionsRoutes(app: Express) {
   app.post("/api/commissions/recalculate-all",
     isAuthenticated, dbEnvironmentMiddleware, requirePerm(ACTIONS.COMMISSIONS_MANAGE),
     async (req: RequestWithDB, res: Response) => {
+      // Org-wide bulk operation — admin only.
+      if (getActionScope(req.currentUser as any, ACTIONS.COMMISSIONS_MANAGE) !== "all") {
+        return res.status(403).json({ message: "Org-wide recalculation requires admin." });
+      }
       try {
         const sinceDays = req.body?.sinceDays ? Number(req.body.sinceDays) : undefined;
         const result = await recalcAll(req.db!, { sinceDays });
@@ -497,6 +570,11 @@ export function registerCommissionsRoutes(app: Express) {
         const ps = parseDate(parsed.data.periodStart);
         const pe = parseDate(parsed.data.periodEnd);
         if (!ps || !pe) return res.status(400).json({ message: "Invalid period dates" });
+        // Scope-check: target agent must be in the caller's allowed set.
+        const allowed = await resolveScopedAgentIds(req);
+        if (!allowed.includes(parsed.data.agentId)) {
+          return res.status(403).json({ message: "Forbidden" });
+        }
         const payout = await createPayoutForAgent(req.db!, {
           agentId: parsed.data.agentId,
           periodStart: ps,
@@ -517,6 +595,10 @@ export function registerCommissionsRoutes(app: Express) {
     async (req: RequestWithDB, res: Response) => {
       try {
         const id = Number(req.params.id);
+        const [target] = await req.db!.select({ agentId: payouts.agentId }).from(payouts).where(eq(payouts.id, id));
+        if (!target) return res.status(404).json({ message: "Not found" });
+        const allowed = await resolveScopedAgentIds(req);
+        if (!allowed.includes(target.agentId)) return res.status(403).json({ message: "Forbidden" });
         const reference = typeof req.body?.reference === "string" ? req.body.reference : null;
         const updated = await markPayoutPaid(req.db!, id, { reference });
         res.json(updated);
@@ -531,6 +613,10 @@ export function registerCommissionsRoutes(app: Express) {
     async (req: RequestWithDB, res: Response) => {
       try {
         const id = Number(req.params.id);
+        const [target] = await req.db!.select({ agentId: payouts.agentId }).from(payouts).where(eq(payouts.id, id));
+        if (!target) return res.status(404).json({ message: "Not found" });
+        const allowed = await resolveScopedAgentIds(req);
+        if (!allowed.includes(target.agentId)) return res.status(403).json({ message: "Forbidden" });
         const updated = await voidPayout(req.db!, id);
         res.json(updated);
       } catch (err: any) {
