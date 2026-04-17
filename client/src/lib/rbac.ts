@@ -159,52 +159,45 @@ export function hasAnyRole(user: User | null, roles: Role[]): boolean {
   return hasAnyRoleCode(user, roles);
 }
 
-// ── Higher-level access control helpers (used by App.tsx route guards) ──────
-
+// ── Higher-level access control helpers ─────────────────────────────────────
+// These are thin shims over the runtime permission registry (DEFAULT_ACTION_GRANTS
+// + DB overrides) so the static `ROLE_PERMISSIONS` map below is NEVER consulted
+// for authorization. Display-only consumers (e.g. role-definitions UI) may still
+// read `ROLE_PERMISSIONS` and `PERMISSIONS` for human-readable labels.
 export function canAccessUserManagement(user: User | null): boolean {
-  return hasAnyPermission(user, [
-    PERMISSIONS.VIEW_ALL_USERS, PERMISSIONS.CREATE_USERS, PERMISSIONS.EDIT_USERS,
-  ]);
+  return hasActionPermission(user, ACTIONS.NAV_USERS);
 }
 
 export function canAccessMerchantManagement(user: User | null): boolean {
-  return hasAnyPermission(user, [
-    PERMISSIONS.VIEW_ALL_MERCHANTS, PERMISSIONS.VIEW_OWN_MERCHANT, PERMISSIONS.CREATE_MERCHANTS,
-  ]);
+  return hasActionPermission(user, ACTIONS.NAV_MERCHANTS);
 }
 
 export function canAccessAgentManagement(user: User | null): boolean {
-  return hasAnyPermission(user, [
-    PERMISSIONS.VIEW_ALL_AGENTS, PERMISSIONS.VIEW_OWN_AGENTS, PERMISSIONS.CREATE_AGENTS,
-  ]);
+  return hasActionPermission(user, ACTIONS.NAV_AGENTS);
 }
 
 export function canAccessTransactionManagement(user: User | null): boolean {
-  return hasAnyPermission(user, [
-    PERMISSIONS.VIEW_ALL_TRANSACTIONS, PERMISSIONS.VIEW_OWN_TRANSACTIONS, PERMISSIONS.CREATE_TRANSACTIONS,
-  ]);
+  return hasActionPermission(user, ACTIONS.NAV_TRANSACTIONS);
 }
 
 export function canAccessLocationManagement(user: User | null): boolean {
-  return hasAnyPermission(user, [
-    PERMISSIONS.VIEW_ALL_LOCATIONS, PERMISSIONS.VIEW_OWN_LOCATIONS, PERMISSIONS.CREATE_LOCATIONS,
-  ]);
+  return hasActionPermission(user, ACTIONS.NAV_LOCATIONS);
 }
 
 export function canAccessAnalytics(user: User | null): boolean {
-  return hasPermission(user, PERMISSIONS.VIEW_ANALYTICS);
+  return hasActionPermission(user, ACTIONS.ADMIN_READ);
 }
 
 export function canAccessReports(user: User | null): boolean {
-  return hasPermission(user, PERMISSIONS.VIEW_REPORTS);
+  return hasActionPermission(user, ACTIONS.NAV_REPORTS);
 }
 
 export function canAccessSystemAdmin(user: User | null): boolean {
-  return hasAnyPermission(user, [PERMISSIONS.MANAGE_SYSTEM, PERMISSIONS.VIEW_SYSTEM_LOGS]);
+  return hasActionPermission(user, ACTIONS.ADMIN_MANAGE);
 }
 
 export function canAccessSecurityDashboard(user: User | null): boolean {
-  return hasAnyPermission(user, [PERMISSIONS.VIEW_SYSTEM_LOGS, PERMISSIONS.MANAGE_SYSTEM]);
+  return hasActionPermission(user, ACTIONS.NAV_SECURITY);
 }
 
 // ── Data filtering helpers ─────────────────────────────────────────────────

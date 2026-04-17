@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { isUnauthorizedError } from "@/lib/authUtils";
-import { ACTIONS, ROLE_CODES, hasAnyRoleCode, hasRoleCode } from "@shared/permissions";
+import { ACTIONS } from "@shared/permissions";
 import { usePermissions } from "@/hooks/usePermissions";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
@@ -622,7 +622,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/roles-permissions">
             {() => {
-              if (!hasRoleCode(user, ROLE_CODES.SUPER_ADMIN)) return <NotFound />;
+              if (!can(ACTIONS.NAV_PERMISSION_MATRIX)) return <NotFound />;
               return (
                 <>
                   <Header title="Roles & Permissions" onSearch={setGlobalSearch} />
@@ -710,7 +710,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/action-templates">
             {() => {
-              if (!hasAnyRoleCode(user, [ROLE_CODES.ADMIN, ROLE_CODES.SUPER_ADMIN])) return <NotFound />;
+              if (!can(ACTIONS.NAV_ACTION_TEMPLATES)) return <NotFound />;
               const pageInfo = getPageInfo("/action-templates");
               return (
                 <>
@@ -724,7 +724,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/data-view/:templateId">
             {() => {
-              if (!hasAnyRoleCode(user, [ROLE_CODES.ADMIN, ROLE_CODES.SUPER_ADMIN])) return <NotFound />;
+              if (!can(ACTIONS.NAV_DATA_VIEW)) return <NotFound />;
               return (
                 <>
                   <Header title="Data View" onSearch={setGlobalSearch} />
@@ -737,7 +737,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/communications">
             {() => {
-              if (!hasAnyRoleCode(user, [ROLE_CODES.ADMIN, ROLE_CODES.SUPER_ADMIN])) return <NotFound />;
+              if (!can(ACTIONS.NAV_COMMUNICATIONS)) return <NotFound />;
               const pageInfo = getPageInfo("/communications");
               return (
                 <>

@@ -81,6 +81,8 @@ export const ACTIONS = {
   NAV_API_DOCS: "nav:api-docs",
   NAV_TESTING: "nav:testing-utilities",
   NAV_PERMISSION_MATRIX: "nav:permission-matrix",
+  NAV_ACTION_TEMPLATES: "nav:action-templates",
+  NAV_DATA_VIEW: "nav:data-view",
 } as const;
 export type Action = (typeof ACTIONS)[keyof typeof ACTIONS];
 export const ALL_ACTIONS: Action[] = Object.values(ACTIONS);
@@ -166,7 +168,11 @@ export const DEFAULT_ACTION_GRANTS: Record<Action, ActionGrants> = {
     [ROLE_CODES.SENIOR_UNDERWRITER]: "all", [ROLE_CODES.DATA_PROCESSING]: "all",
     [ROLE_CODES.DEPLOYMENT]: "all",
   },
-  [ACTIONS.NAV_LOCATIONS]: { [ROLE_CODES.MERCHANT]: "own", [ROLE_CODES.DEPLOYMENT]: "all", [ROLE_CODES.SUPER_ADMIN]: "all" },
+  [ACTIONS.NAV_LOCATIONS]: {
+    [ROLE_CODES.MERCHANT]: "own", [ROLE_CODES.AGENT]: "downline",
+    [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.CORPORATE]: "all",
+    [ROLE_CODES.DEPLOYMENT]: "all", [ROLE_CODES.SUPER_ADMIN]: "all",
+  },
   [ACTIONS.NAV_AGENTS]: {
     [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.CORPORATE]: "all", [ROLE_CODES.SUPER_ADMIN]: "all",
     [ROLE_CODES.UNDERWRITER]: "all", [ROLE_CODES.SENIOR_UNDERWRITER]: "all",
@@ -186,6 +192,7 @@ export const DEFAULT_ACTION_GRANTS: Record<Action, ActionGrants> = {
   [ACTIONS.NAV_USERS]: { [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.CORPORATE]: "all", [ROLE_CODES.SUPER_ADMIN]: "all" },
   [ACTIONS.NAV_REPORTS]: {
     [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.CORPORATE]: "all", [ROLE_CODES.SUPER_ADMIN]: "all",
+    [ROLE_CODES.AGENT]: "downline",
     [ROLE_CODES.UNDERWRITER]: "own", [ROLE_CODES.SENIOR_UNDERWRITER]: "all",
     [ROLE_CODES.DATA_PROCESSING]: "all", [ROLE_CODES.DEPLOYMENT]: "all",
   },
@@ -195,6 +202,8 @@ export const DEFAULT_ACTION_GRANTS: Record<Action, ActionGrants> = {
   [ACTIONS.NAV_API_DOCS]: { [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.SUPER_ADMIN]: "all" },
   [ACTIONS.NAV_TESTING]: { [ROLE_CODES.SUPER_ADMIN]: "all" },
   [ACTIONS.NAV_PERMISSION_MATRIX]: { [ROLE_CODES.SUPER_ADMIN]: "all" },
+  [ACTIONS.NAV_ACTION_TEMPLATES]: { [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.SUPER_ADMIN]: "all" },
+  [ACTIONS.NAV_DATA_VIEW]: { [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.SUPER_ADMIN]: "all" },
 };
 
 export const ACTION_GROUPS: { label: string; actions: Action[] }[] = [
@@ -225,6 +234,7 @@ export const ACTION_GROUPS: { label: string; actions: Action[] }[] = [
       ACTIONS.NAV_PDF_FORMS, ACTIONS.NAV_USERS, ACTIONS.NAV_REPORTS,
       ACTIONS.NAV_SECURITY, ACTIONS.NAV_COMMUNICATIONS, ACTIONS.NAV_WORKFLOWS,
       ACTIONS.NAV_API_DOCS, ACTIONS.NAV_TESTING, ACTIONS.NAV_PERMISSION_MATRIX,
+      ACTIONS.NAV_ACTION_TEMPLATES, ACTIONS.NAV_DATA_VIEW,
     ],
   },
 ];
@@ -260,6 +270,8 @@ export const ACTION_LABELS: Record<Action, string> = {
   [ACTIONS.NAV_API_DOCS]: "Sidebar: API Documentation",
   [ACTIONS.NAV_TESTING]: "Sidebar: Testing Utilities",
   [ACTIONS.NAV_PERMISSION_MATRIX]: "Sidebar: Roles & Permissions",
+  [ACTIONS.NAV_ACTION_TEMPLATES]: "Sidebar: Action Templates",
+  [ACTIONS.NAV_DATA_VIEW]: "Sidebar: Data View",
 };
 
 // Destructive actions (UI confirms before granting "all" scope on these).
