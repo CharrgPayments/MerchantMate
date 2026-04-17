@@ -427,6 +427,80 @@ This email was sent to ${data.ownerEmail}
     }
   }
 
+  async sendSlaBreachAlert(data: {
+    to: string;
+    firstName?: string;
+    applicationId: number;
+    pathway: string;
+    status: string;
+    hoursOverdue: number;
+    deadlineAt: Date;
+    reviewUrl: string;
+  }): Promise<boolean> {
+    const { to, firstName, applicationId, pathway, status, hoursOverdue, deadlineAt, reviewUrl } = data;
+    const subject = `[CoreCRM] SLA breach — Application #${applicationId} (${hoursOverdue}h overdue)`;
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: #b91c1c; color: white; padding: 24px; text-align: center;">
+          <h1 style="margin: 0; font-size: 22px;">SLA Breach Detected</h1>
+        </div>
+        <div style="padding: 24px; background: #ffffff;">
+          <p>Hi ${firstName ?? 'team'},</p>
+          <p>Application <strong>#${applicationId}</strong> has breached its ${pathway.toUpperCase()} SLA.</p>
+          <table cellpadding="6" style="border-collapse: collapse; margin: 16px 0;">
+            <tr><td style="color:#6b7280;">Status</td><td><strong>${status}</strong></td></tr>
+            <tr><td style="color:#6b7280;">Pathway</td><td>${pathway}</td></tr>
+            <tr><td style="color:#6b7280;">Deadline</td><td>${deadlineAt.toISOString()}</td></tr>
+            <tr><td style="color:#6b7280;">Overdue by</td><td><strong>${hoursOverdue} hours</strong></td></tr>
+          </table>
+          <div style="text-align: center; margin: 24px 0;">
+            <a href="${reviewUrl}" style="background: #b91c1c; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Review Application</a>
+          </div>
+        </div>
+        <div style="background: #f9fafb; padding: 12px; text-align: center; color: #6b7280; font-size: 12px;">
+          © ${new Date().getFullYear()} Core CRM
+        </div>
+      </div>`;
+    const text = `SLA breach: Application #${applicationId} (${pathway}/${status}) is ${hoursOverdue}h past deadline ${deadlineAt.toISOString()}. Review: ${reviewUrl}`;
+    return this.sendGenericEmail({ to, subject, html, text });
+  }
+
+  async sendReviewerAssignmentEmail(data: {
+    to: string;
+    firstName?: string;
+    applicationId: number;
+    status: string;
+    pathway: string;
+    assignedBy?: string;
+    reviewUrl: string;
+  }): Promise<boolean> {
+    const { to, firstName, applicationId, status, pathway, assignedBy, reviewUrl } = data;
+    const subject = `[CoreCRM] You've been assigned Application #${applicationId}`;
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: #1d4ed8; color: white; padding: 24px; text-align: center;">
+          <h1 style="margin: 0; font-size: 22px;">New Assignment</h1>
+        </div>
+        <div style="padding: 24px; background: #ffffff;">
+          <p>Hi ${firstName ?? 'there'},</p>
+          <p>You have been assigned as the reviewer for application <strong>#${applicationId}</strong>${assignedBy ? ` by ${assignedBy}` : ''}.</p>
+          <table cellpadding="6" style="border-collapse: collapse; margin: 16px 0;">
+            <tr><td style="color:#6b7280;">Application</td><td>#${applicationId}</td></tr>
+            <tr><td style="color:#6b7280;">Status</td><td><strong>${status}</strong></td></tr>
+            <tr><td style="color:#6b7280;">Pathway</td><td>${pathway}</td></tr>
+          </table>
+          <div style="text-align: center; margin: 24px 0;">
+            <a href="${reviewUrl}" style="background: #1d4ed8; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Open Application</a>
+          </div>
+        </div>
+        <div style="background: #f9fafb; padding: 12px; text-align: center; color: #6b7280; font-size: 12px;">
+          © ${new Date().getFullYear()} Core CRM
+        </div>
+      </div>`;
+    const text = `You've been assigned application #${applicationId} (${status}, ${pathway})${assignedBy ? ` by ${assignedBy}` : ''}. Open: ${reviewUrl}`;
+    return this.sendGenericEmail({ to, subject, html, text });
+  }
+
   async sendPortalInviteEmail(data: { firstName: string; lastName: string; email: string; statusUrl: string; agentName: string }): Promise<boolean> {
     const { firstName, lastName, email, statusUrl, agentName } = data;
     const html = `

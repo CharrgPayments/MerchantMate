@@ -21,7 +21,9 @@ import { dbEnvironmentMiddleware, getRequestDB, type RequestWithDB } from "../db
 import { isAuthenticated, requirePerm } from "../replitAuth";
 import { auditService } from "../auditService";
 import { runUnderwritingPipeline, runManualPhase } from "./orchestrator";
-import { notifyRunCompleted, notifyTransition } from "./notifications";
+import { notifyRunCompleted, notifyTransition, alertUser } from "./notifications";
+import { emailService } from "../emailService";
+import { users } from "@shared/schema";
 
 function userId(req: RequestWithDB): string | null {
   const sess = req.session as { userId?: string } | undefined;
@@ -287,6 +289,30 @@ export function registerUnderwritingRoutes(app: Express) {
         await audit(req, "update", "application_reviewer", String(applicationId), {
           oldValues: { assignedReviewerId: appRow.assignedReviewerId }, newValues: { assignedReviewerId: reviewerId },
         });
+        if (reviewerId !== appRow.assignedReviewerId) {
+          try {
+            const [reviewer] = await db.select().from(users).where(eq(users.id, reviewerId)).limit(1);
+            const path = `/underwriting-review/${applicationId}`;
+            await alertUser(db, reviewerId, `You've been assigned application #${applicationId}`, path, "info");
+            if (reviewer?.email) {
+              const assignerId = userId(req);
+              const [assigner] = assignerId ? await db.select().from(users).where(eq(users.id, assignerId)).limit(1) : [undefined];
+              const assignerName = assigner ? [assigner.firstName, assigner.lastName].filter(Boolean).join(" ") || assigner.email || undefined : undefined;
+              const reviewUrl = `${(process.env.APP_BASE_URL || process.env.PUBLIC_APP_URL || "").replace(/\/$/, "")}${path}`;
+              await emailService.sendReviewerAssignmentEmail({
+                to: reviewer.email,
+                firstName: reviewer.firstName ?? undefined,
+                applicationId,
+                status: appRow.status,
+                pathway: appRow.pathway,
+                assignedBy: assignerName,
+                reviewUrl,
+              });
+            }
+          } catch (e) {
+            console.error("reviewer assignment notify failed:", e);
+          }
+        }
         res.json({ ok: true });
       } catch (err) {
         res.status(500).json({ message: err instanceof Error ? err.message : "Failed" });

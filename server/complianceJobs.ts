@@ -95,6 +95,7 @@ export async function detectSlaBreaches(): Promise<{ inserted: number }> {
             riskLevel: "high",
             notes: `Application ${a.id} breached ${a.pathway.toUpperCase()} SLA by ${hoursOverdue}h`,
           });
+          await dispatchSlaBreachEmails(a.id, a.pathway, a.status, hoursOverdue, a.slaDeadline);
         }
       } catch (err) {
         console.error("[complianceJobs] sla insert failed", err);
@@ -104,6 +105,45 @@ export async function detectSlaBreaches(): Promise<{ inserted: number }> {
     console.error("[complianceJobs] detectSlaBreaches failed", err);
   }
   return { inserted };
+}
+
+async function dispatchSlaBreachEmails(
+  applicationId: number,
+  pathway: string,
+  status: string,
+  hoursOverdue: number,
+  deadlineAt: Date,
+): Promise<void> {
+  try {
+    const [appRow] = await db.select({
+      assignedReviewerId: prospectApplications.assignedReviewerId,
+    }).from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
+
+    const reviewUrl = `${(process.env.APP_BASE_URL || process.env.PUBLIC_APP_URL || "").replace(/\/$/, "")}/underwriting-review/${applicationId}`;
+    const recipients = new Map<string, { firstName?: string }>();
+
+    if (appRow?.assignedReviewerId) {
+      const [u] = await db.select().from(users).where(eq(users.id, appRow.assignedReviewerId)).limit(1);
+      if (u?.email) recipients.set(u.email, { firstName: u.firstName ?? undefined });
+    }
+    const seniorRoles = ["senior_underwriter"];
+    const seniors = (await db.select().from(users)).filter((u) => {
+      const arr = Array.isArray(u.roles) ? u.roles : [];
+      return arr.some((r) => seniorRoles.includes(r));
+    });
+    for (const s of seniors) {
+      if (s.email) recipients.set(s.email, { firstName: s.firstName ?? undefined });
+    }
+
+    await Promise.all(Array.from(recipients.entries()).map(([to, meta]) =>
+      emailService.sendSlaBreachAlert({
+        to, firstName: meta.firstName, applicationId, pathway, status,
+        hoursOverdue, deadlineAt, reviewUrl,
+      }),
+    ));
+  } catch (err) {
+    console.error("[complianceJobs] sla breach email dispatch failed", err);
+  }
 }
 
 // ─── Retention archival ──────────────────────────────────────────────────────
