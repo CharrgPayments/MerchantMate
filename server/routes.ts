@@ -3236,9 +3236,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 .where(eq(acquirerApplicationTemplates.id, prospectApp.templateId)).limit(1);
               if (template?.originalPdfBase64) {
                 console.log(`Generating filled PDF from template "${template.templateName}" for prospect ${prospectId}`);
+                // Epic D — inject the prospect's active campaign fee values
+                // so the initial submission already reflects deep-link pricing.
+                const campaignFees = await loadCampaignFeesForProspect(prospectId, devDb);
+                const mergedSubmit = {
+                  ...formData,
+                  ...(prospectApp.applicationData as Record<string, any> || {}),
+                  ...campaignFees,
+                };
                 pdfBuffer = await pdfGenerator.generateFilledPDF(
                   template.originalPdfBase64,
-                  { ...formData, ...(prospectApp.applicationData as Record<string, any> || {}) },
+                  mergedSubmit,
                   template.fieldConfiguration,
                   Array.isArray(template.pdfMappingConfiguration) ? template.pdfMappingConfiguration as any[] : []
                 );
@@ -6156,7 +6164,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch('/api/campaign-rules/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const id = parseInt(req.params.id);
-      const updated = await storage.updateCampaignAssignmentRule(id, req.body);
+      const { insertCampaignAssignmentRuleSchema } = await import('@shared/schema');
+      // Validate partial payload against the insert schema; omit createdBy so
+      // PATCH can't reassign authorship.
+      const parsed = insertCampaignAssignmentRuleSchema
+        .omit({ createdBy: true })
+        .partial()
+        .safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: 'Invalid rule update', errors: parsed.error.errors });
+      }
+      const updated = await storage.updateCampaignAssignmentRule(id, parsed.data);
       if (!updated) return res.status(404).json({ message: 'Rule not found' });
       res.json(updated);
     } catch (e) {
@@ -6177,10 +6195,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ===== Set / swap campaign for a prospect =====
-  // Epic D — Regenerate the filled MPA PDF for a single prospect using its
-  // existing prospect_application + acquirer template. Mirrors the same
-  // generation pattern used in /api/prospects/:id/submit-application.
+  // Epic D — load currently-active campaign fee values for a prospect, keyed
+  // by `fee_<feeItemId>` and the slugified fee name so PDF templates can
+  // reference either. Returns an empty object when there's no assignment.
+  async function loadCampaignFeesForProspect(
+    prospectId: number,
+    db: ReturnType<typeof getRequestDB>,
+  ): Promise<Record<string, string>> {
+    const out: Record<string, string> = {};
+    try {
+      const { campaignAssignments, campaignFeeValues, feeItems } = await import('@shared/schema');
+      const { eq, and, desc } = await import('drizzle-orm');
+      const [active] = await db
+        .select()
+        .from(campaignAssignments)
+        .where(and(
+          eq(campaignAssignments.prospectId, prospectId),
+          eq(campaignAssignments.isActive, true),
+        ))
+        .orderBy(desc(campaignAssignments.assignedAt))
+        .limit(1);
+      if (!active?.campaignId) return out;
+      const rows = await db
+        .select({
+          feeItemId: campaignFeeValues.feeItemId,
+          value: campaignFeeValues.value,
+          feeName: feeItems.name,
+        })
+        .from(campaignFeeValues)
+        .leftJoin(feeItems, eq(campaignFeeValues.feeItemId, feeItems.id))
+        .where(eq(campaignFeeValues.campaignId, active.campaignId));
+      for (const r of rows) {
+        out[`fee_${r.feeItemId}`] = r.value;
+        if (r.feeName) {
+          const key = String(r.feeName).trim().toLowerCase().replace(/\s+/g, '_');
+          out[key] = r.value;
+        }
+      }
+      out.campaignId = String(active.campaignId);
+    } catch (e) {
+      console.warn('[Epic D] loadCampaignFeesForProspect failed:', e);
+    }
+    return out;
+  }
+
+  // Regenerate the filled MPA PDF for a single prospect using its existing
+  // prospect_application + acquirer template, with current campaign pricing.
   async function regenerateProspectPdf(
     prospectId: number,
     db: ReturnType<typeof getRequestDB>,
@@ -6226,50 +6286,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           formData = {};
         }
       }
-      // Epic D — pull pricing from the prospect's CURRENTLY active campaign
-      // assignment and inject those values into the merged formData so the
-      // regenerated PDF reflects the new/current campaign pricing (not the
-      // pricing that happened to be persisted in applicationData at first
-      // submission). Field naming convention: `fee_<feeItemId>` and the
-      // human-readable `<feeItemName>` (lowercased + underscores) — both
-      // populated to maximize template compatibility.
-      const campaignFees: Record<string, any> = {};
-      try {
-        const [activeAssignment] = await db
-          .select()
-          .from(campaignAssignments)
-          .where(and(
-            eq(campaignAssignments.prospectId, prospectId),
-            eq(campaignAssignments.isActive, true),
-          ))
-          .orderBy(desc(campaignAssignments.assignedAt))
-          .limit(1);
-        if (activeAssignment?.campaignId) {
-          const feeRows = await db
-            .select({
-              feeItemId: campaignFeeValues.feeItemId,
-              value: campaignFeeValues.value,
-              valueType: campaignFeeValues.valueType,
-              feeName: feeItems.name,
-            })
-            .from(campaignFeeValues)
-            .leftJoin(feeItems, eq(campaignFeeValues.feeItemId, feeItems.id))
-            .where(eq(campaignFeeValues.campaignId, activeAssignment.campaignId));
-          for (const r of feeRows) {
-            campaignFees[`fee_${r.feeItemId}`] = r.value;
-            if (r.feeName) {
-              const key = String(r.feeName).trim().toLowerCase().replace(/\s+/g, '_');
-              campaignFees[key] = r.value;
-            }
-          }
-          campaignFees.campaignId = activeAssignment.campaignId;
-        }
-      } catch (feeErr) {
-        console.warn('[Epic D] regen: failed to load campaign fees, falling back to stored data:', feeErr);
-      }
-
-      // Precedence: stored applicationData (snapshot at submission) overrides
-      // base formData; fresh campaign fees override both so re-pricing wins.
+      // Inject the prospect's currently-active campaign fee values so re-pricing wins.
+      const campaignFees = await loadCampaignFeesForProspect(prospectId, db);
       const merged = {
         ...formData,
         ...(prospectApp.applicationData as Record<string, any> || {}),
@@ -6292,6 +6310,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const filePath = path.default.join(uploadsDir, fileName);
       fs.writeFileSync(filePath, pdfBuffer);
       const generatedPdfPath = `uploads/generated-pdfs/${fileName}`;
+
+      // Preserve previous PDF in a sibling history manifest so audit can find
+      // every version of this prospect's generated MPA across re-pricings.
+      try {
+        const prevPath = prospectApp.generatedPdfPath;
+        if (prevPath) {
+          const histPath = path.default.join(uploadsDir, `${prospectId}.history.json`);
+          let history: Array<{ path: string; supersededAt: string; replacedBy: string }> = [];
+          if (fs.existsSync(histPath)) {
+            try { history = JSON.parse(fs.readFileSync(histPath, 'utf8')); } catch { history = []; }
+          }
+          history.push({
+            path: prevPath,
+            supersededAt: new Date().toISOString(),
+            replacedBy: generatedPdfPath,
+          });
+          fs.writeFileSync(histPath, JSON.stringify(history, null, 2));
+        }
+      } catch (histErr) {
+        console.warn('[Epic D] regen: failed to record PDF history (non-fatal):', histErr);
+      }
 
       await db
         .update(prospectApplications)

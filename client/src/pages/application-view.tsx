@@ -881,15 +881,6 @@ function SetCampaignButton({ prospectId }: { prospectId: string | undefined }) {
     queryKey: ["/api/campaigns"],
     enabled: open,
   });
-  const { data: currentAssignment } = useQuery<{ campaignId: number } | undefined>({
-    queryKey: ["/api/prospects", prospectId, "campaign-assignment"],
-    enabled: open && !!prospectId,
-    queryFn: async () => {
-      const res = await fetch(`/api/prospects/${prospectId}`, { credentials: "include" });
-      if (!res.ok) return undefined;
-      return res.json();
-    },
-  });
 
   const setMutation = useMutation({
     mutationFn: async () => {
@@ -899,10 +890,11 @@ function SetCampaignButton({ prospectId }: { prospectId: string | undefined }) {
       });
       return res.json();
     },
-    onSuccess: (data: any) => {
+    onSuccess: (data: { regenerated?: { ok: boolean; pdfPath?: string } | null }) => {
+      const regenOk = !!data.regenerated?.ok;
       toast({
         title: "Campaign updated",
-        description: data.regenerated ? "Filled PDF regenerated." : "Campaign assignment swapped.",
+        description: regenOk ? "Filled PDF regenerated." : "Campaign assignment swapped.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/prospects"] });
       setOpen(false);
