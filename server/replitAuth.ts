@@ -389,25 +389,28 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
 // Iterates ALL of the user's roles[] (not just roles[0]) so multi-role users get the
 // union of access. Attaches the effective Scope to req.permScope for downstream filters.
 import { getActionScope, ROLE_CODES, type Scope } from "@shared/permissions";
-import { type RequestWithDB, dbEnvironmentMiddleware } from "./dbMiddleware";
+import { type RequestWithDB } from "./dbMiddleware";
 import { getOverrides } from "./permissionRegistry";
-import { getDynamicDatabase } from "./db";
+import { getDynamicDatabase, runWithDb } from "./db";
 
 export const requirePerm = (action: string): RequestHandler => {
   return async (req, res, next) => {
     const reqWithCtx = req as RequestWithDB;
-    // Defensive: if dbEnvironmentMiddleware was not registered before this guard
-    // on a particular route, run it inline now so per-env override resolution is
-    // correct. This prevents prod grants from being evaluated against a dev
-    // session (or vice versa) on routes whose middleware order is wrong.
+    // Defensive ordering: if dbEnvironmentMiddleware did not run before this
+    // guard, resolve env directly here. We do NOT try to ride the middleware's
+    // AsyncLocalStorage frame across an `await` boundary (that frame is lost
+    // when the wrapping callback returns). Instead we determine the env, take
+    // a direct handle to its DB, and run the full permission check inside a
+    // `runWithDb(...)` block so storage.* calls hit the right environment.
     if (!reqWithCtx.dbEnv) {
-      await new Promise<void>((resolve, reject) => {
-        try {
-          dbEnvironmentMiddleware(reqWithCtx, res, () => resolve());
-        } catch (err) {
-          reject(err);
-        }
-      });
+      const sessionDbEnv = (req.session as any)?.dbEnv;
+      const fallbackEnv =
+        sessionDbEnv && ['test', 'development', 'dev', 'production'].includes(sessionDbEnv)
+          ? sessionDbEnv
+          : 'production';
+      reqWithCtx.dbEnv = fallbackEnv;
+      reqWithCtx.dynamicDB = getDynamicDatabase(fallbackEnv);
+      reqWithCtx.db = reqWithCtx.dynamicDB;
     }
     const env = reqWithCtx.dbEnv ?? 'production';
     const dbForEnv = reqWithCtx.dynamicDB ?? getDynamicDatabase(env);
@@ -415,7 +418,10 @@ export const requirePerm = (action: string): RequestHandler => {
 
     const finishWith = async (userId: string): Promise<void> => {
       try {
-        const dbUser = await storage.getUser(userId);
+        // Run user lookup inside the env's ALS frame so storage.getUser() is
+        // guaranteed to query the per-env DB even when no upstream middleware
+        // established the context.
+        const dbUser = await runWithDb(dbForEnv, () => storage.getUser(userId));
         if (!dbUser) {
           res.status(401).json({ message: "User not found" });
           return;
