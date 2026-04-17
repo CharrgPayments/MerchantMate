@@ -14,6 +14,7 @@ import { pdfFormParser } from "./pdfParser";
 import { emailService } from "./emailService";
 import { v4 as uuidv4 } from "uuid";
 import { dbEnvironmentMiddleware, adminDbMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
+import { registerUnderwritingRoutes } from "./underwriting/routes";
 import { getDynamicDatabase } from "./db";
 import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity, agentHierarchy, merchantHierarchy } from "@shared/schema";
 import { initAgentClosure, initMerchantClosure, setAgentParent, setMerchantParent, getAgentDescendantIds, getMerchantDescendantIds, isAgentDescendantOf, detachAgentForDelete, detachMerchantForDelete, HierarchyError, MAX_HIERARCHY_DEPTH } from "./hierarchyService";
@@ -10560,6 +10561,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to send portal invitation" });
     }
   });
+
+  // ─── Epic B — Underwriting Engine API ──────────────────────────────────────
+  registerUnderwritingRoutes(app);
 
   const httpServer = createServer(app);
   return httpServer;

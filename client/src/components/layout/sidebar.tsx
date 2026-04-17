@@ -38,6 +38,7 @@ const baseNavigation: NavItem[] = [
   { name: "Locations", href: "/locations", icon: MapPin, requiresAction: ACTIONS.NAV_LOCATIONS },
   { name: "Agents", href: "/agents", icon: Users, requiresAction: ACTIONS.NAV_AGENTS },
   { name: "Prospects", href: "/prospects", icon: UserPlus, requiresAction: ACTIONS.NAV_PROSPECTS },
+  { name: "Underwriting", href: "/underwriting-queue", icon: Shield, requiresAction: ACTIONS.UNDERWRITING_VIEW_QUEUE },
   {
     name: "Campaigns", href: "/campaigns", icon: DollarSign, requiresAction: ACTIONS.NAV_CAMPAIGNS,
     subItems: [

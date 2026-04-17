@@ -35,6 +35,8 @@ import Equipment from "@/pages/equipment";
 import ApiDocumentation from "@/pages/api-documentation";
 import TestingUtilities from "@/pages/testing-utilities";
 import RolesPermissionsPage from "@/pages/roles-permissions";
+import UnderwritingQueue from "@/pages/underwriting-queue";
+import UnderwritingReview from "@/pages/underwriting-review";
 import Workflows from "@/pages/workflows";
 import ApplicationTemplates from "@/pages/application-templates";
 import CampaignView from "@/pages/campaign-view";
@@ -636,6 +638,26 @@ function AuthenticatedApp() {
                 </>
               );
             }}
+          </Route>
+          <Route path="/underwriting-queue">
+            {() => (
+              <>
+                <Header title="Underwriting Queue" onSearch={setGlobalSearch} />
+                <main className="flex-1 overflow-auto bg-gray-50">
+                  <UnderwritingQueue />
+                </main>
+              </>
+            )}
+          </Route>
+          <Route path="/underwriting-review/:id">
+            {() => (
+              <>
+                <Header title="Underwriting Review" onSearch={setGlobalSearch} />
+                <main className="flex-1 overflow-auto bg-gray-50">
+                  <UnderwritingReview />
+                </main>
+              </>
+            )}
           </Route>
           <Route path="/roles-permissions">
             {() => {

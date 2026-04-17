@@ -988,6 +988,12 @@ export const prospectApplications = pgTable("prospect_applications", {
   templateId: integer("template_id").notNull().references(() => acquirerApplicationTemplates.id),
   templateVersion: text("template_version").notNull(),
   status: text("status").notNull().default("draft"),
+  // Epic B — underwriting state machine. Sub-status only meaningful when status = 'in_review'.
+  subStatus: text("sub_status"),
+  underwritingType: text("underwriting_type").notNull().default("new_app"), // new_app | change_request
+  riskScore: integer("risk_score"),
+  riskTier: text("risk_tier"), // low | medium | high
+  assignedReviewerId: varchar("assigned_reviewer_id"),
   applicationData: jsonb("application_data").notNull().default('{}'),
   submittedAt: timestamp("submitted_at"),
   approvedAt: timestamp("approved_at"),
@@ -999,6 +1005,110 @@ export const prospectApplications = pgTable("prospect_applications", {
 }, (table) => ({
   uniqueProspectAcquirer: unique().on(table.prospectId, table.acquirerId),
 }));
+
+// ─── Epic B — Underwriting Engine ────────────────────────────────────────────
+// underwriting_runs is one full pipeline pass against an application. Multiple
+// runs can exist per application (re-runs after info supplied, etc).
+export const underwritingRuns = pgTable("underwriting_runs", {
+  id: serial("id").primaryKey(),
+  applicationId: integer("application_id").notNull().references(() => prospectApplications.id, { onDelete: "cascade" }),
+  startedBy: varchar("started_by"),
+  status: text("status").notNull().default("running"), // running | completed | failed
+  currentPhase: text("current_phase"),
+  totalPhases: integer("total_phases").notNull().default(10),
+  riskScore: integer("risk_score"),
+  riskTier: text("risk_tier"),
+  errorMessage: text("error_message"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const underwritingPhaseResults = pgTable("underwriting_phase_results", {
+  id: serial("id").primaryKey(),
+  runId: integer("run_id").notNull().references(() => underwritingRuns.id, { onDelete: "cascade" }),
+  phaseKey: text("phase_key").notNull(),
+  phaseOrder: integer("phase_order").notNull(),
+  status: text("status").notNull(), // pass | warn | fail | skipped | error
+  score: integer("score").notNull().default(0),
+  findings: jsonb("findings").default('[]'),
+  endpointId: integer("endpoint_id").references(() => workflowEndpoints.id),
+  externalRequest: jsonb("external_request"),
+  externalResponse: jsonb("external_response"),
+  durationMs: integer("duration_ms"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const underwritingIssues = pgTable("underwriting_issues", {
+  id: serial("id").primaryKey(),
+  applicationId: integer("application_id").notNull().references(() => prospectApplications.id, { onDelete: "cascade" }),
+  runId: integer("run_id").references(() => underwritingRuns.id, { onDelete: "set null" }),
+  phaseKey: text("phase_key"),
+  severity: text("severity").notNull().default("warning"), // info | warning | error | critical
+  code: text("code").notNull(),
+  message: text("message").notNull(),
+  fieldPath: text("field_path"),
+  status: text("status").notNull().default("open"), // open | acknowledged | resolved | waived
+  resolvedBy: varchar("resolved_by"),
+  resolvedAt: timestamp("resolved_at"),
+  resolutionNote: text("resolution_note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const underwritingTasks = pgTable("underwriting_tasks", {
+  id: serial("id").primaryKey(),
+  applicationId: integer("application_id").notNull().references(() => prospectApplications.id, { onDelete: "cascade" }),
+  assignedToUserId: varchar("assigned_to_user_id"),
+  assignedRole: text("assigned_role"),
+  title: text("title").notNull(),
+  description: text("description"),
+  dueAt: timestamp("due_at"),
+  status: text("status").notNull().default("open"), // open | in_progress | done | cancelled
+  createdBy: varchar("created_by"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const underwritingNotes = pgTable("underwriting_notes", {
+  id: serial("id").primaryKey(),
+  applicationId: integer("application_id").notNull().references(() => prospectApplications.id, { onDelete: "cascade" }),
+  authorUserId: varchar("author_user_id"),
+  body: text("body").notNull(),
+  visibility: text("visibility").notNull().default("internal"), // internal | external
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const underwritingStatusHistory = pgTable("underwriting_status_history", {
+  id: serial("id").primaryKey(),
+  applicationId: integer("application_id").notNull().references(() => prospectApplications.id, { onDelete: "cascade" }),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status").notNull(),
+  fromSubStatus: text("from_sub_status"),
+  toSubStatus: text("to_sub_status"),
+  changedBy: varchar("changed_by"),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertUnderwritingRunSchema = createInsertSchema(underwritingRuns).omit({ id: true, startedAt: true });
+export const insertUnderwritingPhaseResultSchema = createInsertSchema(underwritingPhaseResults).omit({ id: true, startedAt: true });
+export const insertUnderwritingIssueSchema = createInsertSchema(underwritingIssues).omit({ id: true, createdAt: true });
+export const insertUnderwritingTaskSchema = createInsertSchema(underwritingTasks).omit({ id: true, createdAt: true });
+export const insertUnderwritingNoteSchema = createInsertSchema(underwritingNotes).omit({ id: true, createdAt: true });
+export const insertUnderwritingStatusHistorySchema = createInsertSchema(underwritingStatusHistory).omit({ id: true, createdAt: true });
+
+export type UnderwritingRun = typeof underwritingRuns.$inferSelect;
+export type InsertUnderwritingRun = z.infer<typeof insertUnderwritingRunSchema>;
+export type UnderwritingPhaseResult = typeof underwritingPhaseResults.$inferSelect;
+export type InsertUnderwritingPhaseResult = z.infer<typeof insertUnderwritingPhaseResultSchema>;
+export type UnderwritingIssue = typeof underwritingIssues.$inferSelect;
+export type InsertUnderwritingIssue = z.infer<typeof insertUnderwritingIssueSchema>;
+export type UnderwritingTask = typeof underwritingTasks.$inferSelect;
+export type InsertUnderwritingTask = z.infer<typeof insertUnderwritingTaskSchema>;
+export type UnderwritingNote = typeof underwritingNotes.$inferSelect;
+export type InsertUnderwritingNote = z.infer<typeof insertUnderwritingNoteSchema>;
+export type UnderwritingStatusHistoryEntry = typeof underwritingStatusHistory.$inferSelect;
+export type InsertUnderwritingStatusHistory = z.infer<typeof insertUnderwritingStatusHistorySchema>;
 
 // Campaign Application Templates junction table
 export const campaignApplicationTemplates = pgTable("campaign_application_templates", {
