@@ -59,6 +59,7 @@ export interface IStorage {
   upsertUser(user: UpsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<UpsertUser>): Promise<User | undefined>;
   updateUserRole(id: string, role: string): Promise<User | undefined>;
+  updateUserRoles(id: string, roles: string[]): Promise<User | undefined>;
   updateUserStatus(id: string, status: string): Promise<User | undefined>;
   updateUserPermissions(id: string, permissions: Record<string, boolean>): Promise<User | undefined>;
   resetUserPassword(id: string): Promise<{ user: User; temporaryPassword: string }>;
@@ -1634,9 +1635,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUserRole(id: string, role: string): Promise<User | undefined> {
+    return this.updateUserRoles(id, [role]);
+  }
+
+  async updateUserRoles(id: string, roles: string[]): Promise<User | undefined> {
+    const cleaned = Array.from(new Set(roles.filter((r) => typeof r === 'string' && r.length > 0)));
+    if (cleaned.length === 0) return undefined;
     const [user] = await db
       .update(users)
-      .set({ roles: [role], updatedAt: new Date() })
+      .set({ roles: cleaned, updatedAt: new Date() })
       .where(eq(users.id, id))
       .returning();
     return user ? this.withRole(user) : undefined;

@@ -389,12 +389,17 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
 // Iterates ALL of the user's roles[] (not just roles[0]) so multi-role users get the
 // union of access. Attaches the effective Scope to req.permScope for downstream filters.
 import { getActionScope, ROLE_CODES, type Scope } from "@shared/permissions";
-import type { RequestWithDB } from "./dbMiddleware";
+import { type RequestWithDB } from "./dbMiddleware";
 import { getOverrides } from "./permissionRegistry";
+import { getDynamicDatabase } from "./db";
 
 export const requirePerm = (action: string): RequestHandler => {
   return async (req, res, next) => {
-    const overrides = await getOverrides();
+    const reqWithCtx = req as RequestWithDB;
+    // Per-environment overrides — never bleed dev grants into prod and vice versa.
+    const env = reqWithCtx.dbEnv ?? 'production';
+    const dbForEnv = reqWithCtx.dynamicDB ?? getDynamicDatabase(env);
+    const overrides = await getOverrides(env, dbForEnv);
 
     const finishWith = async (userId: string): Promise<void> => {
       try {
@@ -412,14 +417,13 @@ export const requirePerm = (action: string): RequestHandler => {
           res.status(403).json({ message: `Permission '${action}' required` });
           return;
         }
-        const reqWithCtx = req as RequestWithDB;
         reqWithCtx.permScope = scope;
         reqWithCtx.currentUser = dbUser;
         req.user = {
           id: userId,
           email: dbUser.email,
           claims: { sub: userId },
-        } as any;
+        };
         next();
       } catch (error) {
         console.error(`Error checking permission '${action}':`, error);

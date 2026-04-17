@@ -1,19 +1,26 @@
-// In-memory cache of role×action scope overrides loaded from the
-// role_action_grants DB table. The cache is consulted by requirePerm and by
-// API endpoints that surface the registry to the client.
+// Per-environment cache of role×action scope overrides loaded from the
+// role_action_grants table that lives in EACH database (dev / test / prod).
+// Cache is keyed by DB environment so a toggle in dev never bleeds into
+// production permission decisions and vice-versa.
 //
 // Cache strategy: reload on demand (TTL 30s) and explicitly after writes.
 // Keeps the hot middleware path zero-DB-call in steady state.
-import { db } from "./db";
 import { roleActionGrants, roleActionAudit } from "@shared/schema";
 import type { GrantOverrides, Scope } from "@shared/permissions";
 import { sql } from "drizzle-orm";
+import { getDynamicDatabase } from "./db";
 
-let cache: GrantOverrides = {};
-let cachedAt = 0;
+type DynamicDB = ReturnType<typeof getDynamicDatabase>;
+
+interface CacheEntry { data: GrantOverrides; at: number; }
+const cacheByEnv = new Map<string, CacheEntry>();
 const TTL_MS = 30_000;
 
-async function loadFromDb(): Promise<GrantOverrides> {
+function resolveDb(env: string, db?: DynamicDB): DynamicDB {
+  return db ?? getDynamicDatabase(env);
+}
+
+async function loadFromDb(db: DynamicDB): Promise<GrantOverrides> {
   try {
     const rows = await db.select().from(roleActionGrants);
     const out: GrantOverrides = {};
@@ -32,24 +39,32 @@ async function loadFromDb(): Promise<GrantOverrides> {
   }
 }
 
-export async function getOverrides(forceReload = false): Promise<GrantOverrides> {
-  if (!forceReload && Date.now() - cachedAt < TTL_MS) return cache;
-  cache = await loadFromDb();
-  cachedAt = Date.now();
-  return cache;
+export async function getOverrides(
+  env: string,
+  db?: DynamicDB,
+  forceReload = false,
+): Promise<GrantOverrides> {
+  const cached = cacheByEnv.get(env);
+  if (!forceReload && cached && Date.now() - cached.at < TTL_MS) return cached.data;
+  const data = await loadFromDb(resolveDb(env, db));
+  cacheByEnv.set(env, { data, at: Date.now() });
+  return data;
 }
 
-export function invalidateRegistry() {
-  cachedAt = 0;
+export function invalidateRegistry(env?: string) {
+  if (env) cacheByEnv.delete(env);
+  else cacheByEnv.clear();
 }
 
 export async function setGrant(
+  env: string,
+  db: DynamicDB,
   roleCode: string,
   action: string,
   scope: Scope | "none",
   changedBy: string | null,
 ): Promise<{ prev: string | null; next: string }> {
-  // Read previous scope for audit
+  // Read previous scope for audit (env-specific DB).
   const existing = await db
     .select()
     .from(roleActionGrants)
@@ -73,6 +88,6 @@ export async function setGrant(
     changedBy: changedBy ?? null,
   });
 
-  invalidateRegistry();
+  invalidateRegistry(env);
   return { prev, next: scope };
 }

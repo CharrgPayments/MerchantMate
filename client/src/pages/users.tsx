@@ -41,7 +41,7 @@ const updateUserSchema = z.object({
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Invalid email address"),
   username: z.string().min(3, "Username must be at least 3 characters"),
-  role: z.string().min(1, "Role is required"),
+  roles: z.array(z.string()).min(1, "At least one role is required"),
   status: z.enum(["active", "suspended", "inactive"]),
 });
 type UpdateUserFormData = z.infer<typeof updateUserSchema>;
@@ -123,7 +123,7 @@ export default function UsersPage() {
   // ── User form
   const updateUserForm = useForm<UpdateUserFormData>({
     resolver: zodResolver(updateUserSchema),
-    defaultValues: { firstName: "", lastName: "", email: "", username: "", role: "merchant", status: "active" },
+    defaultValues: { firstName: "", lastName: "", email: "", username: "", roles: ["merchant"], status: "active" },
   });
 
   // ── Role definition form
@@ -250,7 +250,10 @@ export default function UsersPage() {
     updateUserForm.reset({
       firstName: user.firstName || "", lastName: user.lastName || "",
       email: user.email, username: user.username,
-      role: getUserRole(user) as any, status: user.status as any,
+      roles: Array.isArray(user.roles) && user.roles.length > 0
+        ? user.roles
+        : [getUserRole(user)],
+      status: user.status as "active" | "suspended" | "inactive",
     });
     setEditDialogOpen(true);
   }
@@ -655,26 +658,40 @@ export default function UsersPage() {
                 <FormItem><FormLabel>Username</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
               )} />
               <div className="grid grid-cols-2 gap-4">
-                <FormField control={updateUserForm.control} name="role" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Role</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        {(roleDefs.length > 0 ? roleDefs : [
-                          { id: -1, code: "merchant", label: "Merchant" },
-                          { id: -2, code: "agent", label: "Agent" },
-                          { id: -3, code: "admin", label: "Admin" },
-                          { id: -4, code: "corporate", label: "Corporate" },
-                          { id: -5, code: "super_admin", label: "Super Admin" },
-                        ] as RoleDefinition[]).map((rd) => (
-                          <SelectItem key={rd.code} value={rd.code}>{rd.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
+                <FormField control={updateUserForm.control} name="roles" render={({ field }) => {
+                  const options = (roleDefs.length > 0 ? roleDefs : [
+                    { id: -1, code: "merchant", label: "Merchant" },
+                    { id: -2, code: "agent", label: "Agent" },
+                    { id: -3, code: "admin", label: "Admin" },
+                    { id: -4, code: "corporate", label: "Corporate" },
+                    { id: -5, code: "super_admin", label: "Super Admin" },
+                  ] as RoleDefinition[]);
+                  const selected = new Set<string>(field.value ?? []);
+                  return (
+                    <FormItem>
+                      <FormLabel>Roles</FormLabel>
+                      <FormControl>
+                        <div className="border rounded-md p-2 max-h-40 overflow-auto space-y-1" data-testid="roles-multiselect">
+                          {options.map((rd) => (
+                            <label key={rd.code} className="flex items-center gap-2 text-sm cursor-pointer">
+                              <Checkbox
+                                checked={selected.has(rd.code)}
+                                onCheckedChange={(checked) => {
+                                  const next = new Set(selected);
+                                  if (checked) next.add(rd.code); else next.delete(rd.code);
+                                  field.onChange(Array.from(next));
+                                }}
+                                data-testid={`role-checkbox-${rd.code}`}
+                              />
+                              <span>{rd.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }} />
                 <FormField control={updateUserForm.control} name="status" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Status</FormLabel>

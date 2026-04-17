@@ -960,7 +960,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user) return res.status(404).json({ scopes: {} });
       const { getOverrides } = await import("./permissionRegistry");
       const { ACTIONS, getActionScope } = await import("@shared/permissions");
-      const overrides = await getOverrides();
+      const env = req.dbEnv ?? 'production';
+      const overrides = await getOverrides(env, getRequestDB(req));
       const scopes: Record<string, string> = {};
       for (const action of Object.values(ACTIONS)) {
         const s = getActionScope(user, action, overrides);
@@ -1000,19 +1001,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/users/:id/role", dbEnvironmentMiddleware, requirePerm('system:superadmin'), async (req: RequestWithDB, res) => {
     try {
       const { id } = req.params;
-      const { role } = req.body;
+      const body = req.body as { role?: string; roles?: string[] };
 
-      // Validate against the live role_definitions table so all system + custom
-      // roles (including underwriter, senior_underwriter, data_processing,
-      // deployment) are assignable.
-      const dbForRoles = getRequestDB(req);
-      const knownRoles = await dbForRoles.execute(sql`SELECT code FROM role_definitions`);
-      const validCodes = (knownRoles.rows as any[]).map((r) => r.code);
-      if (!validCodes.includes(role)) {
-        return res.status(400).json({ message: "Invalid role", validCodes });
+      // Multi-role assignment: prefer `roles[]` from the body, fall back to a
+      // single `role` for legacy callers. Each role must exist in the live
+      // role_definitions table (system or custom) for the active environment.
+      const requested: string[] = Array.isArray(body.roles)
+        ? body.roles
+        : (typeof body.role === 'string' ? [body.role] : []);
+      if (requested.length === 0) {
+        return res.status(400).json({ message: "Provide `roles[]` or `role`" });
       }
 
-      const user = await storage.updateUserRole(id, role);
+      const dbForRoles = getRequestDB(req);
+      const knownRoles = await dbForRoles.execute(sql`SELECT code FROM role_definitions`);
+      const validCodes = (knownRoles.rows as { code: string }[]).map((r) => r.code);
+      const invalid = requested.filter((r) => !validCodes.includes(r));
+      if (invalid.length > 0) {
+        return res.status(400).json({ message: "Invalid role(s)", invalid, validCodes });
+      }
+
+      const user = await storage.updateUserRoles(id, requested);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -9507,7 +9516,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { getOverrides } = await import("./permissionRegistry");
       const { DEFAULT_ACTION_GRANTS, ACTIONS, ACTION_LABELS, ACTION_GROUPS, DESTRUCTIVE_ACTIONS } = await import("@shared/permissions");
-      const overrides = await getOverrides(true);
+      const env = req.dbEnv ?? 'production';
+      const overrides = await getOverrides(env, getRequestDB(req), true);
       res.json({
         actions: ACTIONS,
         actionLabels: ACTION_LABELS,
@@ -9533,7 +9543,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { setGrant } = await import("./permissionRegistry");
       const changedBy = req.currentUser?.id ?? null;
-      const result = await setGrant(roleCode, action, scope as 'own' | 'downline' | 'all' | 'none', changedBy);
+      const env = req.dbEnv ?? 'production';
+      const result = await setGrant(env, getRequestDB(req), roleCode, action, scope as 'own' | 'downline' | 'all' | 'none', changedBy);
       res.json({ ok: true, ...result });
     } catch (error) {
       console.error("Error updating role-action grant:", error);
