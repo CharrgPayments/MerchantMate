@@ -35,6 +35,7 @@ import Equipment from "@/pages/equipment";
 import ApiDocumentation from "@/pages/api-documentation";
 import TestingUtilities from "@/pages/testing-utilities";
 import RolesPermissionsPage from "@/pages/roles-permissions";
+import AdminOperations from "@/pages/admin-operations";
 import UnderwritingQueue from "@/pages/underwriting-queue";
 import UnderwritingReview from "@/pages/underwriting-review";
 import Workflows from "@/pages/workflows";
@@ -674,6 +675,19 @@ function AuthenticatedApp() {
                   <Header title="Roles & Permissions" onSearch={setGlobalSearch} />
                   <main className="flex-1 overflow-auto bg-gray-50">
                     <RolesPermissionsPage />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/admin-operations">
+            {() => {
+              if (!can(ACTIONS.NAV_ADMIN_OPERATIONS)) return <NotFound />;
+              return (
+                <>
+                  <Header title="Admin Operations" onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <AdminOperations />
                   </main>
                 </>
               );

@@ -81,6 +81,7 @@ export const ACTIONS = {
   NAV_API_DOCS: "nav:api-docs",
   NAV_TESTING: "nav:testing-utilities",
   NAV_PERMISSION_MATRIX: "nav:permission-matrix",
+  NAV_ADMIN_OPERATIONS: "nav:admin-operations",
   NAV_ACTION_TEMPLATES: "nav:action-templates",
   NAV_DATA_VIEW: "nav:data-view",
   NAV_COMMISSIONS: "nav:commissions",
@@ -209,6 +210,7 @@ export const DEFAULT_ACTION_GRANTS: Record<Action, ActionGrants> = {
   [ACTIONS.NAV_API_DOCS]: { [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.SUPER_ADMIN]: "all" },
   [ACTIONS.NAV_TESTING]: { [ROLE_CODES.SUPER_ADMIN]: "all" },
   [ACTIONS.NAV_PERMISSION_MATRIX]: { [ROLE_CODES.SUPER_ADMIN]: "all" },
+  [ACTIONS.NAV_ADMIN_OPERATIONS]: { [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.SUPER_ADMIN]: "all" },
   [ACTIONS.NAV_ACTION_TEMPLATES]: { [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.SUPER_ADMIN]: "all" },
   [ACTIONS.NAV_DATA_VIEW]: { [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.SUPER_ADMIN]: "all" },
   [ACTIONS.NAV_COMMISSIONS]: {
@@ -259,6 +261,7 @@ export const ACTION_GROUPS: { label: string; actions: Action[] }[] = [
       ACTIONS.NAV_SECURITY, ACTIONS.NAV_COMMUNICATIONS, ACTIONS.NAV_WORKFLOWS,
       ACTIONS.NAV_API_DOCS, ACTIONS.NAV_TESTING, ACTIONS.NAV_PERMISSION_MATRIX,
       ACTIONS.NAV_ACTION_TEMPLATES, ACTIONS.NAV_DATA_VIEW, ACTIONS.NAV_COMMISSIONS,
+      ACTIONS.NAV_ADMIN_OPERATIONS,
     ],
   },
   {
@@ -298,6 +301,7 @@ export const ACTION_LABELS: Record<Action, string> = {
   [ACTIONS.NAV_API_DOCS]: "Sidebar: API Documentation",
   [ACTIONS.NAV_TESTING]: "Sidebar: Testing Utilities",
   [ACTIONS.NAV_PERMISSION_MATRIX]: "Sidebar: Roles & Permissions",
+  [ACTIONS.NAV_ADMIN_OPERATIONS]: "Sidebar: Admin Operations (SLA / Reports / Drift)",
   [ACTIONS.NAV_ACTION_TEMPLATES]: "Sidebar: Action Templates",
   [ACTIONS.NAV_DATA_VIEW]: "Sidebar: Data View",
   [ACTIONS.NAV_COMMISSIONS]: "Sidebar: Commissions",

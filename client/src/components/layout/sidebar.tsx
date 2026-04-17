@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { CreditCard, BarChart3, Store, Users, Receipt, FileText, LogOut, User, MapPin, Shield, Upload, UserPlus, DollarSign, ChevronLeft, ChevronRight, Monitor, ChevronDown, ChevronUp, Book, BookOpen, TestTube, Mail, Crown, Building2, Zap, ScrollText, KeyRound } from "lucide-react";
+import { CreditCard, BarChart3, Store, Users, Receipt, FileText, LogOut, User, MapPin, Shield, Upload, UserPlus, DollarSign, ChevronLeft, ChevronRight, Monitor, ChevronDown, ChevronUp, Book, BookOpen, TestTube, Mail, Crown, Building2, Zap, ScrollText, KeyRound, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -70,6 +70,7 @@ const baseNavigation: NavItem[] = [
   { name: "Workflows", href: "/workflows", icon: Zap, requiresAction: ACTIONS.NAV_WORKFLOWS },
   { name: "API Documentation", href: "/api-documentation", icon: Book, requiresAction: ACTIONS.NAV_API_DOCS },
   { name: "Roles & Permissions", href: "/roles-permissions", icon: KeyRound, requiresAction: ACTIONS.NAV_PERMISSION_MATRIX },
+  { name: "Admin Operations", href: "/admin-operations", icon: Activity, requiresAction: ACTIONS.NAV_ADMIN_OPERATIONS },
   { name: "Testing Utilities", href: "/testing-utilities", icon: TestTube, requiresAction: ACTIONS.NAV_TESTING },
 ];
 
