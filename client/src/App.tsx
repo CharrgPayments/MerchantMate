@@ -5,16 +5,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { isUnauthorizedError } from "@/lib/authUtils";
-import { 
-  canAccessUserManagement,
-  canAccessMerchantManagement, 
-  canAccessAgentManagement,
-  canAccessTransactionManagement,
-  canAccessLocationManagement,
-  canAccessAnalytics,
-  canAccessReports,
-  canAccessSecurityDashboard
-} from "@/lib/rbac";
+import { ACTIONS, ROLE_CODES, hasAnyRoleCode, hasRoleCode } from "@shared/permissions";
+import { usePermissions } from "@/hooks/usePermissions";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import Dashboard from "@/pages/dashboard";
@@ -91,6 +83,7 @@ queryClient.setDefaultOptions({
 
 function AuthenticatedApp() {
   const { user } = useContext(AuthContext);
+  const { can } = usePermissions();
   const { toast } = useToast();
   const [globalSearch, setGlobalSearch] = useState("");
 
@@ -248,7 +241,7 @@ function AuthenticatedApp() {
           <Route path="/">
             {() => {
               const pageInfo = getPageInfo("/");
-              return canAccessAnalytics(user) ? (
+              return can(ACTIONS.NAV_DASHBOARD) ? (
                 <>
                   <Header 
                     title={pageInfo.title} 
@@ -273,7 +266,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/merchants">
             {() => {
-              if (!canAccessMerchantManagement(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_MERCHANTS)) return <NotFound />;
               const pageInfo = getPageInfo("/merchants");
               return (
                 <>
@@ -290,7 +283,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/locations">
             {() => {
-              if (!canAccessLocationManagement(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_LOCATIONS)) return <NotFound />;
               const pageInfo = getPageInfo("/locations");
               return (
                 <>
@@ -307,7 +300,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/agents">
             {() => {
-              if (!canAccessAgentManagement(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
               const pageInfo = getPageInfo("/agents");
               return (
                 <>
@@ -324,7 +317,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/transactions">
             {() => {
-              if (!canAccessTransactionManagement(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_TRANSACTIONS)) return <NotFound />;
               const pageInfo = getPageInfo("/transactions");
               return (
                 <>
@@ -341,7 +334,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/users">
             {() => {
-              if (!canAccessUserManagement(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_USERS)) return <NotFound />;
               const pageInfo = getPageInfo("/users");
               return (
                 <>
@@ -358,7 +351,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/reports">
             {() => {
-              if (!canAccessReports(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_REPORTS)) return <NotFound />;
               const pageInfo = getPageInfo("/reports");
               return (
                 <>
@@ -375,7 +368,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/security">
             {() => {
-              if (!canAccessSecurityDashboard(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_SECURITY)) return <NotFound />;
               const pageInfo = getPageInfo("/security");
               return (
                 <>
@@ -408,7 +401,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/application-templates">
             {() => {
-              if (!canAccessSecurityDashboard(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_SECURITY)) return <NotFound />;
               const pageInfo = getPageInfo("/application-templates");
               return (
                 <>
@@ -478,7 +471,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/prospects">
             {() => {
-              if (!canAccessAgentManagement(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
               const pageInfo = { title: "Merchant Prospects" };
               return (
                 <>
@@ -527,7 +520,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/campaigns">
             {() => {
-              if (!canAccessAgentManagement(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
               const pageInfo = getPageInfo("/campaigns");
               return (
                 <>
@@ -544,7 +537,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/campaigns/:id">
             {() => {
-              if (!canAccessAgentManagement(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
               const pageInfo = { title: "Campaign Details" };
               return (
                 <>
@@ -561,7 +554,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/campaigns/:id/edit">
             {() => {
-              if (!canAccessAgentManagement(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
               const pageInfo = { title: "Edit Campaign" };
               return (
                 <>
@@ -578,7 +571,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/equipment">
             {() => {
-              if (!canAccessAgentManagement(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
               const pageInfo = getPageInfo("/equipment");
               return (
                 <>
@@ -595,7 +588,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/workflows">
             {() => {
-              if (!canAccessSecurityDashboard(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_SECURITY)) return <NotFound />;
               const pageInfo = getPageInfo("/workflows");
               return (
                 <>
@@ -612,7 +605,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/api-documentation">
             {() => {
-              if (!canAccessSecurityDashboard(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_SECURITY)) return <NotFound />;
               const pageInfo = getPageInfo("/api-documentation");
               return (
                 <>
@@ -629,8 +622,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/roles-permissions">
             {() => {
-              const roles: string[] = (user as any)?.roles || [];
-              if (!roles.includes('super_admin')) return <NotFound />;
+              if (!hasRoleCode(user, ROLE_CODES.SUPER_ADMIN)) return <NotFound />;
               return (
                 <>
                   <Header title="Roles & Permissions" onSearch={setGlobalSearch} />
@@ -643,7 +635,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/testing-utilities">
             {() => {
-              if (!canAccessSecurityDashboard(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_SECURITY)) return <NotFound />;
               const pageInfo = { title: "Testing Utilities" };
               return (
                 <>
@@ -662,7 +654,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/acquirers">
             {() => {
-              if (!canAccessAgentManagement(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
               const pageInfo = getPageInfo("/acquirers");
               return (
                 <>
@@ -676,7 +668,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/mcc-codes">
             {() => {
-              if (!canAccessAgentManagement(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
               const pageInfo = getPageInfo("/mcc-codes");
               return (
                 <>
@@ -690,7 +682,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/mcc-policies">
             {() => {
-              if (!canAccessAgentManagement(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
               const pageInfo = getPageInfo("/mcc-policies");
               return (
                 <>
@@ -704,7 +696,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/disclosure-library">
             {() => {
-              if (!canAccessAgentManagement(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
               const pageInfo = getPageInfo("/disclosure-library");
               return (
                 <>
@@ -718,8 +710,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/action-templates">
             {() => {
-              const userRoles = (user as any)?.roles || [];
-              if (!user || (!userRoles.includes('admin') && !userRoles.includes('super_admin'))) return <NotFound />;
+              if (!hasAnyRoleCode(user, [ROLE_CODES.ADMIN, ROLE_CODES.SUPER_ADMIN])) return <NotFound />;
               const pageInfo = getPageInfo("/action-templates");
               return (
                 <>
@@ -733,8 +724,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/data-view/:templateId">
             {() => {
-              const userRoles = (user as any)?.roles || [];
-              if (!user || (!userRoles.includes('admin') && !userRoles.includes('super_admin'))) return <NotFound />;
+              if (!hasAnyRoleCode(user, [ROLE_CODES.ADMIN, ROLE_CODES.SUPER_ADMIN])) return <NotFound />;
               return (
                 <>
                   <Header title="Data View" onSearch={setGlobalSearch} />
@@ -747,8 +737,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/communications">
             {() => {
-              const userRoles = (user as any)?.roles || [];
-              if (!user || (!userRoles.includes('admin') && !userRoles.includes('super_admin'))) return <NotFound />;
+              if (!hasAnyRoleCode(user, [ROLE_CODES.ADMIN, ROLE_CODES.SUPER_ADMIN])) return <NotFound />;
               const pageInfo = getPageInfo("/communications");
               return (
                 <>
@@ -762,7 +751,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/form-demo">
             {() => {
-              if (!canAccessAgentManagement(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
               const pageInfo = getPageInfo("/form-demo");
               return (
                 <>
@@ -804,7 +793,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/campaign-view/:id">
             {() => {
-              if (!canAccessAgentManagement(user)) return <NotFound />;
+              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
               return (
                 <>
                   <Header title="Campaign Details" onSearch={setGlobalSearch} />

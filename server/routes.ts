@@ -948,6 +948,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Effective per-action scopes for the current user, computed from
+  // DEFAULT_ACTION_GRANTS merged with runtime DB overrides. Consumed by the
+  // client `usePermissions` hook so every UI gate (sidebar, route guards,
+  // widgets) reflects matrix changes without a redeploy.
+  app.get('/api/auth/permissions', isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+    try {
+      const userId = (req.user as { claims?: { sub?: string } } | undefined)?.claims?.sub;
+      if (!userId) return res.status(401).json({ scopes: {} });
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ scopes: {} });
+      const { getOverrides } = await import("./permissionRegistry");
+      const { ACTIONS, getActionScope } = await import("@shared/permissions");
+      const overrides = await getOverrides();
+      const scopes: Record<string, string> = {};
+      for (const action of Object.values(ACTIONS)) {
+        const s = getActionScope(user, action, overrides);
+        if (s !== null) scopes[action] = s;
+      }
+      res.json({ scopes });
+    } catch (error) {
+      console.error("Error computing permissions:", error);
+      res.status(500).json({ scopes: {} });
+    }
+  });
+
 ;
 
 
@@ -9507,8 +9532,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (roleCode === 'super_admin') return res.status(400).json({ message: "super_admin grants cannot be modified" });
 
       const { setGrant } = await import("./permissionRegistry");
-      const changedBy = (req as any).currentUser?.id ?? null;
-      const result = await setGrant(roleCode, action, scope as any, changedBy);
+      const changedBy = req.currentUser?.id ?? null;
+      const result = await setGrant(roleCode, action, scope as 'own' | 'downline' | 'all' | 'none', changedBy);
       res.json({ ok: true, ...result });
     } catch (error) {
       console.error("Error updating role-action grant:", error);

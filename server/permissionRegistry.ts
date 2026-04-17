@@ -19,9 +19,10 @@ async function loadFromDb(): Promise<GrantOverrides> {
     const out: GrantOverrides = {};
     for (const r of rows) {
       const action = r.action;
-      if (!out[action]) out[action] = {};
-      const scope = r.scope === "none" ? null : (r.scope as Scope);
-      (out[action] as Record<string, Scope | null>)[r.roleCode] = scope;
+      const bucket: Partial<Record<string, Scope | null>> = out[action] ?? {};
+      const scope: Scope | null = r.scope === "none" ? null : (r.scope as Scope);
+      bucket[r.roleCode] = scope;
+      out[action] = bucket;
     }
     return out;
   } catch (err) {

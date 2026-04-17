@@ -389,6 +389,7 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
 // Iterates ALL of the user's roles[] (not just roles[0]) so multi-role users get the
 // union of access. Attaches the effective Scope to req.permScope for downstream filters.
 import { getActionScope, ROLE_CODES, type Scope } from "@shared/permissions";
+import type { RequestWithDB } from "./dbMiddleware";
 import { getOverrides } from "./permissionRegistry";
 
 export const requirePerm = (action: string): RequestHandler => {
@@ -406,13 +407,14 @@ export const requirePerm = (action: string): RequestHandler => {
           res.status(403).json({ message: "Account suspended" });
           return;
         }
-        const scope: Scope | null = getActionScope(dbUser as any, action, overrides);
+        const scope: Scope | null = getActionScope(dbUser, action, overrides);
         if (!scope) {
           res.status(403).json({ message: `Permission '${action}' required` });
           return;
         }
-        (req as any).permScope = scope;
-        (req as any).currentUser = dbUser;
+        const reqWithCtx = req as RequestWithDB;
+        reqWithCtx.permScope = scope;
+        reqWithCtx.currentUser = dbUser;
         req.user = {
           id: userId,
           email: dbUser.email,

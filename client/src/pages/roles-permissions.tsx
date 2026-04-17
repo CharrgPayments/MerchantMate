@@ -52,8 +52,8 @@ const SCOPE_COLOR: Record<string, string> = {
   all: "bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border-emerald-300",
 };
 
-function nextScope(s: string): Scope | "none" {
-  const i = SCOPE_ORDER.indexOf(s as any);
+function nextScope(s: Scope | "none"): Scope | "none" {
+  const i = SCOPE_ORDER.indexOf(s);
   return SCOPE_ORDER[(i + 1) % SCOPE_ORDER.length];
 }
 
@@ -67,7 +67,7 @@ function effective(
   if (ov === null) return "none";
   if (ov) return ov;
   const def = defaults?.[action]?.[role];
-  return (def ?? "none") as any;
+  return def ?? "none";
 }
 
 export default function RolesPermissionsPage() {
@@ -75,7 +75,7 @@ export default function RolesPermissionsPage() {
   const { toast } = useToast();
   const [pending, setPending] = useState<{ role: string; action: string; next: Scope | "none" } | null>(null);
 
-  const isSuperAdmin = hasRoleCode(user as any, ROLE_CODES.SUPER_ADMIN);
+  const isSuperAdmin = hasRoleCode(user, ROLE_CODES.SUPER_ADMIN);
 
   const { data: grants, isLoading } = useQuery<GrantsResponse>({
     queryKey: ["/api/admin/role-action-grants"],
@@ -100,6 +100,8 @@ export default function RolesPermissionsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/role-action-grants"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/role-action-audit"] });
+      // Effective per-user scopes change too — refresh sidebar / route guards.
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/permissions"] });
       toast({ title: "Permission updated" });
     },
     onError: (err: any) => {
@@ -128,7 +130,7 @@ export default function RolesPermissionsPage() {
   const allRoles = (roleDefs.length ? roleDefs.map((r) => r.code) : Object.values(ROLE_CODES))
     .filter((c) => c !== "super_admin"); // super_admin is implicit 'all', not editable
 
-  const handleCellClick = (roleCode: string, action: string, current: string) => {
+  const handleCellClick = (roleCode: string, action: string, current: Scope | "none") => {
     const next = nextScope(current);
     const isDestructive = grants.destructiveActions.includes(action);
     const isUpgradeToAll = next === "all" && current !== "all";

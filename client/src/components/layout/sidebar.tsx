@@ -5,7 +5,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { ACTIONS, hasPermission, type Action } from "@shared/permissions";
+import { ACTIONS, getUserRoleCodes, type Action } from "@shared/permissions";
+import { usePermissions } from "@/hooks/usePermissions";
 
 // Single source of truth for nav visibility — every item declares the action(s)
 // it requires. Action defaults + DB overrides live in shared/permissions.ts and
@@ -70,10 +71,10 @@ export function Sidebar() {
   const toggleExpanded = (itemName: string) =>
     setExpandedItems((prev) => prev.includes(itemName) ? prev.filter((n) => n !== itemName) : [...prev, itemName]);
 
+  const { can } = usePermissions();
+
   const getFilteredNavigation = () => {
     if (!user) return [];
-
-    const can = (action: Action) => hasPermission(user as any, action);
 
     const filteredBase = baseNavigation
       .filter((item) => can(item.requiresAction))
@@ -84,7 +85,7 @@ export function Sidebar() {
 
     // Dynamic PDF-form-driven nav items still use the form-defined allowedRoles
     // because each form is user-owned data, not a permission registry concern.
-    const userRoleList: string[] = (user as any)?.roles || [(user as any)?.role].filter(Boolean);
+    const userRoleList = getUserRoleCodes(user);
     const dynamicNavItems = (pdfForms as any[])
       .filter((form) =>
         form.showInNavigation && userRoleList.some((r) => form.allowedRoles.includes(r)),

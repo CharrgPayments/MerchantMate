@@ -7,6 +7,12 @@ export interface RequestWithDB extends Request {
   dynamicDB?: ReturnType<typeof getDynamicDatabase>;
   db?: ReturnType<typeof getDynamicDatabase>;
   userId?: string;
+  // RBAC — populated by `requirePerm` after evaluating the central registry.
+  // Downstream handlers can narrow data sets by this scope (own/downline/all).
+  permScope?: 'own' | 'downline' | 'all';
+  // Resolved DB user attached by the various auth middlewares so handlers
+  // don't have to re-fetch it. `unknown` to force a typed cast at use sites.
+  currentUser?: { id: string; roles?: string[] | null; role?: string | null } | null;
 }
 
 /**
