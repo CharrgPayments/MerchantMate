@@ -16,7 +16,7 @@ import { v4 as uuidv4 } from "uuid";
 import { dbEnvironmentMiddleware, adminDbMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
 import { getDynamicDatabase } from "./db";
 import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity, agentHierarchy, merchantHierarchy } from "@shared/schema";
-import { initAgentClosure, initMerchantClosure, setAgentParent, setMerchantParent, getAgentDescendantIds, getMerchantDescendantIds, detachAgentForDelete, detachMerchantForDelete, HierarchyError, MAX_HIERARCHY_DEPTH } from "./hierarchyService";
+import { initAgentClosure, initMerchantClosure, setAgentParent, setMerchantParent, getAgentDescendantIds, getMerchantDescendantIds, isAgentDescendantOf, detachAgentForDelete, detachMerchantForDelete, HierarchyError, MAX_HIERARCHY_DEPTH } from "./hierarchyService";
 import crypto from "crypto";
 import { eq, or, ilike, sql, inArray } from "drizzle-orm";
 
@@ -4077,7 +4077,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/agents/:id/descendants", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin', 'agent']), async (req: RequestWithDB, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (!Number.isInteger(id)) {
+        return res.status(400).json({ message: "Invalid agent id" });
+      }
       const dynamicDB = getRequestDB(req);
+
+      // Authz: a non-admin agent can only view a subtree rooted at themselves
+      // or one of their own descendants — never sibling/parent subtrees.
+      const userId = req.session?.userId;
+      const [caller] = userId
+        ? await dynamicDB.select({ id: users.id, roles: users.roles }).from(users).where(eq(users.id, userId))
+        : [];
+      const callerRole = caller?.roles?.[0];
+      const isAdminLike = callerRole === 'admin' || callerRole === 'super_admin' || callerRole === 'corporate';
+      if (!isAdminLike) {
+        const [callerAgent] = userId
+          ? await dynamicDB.select({ id: agents.id }).from(agents).where(eq(agents.userId, userId))
+          : [];
+        if (!callerAgent || !(await isAgentDescendantOf(dynamicDB, callerAgent.id, id))) {
+          return res.status(403).json({ message: "Forbidden" });
+        }
+      }
+
       const ids = await getAgentDescendantIds(dynamicDB, id);
       res.json({ agentId: id, descendantIds: ids, count: ids.length });
     } catch (e) {

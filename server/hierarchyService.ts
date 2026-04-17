@@ -137,6 +137,27 @@ export async function detachMerchantForDelete(db: Db, merchantId: number) {
   await db.delete(merchantHierarchy).where(eq(merchantHierarchy.descendantId, merchantId));
 }
 
+/**
+ * O(1) closure-table check: is `descendantId` the same as, or a descendant of,
+ * `ancestorId`? Returns true when ancestorId === descendantId (self-row at
+ * depth 0 is always present in a healthy closure table).
+ */
+export async function isAgentDescendantOf(db: Db, ancestorId: number, descendantId: number): Promise<boolean> {
+  const [row] = await db
+    .select({ depth: agentHierarchy.depth })
+    .from(agentHierarchy)
+    .where(and(eq(agentHierarchy.ancestorId, ancestorId), eq(agentHierarchy.descendantId, descendantId)));
+  return !!row;
+}
+
+export async function isMerchantDescendantOf(db: Db, ancestorId: number, descendantId: number): Promise<boolean> {
+  const [row] = await db
+    .select({ depth: merchantHierarchy.depth })
+    .from(merchantHierarchy)
+    .where(and(eq(merchantHierarchy.ancestorId, ancestorId), eq(merchantHierarchy.descendantId, descendantId)));
+  return !!row;
+}
+
 /** Returns descendant IDs (including self at depth 0). */
 export async function getAgentDescendantIds(db: Db, agentId: number): Promise<number[]> {
   const rows = await db.select({ id: agentHierarchy.descendantId })
