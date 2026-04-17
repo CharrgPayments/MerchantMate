@@ -114,20 +114,28 @@ export async function archiveExpiredApplications(): Promise<{ archived: number }
   const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
   let archived = 0;
   try {
+    // Soft archive only: copy a snapshot into archived_applications but DO NOT
+    // delete the source row. Many underwriting tables FK to prospect_applications
+    // with onDelete: cascade, so a destructive delete here would permanently lose
+    // audit / underwriting evidence — explicitly forbidden by SOC2 retention.
+    // Operators can hard-delete later via a separate authorized purge job.
     const candidates = await db.select().from(prospectApplications)
       .where(lt(prospectApplications.updatedAt, cutoff));
     const toArchive = candidates.filter((a) => isTerminalArchivable(a.status));
     for (const a of toArchive) {
       try {
-        await db.transaction(async (tx) => {
-          await tx.insert(archivedApplications).values({
-            originalApplicationId: a.id,
-            prospectId: a.prospectId,
-            finalStatus: a.status,
-            applicationSnapshot: a,
-            archivedReason: `retention_policy_${RETENTION_DAYS}d`,
-          });
-          await tx.delete(prospectApplications).where(eq(prospectApplications.id, a.id));
+        // Skip if already archived (idempotent).
+        const existing = await db.select({ id: archivedApplications.id })
+          .from(archivedApplications)
+          .where(eq(archivedApplications.originalApplicationId, a.id))
+          .limit(1);
+        if (existing.length > 0) continue;
+        await db.insert(archivedApplications).values({
+          originalApplicationId: a.id,
+          prospectId: a.prospectId,
+          finalStatus: a.status,
+          applicationSnapshot: a,
+          archivedReason: `retention_policy_${RETENTION_DAYS}d`,
         });
         archived += 1;
         await auditService.logAction("application_archived", "applications", { ipAddress: "system" }, {
