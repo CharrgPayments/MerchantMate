@@ -110,6 +110,14 @@ export function EnhancedCampaignDialog({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const initDoneRef = useRef(false);
 
+  // Epic D — affected-applications regenerate dialog state
+  const [regenDialog, setRegenDialog] = useState<{
+    open: boolean;
+    campaignId: number | null;
+    applications: Array<{ id: number; firstName?: string; lastName?: string; email?: string; businessName?: string | null; status?: string | null }>;
+  }>({ open: false, campaignId: null, applications: [] });
+  const [regenInFlight, setRegenInFlight] = useState(false);
+
   // ── Data queries ──────────────────────────────────────────────────────────
 
   const { data: pricingTypes = [] } = useQuery<any[]>({
@@ -294,23 +302,18 @@ export function EnhancedCampaignDialog({
       queryClient.invalidateQueries({ queryKey: ['/api/campaigns'] });
       queryClient.invalidateQueries({ queryKey: ['/api/campaigns', String(editCampaignId)] });
 
-      // Epic D — offer to regenerate filled PDFs for affected applications
+      // Epic D — show affected applications and let admin confirm bulk PDF regeneration
+      let opened = false;
       try {
         const r = await fetch(`/api/campaigns/${editCampaignId}/affected-applications`, { credentials: 'include' });
         if (r.ok) {
-          const { count } = await r.json();
-          if (count > 0 && window.confirm(`${count} application(s) use this campaign. Regenerate their filled PDFs now?`)) {
-            const regen = await fetch(`/api/campaigns/${editCampaignId}/regenerate-pdfs`, {
-              method: 'POST',
-              credentials: 'include',
-            });
-            if (regen.ok) {
-              const result = await regen.json();
-              toast({
-                title: 'PDFs Regenerated',
-                description: `${result.succeeded}/${result.total} succeeded${result.failed ? `, ${result.failed} failed` : ''}.`,
-              });
-            }
+          const payload = await r.json();
+          const apps = Array.isArray(payload?.applications)
+            ? payload.applications
+            : Array.isArray(payload?.prospects) ? payload.prospects : [];
+          if ((payload?.count ?? apps.length) > 0) {
+            setRegenDialog({ open: true, campaignId: editCampaignId!, applications: apps });
+            opened = true;
           }
         }
       } catch (err) {
@@ -320,6 +323,10 @@ export function EnhancedCampaignDialog({
       resetForm();
       onOpenChange(false);
       onCampaignCreated?.();
+      // If we opened the regen dialog, leave it visible until the user explicitly resolves it.
+      if (!opened) {
+        setRegenDialog({ open: false, campaignId: null, applications: [] });
+      }
     },
     onError: (e: Error) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
   });
@@ -341,6 +348,7 @@ export function EnhancedCampaignDialog({
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(o) => { if (!o) resetForm(); onOpenChange(o); }}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden">
         <DialogHeader>
@@ -595,5 +603,86 @@ export function EnhancedCampaignDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* Epic D — affected applications confirmation dialog */}
+    <Dialog
+      open={regenDialog.open}
+      onOpenChange={(o) => { if (!o) setRegenDialog({ open: false, campaignId: null, applications: [] }); }}
+    >
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Regenerate filled PDFs?</DialogTitle>
+          <DialogDescription>
+            {regenDialog.applications.length} application{regenDialog.applications.length === 1 ? '' : 's'} use this campaign.
+            Review the list below and confirm to regenerate their filled MPA PDFs.
+          </DialogDescription>
+        </DialogHeader>
+        <ScrollArea className="max-h-[320px] border rounded-md">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50 sticky top-0">
+              <tr className="text-left">
+                <th className="px-3 py-2">ID</th>
+                <th className="px-3 py-2">Merchant</th>
+                <th className="px-3 py-2">Email</th>
+                <th className="px-3 py-2">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {regenDialog.applications.map(a => (
+                <tr key={a.id} className="border-t" data-testid={`affected-app-${a.id}`}>
+                  <td className="px-3 py-2 font-mono">{a.id}</td>
+                  <td className="px-3 py-2">
+                    {a.businessName || [a.firstName, a.lastName].filter(Boolean).join(' ') || '—'}
+                  </td>
+                  <td className="px-3 py-2">{a.email || '—'}</td>
+                  <td className="px-3 py-2">{a.status || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ScrollArea>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setRegenDialog({ open: false, campaignId: null, applications: [] })}
+            disabled={regenInFlight}
+            data-testid="regen-skip"
+          >
+            Skip
+          </Button>
+          <Button
+            onClick={async () => {
+              if (!regenDialog.campaignId) return;
+              setRegenInFlight(true);
+              try {
+                const regen = await fetch(`/api/campaigns/${regenDialog.campaignId}/regenerate-pdfs`, {
+                  method: 'POST',
+                  credentials: 'include',
+                });
+                if (regen.ok) {
+                  const result = await regen.json();
+                  toast({
+                    title: 'PDFs Regenerated',
+                    description: `${result.succeeded}/${result.total} succeeded${result.failed ? `, ${result.failed} failed` : ''}.`,
+                  });
+                } else {
+                  toast({ title: 'Regenerate failed', description: await regen.text(), variant: 'destructive' });
+                }
+              } catch (e: any) {
+                toast({ title: 'Regenerate failed', description: String(e?.message || e), variant: 'destructive' });
+              } finally {
+                setRegenInFlight(false);
+                setRegenDialog({ open: false, campaignId: null, applications: [] });
+              }
+            }}
+            disabled={regenInFlight}
+            data-testid="regen-confirm"
+          >
+            {regenInFlight ? 'Regenerating…' : `Regenerate ${regenDialog.applications.length} PDF${regenDialog.applications.length === 1 ? '' : 's'}`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

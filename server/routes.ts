@@ -5691,6 +5691,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Epic D — public-safe campaign prefill (used by ?campaignId= deep link on /merchant-application)
+  // Returns minimal, non-sensitive fields needed to render a campaign banner on the public MPA page.
+  app.get('/api/public/campaigns/:id/prefill', dbEnvironmentMiddleware, async (req: RequestWithDB, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+      const dbToUse = getRequestDB(req);
+      const {
+        campaigns: campaignsTable,
+        pricingTypes: pricingTypesTable,
+        campaignEquipment: campaignEquipmentTable,
+        equipmentItems,
+      } = await import('@shared/schema');
+      const { eq: eqOp, and: andOp } = await import('drizzle-orm');
+
+      const rows = await dbToUse
+        .select({
+          id: campaignsTable.id,
+          name: campaignsTable.name,
+          acquirer: campaignsTable.acquirer,
+          currency: campaignsTable.currency,
+          isActive: campaignsTable.isActive,
+          pricingTypeName: pricingTypesTable.name,
+        })
+        .from(campaignsTable)
+        .leftJoin(pricingTypesTable, eqOp(campaignsTable.pricingTypeId, pricingTypesTable.id))
+        .where(andOp(eqOp(campaignsTable.id, id), eqOp(campaignsTable.isActive, true)));
+
+      if (!rows.length) return res.status(404).json({ error: 'Campaign not found or inactive' });
+
+      const equip = await dbToUse
+        .select({ id: equipmentItems.id, name: equipmentItems.name, isRequired: campaignEquipmentTable.isRequired })
+        .from(campaignEquipmentTable)
+        .innerJoin(equipmentItems, eqOp(campaignEquipmentTable.equipmentItemId, equipmentItems.id))
+        .where(eqOp(campaignEquipmentTable.campaignId, id));
+
+      res.json({
+        id: rows[0].id,
+        name: rows[0].name,
+        acquirer: rows[0].acquirer,
+        currency: rows[0].currency,
+        pricingType: rows[0].pricingTypeName || null,
+        equipment: equip,
+      });
+    } catch (err) {
+      console.error('public campaign prefill error:', err);
+      res.status(500).json({ error: 'Failed to load campaign' });
+    }
+  });
+
   app.get('/api/campaigns/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const id = parseInt(req.params.id);

@@ -52,15 +52,28 @@ export default function MerchantApplicationPage() {
   const campaignIdParam = urlParams.get('campaignId');
   const agentIdParam = urlParams.get('agentId');
 
-  const { data: deepLinkCampaign } = useQuery({
-    queryKey: ['/api/campaigns', campaignIdParam],
+  // Epic D — public-safe prefill (works for unauthenticated merchants opening shared MPA links)
+  const { data: deepLinkCampaign } = useQuery<{
+    id: number; name: string; acquirer: string; currency: string; pricingType: string | null;
+    equipment: { id: number; name: string; isRequired: boolean }[];
+  } | null>({
+    queryKey: ['/api/public/campaigns', campaignIdParam, 'prefill'],
     queryFn: async () => {
-      const res = await fetch(`/api/campaigns/${campaignIdParam}`, { credentials: 'include' });
+      const res = await fetch(`/api/public/campaigns/${campaignIdParam}/prefill`);
       if (!res.ok) return null;
       return res.json();
     },
-    enabled: !!campaignIdParam && !isProspectMode,
+    enabled: !!campaignIdParam,
   });
+
+  // Preserve campaignId/agentId across navigation to the wizard so prefill data flows downstream
+  const deepLinkQS = (() => {
+    const p = new URLSearchParams();
+    if (campaignIdParam) p.set('campaignId', campaignIdParam);
+    if (agentIdParam) p.set('agentId', agentIdParam);
+    const s = p.toString();
+    return s ? `?${s}` : '';
+  })();
 
   // Fetch prospect data if token is present
   const { data: prospectData } = useQuery({
@@ -255,7 +268,10 @@ export default function MerchantApplicationPage() {
             
             <CardContent className="p-6">
               <Button 
-                onClick={() => setLocation(`/enhanced-pdf-wizard/1?token=${prospectToken}`)}
+                onClick={() => {
+                  const extra = deepLinkQS ? `&${deepLinkQS.slice(1)}` : '';
+                  setLocation(`/enhanced-pdf-wizard/1?token=${prospectToken}${extra}`);
+                }}
                 className="w-full"
                 size="lg"
               >
@@ -387,8 +403,25 @@ export default function MerchantApplicationPage() {
               </div>
             </div>
 
+            {deepLinkCampaign && (
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-4" data-testid="campaign-prefill-banner">
+                <div className="text-sm font-medium text-blue-900">
+                  Pre-selected Campaign: {deepLinkCampaign.name}
+                </div>
+                <div className="text-xs text-blue-700 mt-1">
+                  Acquirer: {deepLinkCampaign.acquirer} · Currency: {deepLinkCampaign.currency}
+                  {deepLinkCampaign.pricingType ? ` · Pricing: ${deepLinkCampaign.pricingType}` : ''}
+                </div>
+                {deepLinkCampaign.equipment.length > 0 && (
+                  <div className="text-xs text-blue-700 mt-1">
+                    Equipment: {deepLinkCampaign.equipment.map(e => e.name).join(', ')}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-3 pt-4 border-t">
-              <Button onClick={() => setLocation(`/enhanced-pdf-wizard/${pdfForm.id}`)}>
+              <Button onClick={() => setLocation(`/enhanced-pdf-wizard/${pdfForm.id}${deepLinkQS}`)}>
                 <Play className="w-4 h-4 mr-2" />
                 Start Application
               </Button>
