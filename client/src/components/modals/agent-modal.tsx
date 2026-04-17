@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -37,6 +37,7 @@ const agentSchema = z.object({
   territory: z.string().optional(),
   commissionRate: z.string().default("5.00"),
   status: z.enum(["active", "inactive"]).default("active"),
+  parentAgentId: z.string().optional(),
 });
 
 type AgentFormData = z.infer<typeof agentSchema>;
@@ -61,8 +62,32 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
       territory: agent?.territory || "",
       commissionRate: agent?.commissionRate || "5.00",
       status: agent?.status || "active",
+      parentAgentId: agent?.parentAgentId ? String(agent.parentAgentId) : "__none__",
     },
   });
+
+  // For the parent picker: load all agents and exclude self/descendants
+  const { data: allAgents = [] } = useQuery<Agent[]>({
+    queryKey: ["/api/agents"],
+    queryFn: async () => {
+      const res = await fetch("/api/agents", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load agents");
+      return res.json();
+    },
+    enabled: isOpen,
+  });
+  const { data: descendantData } = useQuery<{ descendantIds: number[] }>({
+    queryKey: ["/api/agents", agent?.id, "descendants"],
+    queryFn: async () => {
+      const res = await fetch(`/api/agents/${agent!.id}/descendants`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load descendants");
+      return res.json();
+    },
+    enabled: isOpen && !!agent?.id,
+  });
+  const blockedIds = new Set<number>(descendantData?.descendantIds || []);
+  if (agent?.id) blockedIds.add(agent.id);
+  const parentChoices = allAgents.filter((a) => !blockedIds.has(a.id));
 
   const createMutation = useMutation({
     mutationFn: (data: InsertAgent) => agentsApi.create(data),
@@ -115,10 +140,14 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
   });
 
   const onSubmit = (data: AgentFormData) => {
+    const payload: any = { ...data };
+    if (payload.parentAgentId === "__none__" || payload.parentAgentId === "") {
+      payload.parentAgentId = null;
+    }
     if (agent) {
-      updateMutation.mutate(data);
+      updateMutation.mutate(payload);
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate(payload);
     }
   };
 
@@ -229,6 +258,35 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
                         {...field}
                       />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="parentAgentId"
+                render={({ field }) => (
+                  <FormItem className="md:col-span-2">
+                    <FormLabel>Parent Agent (Hierarchy)</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value || "__none__"}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="None (top-level agent)" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="__none__">None (top-level agent)</SelectItem>
+                        {parentChoices.map((a) => (
+                          <SelectItem key={a.id} value={String(a.id)}>
+                            {a.firstName} {a.lastName} {a.email ? `(${a.email})` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Sub-agents roll up to a parent agent. Max chain: 5 levels.
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}

@@ -41,6 +41,7 @@ const merchantSchema = z.object({
   processingFee: z.string().default("2.50"),
   status: z.enum(["active", "pending", "suspended"]).default("active"),
   monthlyVolume: z.string().default("0"),
+  parentMerchantId: z.string().optional(),
 });
 
 type MerchantFormData = z.infer<typeof merchantSchema>;
@@ -67,6 +68,7 @@ export function MerchantModal({ isOpen, onClose, merchant }: MerchantModalProps)
       processingFee: merchant?.processingFee || "2.50",
       status: merchant?.status || "active",
       monthlyVolume: merchant?.monthlyVolume || "0",
+      parentMerchantId: merchant?.parentMerchantId ? String(merchant.parentMerchantId) : "__none__",
     },
   });
 
@@ -74,6 +76,28 @@ export function MerchantModal({ isOpen, onClose, merchant }: MerchantModalProps)
     queryKey: ["/api/agents"],
     enabled: isOpen,
   });
+
+  const { data: allMerchants = [] } = useQuery<Merchant[]>({
+    queryKey: ["/api/merchants"],
+    queryFn: async () => {
+      const res = await fetch("/api/merchants", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load merchants");
+      return res.json();
+    },
+    enabled: isOpen,
+  });
+  const { data: descendantData } = useQuery<{ descendantIds: number[] }>({
+    queryKey: ["/api/merchants", merchant?.id, "descendants"],
+    queryFn: async () => {
+      const res = await fetch(`/api/merchants/${merchant!.id}/descendants`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load descendants");
+      return res.json();
+    },
+    enabled: isOpen && !!merchant?.id,
+  });
+  const blockedIds = new Set<number>(descendantData?.descendantIds || []);
+  if (merchant?.id) blockedIds.add(merchant.id);
+  const parentMerchantChoices = allMerchants.filter((m) => !blockedIds.has(m.id));
 
   const createMutation = useMutation({
     mutationFn: (data: InsertMerchant) => merchantsApi.create(data),
@@ -126,10 +150,16 @@ export function MerchantModal({ isOpen, onClose, merchant }: MerchantModalProps)
   });
 
   const onSubmit = (data: MerchantFormData) => {
+    const payload: any = { ...data };
+    if (payload.parentMerchantId === "__none__" || payload.parentMerchantId === "") {
+      payload.parentMerchantId = null;
+    } else if (typeof payload.parentMerchantId === "string") {
+      payload.parentMerchantId = parseInt(payload.parentMerchantId);
+    }
     if (merchant) {
-      updateMutation.mutate(data);
+      updateMutation.mutate(payload);
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate(payload);
     }
   };
 
@@ -308,6 +338,35 @@ export function MerchantModal({ isOpen, onClose, merchant }: MerchantModalProps)
                 )}
               />
             </div>
+
+            <FormField
+              control={form.control}
+              name="parentMerchantId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Parent Merchant (Hierarchy)</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value || "__none__"}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="None (top-level merchant)" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="__none__">None (top-level merchant)</SelectItem>
+                      {parentMerchantChoices.map((m) => (
+                        <SelectItem key={m.id} value={String(m.id)}>
+                          {m.businessName} {m.email ? `(${m.email})` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Sub-merchants roll up to a parent merchant. Max chain: 5 levels.
+                  </p>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <FormField
               control={form.control}

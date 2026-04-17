@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, decimal, varchar, jsonb, index, unique, real, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, decimal, varchar, jsonb, index, unique, real, numeric, primaryKey } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -11,6 +11,7 @@ export const merchants = pgTable("merchants", {
   email: text("email").notNull().unique(),
   phone: text("phone").notNull(),
   agentId: integer("agent_id"),
+  parentMerchantId: integer("parent_merchant_id"),
   processingFee: decimal("processing_fee", { precision: 5, scale: 2 }).default("2.50").notNull(),
   status: text("status").notNull().default("active"), // active, pending, suspended
   monthlyVolume: decimal("monthly_volume", { precision: 12, scale: 2 }).default("0").notNull(),
@@ -59,8 +60,35 @@ export const agents = pgTable("agents", {
   territory: text("territory"),
   commissionRate: decimal("commission_rate", { precision: 5, scale: 2 }).default("5.00"),
   status: text("status").notNull().default("active"), // active, inactive
+  parentAgentId: integer("parent_agent_id"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// Hierarchy closure tables. depth=0 row is the self-row.
+// Each (ancestor, descendant) pair is unique; depth is the number of edges between them.
+// MVP cap: max depth from root = 5.
+export const agentHierarchy = pgTable("agent_hierarchy", {
+  ancestorId: integer("ancestor_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  descendantId: integer("descendant_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  depth: integer("depth").notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.ancestorId, t.descendantId] }),
+  ancIdx: index("agent_hier_anc_idx").on(t.ancestorId),
+  descIdx: index("agent_hier_desc_idx").on(t.descendantId),
+}));
+
+export const merchantHierarchy = pgTable("merchant_hierarchy", {
+  ancestorId: integer("ancestor_id").notNull().references(() => merchants.id, { onDelete: "cascade" }),
+  descendantId: integer("descendant_id").notNull().references(() => merchants.id, { onDelete: "cascade" }),
+  depth: integer("depth").notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.ancestorId, t.descendantId] }),
+  ancIdx: index("merchant_hier_anc_idx").on(t.ancestorId),
+  descIdx: index("merchant_hier_desc_idx").on(t.descendantId),
+}));
+
+export type AgentHierarchyRow = typeof agentHierarchy.$inferSelect;
+export type MerchantHierarchyRow = typeof merchantHierarchy.$inferSelect;
 
 export const merchantProspects = pgTable("merchant_prospects", {
   id: serial("id").primaryKey(),

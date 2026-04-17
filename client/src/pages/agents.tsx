@@ -41,6 +41,17 @@ export default function Agents() {
     queryFn: () => agentsApi.getAll(searchQuery || undefined),
   });
 
+  // Depth lookup from hierarchy tree (used to indent rows)
+  const { data: hierarchyTree = [] } = useQuery<(Agent & { depth: number })[]>({
+    queryKey: ["/api/agents/hierarchy/tree"],
+    queryFn: async () => {
+      const res = await fetch("/api/agents/hierarchy/tree", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+  const depthById = new Map<number, number>(hierarchyTree.map((a) => [a.id, a.depth]));
+
   const deleteMutation = useMutation({
     mutationFn: (id: number) => agentsApi.delete(id),
     onSuccess: () => {
@@ -267,6 +278,7 @@ export default function Agents() {
                     <AgentRowWithMerchants 
                       key={agent.id} 
                       agent={agent}
+                      depth={depthById.get(agent.id) ?? 0}
                       isExpanded={expandedRows.has(agent.id)}
                       onToggleExpand={() => toggleRowExpansion(agent.id)}
                       onEdit={() => handleEdit(agent)}
@@ -308,6 +320,7 @@ export default function Agents() {
 // Component for expandable agent rows
 interface AgentRowWithMerchantsProps {
   agent: Agent;
+  depth: number;
   isExpanded: boolean;
   onToggleExpand: () => void;
   onEdit: () => void;
@@ -323,6 +336,7 @@ interface AgentRowWithMerchantsProps {
 
 function AgentRowWithMerchants({
   agent,
+  depth,
   isExpanded,
   onToggleExpand,
   onEdit,
@@ -355,14 +369,22 @@ function AgentRowWithMerchants({
           </Button>
         </TableCell>
         <TableCell>
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3" style={{ paddingLeft: depth * 24 }}>
+            {depth > 0 && (
+              <span className="text-gray-300 text-xs" title={`Sub-agent (level ${depth})`}>└─</span>
+            )}
             <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
               <span className="text-purple-600 font-medium text-sm">
                 {agent.firstName.charAt(0)}{agent.lastName.charAt(0)}
               </span>
             </div>
-            <div className="font-medium text-gray-900">
-              {agent.firstName} {agent.lastName}
+            <div>
+              <div className="font-medium text-gray-900">
+                {agent.firstName} {agent.lastName}
+              </div>
+              {depth > 0 && (
+                <div className="text-xs text-gray-500">Sub-agent · L{depth}</div>
+              )}
             </div>
           </div>
         </TableCell>
