@@ -3314,6 +3314,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
               await submitDb.update(paTable)
                 .set({ status: 'SUB', submittedAt: new Date(), updatedAt: new Date() })
                 .where(eqOp(paTable.id, appRow.id));
+              await submitDb.insert(underwritingStatusHistory).values({
+                applicationId: appRow.id,
+                fromStatus: appRow.status,
+                toStatus: 'SUB',
+                fromSubStatus: appRow.subStatus,
+                toSubStatus: null,
+                changedBy: null,
+                reason: 'Application submitted',
+              });
             }
             if (appRow.status !== 'CUW') {
               await submitDb.update(paTable)

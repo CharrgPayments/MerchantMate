@@ -30,6 +30,35 @@ function userId(req: RequestWithDB): string | null {
   return sess?.userId || claims?.sub || null;
 }
 
+// Scope-aware ownership check: when the caller's permScope is 'own' they may
+// only view/act on applications they are the assigned reviewer for. 'all' (or
+// SUPER_ADMIN's implicit 'all') passes through. Returns true on allow.
+async function enforceAppScope(req: RequestWithDB, applicationId: number): Promise<boolean> {
+  const scope = req.permScope;
+  if (!scope || scope === "all") return true;
+  const db = getRequestDB(req);
+  const [row] = await db.select({ assignedReviewerId: prospectApplications.assignedReviewerId })
+    .from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
+  if (!row) return false;
+  const uid = userId(req);
+  return !!uid && row.assignedReviewerId === uid;
+}
+
+// Allowed sub-statuses (typed). Free-text sub-statuses are no longer
+// accepted; transitions must use one of these codes.
+const SUB_STATUS_VALUES = [
+  "awaiting_docs", "awaiting_owner_signature", "awaiting_bank_info",
+  "awaiting_processing_statement", "awaiting_credit_review",
+  "awaiting_match_review", "awaiting_ofac_review", "awaiting_senior_review",
+  "awaiting_data_processing", "awaiting_deployment", "withdrawn_by_merchant",
+  "withdrawn_by_agent", "withdrawn_by_underwriter",
+] as const;
+type SubStatus = (typeof SUB_STATUS_VALUES)[number];
+const subStatusSchema = z.object({
+  toSubStatus: z.enum(SUB_STATUS_VALUES),
+  reason: z.string().min(1, "Reason is required for sub-status changes"),
+});
+
 interface AuditOptions {
   riskLevel?: "low" | "medium" | "high";
   oldValues?: Record<string, unknown>;
@@ -64,6 +93,7 @@ export function registerUnderwritingRoutes(app: Express) {
 
         const [appRow] = await db.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
         if (!appRow) return res.status(404).json({ message: "Application not found" });
+        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
         if (appRow.status === APP_STATUS.DRAFT) return res.status(400).json({ message: "Cannot run underwriting on draft application" });
 
         const result = await runUnderwritingPipeline({ db, applicationId, startedBy: userId(req) });
@@ -106,6 +136,7 @@ export function registerUnderwritingRoutes(app: Express) {
         const db = getRequestDB(req);
         const [appRow] = await db.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
         if (!appRow) return res.status(404).json({ message: "Application not found" });
+        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
         if (appRow.pathway !== PATHWAYS.TRADITIONAL) {
           return res.status(400).json({ message: "Manual checks only available on Traditional pathway" });
         }
@@ -128,6 +159,7 @@ export function registerUnderwritingRoutes(app: Express) {
         const db = getRequestDB(req);
         const [appRow] = await db.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
         if (!appRow) return res.status(404).json({ message: "Application not found" });
+        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
         const runs = await db.select().from(underwritingRuns).where(eq(underwritingRuns.applicationId, applicationId)).orderBy(desc(underwritingRuns.startedAt));
         const latest = runs[0] || null;
         const phases = latest
@@ -151,6 +183,7 @@ export function registerUnderwritingRoutes(app: Express) {
   // ── Status transition (matrix-driven) ──
   const transitionSchema = z.object({
     toStatus: z.string(),
+    toSubStatus: z.enum(SUB_STATUS_VALUES).optional().nullable(),
     reason: z.string().max(2000).optional(),
     rejectionReason: z.string().optional(),
   });
@@ -161,11 +194,12 @@ export function registerUnderwritingRoutes(app: Express) {
         const applicationId = parseInt(req.params.id);
         const parsed = transitionSchema.safeParse(req.body);
         if (!parsed.success) return res.status(400).json({ message: "Invalid payload", errors: parsed.error.flatten() });
-        const { toStatus, reason, rejectionReason } = parsed.data;
+        const { toStatus, toSubStatus, reason, rejectionReason } = parsed.data;
 
         const db = getRequestDB(req);
         const [appRow] = await db.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
         if (!appRow) return res.status(404).json({ message: "Application not found" });
+        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
 
         const rule = findTransition(appRow.status as AppStatus, toStatus as AppStatus);
         if (!rule) return res.status(409).json({ message: `Illegal transition: ${appRow.status} → ${toStatus}` });
@@ -184,7 +218,8 @@ export function registerUnderwritingRoutes(app: Express) {
           return res.status(400).json({ message: "Reason is required for this transition" });
         }
 
-        const updates: Record<string, unknown> = { status: toStatus, updatedAt: new Date() };
+        const nextSubStatus: SubStatus | null = toSubStatus ?? null;
+        const updates: Record<string, unknown> = { status: toStatus, subStatus: nextSubStatus, updatedAt: new Date() };
         if (toStatus === APP_STATUS.APPROVED) updates.approvedAt = new Date();
         const declineCodes: AppStatus[] = [APP_STATUS.D1, APP_STATUS.D2, APP_STATUS.D3, APP_STATUS.D4];
         if (declineCodes.includes(toStatus as AppStatus)) {
@@ -196,7 +231,7 @@ export function registerUnderwritingRoutes(app: Express) {
         await db.insert(underwritingStatusHistory).values({
           applicationId,
           fromStatus: appRow.status, toStatus,
-          fromSubStatus: appRow.subStatus, toSubStatus: null,
+          fromSubStatus: appRow.subStatus, toSubStatus: nextSubStatus,
           changedBy: userId(req), reason: reason || rule.description,
         });
 
@@ -226,6 +261,7 @@ export function registerUnderwritingRoutes(app: Express) {
         const db = getRequestDB(req);
         const [appRow] = await db.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
         if (!appRow) return res.status(404).json({ message: "Application not found" });
+        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
         await db.update(prospectApplications).set({ assignedReviewerId: reviewerId, updatedAt: new Date() }).where(eq(prospectApplications.id, applicationId));
         await audit(req, "update", "application_reviewer", String(applicationId), {
           oldValues: { assignedReviewerId: appRow.assignedReviewerId }, newValues: { assignedReviewerId: reviewerId },
@@ -249,6 +285,7 @@ export function registerUnderwritingRoutes(app: Express) {
         const db = getRequestDB(req);
         const [appRow] = await db.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
         if (!appRow) return res.status(404).json({ message: "Application not found" });
+        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
         await db.update(prospectApplications).set({ pathway, updatedAt: new Date() }).where(eq(prospectApplications.id, applicationId));
         await audit(req, "update", "application_pathway", String(applicationId), {
           oldValues: { pathway: appRow.pathway }, newValues: { pathway },
@@ -286,9 +323,11 @@ export function registerUnderwritingRoutes(app: Express) {
   app.get("/api/applications/:id/underwriting/tasks",
     dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_VIEW_QUEUE),
     async (req: RequestWithDB, res) => {
+      const applicationId = parseInt(req.params.id);
+      if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
       const db = getRequestDB(req);
       const tasks = await db.select().from(underwritingTasks)
-        .where(eq(underwritingTasks.applicationId, parseInt(req.params.id)))
+        .where(eq(underwritingTasks.applicationId, applicationId))
         .orderBy(desc(underwritingTasks.createdAt));
       res.json(tasks);
     });
@@ -298,6 +337,7 @@ export function registerUnderwritingRoutes(app: Express) {
     async (req: RequestWithDB, res) => {
       try {
         const applicationId = parseInt(req.params.id);
+        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
         const body = (req.body || {}) as Record<string, unknown>;
         const parsed = insertUnderwritingTaskSchema.safeParse({ ...body, applicationId, createdBy: userId(req) });
         if (!parsed.success) return res.status(400).json({ message: "Invalid task", errors: parsed.error.flatten() });
@@ -319,6 +359,9 @@ export function registerUnderwritingRoutes(app: Express) {
         for (const k of allowed) if (k in body) updates[k] = body[k];
         if (updates.status === "done") updates.completedAt = new Date();
         const db = getRequestDB(req);
+        const [existing] = await db.select().from(underwritingTasks).where(eq(underwritingTasks.id, id)).limit(1);
+        if (!existing) return res.status(404).json({ message: "Task not found" });
+        if (!(await enforceAppScope(req, existing.applicationId))) return res.status(403).json({ message: "Out of scope" });
         const [t] = await db.update(underwritingTasks).set(updates).where(eq(underwritingTasks.id, id)).returning();
         if (!t) return res.status(404).json({ message: "Task not found" });
         await audit(req, "update", "underwriting_task", String(id), { newValues: updates });
@@ -330,9 +373,11 @@ export function registerUnderwritingRoutes(app: Express) {
   app.get("/api/applications/:id/underwriting/notes",
     dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_VIEW_QUEUE),
     async (req: RequestWithDB, res) => {
+      const applicationId = parseInt(req.params.id);
+      if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
       const db = getRequestDB(req);
       const notes = await db.select().from(underwritingNotes)
-        .where(eq(underwritingNotes.applicationId, parseInt(req.params.id)))
+        .where(eq(underwritingNotes.applicationId, applicationId))
         .orderBy(desc(underwritingNotes.createdAt));
       res.json(notes);
     });
@@ -342,6 +387,7 @@ export function registerUnderwritingRoutes(app: Express) {
     async (req: RequestWithDB, res) => {
       try {
         const applicationId = parseInt(req.params.id);
+        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
         const body = (req.body || {}) as Record<string, unknown>;
         const parsed = insertUnderwritingNoteSchema.safeParse({ ...body, applicationId, authorUserId: userId(req) });
         if (!parsed.success) return res.status(400).json({ message: "Invalid note", errors: parsed.error.flatten() });
@@ -356,11 +402,49 @@ export function registerUnderwritingRoutes(app: Express) {
   app.get("/api/applications/:id/underwriting/history",
     dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_VIEW_QUEUE),
     async (req: RequestWithDB, res) => {
+      const applicationId = parseInt(req.params.id);
+      if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
       const db = getRequestDB(req);
       const rows = await db.select().from(underwritingStatusHistory)
-        .where(eq(underwritingStatusHistory.applicationId, parseInt(req.params.id)))
+        .where(eq(underwritingStatusHistory.applicationId, applicationId))
         .orderBy(desc(underwritingStatusHistory.createdAt));
       res.json(rows);
+    });
+
+  // ── Sub-status PATCH ──
+  const subStatusPatchSchema = z.object({
+    subStatus: z.enum(SUB_STATUS_VALUES).nullable(),
+    reason: z.string().max(2000).optional(),
+  });
+  app.patch("/api/applications/:id/underwriting/sub-status",
+    dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_REVIEW),
+    async (req: RequestWithDB, res) => {
+      try {
+        const applicationId = parseInt(req.params.id);
+        const parsed = subStatusPatchSchema.safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ message: "Invalid payload", errors: parsed.error.flatten() });
+        const { subStatus, reason } = parsed.data;
+        const db = getRequestDB(req);
+        const [appRow] = await db.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
+        if (!appRow) return res.status(404).json({ message: "Application not found" });
+        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
+        await db.update(prospectApplications)
+          .set({ subStatus, updatedAt: new Date() })
+          .where(eq(prospectApplications.id, applicationId));
+        await db.insert(underwritingStatusHistory).values({
+          applicationId,
+          fromStatus: appRow.status, toStatus: appRow.status,
+          fromSubStatus: appRow.subStatus, toSubStatus: subStatus,
+          changedBy: userId(req), reason: reason || "Sub-status change",
+        });
+        await audit(req, "update", "application_sub_status", String(applicationId), {
+          oldValues: { subStatus: appRow.subStatus }, newValues: { subStatus },
+          notes: reason,
+        });
+        res.json({ ok: true, subStatus });
+      } catch (err) {
+        res.status(500).json({ message: err instanceof Error ? err.message : "Failed" });
+      }
     });
 
   // ── Queue ──
@@ -413,6 +497,13 @@ export function registerUnderwritingRoutes(app: Express) {
           conds.push(isNull(prospectApplications.assignedReviewerId) as ReturnType<typeof eq>);
         }
 
+        // Scope-aware: 'own' permission scope can only see their own assignments.
+        if (req.permScope === 'own') {
+          const uid = userId(req);
+          if (uid) conds.push(eq(prospectApplications.assignedReviewerId, uid));
+          else conds.push(sqlTag`false` as ReturnType<typeof eq>);
+        }
+
         const rows = await db.select({
           id: prospectApplications.id,
           prospectId: prospectApplications.prospectId,
@@ -461,9 +552,11 @@ export function registerUnderwritingRoutes(app: Express) {
   app.get("/api/applications/:id/underwriting/files",
     dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_VIEW_QUEUE),
     async (req: RequestWithDB, res) => {
+      const applicationId = parseInt(req.params.id);
+      if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
       const db = getRequestDB(req);
       const rows = await db.select().from(underwritingFiles)
-        .where(eq(underwritingFiles.applicationId, parseInt(req.params.id)))
+        .where(eq(underwritingFiles.applicationId, applicationId))
         .orderBy(desc(underwritingFiles.uploadedAt));
       res.json(rows);
     });
@@ -474,6 +567,7 @@ export function registerUnderwritingRoutes(app: Express) {
     async (req: RequestWithDB, res) => {
       try {
         const applicationId = parseInt(req.params.id);
+        if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
         const file = (req as unknown as { file?: Express.Multer.File }).file;
         if (!file) return res.status(400).json({ message: "file required" });
         const db = getRequestDB(req);
