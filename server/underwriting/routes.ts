@@ -16,7 +16,8 @@ import {
   type TransitionRule, PATHWAYS, PHASES,
 } from "@shared/underwriting";
 import { ACTIONS } from "@shared/permissions";
-import { hasPermission } from "@shared/permissions";
+import { hasPermission, getActionScope } from "@shared/permissions";
+import { getOverrides } from "../permissionRegistry";
 import { dbEnvironmentMiddleware, getRequestDB, type RequestWithDB } from "../dbMiddleware";
 import { isAuthenticated, requirePerm } from "../replitAuth";
 import { auditService } from "../auditService";
@@ -169,7 +170,14 @@ export function registerUnderwritingRoutes(app: Express) {
         const rule = findTransition(appRow.status as AppStatus, toStatus as AppStatus);
         if (!rule) return res.status(409).json({ message: `Illegal transition: ${appRow.status} → ${toStatus}` });
 
-        if (!hasPermission(req.currentUser as Parameters<typeof hasPermission>[0], rule.requires)) {
+        // Override-aware permission check (parity with requirePerm).
+        const overrides = await getOverrides(req.dbEnv ?? 'production', db);
+        const scope = getActionScope(
+          req.currentUser as Parameters<typeof getActionScope>[0],
+          rule.requires,
+          overrides,
+        );
+        if (!scope) {
           return res.status(403).json({ message: `Missing permission: ${rule.requires}` });
         }
         if (rule.requireReason && !reason?.trim()) {

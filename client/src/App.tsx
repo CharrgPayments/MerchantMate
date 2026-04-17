@@ -640,24 +640,30 @@ function AuthenticatedApp() {
             }}
           </Route>
           <Route path="/underwriting-queue">
-            {() => (
-              <>
-                <Header title="Underwriting Queue" onSearch={setGlobalSearch} />
-                <main className="flex-1 overflow-auto bg-gray-50">
-                  <UnderwritingQueue />
-                </main>
-              </>
-            )}
+            {() => {
+              if (!can(ACTIONS.UNDERWRITING_VIEW_QUEUE)) return <NotFound />;
+              return (
+                <>
+                  <Header title="Underwriting Queue" onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <UnderwritingQueue />
+                  </main>
+                </>
+              );
+            }}
           </Route>
           <Route path="/underwriting-review/:id">
-            {() => (
-              <>
-                <Header title="Underwriting Review" onSearch={setGlobalSearch} />
-                <main className="flex-1 overflow-auto bg-gray-50">
-                  <UnderwritingReview />
-                </main>
-              </>
-            )}
+            {() => {
+              if (!can(ACTIONS.UNDERWRITING_REVIEW)) return <NotFound />;
+              return (
+                <>
+                  <Header title="Underwriting Review" onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <UnderwritingReview />
+                  </main>
+                </>
+              );
+            }}
           </Route>
           <Route path="/roles-permissions">
             {() => {

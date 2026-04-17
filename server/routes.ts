@@ -3296,8 +3296,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { prospectApplications: paTable } = await import("@shared/schema");
         const { eq: eqOp } = await import("drizzle-orm");
         const { getDynamicDatabase } = await import("./db");
-        const reqEnv = (req.session as { dbEnvironment?: string } | undefined)?.dbEnvironment || 'development';
-        const submitDb = getDynamicDatabase(reqEnv);
+        // Use the same DB env source as dbEnvironmentMiddleware
+        // (req.dbEnv ▸ req.session.dbEnv ▸ x-db-env header). No silent
+        // fallback to development — if no env can be resolved, skip the
+        // auto-trigger so we never write to the wrong database.
+        const reqEnv =
+          (req as unknown as { dbEnv?: string }).dbEnv
+          || (req.session as { dbEnv?: string } | undefined)?.dbEnv
+          || (typeof req.headers['x-db-env'] === 'string' ? req.headers['x-db-env'] as string : undefined);
+        const submitDb = reqEnv ? getDynamicDatabase(reqEnv) : null;
         if (submitDb) {
           const [appRow] = await submitDb.select().from(paTable)
             .where(eqOp(paTable.prospectId, prospectId)).limit(1);
