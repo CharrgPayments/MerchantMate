@@ -33,7 +33,7 @@ import {
 /** Resolve which agent IDs the current user is allowed to see. */
 async function resolveScopedAgentIds(req: RequestWithDB, requestedAgentId?: number): Promise<number[]> {
   const db = req.db!;
-  const user = req.currentUser as any;
+  const user = req.currentUser;
   const scope = getActionScope(user, ACTIONS.COMMISSIONS_VIEW);
   if (!scope) return [];
 
@@ -86,7 +86,7 @@ export function registerCommissionsRoutes(app: Express) {
     async (req: RequestWithDB, res: Response) => {
       // Settings are org-wide and must NOT be writable by scoped (downline)
       // managers. Require the caller to hold "all" scope for COMMISSIONS_MANAGE.
-      if (getActionScope(req.currentUser as any, ACTIONS.COMMISSIONS_MANAGE) !== "all") {
+      if (getActionScope(req.currentUser, ACTIONS.COMMISSIONS_MANAGE) !== "all") {
         return res.status(403).json({ message: "Org-wide settings require admin." });
       }
       try {
@@ -96,7 +96,7 @@ export function registerCommissionsRoutes(app: Express) {
         });
         const parsed = schema.safeParse(req.body);
         if (!parsed.success) return res.status(400).json({ errors: parsed.error.errors });
-        const userId = (req.currentUser as any)?.id ?? null;
+        const userId = (req.currentUser)?.id ?? null;
         if (parsed.data.defaultOverridePct !== undefined) {
           await setSetting(req.db!, COMMISSION_SETTING_KEYS.DEFAULT_OVERRIDE_PCT,
             String(parsed.data.defaultOverridePct), userId);
@@ -146,7 +146,7 @@ export function registerCommissionsRoutes(app: Express) {
         });
         const parsed = schema.safeParse({
           ...req.body,
-          createdBy: (req.currentUser as any)?.id ?? null,
+          createdBy: (req.currentUser)?.id ?? null,
         });
         if (!parsed.success) return res.status(400).json({ errors: parsed.error.errors });
         if (parsed.data.parentAgentId === parsed.data.childAgentId) {
@@ -170,7 +170,7 @@ export function registerCommissionsRoutes(app: Express) {
         // Scope check: agents may only manage overrides where the PARENT side
         // of the edge is themselves (or in their own downline if they are an
         // upline agent managing a sub-agent's override). Admins pass through.
-        const manageScope = getActionScope(req.currentUser as any, ACTIONS.COMMISSIONS_MANAGE);
+        const manageScope = getActionScope(req.currentUser, ACTIONS.COMMISSIONS_MANAGE);
         if (manageScope !== "all") {
           const allowedParents = await resolveScopedAgentIds(req);
           if (!allowedParents.includes(parsed.data.parentAgentId)) {
@@ -206,7 +206,7 @@ export function registerCommissionsRoutes(app: Express) {
         // Load the override so we can scope-check the parent agent before deletion.
         const [row] = await req.db!.select().from(agentOverrides).where(eq(agentOverrides.id, id));
         if (!row) return res.status(404).json({ message: "Not found" });
-        if (getActionScope(req.currentUser as any, ACTIONS.COMMISSIONS_MANAGE) !== "all") {
+        if (getActionScope(req.currentUser, ACTIONS.COMMISSIONS_MANAGE) !== "all") {
           const allowed = await resolveScopedAgentIds(req);
           if (!allowed.includes(row.parentAgentId)) {
             return res.status(403).json({ message: "Forbidden" });
@@ -270,7 +270,7 @@ export function registerCommissionsRoutes(app: Express) {
         const txId = Number(req.params.transactionId);
         // Scope-check: the merchant's owning agent must be in the caller's
         // allowed set when the caller is not org-wide.
-        if (getActionScope(req.currentUser as any, ACTIONS.COMMISSIONS_MANAGE) !== "all") {
+        if (getActionScope(req.currentUser, ACTIONS.COMMISSIONS_MANAGE) !== "all") {
           const [m] = await req.db!.select({ agentId: merchants.agentId })
             .from(merchants)
             .innerJoin(commissionEvents, eq(commissionEvents.merchantId, merchants.id))
@@ -382,7 +382,7 @@ export function registerCommissionsRoutes(app: Express) {
             eventIds: agentRows.map((r) => r.id),
             method: parsed.data.method,
             notes: `Bulk mark-paid (${agentRows.length} events)`,
-            createdBy: (req.currentUser as any)?.id ?? null,
+            createdBy: (req.currentUser)?.id ?? null,
           });
           const paid = await markPayoutPaid(req.db!, payout.id, {
             reference: parsed.data.reference ?? null,
@@ -402,7 +402,7 @@ export function registerCommissionsRoutes(app: Express) {
     isAuthenticated, dbEnvironmentMiddleware, requirePerm(ACTIONS.COMMISSIONS_VIEW),
     async (req: RequestWithDB, res: Response) => {
       try {
-        const user = req.currentUser as any;
+        const user = req.currentUser;
         const [selfAgent] = await req.db!.select({ id: agents.id })
           .from(agents).where(eq(agents.userId, user?.id));
 
@@ -504,7 +504,7 @@ export function registerCommissionsRoutes(app: Express) {
     isAuthenticated, dbEnvironmentMiddleware, requirePerm(ACTIONS.COMMISSIONS_MANAGE),
     async (req: RequestWithDB, res: Response) => {
       // Org-wide bulk operation — admin only.
-      if (getActionScope(req.currentUser as any, ACTIONS.COMMISSIONS_MANAGE) !== "all") {
+      if (getActionScope(req.currentUser, ACTIONS.COMMISSIONS_MANAGE) !== "all") {
         return res.status(403).json({ message: "Org-wide recalculation requires admin." });
       }
       try {
@@ -581,7 +581,7 @@ export function registerCommissionsRoutes(app: Express) {
           periodEnd: pe,
           method: parsed.data.method,
           notes: parsed.data.notes ?? null,
-          createdBy: (req.currentUser as any)?.id ?? null,
+          createdBy: (req.currentUser)?.id ?? null,
         });
         res.status(201).json(payout);
       } catch (err: any) {

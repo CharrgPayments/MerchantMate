@@ -21,10 +21,93 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Search, Edit, Trash2, ChevronDown, ChevronRight, Building2, Mail, Phone, MapPin, Key, User, UserX } from "lucide-react";
+import { Plus, Search, Edit, Trash2, ChevronDown, ChevronRight, Building2, Mail, Phone, MapPin, Key, User, UserX, Percent } from "lucide-react";
 import { agentsApi } from "@/lib/api";
 import { AgentModal } from "@/components/modals/agent-modal";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { apiRequest, queryClient as gqc } from "@/lib/queryClient";
 import type { Agent, Merchant } from "@shared/schema";
+
+interface OverrideRow {
+  id: number;
+  parentAgentId: number;
+  childAgentId: number;
+  overridePct: string;
+}
+
+function EdgeOverrideEditor({ parentAgentId, childAgentId }: { parentAgentId: number; childAgentId: number }) {
+  const { toast } = useToast();
+  const { data: overrides = [] } = useQuery<OverrideRow[]>({
+    queryKey: ["/api/commissions/overrides"],
+  });
+  const existing = overrides.find(
+    (o) => o.parentAgentId === parentAgentId && o.childAgentId === childAgentId,
+  );
+  const [value, setValue] = useState<string>(existing?.overridePct ?? "");
+  const save = useMutation({
+    mutationFn: async (pct: number) =>
+      apiRequest("POST", "/api/commissions/overrides", {
+        parentAgentId, childAgentId, overridePct: pct,
+      }),
+    onSuccess: () => {
+      gqc.invalidateQueries({ queryKey: ["/api/commissions/overrides"] });
+      toast({ title: "Override saved" });
+    },
+    onError: (err: Error) => toast({ title: "Save failed", description: err.message, variant: "destructive" }),
+  });
+  const remove = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/commissions/overrides/${id}`),
+    onSuccess: () => {
+      gqc.invalidateQueries({ queryKey: ["/api/commissions/overrides"] });
+      toast({ title: "Override cleared" });
+      setValue("");
+    },
+    onError: (err: Error) => toast({ title: "Clear failed", description: err.message, variant: "destructive" }),
+  });
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost" size="sm" className="h-6 w-6 p-0"
+          title={existing ? `Override: ${existing.overridePct}%` : "Set parent override %"}
+          data-testid={`override-edge-${parentAgentId}-${childAgentId}`}
+        >
+          <Percent className={`w-3.5 h-3.5 ${existing ? "text-emerald-600" : "text-gray-400"}`} />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64">
+        <div className="space-y-3">
+          <div className="text-sm font-medium">Parent override on this edge</div>
+          <p className="text-xs text-gray-500">
+            Percentage of this sub-agent's commission paid to its direct upline.
+            Falls back to the org default when unset.
+          </p>
+          <Input
+            type="number" min="0" max="100" step="0.01" placeholder="e.g. 10"
+            value={value} onChange={(e) => setValue(e.target.value)}
+            data-testid={`override-input-${parentAgentId}-${childAgentId}`}
+          />
+          <div className="flex gap-2">
+            <Button
+              size="sm" className="flex-1"
+              disabled={save.isPending || value === "" || isNaN(Number(value))}
+              onClick={() => save.mutate(Number(value))}
+              data-testid={`override-save-${parentAgentId}-${childAgentId}`}
+            >Save</Button>
+            {existing && (
+              <Button
+                size="sm" variant="outline"
+                disabled={remove.isPending}
+                onClick={() => remove.mutate(existing.id)}
+                data-testid={`override-clear-${parentAgentId}-${childAgentId}`}
+              >Clear</Button>
+            )}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export default function Agents() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -452,7 +535,17 @@ function AgentRowWithMerchants({
         <TableCell className="text-gray-500">{agent.email}</TableCell>
         <TableCell className="text-gray-500">{agent.phone}</TableCell>
         <TableCell className="text-gray-500">{agent.territory || "—"}</TableCell>
-        <TableCell className="font-medium">{agent.commissionRate}%</TableCell>
+        <TableCell className="font-medium">
+          <div className="flex items-center gap-1">
+            <span>{agent.commissionRate}%</span>
+            {agent.parentAgentId != null && (
+              <EdgeOverrideEditor
+                parentAgentId={agent.parentAgentId}
+                childAgentId={agent.id}
+              />
+            )}
+          </div>
+        </TableCell>
         <TableCell>
           <Badge className={`corecrm-status-badge ${getStatusBadge(agent.status)}`}>
             {agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}

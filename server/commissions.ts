@@ -240,7 +240,7 @@ export async function createPayoutFromEventIds(db: Db, params: {
   const { agentId, eventIds } = params;
   if (eventIds.length === 0) throw new Error("eventIds required");
 
-  // Re-load and validate: must belong to agent, status=payable, unattached.
+  // Re-load and validate: must exist, belong to agent, status=payable, unattached.
   const rows = await db.select({
     id: commissionEvents.id,
     amount: commissionEvents.amount,
@@ -249,6 +249,11 @@ export async function createPayoutFromEventIds(db: Db, params: {
     status: commissionEvents.status,
     payoutId: commissionEvents.payoutId,
   }).from(commissionEvents).where(inArray(commissionEvents.id, eventIds));
+  if (rows.length !== eventIds.length) {
+    const found = new Set(rows.map((r) => r.id));
+    const missing = eventIds.filter((id) => !found.has(id));
+    throw new Error(`Unknown event IDs: ${missing.join(", ")}`);
+  }
   for (const r of rows) {
     if (r.beneficiaryAgentId !== agentId) throw new Error(`Event ${r.id} does not belong to agent ${agentId}`);
     if (r.status !== "payable" || r.payoutId != null) {
@@ -256,7 +261,7 @@ export async function createPayoutFromEventIds(db: Db, params: {
     }
   }
 
-  const dates = rows.map((r) => +new Date(r.createdAt as any));
+  const dates = rows.map((r) => (r.createdAt instanceof Date ? r.createdAt.getTime() : new Date(r.createdAt).getTime()));
   const periodStart = new Date(Math.min(...dates));
   const periodEnd = new Date(Math.max(...dates));
   const gross = rows.reduce((acc, e) => acc + Number(e.amount), 0);
