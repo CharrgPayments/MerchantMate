@@ -32,7 +32,7 @@ interface OverrideRow {
   id: number;
   parentAgentId: number;
   childAgentId: number;
-  overridePct: string;
+  percent: string;
 }
 
 function EdgeOverrideEditor({ parentAgentId, childAgentId }: { parentAgentId: number; childAgentId: number }) {
@@ -43,11 +43,11 @@ function EdgeOverrideEditor({ parentAgentId, childAgentId }: { parentAgentId: nu
   const existing = overrides.find(
     (o) => o.parentAgentId === parentAgentId && o.childAgentId === childAgentId,
   );
-  const [value, setValue] = useState<string>(existing?.overridePct ?? "");
+  const [value, setValue] = useState<string>(existing?.percent ?? "");
   const save = useMutation({
     mutationFn: async (pct: number) =>
       apiRequest("POST", "/api/commissions/overrides", {
-        parentAgentId, childAgentId, overridePct: pct,
+        parentAgentId, childAgentId, percent: pct,
       }),
     onSuccess: () => {
       gqc.invalidateQueries({ queryKey: ["/api/commissions/overrides"] });
@@ -69,7 +69,7 @@ function EdgeOverrideEditor({ parentAgentId, childAgentId }: { parentAgentId: nu
       <PopoverTrigger asChild>
         <Button
           variant="ghost" size="sm" className="h-6 w-6 p-0"
-          title={existing ? `Override: ${existing.overridePct}%` : "Set parent override %"}
+          title={existing ? `Override: ${existing.percent}%` : "Set parent override %"}
           data-testid={`override-edge-${parentAgentId}-${childAgentId}`}
         >
           <Percent className={`w-3.5 h-3.5 ${existing ? "text-emerald-600" : "text-gray-400"}`} />
