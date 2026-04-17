@@ -389,14 +389,26 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
 // Iterates ALL of the user's roles[] (not just roles[0]) so multi-role users get the
 // union of access. Attaches the effective Scope to req.permScope for downstream filters.
 import { getActionScope, ROLE_CODES, type Scope } from "@shared/permissions";
-import { type RequestWithDB } from "./dbMiddleware";
+import { type RequestWithDB, dbEnvironmentMiddleware } from "./dbMiddleware";
 import { getOverrides } from "./permissionRegistry";
 import { getDynamicDatabase } from "./db";
 
 export const requirePerm = (action: string): RequestHandler => {
   return async (req, res, next) => {
     const reqWithCtx = req as RequestWithDB;
-    // Per-environment overrides — never bleed dev grants into prod and vice versa.
+    // Defensive: if dbEnvironmentMiddleware was not registered before this guard
+    // on a particular route, run it inline now so per-env override resolution is
+    // correct. This prevents prod grants from being evaluated against a dev
+    // session (or vice versa) on routes whose middleware order is wrong.
+    if (!reqWithCtx.dbEnv) {
+      await new Promise<void>((resolve, reject) => {
+        try {
+          dbEnvironmentMiddleware(reqWithCtx, res, () => resolve());
+        } catch (err) {
+          reject(err);
+        }
+      });
+    }
     const env = reqWithCtx.dbEnv ?? 'production';
     const dbForEnv = reqWithCtx.dynamicDB ?? getDynamicDatabase(env);
     const overrides = await getOverrides(env, dbForEnv);

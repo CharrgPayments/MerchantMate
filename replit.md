@@ -7,6 +7,12 @@ Core CRM is a comprehensive merchant payment processing management system design
 Preferred communication style: Simple, everyday language.
 
 ## Recent Changes (April 2026)
+- **Epic C — Roles & Permission Matrix (rev 8)**: Closes seventh-pass review (middleware ordering, lingering hardcoded role checks, `/pdf-naming-guide` guard, sidebar `any` casts).
+  - **`requirePerm` is now order-tolerant**: it inlines `dbEnvironmentMiddleware` if `req.dbEnv` is unset, so per-environment override resolution is correct even when a route mounts the guard before the env middleware (`/api/admin/*`, `/api/security/*` etc). Prevents prod grants being evaluated against a dev session and vice versa.
+  - **Sidebar fully off raw `user.role`**: removed `(user as any)?.firstName`, `(user as any)?.lastName`, `(user as any)?.roles?.includes('super_admin')` and the legacy `user.role` fallback. Crown icon is now driven by `can(ACTIONS.SUPERADMIN_ONLY)` from the registry; name uses the typed `User` shape from `@shared/schema`.
+  - **`PersonalizedDashboard` migrated**: dropped `hasPermission(user, 'manage_dashboard')` (action wasn't in the registry) → `can(ACTIONS.ADMIN_MANAGE)`. Role-keyed widget map + tip badges now read `getUserRoleCodes(user)` and key off `ROLE_CODES.*` constants instead of `user.role` strings, supporting multi-role users.
+  - **`/pdf-naming-guide` route guarded**: `can(ACTIONS.NAV_PDF_FORMS)` (was the last unguarded sidebar-listed route).
+  - TS error count: 609 (down from 611, no regression).
 - **Epic C — Roles & Permission Matrix (rev 7)**: Closes sixth-pass review (open `/api/users` endpoint, two unguarded routes, leftover `requireRole` in testing.ts).
   - **`GET /api/users` now properly gated**: added `isAuthenticated` + `requirePerm('admin:read')` (was wide open under a "development bypass" comment). Removed `console.log('Users found:', …full list…)` PII leak from same handler.
   - **App.tsx route guard parity**: `/pdf-forms` → `can(ACTIONS.NAV_PDF_FORMS)`; `/agent-dashboard` → `can(ACTIONS.NAV_AGENT_DASHBOARD)`. These were the last sidebar-listed routes without page-level guards.

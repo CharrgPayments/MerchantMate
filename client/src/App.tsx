@@ -416,6 +416,7 @@ function AuthenticatedApp() {
           </Route>
           <Route path="/pdf-naming-guide">
             {() => {
+              if (!can(ACTIONS.NAV_PDF_FORMS)) return <NotFound />;
               const pageInfo = getPageInfo("/pdf-naming-guide");
               return (
                 <>

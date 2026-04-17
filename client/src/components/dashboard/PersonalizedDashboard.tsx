@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Settings, Eye, EyeOff, GripVertical } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { hasPermission } from "@/lib/rbac";
+import { ACTIONS, getUserRoleCodes, ROLE_CODES } from "@shared/permissions";
+import { usePermissions } from "@/hooks/usePermissions";
 import { DashboardWidget } from "./DashboardWidget";
 import { toast } from "@/hooks/use-toast";
 
@@ -23,8 +24,12 @@ interface WidgetPreference {
 
 export function PersonalizedDashboard() {
   const { user } = useAuth();
+  const { can } = usePermissions();
   const queryClient = useQueryClient();
   const [editMode, setEditMode] = useState(false);
+  const userRoles = getUserRoleCodes(user);
+  const primaryRole = userRoles[0] ?? "";
+  const hasRole = (r: string) => userRoles.includes(r as any);
 
   const { data: widgets = [], isLoading } = useQuery({
     queryKey: ["/api/dashboard/widgets"],
@@ -73,9 +78,9 @@ export function PersonalizedDashboard() {
 
     const baseWidgets = ["quick_stats", "recent_activity"];
     
-    switch (user.role) {
-      case "super_admin":
-      case "admin":
+    switch (primaryRole) {
+      case ROLE_CODES.SUPER_ADMIN:
+      case ROLE_CODES.ADMIN:
         return [
           ...baseWidgets,
           "system_overview",
@@ -84,7 +89,7 @@ export function PersonalizedDashboard() {
           "revenue_overview",
           "performance_metrics"
         ];
-      case "corporate":
+      case ROLE_CODES.CORPORATE:
         return [
           ...baseWidgets,
           "revenue_overview",
@@ -92,14 +97,14 @@ export function PersonalizedDashboard() {
           "location_performance",
           "transaction_trends"
         ];
-      case "agent":
+      case ROLE_CODES.AGENT:
         return [
           ...baseWidgets,
           "assigned_merchants",
           "pipeline_overview",
           "merchant_stats"
         ];
-      case "merchant":
+      case ROLE_CODES.MERCHANT:
         return [
           ...baseWidgets,
           "revenue_overview",
@@ -174,7 +179,7 @@ export function PersonalizedDashboard() {
             {editMode ? "Done" : "Customize"}
           </Button>
           
-          {hasPermission(user, "manage_dashboard") && (
+          {can(ACTIONS.ADMIN_MANAGE) && (
             <Button
               variant="outline"
               size="sm"
@@ -255,18 +260,18 @@ export function PersonalizedDashboard() {
         <Card className="bg-blue-50 border-blue-200">
           <CardContent className="pt-6">
             <div className="flex items-start gap-3">
-              <Badge variant="secondary">{user.role.replace(/_/g, " ").toUpperCase()}</Badge>
+              <Badge variant="secondary">{primaryRole.replace(/_/g, " ").toUpperCase()}</Badge>
               <div className="text-sm text-blue-700">
-                {user.role === "admin" && (
+                {hasRole(ROLE_CODES.ADMIN) && (
                   <p>As an admin, you have access to system overview, user management, and financial summary widgets.</p>
                 )}
-                {user.role === "agent" && (
+                {hasRole(ROLE_CODES.AGENT) && (
                   <p>Your dashboard shows assigned merchants and pipeline overview to help manage your portfolio.</p>
                 )}
-                {user.role === "merchant" && (
+                {hasRole(ROLE_CODES.MERCHANT) && (
                   <p>Track your revenue, location performance, and transaction trends from your personalized dashboard.</p>
                 )}
-                {user.role === "corporate" && (
+                {hasRole(ROLE_CODES.CORPORATE) && (
                   <p>Monitor overall performance metrics and revenue overview across your organization.</p>
                 )}
               </div>

@@ -209,14 +209,14 @@ export function Sidebar() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center space-x-2">
                   <p className="text-sm font-medium text-gray-900 truncate">
-                    {(user as any)?.firstName} {(user as any)?.lastName}
+                    {user.firstName} {user.lastName}
                   </p>
-                  {(user as any)?.roles?.includes('super_admin') && (
+                  {can(ACTIONS.SUPERADMIN_ONLY) && (
                     <Crown className="w-4 h-4 text-yellow-500" />
                   )}
                 </div>
                 <p className="text-xs text-gray-500 capitalize">
-                  {((user as any)?.roles?.[0] || (user as any)?.role || '')?.replace('_', ' ')}
+                  {(user.roles?.[0] || user.role || '')?.replace('_', ' ')}
                 </p>
               </div>
             </div>
