@@ -41,7 +41,7 @@ const updateUserSchema = z.object({
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Invalid email address"),
   username: z.string().min(3, "Username must be at least 3 characters"),
-  role: z.enum(["merchant", "agent", "admin", "corporate", "super_admin"]),
+  role: z.string().min(1, "Role is required"),
   status: z.enum(["active", "suspended", "inactive"]),
 });
 type UpdateUserFormData = z.infer<typeof updateUserSchema>;
@@ -661,11 +661,15 @@ export default function UsersPage() {
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                       <SelectContent>
-                        <SelectItem value="merchant">Merchant</SelectItem>
-                        <SelectItem value="agent">Agent</SelectItem>
-                        <SelectItem value="admin">Admin</SelectItem>
-                        <SelectItem value="corporate">Corporate</SelectItem>
-                        <SelectItem value="super_admin">Super Admin</SelectItem>
+                        {(roleDefs.length > 0 ? roleDefs : [
+                          { id: -1, code: "merchant", label: "Merchant" },
+                          { id: -2, code: "agent", label: "Agent" },
+                          { id: -3, code: "admin", label: "Admin" },
+                          { id: -4, code: "corporate", label: "Corporate" },
+                          { id: -5, code: "super_admin", label: "Super Admin" },
+                        ] as RoleDefinition[]).map((rd) => (
+                          <SelectItem key={rd.code} value={rd.code}>{rd.label}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <FormMessage />

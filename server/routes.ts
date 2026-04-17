@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { setupAuthRoutes } from "./authRoutes";
 import { insertMerchantSchema, insertAgentSchema, insertTransactionSchema, insertLocationSchema, insertAddressSchema, insertPdfFormSchema, insertApiKeySchema, insertAcquirerSchema, insertAcquirerApplicationTemplateSchema } from "@shared/schema";
 import { authenticateApiKey, requireApiPermission, logApiRequest, generateApiKey } from "./apiAuth";
-import { setupAuth, isAuthenticated, requireRole, requirePermission } from "./replitAuth";
+import { setupAuth, isAuthenticated, requireRole, requirePermission, requirePerm } from "./replitAuth";
 import { auditService } from "./auditService";
 import { z } from "zod";
 import session from "express-session";
@@ -972,7 +972,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/users/:id/role", dbEnvironmentMiddleware, requireRole(['super_admin']), async (req: RequestWithDB, res) => {
+  app.patch("/api/users/:id/role", dbEnvironmentMiddleware, requirePerm('system:superadmin'), async (req: RequestWithDB, res) => {
     try {
       const { id } = req.params;
       const { role } = req.body;
@@ -992,7 +992,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/users/:id/status", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.patch("/api/users/:id/status", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     try {
       const { id } = req.params;
       const { status } = req.body;
@@ -1013,7 +1013,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete user account
-  app.delete("/api/users/:id", requireRole(['super_admin']), async (req, res) => {
+  app.delete("/api/users/:id", requirePerm('system:superadmin'), async (req, res) => {
     try {
       const { id } = req.params;
       
@@ -1030,7 +1030,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update user account information
-  app.patch("/api/users/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.patch("/api/users/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const userId = req.params.id;
       const updates = req.body;
@@ -1075,7 +1075,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Reset user password (admin only)
-  app.post("/api/users/:id/reset-password", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post("/api/users/:id/reset-password", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const userId = req.params.id;
       
@@ -1167,7 +1167,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Agent password reset
-  app.post("/api/agents/:id/reset-password", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post("/api/agents/:id/reset-password", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { id } = req.params;
       const agent = await storage.getAgent(parseInt(id));
@@ -1202,7 +1202,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Merchant password reset
-  app.post("/api/merchants/:id/reset-password", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post("/api/merchants/:id/reset-password", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { id } = req.params;
       const merchant = await storage.getMerchant(parseInt(id));
@@ -1602,7 +1602,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Agent-merchant assignment routes (admin only)
-  app.post("/api/agents/:agentId/merchants/:merchantId", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post("/api/agents/:agentId/merchants/:merchantId", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     try {
       const { agentId, merchantId } = req.params;
       const userId = (req as any).user.claims.sub;
@@ -1622,7 +1622,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/agents/:agentId/merchants/:merchantId", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.delete("/api/agents/:agentId/merchants/:merchantId", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     try {
       const { agentId, merchantId } = req.params;
       const dynamicDB = getRequestDB(req);
@@ -1645,7 +1645,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get merchants for a specific agent
-  app.get("/api/agents/:agentId/merchants", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/agents/:agentId/merchants", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     try {
       const { agentId } = req.params;
       const dynamicDB = getRequestDB(req);
@@ -1795,7 +1795,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/prospects/:id", requireRole(['agent', 'admin', 'corporate', 'super_admin']), async (req, res) => {
+  app.put("/api/prospects/:id", requirePerm('agent:read'), async (req, res) => {
     try {
       const { id } = req.params;
       const prospectId = parseInt(id);
@@ -1833,7 +1833,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/prospects/:id/resend-invitation", requireRole(['agent', 'admin', 'corporate', 'super_admin']), async (req, res) => {
+  app.post("/api/prospects/:id/resend-invitation", requirePerm('agent:read'), async (req, res) => {
     try {
       const { id } = req.params;
       const { emailService } = await import("./emailService");
@@ -2148,7 +2148,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Clear all prospect applications (Super Admin only)
-  app.delete("/api/admin/clear-prospects", requireRole(['super_admin']), async (req, res) => {
+  app.delete("/api/admin/clear-prospects", requirePerm('system:superadmin'), async (req, res) => {
     try {
       // Get current counts for reporting
       const allProspects = await storage.getAllMerchantProspects();
@@ -2239,7 +2239,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Database connection diagnostics (Super Admin only)
-  app.get("/api/admin/db-diagnostics", requireRole(['super_admin']), dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+  app.get("/api/admin/db-diagnostics", requirePerm('system:superadmin'), dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       const dbEnv = req.dbEnv || 'production';
       
@@ -2297,7 +2297,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Schema comparison between environments
-  app.get("/api/admin/schema-compare", requireRole(['super_admin']), async (req, res) => {
+  app.get("/api/admin/schema-compare", requirePerm('system:superadmin'), async (req, res) => {
     try {
       const { getDynamicDatabase } = await import("./db");
       
@@ -2463,7 +2463,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Migration management endpoint (NEW - BULLETPROOF APPROACH)
-  app.post("/api/admin/migration", requireRole(['super_admin']), async (req, res) => {
+  app.post("/api/admin/migration", requirePerm('system:superadmin'), async (req, res) => {
     try {
       const { action, environment } = req.body;
       
@@ -2532,7 +2532,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Schema synchronization endpoint [DEPRECATED]
-  app.post("/api/admin/schema-sync", requireRole(['super_admin']), async (req, res) => {
+  app.post("/api/admin/schema-sync", requirePerm('system:superadmin'), async (req, res) => {
     // Add deprecation warning
     console.warn("🚨 DEPRECATED: /api/admin/schema-sync endpoint used. Recommend migrating to /api/admin/migration");
     
@@ -2771,7 +2771,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Comprehensive testing data reset utility (Super Admin only)
-  app.post("/api/admin/reset-testing-data", requireRole(['super_admin']), dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+  app.post("/api/admin/reset-testing-data", requirePerm('system:superadmin'), dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       const options = req.body || {};
       
@@ -3664,7 +3664,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin-only routes for merchants
-  app.get("/api/merchants/all", requireRole(['admin', 'corporate', 'super_admin']), async (req, res) => {
+  app.get("/api/merchants/all", requirePerm('admin:read'), async (req, res) => {
     try {
       const { search } = req.query;
       
@@ -3681,7 +3681,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/merchants", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post("/api/merchants", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     const dynamicDB = getRequestDB(req);
     try {
       // Remove userId from validation since it's auto-generated
@@ -3778,7 +3778,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Agent routes (admin only)
-  app.get("/api/agents", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin', 'agent']), async (req: RequestWithDB, res) => {
+  app.get("/api/agents", dbEnvironmentMiddleware, requirePerm('agent:read'), async (req: RequestWithDB, res) => {
     try {
       const { search } = req.query;
       const dynamicDB = getRequestDB(req);
@@ -3807,7 +3807,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/agents", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post("/api/agents", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     const dynamicDB = getRequestDB(req);
     console.log(`Creating agent - Database environment: ${req.dbEnv}`);
     
@@ -3919,7 +3919,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // Update agent (general fields + optional parentAgentId change) — atomic
-  app.put("/api/agents/:id", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.put("/api/agents/:id", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     const ALLOWED_AGENT_FIELDS = ["firstName", "lastName", "email", "phone", "territory", "commissionRate", "status"] as const;
     type AgentUpdate = Partial<Pick<typeof agents.$inferInsert, typeof ALLOWED_AGENT_FIELDS[number]>>;
     try {
@@ -3955,7 +3955,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update merchant (general fields + optional parentMerchantId change) — atomic
-  app.put("/api/merchants/:id", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.put("/api/merchants/:id", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     const ALLOWED_MERCHANT_FIELDS = ["businessName", "businessType", "email", "phone", "agentId", "processingFee", "status", "monthlyVolume"] as const;
     type MerchantUpdate = Partial<Pick<typeof merchants.$inferInsert, typeof ALLOWED_MERCHANT_FIELDS[number]>>;
     try {
@@ -3992,7 +3992,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Delete merchant — keeps closure tables consistent (reattach children
   // to the deleted merchant's parent, drop closure rows for this node).
-  app.delete("/api/merchants/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.delete("/api/merchants/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const merchantId = parseInt(req.params.id);
       if (!Number.isInteger(merchantId)) {
@@ -4052,7 +4052,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return out;
   }
 
-  app.get("/api/agents/hierarchy/tree", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin', 'agent']), async (req: RequestWithDB, res) => {
+  app.get("/api/agents/hierarchy/tree", dbEnvironmentMiddleware, requirePerm('agent:read'), async (req: RequestWithDB, res) => {
     try {
       const dynamicDB = getRequestDB(req);
       const all = await dynamicDB.select().from(agents);
@@ -4063,7 +4063,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/merchants/hierarchy/tree", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/merchants/hierarchy/tree", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     try {
       const dynamicDB = getRequestDB(req);
       const all = await dynamicDB.select().from(merchants);
@@ -4074,7 +4074,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/agents/:id/descendants", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin', 'agent']), async (req: RequestWithDB, res) => {
+  app.get("/api/agents/:id/descendants", dbEnvironmentMiddleware, requirePerm('agent:read'), async (req: RequestWithDB, res) => {
     try {
       const id = parseInt(req.params.id);
       if (!Number.isInteger(id)) {
@@ -4107,7 +4107,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/merchants/:id/descendants", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/merchants/:id/descendants", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     try {
       const id = parseInt(req.params.id);
       const dynamicDB = getRequestDB(req);
@@ -4120,7 +4120,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete agent
-  app.delete("/api/agents/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.delete("/api/agents/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const agentId = parseInt(req.params.id);
       const dynamicDB = getRequestDB(req);
@@ -4171,7 +4171,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Agent and Merchant User Management
-  app.get("/api/agents/:id/user", dbEnvironmentMiddleware, requireRole(['admin', 'corporate', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/agents/:id/user", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     try {
       const agentId = parseInt(req.params.id);
       const dynamicDB = getRequestDB(req);
@@ -4192,7 +4192,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/merchants/:id/user", requireRole(['admin', 'corporate', 'super_admin']), async (req, res) => {
+  app.get("/api/merchants/:id/user", requirePerm('admin:read'), async (req, res) => {
     try {
       const merchantId = parseInt(req.params.id);
       const user = await storage.getMerchantUser(merchantId);
@@ -4211,7 +4211,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Reset password for agent/merchant user accounts
-  app.post("/api/agents/:id/reset-password", requireRole(['admin', 'corporate', 'super_admin']), async (req, res) => {
+  app.post("/api/agents/:id/reset-password", requirePerm('admin:read'), async (req, res) => {
     try {
       const agentId = parseInt(req.params.id);
       const user = await storage.getAgentUser(agentId);
@@ -4245,7 +4245,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/merchants/:id/reset-password", requireRole(['admin', 'corporate', 'super_admin']), async (req, res) => {
+  app.post("/api/merchants/:id/reset-password", requirePerm('admin:read'), async (req, res) => {
     try {
       const merchantId = parseInt(req.params.id);
       const user = await storage.getMerchantUser(merchantId);
@@ -4280,7 +4280,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Transaction routes (admin only for all operations)
-  app.get("/api/transactions/all", requireRole(['admin', 'corporate', 'super_admin']), async (req, res) => {
+  app.get("/api/transactions/all", requirePerm('admin:read'), async (req, res) => {
     try {
       const { search } = req.query;
       
@@ -4297,7 +4297,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/transactions", requireRole(['admin', 'corporate', 'super_admin']), async (req, res) => {
+  app.post("/api/transactions", requirePerm('admin:read'), async (req, res) => {
     try {
       const result = insertTransactionSchema.safeParse(req.body);
       if (!result.success) {
@@ -4593,7 +4593,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Security endpoints - admin only
-  app.get("/api/security/login-attempts", isAuthenticated, requireRole(["admin", "super_admin"]), dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+  app.get("/api/security/login-attempts", isAuthenticated, requirePerm("admin:manage"), dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       const { loginAttempts } = await import("@shared/schema");
       const { desc } = await import("drizzle-orm");
@@ -4613,7 +4613,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Comprehensive Audit Logs API - SOC2 Compliance
-  app.get("/api/security/audit-logs", isAuthenticated, requireRole(["admin", "super_admin"]), dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+  app.get("/api/security/audit-logs", isAuthenticated, requirePerm("admin:manage"), dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       console.log(`Audit logs endpoint - Database environment: ${req.dbEnv}`);
       const dynamicDB = getRequestDB(req);
@@ -4673,7 +4673,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Security Events API
-  app.get("/api/security/events", isAuthenticated, requireRole(["admin", "super_admin"]), dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+  app.get("/api/security/events", isAuthenticated, requirePerm("admin:manage"), dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       console.log(`Security events endpoint - Database environment: ${req.dbEnv}`);
       const dynamicDB = getRequestDB(req);
@@ -4693,7 +4693,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Audit Metrics API
-  app.get("/api/security/audit-metrics", isAuthenticated, requireRole(["admin", "super_admin"]), dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+  app.get("/api/security/audit-metrics", isAuthenticated, requirePerm("admin:manage"), dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       console.log(`Audit metrics endpoint - Database environment: ${req.dbEnv}`);
       const dynamicDB = getRequestDB(req);
@@ -4736,7 +4736,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Audit Log Export API
-  app.get("/api/security/audit-logs/export", isAuthenticated, requireRole(["admin", "super_admin"]), adminDbMiddleware, async (req: RequestWithDB, res) => {
+  app.get("/api/security/audit-logs/export", isAuthenticated, requirePerm("admin:manage"), adminDbMiddleware, async (req: RequestWithDB, res) => {
     try {
       const db = getRequestDB(req);
       const { auditLogs } = await import("@shared/schema");
@@ -4816,7 +4816,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/security/metrics", isAuthenticated, requireRole(["admin", "super_admin"]), dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+  app.get("/api/security/metrics", isAuthenticated, requirePerm("admin:manage"), dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       console.log(`Security metrics endpoint - Database environment: ${req.dbEnv}`);
       const dynamicDB = getRequestDB(req);
@@ -4874,7 +4874,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // PDF Form Upload and Processing Routes (admin only)
-  app.post("/api/pdf-forms/upload", isAuthenticated, requireRole(['admin', 'super_admin']), upload.single('pdf'), async (req: any, res) => {
+  app.post("/api/pdf-forms/upload", isAuthenticated, requirePerm('admin:manage'), upload.single('pdf'), async (req: any, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ message: "No PDF file uploaded" });
@@ -4919,7 +4919,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get all PDF forms (admin only)
-  app.get("/api/pdf-forms", isAuthenticated, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+  app.get("/api/pdf-forms", isAuthenticated, requirePerm('admin:manage'), async (req: any, res) => {
     try {
       const forms = await storage.getAllPdfForms();
       res.json(forms);
@@ -4930,7 +4930,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get specific PDF form with fields (admin only)
-  app.get("/api/pdf-forms/:id", isAuthenticated, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+  app.get("/api/pdf-forms/:id", isAuthenticated, requirePerm('admin:manage'), async (req: any, res) => {
     try {
       const formId = parseInt(req.params.id);
       const form = await storage.getPdfFormWithFields(formId);
@@ -4964,7 +4964,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update PDF form metadata (admin only)
-  app.patch("/api/pdf-forms/:id", isAuthenticated, requireRole(['admin', 'super_admin']), async (req: any, res) => {
+  app.patch("/api/pdf-forms/:id", isAuthenticated, requirePerm('admin:manage'), async (req: any, res) => {
     try {
       const formId = parseInt(req.params.id);
       const { name, description, showInNavigation, navigationTitle, allowedRoles } = req.body;
@@ -5187,7 +5187,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Campaign Management API endpoints
 
   // Fee Groups endpoints
-  app.get('/api/fee-groups', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get('/api/fee-groups', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       console.log(`Fetching fee groups - Database environment: ${req.dbEnv}`);
       // Use the dynamic database connection instead of the default storage
@@ -5233,7 +5233,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/fee-groups/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get('/api/fee-groups/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       console.log(`Fetching fee group ${req.params.id} - Database environment: ${req.dbEnv}`);
       const id = parseInt(req.params.id);
@@ -5280,7 +5280,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/fee-groups', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post('/api/fee-groups', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { name, description, displayOrder } = req.body;
       
@@ -5321,7 +5321,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update fee group
-  app.put('/api/fee-groups/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.put('/api/fee-groups/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const id = parseInt(req.params.id);
       const { name, description, displayOrder } = req.body;
@@ -5371,7 +5371,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete fee group - with validation to prevent deletion if fee items are associated
-  app.delete('/api/fee-groups/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.delete('/api/fee-groups/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const id = parseInt(req.params.id);
       console.log(`Deleting fee group ${id} - Database environment: ${req.dbEnv}`);
@@ -5424,7 +5424,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Fee Item Groups endpoints
-  app.get('/api/fee-item-groups', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get('/api/fee-item-groups', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const feeGroupId = req.query.feeGroupId;
       
@@ -5441,7 +5441,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/fee-item-groups/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get('/api/fee-item-groups/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const id = parseInt(req.params.id);
       const feeItemGroup = await storage.getFeeItemGroupWithItems(id);
@@ -5457,7 +5457,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/fee-item-groups', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post('/api/fee-item-groups', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { feeGroupId, name, description, displayOrder } = req.body;
       
@@ -5481,7 +5481,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/fee-item-groups/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.put('/api/fee-item-groups/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const id = parseInt(req.params.id);
       const { name, description, displayOrder } = req.body;
@@ -5504,7 +5504,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/fee-item-groups/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.delete('/api/fee-item-groups/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const id = parseInt(req.params.id);
       const success = await storage.deleteFeeItemGroup(id);
@@ -5523,7 +5523,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Campaign Management API endpoints
   
   // Campaigns
-  app.get('/api/campaigns', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin', 'corporate', 'agent']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/campaigns', dbEnvironmentMiddleware, requirePerm('agent:read'), async (req: RequestWithDB, res: Response) => {
     try {
       console.log(`Fetching campaigns - Database environment: ${req.dbEnv}`);
       
@@ -5568,7 +5568,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/campaigns', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.post('/api/campaigns', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const { feeValues, equipmentIds, templateId, ...campaignData } = req.body;
       const dbToUse = getRequestDB(req);
@@ -5622,7 +5622,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/campaigns/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/campaigns/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       const dbToUse = getRequestDB(req);
@@ -5847,7 +5847,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/campaigns/:id/deactivate', requireRole(['admin', 'super_admin']), async (req: Request, res: Response) => {
+  app.post('/api/campaigns/:id/deactivate', requirePerm('admin:manage'), async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       const campaign = await storage.deactivateCampaign(id);
@@ -5863,7 +5863,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/campaigns/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.put('/api/campaigns/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       const { feeValues, equipmentIds, pricingTypeIds, templateId, selectedEquipment, ...campaignData } = req.body;
@@ -5934,7 +5934,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Pricing Types
-  app.get('/api/pricing-types', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/pricing-types', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       console.log(`Fetching pricing types - Database environment: ${req.dbEnv}`);
       
@@ -5986,7 +5986,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/pricing-types/:id/fee-items', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/pricing-types/:id/fee-items', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       console.log(`Fetching fee items for pricing type ${req.params.id} - Database environment: ${req.dbEnv}`);
       
@@ -6043,7 +6043,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get fee items organized by fee group for a specific pricing type (for campaign creation)
-  app.get('/api/pricing-types/:id/fee-groups', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/pricing-types/:id/fee-groups', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       console.log(`Fetching fee items by fee group for pricing type ${req.params.id} - Database environment: ${req.dbEnv}`);
       
@@ -6108,7 +6108,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/pricing-types', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.post('/api/pricing-types', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       console.log(`Creating pricing type - Database environment: ${req.dbEnv}`);
       
@@ -6169,7 +6169,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/pricing-types/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.delete('/api/pricing-types/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       
@@ -6190,7 +6190,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/pricing-types/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.put('/api/pricing-types/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       
@@ -6291,7 +6291,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Duplicate fee groups endpoints removed - using the correct ones with dbEnvironmentMiddleware
 
   // Fee Items API endpoints
-  app.get('/api/fee-items', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/fee-items', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       console.log(`Fetching fee items - Database environment: ${req.dbEnv}`);
       
@@ -6313,7 +6313,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/fee-items', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.post('/api/fee-items', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       console.log(`Creating fee item - Database environment: ${req.dbEnv}`);
       
@@ -6345,7 +6345,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/fee-items/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.put('/api/fee-items/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       console.log(`Updating fee item ${id} - Database environment: ${req.dbEnv}`);
@@ -6390,7 +6390,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete fee item - with validation to prevent deletion if associated with fee groups
-  app.delete('/api/fee-items/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.delete('/api/fee-items/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       console.log(`Deleting fee item ${id} - Database environment: ${req.dbEnv}`);
@@ -6499,7 +6499,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Duplicate fee item POST endpoint removed - using the correct one with database isolation
 
   // Campaigns endpoints
-  app.get("/api/campaigns", requireRole(['admin', 'super_admin']), async (req: Request, res: Response) => {
+  app.get("/api/campaigns", requirePerm('admin:manage'), async (req: Request, res: Response) => {
     try {
       const campaigns = await storage.getAllCampaigns();
       res.json(campaigns);
@@ -6509,7 +6509,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/campaigns", requireRole(['admin', 'super_admin']), async (req: Request, res: Response) => {
+  app.post("/api/campaigns", requirePerm('admin:manage'), async (req: Request, res: Response) => {
     try {
       const { equipmentIds = [], feeValues = [], ...campaignData } = req.body;
       const campaign = await storage.createCampaign(campaignData, feeValues, equipmentIds);
@@ -6520,7 +6520,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/campaigns/:id/deactivate", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.post("/api/campaigns/:id/deactivate", requirePerm('admin:manage'), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       res.json({ success: true, message: "Campaign deactivated successfully" });
@@ -6530,7 +6530,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/campaigns/:id/equipment", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.get("/api/campaigns/:id/equipment", requirePerm('admin:manage'), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const equipment = await storage.getCampaignEquipment(id);
@@ -6563,7 +6563,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/equipment-items", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post("/api/equipment-items", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { insertEquipmentItemSchema } = await import("@shared/schema");
       const validated = insertEquipmentItemSchema.parse(req.body);
@@ -6575,7 +6575,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/equipment-items/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.put("/api/equipment-items/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { insertEquipmentItemSchema } = await import("@shared/schema");
       const id = parseInt(req.params.id);
@@ -6593,7 +6593,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/equipment-items/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.delete("/api/equipment-items/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const id = parseInt(req.params.id);
       const success = await storage.deleteEquipmentItem(id);
@@ -6614,7 +6614,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
 
   // Get all API keys
-  app.get("/api/admin/api-keys", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.get("/api/admin/api-keys", requirePerm('admin:manage'), async (req, res) => {
     try {
       const apiKeys = await storage.getAllApiKeys();
       // Don't send the secret in the response
@@ -6630,7 +6630,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create new API key
-  app.post("/api/admin/api-keys", requireRole(['admin', 'super_admin']), async (req: any, res) => {
+  app.post("/api/admin/api-keys", requirePerm('admin:manage'), async (req: any, res) => {
     try {
       const result = insertApiKeySchema.safeParse(req.body);
       if (!result.success) {
@@ -6673,7 +6673,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update API key
-  app.patch("/api/admin/api-keys/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.patch("/api/admin/api-keys/:id", requirePerm('admin:manage'), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const { name, organizationName, contactEmail, permissions, rateLimit, isActive, expiresAt } = req.body;
@@ -6704,7 +6704,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete API key
-  app.delete("/api/admin/api-keys/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.delete("/api/admin/api-keys/:id", requirePerm('admin:manage'), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const success = await storage.deleteApiKey(id);
@@ -6721,7 +6721,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get API usage statistics
-  app.get("/api/admin/api-keys/:id/usage", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.get("/api/admin/api-keys/:id/usage", requirePerm('admin:manage'), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const timeRange = req.query.timeRange as string || '24h';
@@ -6735,7 +6735,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get API request logs
-  app.get("/api/admin/api-logs", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.get("/api/admin/api-logs", requirePerm('admin:manage'), async (req, res) => {
     try {
       const apiKeyId = req.query.apiKeyId ? parseInt(req.query.apiKeyId as string) : undefined;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
@@ -6894,7 +6894,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
 
   // Get all email templates
-  app.get("/api/admin/email-templates", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.get("/api/admin/email-templates", requirePerm('admin:manage'), async (req, res) => {
     try {
       const templates = await storage.getAllEmailTemplates();
       res.json(templates);
@@ -6916,7 +6916,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get single email template
-  app.get("/api/admin/email-templates/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.get("/api/admin/email-templates/:id", requirePerm('admin:manage'), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const template = await storage.getEmailTemplate(id);
@@ -6933,7 +6933,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create email template
-  app.post("/api/admin/email-templates", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.post("/api/admin/email-templates", requirePerm('admin:manage'), async (req, res) => {
     try {
       const { insertEmailTemplateSchema } = await import("@shared/schema");
       const result = insertEmailTemplateSchema.safeParse(req.body);
@@ -6957,7 +6957,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update email template
-  app.put("/api/admin/email-templates/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.put("/api/admin/email-templates/:id", requirePerm('admin:manage'), async (req, res) => {
     try {
       const { insertEmailTemplateSchema } = await import("@shared/schema");
       const id = parseInt(req.params.id);
@@ -6984,7 +6984,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete email template
-  app.delete("/api/admin/email-templates/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.delete("/api/admin/email-templates/:id", requirePerm('admin:manage'), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const success = await storage.deleteEmailTemplate(id);
@@ -7001,7 +7001,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get all email triggers
-  app.get("/api/admin/email-triggers", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.get("/api/admin/email-triggers", requirePerm('admin:manage'), async (req, res) => {
     try {
       const triggers = await storage.getAllEmailTriggers();
       res.json(triggers);
@@ -7012,7 +7012,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create email trigger
-  app.post("/api/admin/email-triggers", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.post("/api/admin/email-triggers", requirePerm('admin:manage'), async (req, res) => {
     try {
       const { insertEmailTriggerSchema } = await import("@shared/schema");
       const result = insertEmailTriggerSchema.safeParse(req.body);
@@ -7033,7 +7033,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update email trigger
-  app.put("/api/admin/email-triggers/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.put("/api/admin/email-triggers/:id", requirePerm('admin:manage'), async (req, res) => {
     try {
       const { insertEmailTriggerSchema } = await import("@shared/schema");
       const id = parseInt(req.params.id);
@@ -7060,7 +7060,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete email trigger
-  app.delete("/api/admin/email-triggers/:id", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.delete("/api/admin/email-triggers/:id", requirePerm('admin:manage'), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const success = await storage.deleteEmailTrigger(id);
@@ -7077,7 +7077,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get email activity
-  app.get("/api/admin/email-activity", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.get("/api/admin/email-activity", requirePerm('admin:manage'), async (req, res) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
       const filters: any = {};
@@ -7113,7 +7113,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get email activity statistics
-  app.get("/api/admin/email-stats", requireRole(['admin', 'super_admin']), async (req, res) => {
+  app.get("/api/admin/email-stats", requirePerm('admin:manage'), async (req, res) => {
     try {
       const stats = await storage.getEmailActivityStats();
       res.json(stats);
@@ -7153,7 +7153,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
 
   // List all workflow definitions (raw SQL to match actual DB schema)
-  app.get("/api/admin/workflows", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/workflows", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7176,7 +7176,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get a single workflow definition with endpoints and environment configs
-  app.get("/api/admin/workflows/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/workflows/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const id = parseInt(req.params.id);
       const { sql: sqlTag } = await import("drizzle-orm");
@@ -7200,7 +7200,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create a workflow definition
-  app.post("/api/admin/workflows", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post("/api/admin/workflows", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7230,7 +7230,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update a workflow definition
-  app.put("/api/admin/workflows/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.put("/api/admin/workflows/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7263,7 +7263,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete a workflow definition
-  app.delete("/api/admin/workflows/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.delete("/api/admin/workflows/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7280,7 +7280,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Toggle workflow active/inactive
-  app.patch("/api/admin/workflows/:id/toggle", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.patch("/api/admin/workflows/:id/toggle", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7299,7 +7299,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Workflow endpoints CRUD (raw SQL — actual schema: id,workflow_id,name,url,method,headers,auth_type,auth_config,is_active)
-  app.get("/api/admin/workflows/:id/endpoints", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/workflows/:id/endpoints", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7313,7 +7313,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/workflows/:id/endpoints", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post("/api/admin/workflows/:id/endpoints", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7336,7 +7336,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/admin/workflows/:id/endpoints/:epId", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.put("/api/admin/workflows/:id/endpoints/:epId", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7364,7 +7364,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/workflows/:id/endpoints/:epId", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.delete("/api/admin/workflows/:id/endpoints/:epId", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7380,7 +7380,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Workflow environment configs (raw SQL — actual schema: id,workflow_id,environment,config jsonb,is_active)
-  app.get("/api/admin/workflows/:id/env-configs", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/workflows/:id/env-configs", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7394,7 +7394,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/admin/workflows/:id/env-configs/:env", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.put("/api/admin/workflows/:id/env-configs/:env", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7429,7 +7429,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/workflows/:id/env-configs/:env", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.delete("/api/admin/workflows/:id/env-configs/:env", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7443,7 +7443,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ─── Workflow Stages ─────────────────────────────────────────────────────
-  app.get("/api/admin/workflows/:id/stages", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/workflows/:id/stages", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7469,7 +7469,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get stage API config
-  app.get("/api/admin/workflows/:id/stages/:stageId/api-config", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/workflows/:id/stages/:stageId/api-config", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7489,7 +7489,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Upsert stage API config (link endpoint to stage)
-  app.put("/api/admin/workflows/:id/stages/:stageId/api-config", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.put("/api/admin/workflows/:id/stages/:stageId/api-config", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7557,7 +7557,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete stage API config
-  app.delete("/api/admin/workflows/:id/stages/:stageId/api-config", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.delete("/api/admin/workflows/:id/stages/:stageId/api-config", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7569,7 +7569,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create a stage
-  app.post("/api/admin/workflows/:id/stages", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post("/api/admin/workflows/:id/stages", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7605,7 +7605,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update a stage
-  app.put("/api/admin/workflows/:id/stages/:stageId", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.put("/api/admin/workflows/:id/stages/:stageId", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7642,7 +7642,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete a stage
-  app.delete("/api/admin/workflows/:id/stages/:stageId", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.delete("/api/admin/workflows/:id/stages/:stageId", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7660,7 +7660,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ─── Workflow Tickets ─────────────────────────────────────────────────────
-  app.get("/api/admin/workflow-tickets", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/workflow-tickets", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7686,7 +7686,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/workflow-tickets/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/workflow-tickets/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7740,7 +7740,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Stage action: approve / reject / unblock
-  app.patch("/api/admin/workflow-tickets/:ticketId/stages/:ticketStageId", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.patch("/api/admin/workflow-tickets/:ticketId/stages/:ticketStageId", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7851,7 +7851,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get staff users for workflow assignment
-  app.get("/api/admin/workflow-users", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/workflow-users", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7868,7 +7868,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Assign / unassign a ticket
-  app.patch("/api/admin/workflow-tickets/:id/assign", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.patch("/api/admin/workflow-tickets/:id/assign", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7916,7 +7916,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ─── Application Templates (Acquirers + Templates) ───────────────────────
-  app.get("/api/admin/acquirers", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/acquirers", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7928,7 +7928,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/acquirers/:id/templates", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/acquirers/:id/templates", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7947,7 +7947,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/application-templates", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/application-templates", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7965,7 +7965,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/application-templates/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/application-templates/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -7984,7 +7984,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/admin/application-templates/:id/toggle", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.patch("/api/admin/application-templates/:id/toggle", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -8003,7 +8003,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Acquirer Management API endpoints
   // ============================================================
 
-  app.get('/api/acquirers', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/acquirers', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
@@ -8016,7 +8016,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/acquirers', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.post('/api/acquirers', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
@@ -8031,7 +8031,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/acquirers/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/acquirers/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const acquirerId = parseInt(req.params.id);
       const dbToUse = req.dynamicDB;
@@ -8051,7 +8051,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/acquirers/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.put('/api/acquirers/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const acquirerId = parseInt(req.params.id);
       const dbToUse = req.dynamicDB;
@@ -8073,7 +8073,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Application counts endpoint (must be before /:id route)
-  app.get('/api/acquirer-application-templates/application-counts', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/acquirer-application-templates/application-counts', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
@@ -8095,7 +8095,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/acquirer-application-templates', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/acquirer-application-templates', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
@@ -8138,7 +8138,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // PDF upload for template parsing
-  app.post('/api/acquirer-application-templates/upload', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), upload.single('pdf'), async (req: RequestWithDB, res: Response) => {
+  app.post('/api/acquirer-application-templates/upload', dbEnvironmentMiddleware, requirePerm('admin:manage'), upload.single('pdf'), async (req: RequestWithDB, res: Response) => {
     try {
       if (!req.file) return res.status(400).json({ error: 'No PDF file uploaded' });
       const dbToUse = req.dynamicDB;
@@ -8205,7 +8205,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/acquirer-application-templates/:id/parse-diagnostics', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/acquirer-application-templates/:id/parse-diagnostics', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const templateId = parseInt(req.params.id);
       const dbToUse = req.dynamicDB;
@@ -8256,7 +8256,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/acquirer-application-templates/:id/field-mapping', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/acquirer-application-templates/:id/field-mapping', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const templateId = parseInt(req.params.id);
       const dbToUse = req.dynamicDB;
@@ -8308,7 +8308,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/acquirer-application-templates/:id/field-mapping', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.put('/api/acquirer-application-templates/:id/field-mapping', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const templateId = parseInt(req.params.id);
       const dbToUse = req.dynamicDB;
@@ -8372,7 +8372,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/acquirer-application-templates', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.post('/api/acquirer-application-templates', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
@@ -8387,7 +8387,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/acquirer-application-templates/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/acquirer-application-templates/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const templateId = parseInt(req.params.id);
       const dbToUse = req.dynamicDB;
@@ -8491,7 +8491,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/acquirer-application-templates/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.put('/api/acquirer-application-templates/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const templateId = parseInt(req.params.id);
       const dbToUse = req.dynamicDB;
@@ -8510,7 +8510,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/acquirer-application-templates/:id/upload-pdf', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), upload.single('pdf'), async (req: RequestWithDB, res: Response) => {
+  app.post('/api/acquirer-application-templates/:id/upload-pdf', dbEnvironmentMiddleware, requirePerm('admin:manage'), upload.single('pdf'), async (req: RequestWithDB, res: Response) => {
     try {
       if (!req.file) return res.status(400).json({ error: 'No PDF file uploaded' });
       const templateId = parseInt(req.params.id);
@@ -8547,7 +8547,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/acquirer-application-templates/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.delete('/api/acquirer-application-templates/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const templateId = parseInt(req.params.id);
       const dbToUse = req.dynamicDB;
@@ -8603,7 +8603,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // MCC Codes API
   // ============================================================
 
-  app.get('/api/mcc-codes/categories', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/mcc-codes/categories', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
@@ -8618,7 +8618,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/mcc-codes', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/mcc-codes', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
@@ -8640,7 +8640,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/mcc-codes/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/mcc-codes/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
@@ -8654,7 +8654,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/mcc-codes', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.post('/api/mcc-codes', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
@@ -8669,7 +8669,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/mcc-codes/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.patch('/api/mcc-codes/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
@@ -8686,7 +8686,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/mcc-codes/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.delete('/api/mcc-codes/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
@@ -8722,7 +8722,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // MCC Policies API
   // ============================================================
 
-  app.get('/api/mcc-policies', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/mcc-policies', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
@@ -8752,7 +8752,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/mcc-policies', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.post('/api/mcc-policies', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
@@ -8768,7 +8768,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/mcc-policies/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.patch('/api/mcc-policies/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
@@ -8785,7 +8785,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/mcc-policies/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res: Response) => {
+  app.delete('/api/mcc-policies/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
@@ -8802,7 +8802,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Disclosure Library API
   // ============================================================
 
-  app.get('/api/disclosures', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res: Response) => {
+  app.get('/api/disclosures', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: any, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
@@ -8821,7 +8821,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/disclosures/:id/signature-report', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res: Response) => {
+  app.get('/api/disclosures/:id/signature-report', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: any, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
@@ -8834,7 +8834,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/disclosures/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res: Response) => {
+  app.get('/api/disclosures/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: any, res: Response) => {
     try {
       let dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
@@ -8880,7 +8880,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/disclosures', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res: Response) => {
+  app.post('/api/disclosures', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: any, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
@@ -8900,7 +8900,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/disclosures/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res: Response) => {
+  app.patch('/api/disclosures/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: any, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
@@ -8917,7 +8917,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/disclosures/:id', dbEnvironmentMiddleware, requireRole(['super_admin']), async (req: any, res: Response) => {
+  app.delete('/api/disclosures/:id', dbEnvironmentMiddleware, requirePerm('system:superadmin'), async (req: any, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
@@ -8930,7 +8930,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/disclosures/:definitionId/versions', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res: Response) => {
+  app.post('/api/disclosures/:definitionId/versions', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: any, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
@@ -8956,7 +8956,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/disclosure-versions/:id', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res: Response) => {
+  app.patch('/api/disclosure-versions/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: any, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
@@ -8973,7 +8973,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/disclosure-versions/:id/copy', dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: any, res: Response) => {
+  app.post('/api/disclosure-versions/:id/copy', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: any, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
@@ -9001,7 +9001,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ─── Action Templates & Trigger System ──────────────────────────────────────
 
   // GET /api/action-templates — list all templates
-  app.get("/api/action-templates", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/action-templates", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const db = req.db!;
       const templates = await db.select().from(actionTemplates).orderBy(actionTemplates.name);
@@ -9012,7 +9012,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/action-templates/usage — template usage stats
-  app.get("/api/action-templates/usage", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/action-templates/usage", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const db = req.db!;
       const templates = await db.select().from(actionTemplates);
@@ -9041,7 +9041,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/action-templates — create template
-  app.post("/api/action-templates", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post("/api/action-templates", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const db = req.db!;
       const [template] = await db.insert(actionTemplates).values(req.body).returning();
@@ -9052,7 +9052,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // PATCH /api/action-templates/:id — update template
-  app.patch("/api/action-templates/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.patch("/api/action-templates/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const db = req.db!;
       const [template] = await db.update(actionTemplates).set({ ...req.body, updatedAt: new Date() }).where(eq(actionTemplates.id, parseInt(req.params.id))).returning();
@@ -9064,7 +9064,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // DELETE /api/action-templates/:id — delete template
-  app.delete("/api/action-templates/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.delete("/api/action-templates/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const db = req.db!;
       await db.delete(actionTemplates).where(eq(actionTemplates.id, parseInt(req.params.id)));
@@ -9075,7 +9075,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/action-templates/:id/test — test send a template
-  app.post("/api/action-templates/:id/test", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post("/api/action-templates/:id/test", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { mode, config: inlineConfig, recipientEmail } = req.body;
 
@@ -9161,7 +9161,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/admin/available-secrets — return env var names available for use as {{$SECRET_NAME}} references
-  app.get("/api/admin/available-secrets", requireRole(['admin', 'super_admin']), (req, res) => {
+  app.get("/api/admin/available-secrets", requirePerm('admin:manage'), (req, res) => {
     // System / infrastructure vars to never expose even by name
     const systemExclusions = new Set([
       'NODE_ENV', 'PATH', 'HOME', 'USER', 'SHELL', 'TERM', 'LANG', 'PWD', 'OLDPWD',
@@ -9272,7 +9272,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/admin/trigger-catalog — list all triggers
-  app.get("/api/admin/trigger-catalog", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/trigger-catalog", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const db = req.db!;
       const triggers = await db.select().from(triggerCatalog).orderBy(triggerCatalog.name);
@@ -9283,7 +9283,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/admin/trigger-catalog — create trigger
-  app.post("/api/admin/trigger-catalog", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post("/api/admin/trigger-catalog", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const db = req.db!;
       const [trigger] = await db.insert(triggerCatalog).values(req.body).returning();
@@ -9294,7 +9294,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // PUT /api/admin/trigger-catalog/:id — update trigger
-  app.put("/api/admin/trigger-catalog/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.put("/api/admin/trigger-catalog/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const db = req.db!;
       const [trigger] = await db.update(triggerCatalog).set({ ...req.body, updatedAt: new Date() }).where(eq(triggerCatalog.id, parseInt(req.params.id))).returning();
@@ -9306,7 +9306,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/admin/trigger-catalog/:id/actions — get actions for a trigger
-  app.get("/api/admin/trigger-catalog/:id/actions", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/trigger-catalog/:id/actions", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const db = req.db!;
       const actions = await db.select({
@@ -9334,7 +9334,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/admin/trigger-actions — add action to trigger
-  app.post("/api/admin/trigger-actions", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post("/api/admin/trigger-actions", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const db = req.db!;
       const [action] = await db.insert(triggerActions).values(req.body).returning();
@@ -9345,7 +9345,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // PUT /api/admin/trigger-actions/:id — update trigger action
-  app.put("/api/admin/trigger-actions/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.put("/api/admin/trigger-actions/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const db = req.db!;
       const [action] = await db.update(triggerActions).set({ ...req.body, updatedAt: new Date() }).where(eq(triggerActions.id, parseInt(req.params.id))).returning();
@@ -9357,7 +9357,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/admin/action-activity/stats — activity statistics
-  app.get("/api/admin/action-activity/stats", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/action-activity/stats", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const db = req.db!;
       const activity = await db.select().from(actionActivity);
@@ -9377,7 +9377,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/admin/action-activity/recent — recent activity
-  app.get("/api/admin/action-activity/recent", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/action-activity/recent", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const db = req.db!;
       const { and, desc } = await import("drizzle-orm");
@@ -9389,7 +9389,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ─── Role Definitions CRUD ────────────────────────────────────────────────
-  app.get("/api/admin/role-definitions", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.get("/api/admin/role-definitions", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -9409,7 +9409,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/role-definitions", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.post("/api/admin/role-definitions", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -9430,7 +9430,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/admin/role-definitions/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.put("/api/admin/role-definitions/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -9452,7 +9452,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/role-definitions/:id", dbEnvironmentMiddleware, requireRole(['admin', 'super_admin']), async (req: RequestWithDB, res) => {
+  app.delete("/api/admin/role-definitions/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);

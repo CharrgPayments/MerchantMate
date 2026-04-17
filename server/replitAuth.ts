@@ -383,6 +383,80 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
   };
 };
 
+// Permission-based access control driven by the central registry in shared/permissions.ts.
+// Resolves the action -> allowed role list via getAllowedRolesForAction() and then runs
+// the same auth/session/dev-fallback flow as requireRole, but checks ALL of the user's
+// roles[] (not just role[0]) so multi-role users get the union of access.
+import { getAllowedRolesForAction, ROLE_CODES } from "@shared/permissions";
+
+function userHasAllowedRole(dbUser: any, allowedRoles: string[]): boolean {
+  if (!dbUser) return false;
+  const roles: string[] = Array.isArray(dbUser.roles) && dbUser.roles.length > 0
+    ? dbUser.roles
+    : (dbUser.role ? [dbUser.role] : []);
+  if (roles.includes(ROLE_CODES.SUPER_ADMIN)) return true;
+  return roles.some((r) => allowedRoles.includes(r));
+}
+
+export const requirePerm = (action: string): RequestHandler => {
+  return async (req, res, next) => {
+    const allowedRoles = getAllowedRolesForAction(action);
+
+    const finishWith = async (userId: string): Promise<void> => {
+      try {
+        const dbUser = await storage.getUser(userId);
+        if (!dbUser) {
+          res.status(401).json({ message: "User not found" });
+          return;
+        }
+        if (dbUser.status !== 'active') {
+          res.status(403).json({ message: "Account suspended" });
+          return;
+        }
+        if (!userHasAllowedRole(dbUser, allowedRoles)) {
+          res.status(403).json({ message: `Permission '${action}' required` });
+          return;
+        }
+        (req as any).currentUser = dbUser;
+        req.user = {
+          id: userId,
+          email: dbUser.email,
+          claims: { sub: userId },
+        } as any;
+        next();
+      } catch (error) {
+        console.error(`Error checking permission '${action}':`, error);
+        res.status(500).json({ message: "Internal server error" });
+      }
+    };
+
+    const sessionUserId = (req.session as any)?.userId;
+    if (sessionUserId) {
+      await finishWith(sessionUserId);
+      return;
+    }
+
+    if (process.env.NODE_ENV === 'development') {
+      const userId = 'admin-prod-001';
+      (req.session as any).userId = userId;
+      (req.session as any).sessionId = uuidv4();
+      await finishWith(userId);
+      return;
+    }
+
+    if (!req.isAuthenticated()) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+    const passportUser = req.user as any;
+    if (!passportUser?.claims?.sub) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+    await finishWith(passportUser.claims.sub);
+  };
+};
+
 // Permission-based access control
 export const requirePermission = (permission: string): RequestHandler => {
   return async (req, res, next) => {

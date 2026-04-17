@@ -7,13 +7,17 @@ import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
+const ALL_INTERNAL = ['agent', 'admin', 'corporate', 'super_admin', 'underwriter', 'senior_underwriter', 'data_processing', 'deployment'];
+const ADMIN_TIER = ['admin', 'corporate', 'super_admin'];
+const UNDERWRITING_TIER = ['admin', 'corporate', 'super_admin', 'underwriter', 'senior_underwriter'];
+
 const baseNavigation = [
-  { name: "Dashboard", href: "/", icon: BarChart3, requiresRole: ['merchant', 'agent', 'admin', 'corporate', 'super_admin'] },
+  { name: "Dashboard", href: "/", icon: BarChart3, requiresRole: ['merchant', ...ALL_INTERNAL] },
   { name: "Agent Dashboard", href: "/agent-dashboard", icon: CreditCard, requiresRole: ['agent'] },
-  { name: "Merchants", href: "/merchants", icon: Store, requiresRole: ['agent', 'admin', 'corporate', 'super_admin'] },
-  { name: "Locations", href: "/locations", icon: MapPin, requiresRole: ['merchant'] },
-  { name: "Agents", href: "/agents", icon: Users, requiresRole: ['admin', 'corporate', 'super_admin'] },
-  { name: "Prospects", href: "/prospects", icon: UserPlus, requiresRole: ['admin', 'corporate', 'super_admin'] },
+  { name: "Merchants", href: "/merchants", icon: Store, requiresRole: ALL_INTERNAL },
+  { name: "Locations", href: "/locations", icon: MapPin, requiresRole: ['merchant', 'deployment'] },
+  { name: "Agents", href: "/agents", icon: Users, requiresRole: [...ADMIN_TIER, 'underwriter', 'senior_underwriter'] },
+  { name: "Prospects", href: "/prospects", icon: UserPlus, requiresRole: UNDERWRITING_TIER },
   {
     name: "Campaigns",
     href: "/campaigns",
@@ -36,10 +40,10 @@ const baseNavigation = [
       { name: "MCC Policies", href: "/mcc-policies", icon: Shield, requiresRole: ['admin', 'super_admin'] },
     ]
   },
-  { name: "Transactions", href: "/transactions", icon: Receipt, requiresRole: ['merchant', 'agent', 'admin', 'corporate', 'super_admin'] },
+  { name: "Transactions", href: "/transactions", icon: Receipt, requiresRole: ['merchant', 'agent', 'admin', 'corporate', 'super_admin', 'data_processing'] },
   { name: "PDF Forms", href: "/pdf-forms", icon: Upload, requiresRole: ['admin', 'super_admin'] },
   { name: "Users", href: "/users", icon: User, requiresRole: ['admin', 'corporate', 'super_admin'] },
-  { name: "Reports", href: "/reports", icon: FileText, requiresRole: ['admin', 'corporate', 'super_admin'] },
+  { name: "Reports", href: "/reports", icon: FileText, requiresRole: [...ADMIN_TIER, 'underwriter', 'senior_underwriter', 'data_processing', 'deployment'] },
   { name: "Security", href: "/security", icon: Shield, requiresRole: ['admin', 'super_admin'] },
   { name: "Communications", href: "/communications", icon: Mail, requiresRole: ['admin', 'super_admin'] },
   { name: "Workflows", href: "/workflows", icon: Zap, requiresRole: ['admin', 'super_admin'] },

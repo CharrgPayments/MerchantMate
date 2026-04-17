@@ -285,6 +285,22 @@ export type MerchantWithLocations = Merchant & {
   agent?: Agent;
 };
 
+// Role definitions (managed centrally; system roles cannot be modified/deleted)
+export const roleDefinitions = pgTable("role_definitions", {
+  id: serial("id").primaryKey(),
+  code: varchar("code", { length: 50 }).notNull().unique(),
+  label: varchar("label", { length: 100 }).notNull(),
+  description: text("description"),
+  color: varchar("color", { length: 50 }).default("secondary"),
+  isSystem: boolean("is_system").default(false),
+  permissions: text("permissions").array().default(sql`ARRAY[]::text[]`),
+  capabilities: text("capabilities").array().default(sql`ARRAY[]::text[]`),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type RoleDefinition = typeof roleDefinitions.$inferSelect;
+export type InsertRoleDefinition = typeof roleDefinitions.$inferInsert;
+
 // User management tables
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().notNull(),
