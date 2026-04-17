@@ -3,11 +3,13 @@ import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   agents,
+  agentHierarchy,
   agentOverrides,
   commissionEvents,
   commissionSettings,
   COMMISSION_EVENT_STATUSES,
   COMMISSION_SETTING_KEYS,
+  merchants,
   payouts,
   PAYOUT_METHODS,
   insertAgentOverrideSchema,
@@ -21,6 +23,7 @@ import {
   calculateCommissionsForTransaction,
   createPayoutForAgent,
   getCommissionConfig,
+  markEventsPaid,
   markPayoutPaid,
   recalcAll,
   setSetting,
@@ -144,6 +147,21 @@ export function registerCommissionsRoutes(app: Express) {
         if (parsed.data.parentAgentId === parsed.data.childAgentId) {
           return res.status(400).json({ message: "Parent and child must differ" });
         }
+        // Enforce that (parent, child) is a real edge in the agent hierarchy
+        // (direct parent/child link, depth=1). Overrides on non-edges are
+        // meaningless because the engine walks the upline edge-by-edge.
+        const [edge] = await req.db!.select({ depth: agentHierarchy.depth })
+          .from(agentHierarchy)
+          .where(and(
+            eq(agentHierarchy.ancestorId, parsed.data.parentAgentId),
+            eq(agentHierarchy.descendantId, parsed.data.childAgentId),
+            eq(agentHierarchy.depth, 1),
+          ));
+        if (!edge) {
+          return res.status(400).json({
+            message: "Override must be set on a direct parent→child hierarchy edge.",
+          });
+        }
         // Upsert by (parent, child)
         const existing = await req.db!.select({ id: agentOverrides.id }).from(agentOverrides)
           .where(and(
@@ -226,11 +244,138 @@ export function registerCommissionsRoutes(app: Express) {
     async (req: RequestWithDB, res: Response) => {
       try {
         const txId = Number(req.params.transactionId);
-        const events = await calculateCommissionsForTransaction(req.db!, txId);
+        // Explicit operator action → force=true so paid rows are preserved
+        // but pending/payable rows are recomputed for this single tx.
+        const force = req.body?.force === true || req.body?.force === "true";
+        const events = await calculateCommissionsForTransaction(req.db!, txId, { force });
         res.json({ transactionId: txId, eventCount: events.length, events });
       } catch (err: any) {
         console.error("[commissions] recalc failed", err);
         res.status(500).json({ message: "Recalculation failed" });
+      }
+    });
+
+  // Bulk mark commission events as paid (without creating a payout batch).
+  app.post("/api/commissions/events/mark-paid",
+    isAuthenticated, dbEnvironmentMiddleware, requirePerm(ACTIONS.PAYOUTS_MANAGE),
+    async (req: RequestWithDB, res: Response) => {
+      try {
+        const schema = z.object({
+          eventIds: z.array(z.coerce.number().int().positive()).min(1),
+          reference: z.string().optional().nullable(),
+        });
+        const parsed = schema.safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ errors: parsed.error.errors });
+
+        // Scope check: every event's beneficiary must be in the caller's allowed set.
+        const allowed = await resolveScopedAgentIds(req);
+        const rows = await req.db!.select({
+          id: commissionEvents.id,
+          beneficiaryAgentId: commissionEvents.beneficiaryAgentId,
+        }).from(commissionEvents).where(inArray(commissionEvents.id, parsed.data.eventIds));
+        const denied = rows.filter((r) => !allowed.includes(r.beneficiaryAgentId));
+        if (denied.length > 0) return res.status(403).json({ message: "Forbidden" });
+
+        const updated = await markEventsPaid(
+          req.db!, rows.map((r) => r.id), parsed.data.reference ?? null);
+        res.json({ updated });
+      } catch (err: any) {
+        console.error("[commissions] events mark-paid failed", err);
+        res.status(500).json({ message: err?.message || "Mark paid failed" });
+      }
+    });
+
+  // Agent dashboard widget: current-month earnings, pending payout, downline split.
+  app.get("/api/commissions/dashboard-summary",
+    isAuthenticated, dbEnvironmentMiddleware, requirePerm(ACTIONS.COMMISSIONS_VIEW),
+    async (req: RequestWithDB, res: Response) => {
+      try {
+        const user = req.currentUser as any;
+        const [selfAgent] = await req.db!.select({ id: agents.id })
+          .from(agents).where(eq(agents.userId, user?.id));
+
+        // Determine which agent's dashboard we're showing.
+        // If non-agent admin without selfAgent and no explicit ?agentId, fall back
+        // to the org-wide totals (sum across all scoped agents).
+        const explicit = req.query.agentId ? Number(req.query.agentId) : undefined;
+        const allowed = await resolveScopedAgentIds(req, explicit);
+        const focusAgentId = explicit ?? selfAgent?.id;
+
+        const now = new Date();
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        const baseConds = (status?: string, since?: Date) => {
+          const c: any[] = [inArray(commissionEvents.beneficiaryAgentId, allowed.length ? allowed : [-1])];
+          if (status) c.push(eq(commissionEvents.status, status));
+          if (since) c.push(gte(commissionEvents.createdAt, since));
+          return and(...c);
+        };
+
+        const sumRow = async (where: any): Promise<number> => {
+          const [row] = await req.db!.select({
+            v: sql<string>`COALESCE(SUM(${commissionEvents.amount}), 0)`,
+          }).from(commissionEvents).where(where);
+          return Number(row?.v ?? 0);
+        };
+
+        const [currentMonthTotal, pendingTotal, payableTotal, paidThisMonth] = await Promise.all([
+          sumRow(baseConds(undefined, monthStart)),
+          sumRow(baseConds("pending")),
+          sumRow(baseConds("payable")),
+          sumRow(and(baseConds("paid"), gte(commissionEvents.createdAt, monthStart))),
+        ]);
+
+        // Downline contribution: events where the current agent is beneficiary
+        // and depth > 0 (i.e. earnings sourced from sub-agents), this month.
+        let downlineContribution = 0;
+        let directContribution = 0;
+        if (focusAgentId) {
+          const [dl] = await req.db!.select({
+            v: sql<string>`COALESCE(SUM(${commissionEvents.amount}), 0)`,
+          }).from(commissionEvents).where(and(
+            eq(commissionEvents.beneficiaryAgentId, focusAgentId),
+            sql`${commissionEvents.depth} > 0`,
+            gte(commissionEvents.createdAt, monthStart),
+          ));
+          downlineContribution = Number(dl?.v ?? 0);
+          const [d0] = await req.db!.select({
+            v: sql<string>`COALESCE(SUM(${commissionEvents.amount}), 0)`,
+          }).from(commissionEvents).where(and(
+            eq(commissionEvents.beneficiaryAgentId, focusAgentId),
+            eq(commissionEvents.depth, 0),
+            gte(commissionEvents.createdAt, monthStart),
+          ));
+          directContribution = Number(d0?.v ?? 0);
+        }
+
+        // Pending payout = the most recent draft/processing payout for the focus agent.
+        let pendingPayout: any = null;
+        if (focusAgentId) {
+          const [p] = await req.db!.select().from(payouts)
+            .where(and(
+              eq(payouts.agentId, focusAgentId),
+              inArray(payouts.status, ["draft", "processing"]),
+            ))
+            .orderBy(desc(payouts.createdAt))
+            .limit(1);
+          pendingPayout = p ?? null;
+        }
+
+        res.json({
+          focusAgentId: focusAgentId ?? null,
+          currentMonth: {
+            total: currentMonthTotal,
+            paid: paidThisMonth,
+            directContribution,
+            downlineContribution,
+          },
+          pending: pendingTotal,
+          payable: payableTotal,
+          pendingPayout,
+        });
+      } catch (err: any) {
+        console.error("[commissions] dashboard-summary failed", err);
+        res.status(500).json({ message: "Failed to build summary" });
       }
     });
 

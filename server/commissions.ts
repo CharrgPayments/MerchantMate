@@ -73,26 +73,36 @@ function round2(n: number): string {
 }
 
 /**
- * Idempotent: deletes any non-paid commission_events for this transaction
- * then re-inserts the freshly computed slate. Paid/reversed rows are preserved.
+ * Compute commission events for a transaction.
+ *
+ * Historical immutability: by default, if any commission_events already exist
+ * for this transaction (in any status), this function is a no-op. This means
+ * editing override percentages or settings only affects FUTURE transactions.
+ *
+ * Pass `force: true` ONLY for an explicit operator-driven recompute on a
+ * single transaction (e.g. when fixing a misconfigured agent). Even with
+ * force, paid and reversed rows are preserved — only pending/payable rows are
+ * wiped and recomputed.
  */
 export async function calculateCommissionsForTransaction(
   db: Db,
   transactionId: number,
+  opts: { force?: boolean } = {},
 ): Promise<CommissionEvent[]> {
   const [tx] = await db.select().from(transactions).where(eq(transactions.id, transactionId));
   if (!tx) return [];
-  if (tx.status !== "completed") {
-    // Only completed transactions accrue commission. Wipe any stale pending rows.
-    await db.delete(commissionEvents)
-      .where(and(eq(commissionEvents.transactionId, transactionId),
-        inArray(commissionEvents.status, ["pending", "payable"])));
+  if (tx.status !== "completed") return [];
+
+  // Default path: skip if events already exist (immutability guarantee).
+  const existing = await db.select({ id: commissionEvents.id, status: commissionEvents.status })
+    .from(commissionEvents).where(eq(commissionEvents.transactionId, transactionId));
+  if (existing.length > 0 && !opts.force) {
     return [];
   }
 
   const [merchant] = await db.select({ id: merchants.id, agentId: merchants.agentId })
     .from(merchants).where(eq(merchants.id, tx.merchantId));
-  if (!merchant?.agentId) return []; // no agent assigned — nothing to do
+  if (!merchant?.agentId) return [];
 
   const directAgentId = merchant.agentId;
   const [directAgent] = await db.select({ id: agents.id, commissionRate: agents.commissionRate })
@@ -101,17 +111,14 @@ export async function calculateCommissionsForTransaction(
 
   const config = await getCommissionConfig(db);
   const basisAmount = Number(config.basis === "amount" ? tx.amount : (tx.processingFee ?? tx.amount));
-  if (!Number.isFinite(basisAmount) || basisAmount <= 0) {
+  if (!Number.isFinite(basisAmount) || basisAmount <= 0) return [];
+
+  // Forced recompute: wipe only non-final rows, preserve paid/reversed.
+  if (opts.force && existing.length > 0) {
     await db.delete(commissionEvents)
       .where(and(eq(commissionEvents.transactionId, transactionId),
         inArray(commissionEvents.status, ["pending", "payable"])));
-    return [];
   }
-
-  // Wipe non-final rows so re-runs are idempotent
-  await db.delete(commissionEvents)
-    .where(and(eq(commissionEvents.transactionId, transactionId),
-      inArray(commissionEvents.status, ["pending", "payable"])));
 
   const inserts: typeof commissionEvents.$inferInsert[] = [];
 
@@ -286,8 +293,12 @@ function emptyTotals() {
   return { total: 0, pending: 0, payable: 0, paid: 0, reversed: 0 };
 }
 
-/** Recalculate commissions for every completed transaction (admin tool). */
-export async function recalcAll(db: Db, opts?: { sinceDays?: number }): Promise<{ processed: number }> {
+/**
+ * Backfill commissions for completed transactions that have NO existing events.
+ * Never touches transactions that already have an event slate — this preserves
+ * historical immutability of past splits.
+ */
+export async function recalcAll(db: Db, opts?: { sinceDays?: number }): Promise<{ processed: number; skipped: number }> {
   const since = opts?.sinceDays
     ? new Date(Date.now() - opts.sinceDays * 86400_000)
     : null;
@@ -295,9 +306,25 @@ export async function recalcAll(db: Db, opts?: { sinceDays?: number }): Promise<
   if (since) conds.push(gte(transactions.createdAt, since));
   const txs = await db.select({ id: transactions.id }).from(transactions).where(and(...conds));
   let processed = 0;
+  let skipped = 0;
   for (const t of txs) {
-    await calculateCommissionsForTransaction(db, t.id);
-    processed += 1;
+    const result = await calculateCommissionsForTransaction(db, t.id);
+    if (result.length > 0) processed += 1;
+    else skipped += 1;
   }
-  return { processed };
+  return { processed, skipped };
+}
+
+/** Mark commission events as paid in bulk (no payout batch). */
+export async function markEventsPaid(db: Db, eventIds: number[], reference?: string | null): Promise<number> {
+  if (eventIds.length === 0) return 0;
+  // Only pending/payable rows can transition to paid — never re-flip paid/reversed.
+  const updated = await db.update(commissionEvents)
+    .set({ status: "paid", updatedAt: new Date(), notes: reference ?? undefined })
+    .where(and(
+      inArray(commissionEvents.id, eventIds),
+      inArray(commissionEvents.status, ["pending", "payable"]),
+    ))
+    .returning({ id: commissionEvents.id });
+  return updated.length;
 }

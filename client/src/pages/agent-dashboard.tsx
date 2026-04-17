@@ -15,7 +15,8 @@ import {
   TrendingUp,
   Calendar,
   Phone,
-  Mail
+  Mail,
+  DollarSign
 } from 'lucide-react';
 import { Link } from 'wouter';
 
@@ -214,6 +215,9 @@ export default function AgentDashboard() {
           </Link>
         </div>
       </div>
+
+      {/* Residuals (Commissions) widget */}
+      <ResidualsWidget />
 
       {/* Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
@@ -455,5 +459,80 @@ function ApplicationsList({ applications }: { applications: Application[] }) {
         </div>
       ))}
     </div>
+  );
+}
+function fmtUSD(v: number | string | null | undefined): string {
+  const n = typeof v === "number" ? v : parseFloat(String(v ?? 0));
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" })
+    .format(Number.isFinite(n) ? n : 0);
+}
+
+interface CommissionSummary {
+  focusAgentId: number | null;
+  currentMonth: { total: number; paid: number; directContribution: number; downlineContribution: number };
+  pending: number;
+  payable: number;
+  pendingPayout: { id: number; netAmount: string; status: string; periodStart: string; periodEnd: string } | null;
+}
+
+function ResidualsWidget() {
+  const { data, isLoading } = useQuery<CommissionSummary>({
+    queryKey: ["/api/commissions/dashboard-summary"],
+  });
+
+  const cm = data?.currentMonth;
+
+  return (
+    <Card data-testid="card-residuals-widget">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <div>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <DollarSign className="w-4 h-4" /> Residuals — current month
+          </CardTitle>
+          <CardDescription>Earnings, pending payout, and downline contribution.</CardDescription>
+        </div>
+        <Link href="/commissions">
+          <Button variant="outline" size="sm" data-testid="link-open-commissions">View statement</Button>
+        </Link>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <div className="text-xs text-gray-500 uppercase">Earned this month</div>
+            <div className="text-2xl font-bold" data-testid="text-residuals-this-month">
+              {isLoading ? "…" : fmtUSD(cm?.total)}
+            </div>
+            <div className="text-xs text-gray-500 mt-1">
+              Paid {fmtUSD(cm?.paid ?? 0)}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 uppercase">Pending payout</div>
+            <div className="text-2xl font-bold text-blue-700" data-testid="text-pending-payout">
+              {isLoading ? "…" : fmtUSD(data?.pendingPayout?.netAmount ?? data?.payable ?? 0)}
+            </div>
+            <div className="text-xs text-gray-500 mt-1">
+              {data?.pendingPayout
+                ? `Batch #${data.pendingPayout.id} (${data.pendingPayout.status})`
+                : `${fmtUSD(data?.pending ?? 0)} pending • ${fmtUSD(data?.payable ?? 0)} payable`}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 uppercase">From your sales</div>
+            <div className="text-2xl font-bold" data-testid="text-direct-contribution">
+              {isLoading ? "…" : fmtUSD(cm?.directContribution)}
+            </div>
+            <div className="text-xs text-gray-500 mt-1">Direct (depth 0) this month</div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 uppercase">From downline</div>
+            <div className="text-2xl font-bold text-green-700" data-testid="text-downline-contribution">
+              {isLoading ? "…" : fmtUSD(cm?.downlineContribution)}
+            </div>
+            <div className="text-xs text-gray-500 mt-1">Override income (depth ≥ 1)</div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
