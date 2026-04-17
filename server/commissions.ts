@@ -184,13 +184,17 @@ export async function createPayoutForAgent(db: Db, params: {
 }): Promise<Payout> {
   const { agentId, periodStart, periodEnd } = params;
 
-  // Only events already promoted to "payable" are eligible. Pending events
-  // must be explicitly approved (markEventsPayable) before they can be paid.
+  // Only events that are payable AND not already attached to another payout
+  // are eligible. Pending events must be explicitly promoted via
+  // markEventsPayable before they can be paid. Excluding rows with a
+  // non-null payout_id prevents one event from being reassigned across
+  // payouts and corrupting an existing payout's gross/net totals.
   const eligible = await db.select({ id: commissionEvents.id, amount: commissionEvents.amount })
     .from(commissionEvents)
     .where(and(
       eq(commissionEvents.beneficiaryAgentId, agentId),
       eq(commissionEvents.status, "payable"),
+      sql`${commissionEvents.payoutId} IS NULL`,
       gte(commissionEvents.createdAt, periodStart),
       lte(commissionEvents.createdAt, periodEnd),
     ));

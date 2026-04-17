@@ -1605,22 +1605,51 @@ export class DatabaseStorage implements IStorage {
       .insert(transactions)
       .values(insertTransaction)
       .returning();
-    // Auto-calc commission ledger entries (best-effort — never blocks a tx insert).
-    try {
-      const { calculateCommissionsForTransaction } = await import("./commissions");
-      await calculateCommissionsForTransaction(db, transaction.id);
-    } catch (err) {
-      console.warn("[commissions] auto-calc on createTransaction failed:", (err as Error).message);
+    // Auto-calc commission ledger entries for completed txs. We log loudly on
+    // failure so the issue is visible; the recalcAll backfill endpoint
+    // (POST /api/commissions/recalculate-all) safely retries any tx whose
+    // ledger rows are missing — that's the explicit retry mechanism.
+    if (transaction.status === "completed") {
+      try {
+        const { calculateCommissionsForTransaction } = await import("./commissions");
+        await calculateCommissionsForTransaction(db, transaction.id);
+      } catch (err) {
+        console.error(
+          `[commissions] AUTO-CALC FAILED for transaction ${transaction.id} ` +
+          `— retry via POST /api/commissions/recalculate-all`,
+          err,
+        );
+      }
     }
     return transaction;
   }
 
   async updateTransaction(id: number, updates: Partial<InsertTransaction>): Promise<Transaction | undefined> {
+    // Capture prior status so we can detect a transition into "completed".
+    const [prior] = await db.select({ status: transactions.status })
+      .from(transactions).where(eq(transactions.id, id));
+
     const [transaction] = await db
       .update(transactions)
       .set(updates)
       .where(eq(transactions.id, id))
       .returning();
+
+    // If the transaction just transitioned into "completed", trigger the
+    // commission engine. Idempotency in calculateCommissionsForTransaction
+    // ensures we never duplicate ledger rows for a tx that already had them.
+    if (transaction && transaction.status === "completed" && prior?.status !== "completed") {
+      try {
+        const { calculateCommissionsForTransaction } = await import("./commissions");
+        await calculateCommissionsForTransaction(db, transaction.id);
+      } catch (err) {
+        console.error(
+          `[commissions] AUTO-CALC FAILED on status→completed for tx ${transaction.id} ` +
+          `— retry via POST /api/commissions/recalculate-all`,
+          err,
+        );
+      }
+    }
     return transaction || undefined;
   }
 

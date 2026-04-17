@@ -162,6 +162,16 @@ export function registerCommissionsRoutes(app: Express) {
             message: "Override must be set on a direct parent→child hierarchy edge.",
           });
         }
+        // Scope check: agents may only manage overrides where the PARENT side
+        // of the edge is themselves (or in their own downline if they are an
+        // upline agent managing a sub-agent's override). Admins pass through.
+        const manageScope = getActionScope(req.currentUser as any, ACTIONS.COMMISSIONS_MANAGE);
+        if (manageScope !== "all") {
+          const allowedParents = await resolveScopedAgentIds(req);
+          if (!allowedParents.includes(parsed.data.parentAgentId)) {
+            return res.status(403).json({ message: "Forbidden — you can only manage overrides on your own downline edges." });
+          }
+        }
         // Upsert by (parent, child)
         const existing = await req.db!.select({ id: agentOverrides.id }).from(agentOverrides)
           .where(and(

@@ -220,6 +220,9 @@ export const DEFAULT_ACTION_GRANTS: Record<Action, ActionGrants> = {
     [ROLE_CODES.CORPORATE]: "all", [ROLE_CODES.SUPER_ADMIN]: "all",
   },
   [ACTIONS.COMMISSIONS_MANAGE]: {
+    // Agents can manage overrides on their own direct downline edges (the
+    // server enforces edge ownership). Admins/super-admins can manage any.
+    [ROLE_CODES.AGENT]: "downline",
     [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.SUPER_ADMIN]: "all",
   },
   [ACTIONS.PAYOUTS_MANAGE]: {
