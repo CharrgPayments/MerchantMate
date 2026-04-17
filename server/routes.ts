@@ -16,7 +16,9 @@ import { v4 as uuidv4 } from "uuid";
 import { dbEnvironmentMiddleware, adminDbMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
 import { registerUnderwritingRoutes } from "./underwriting/routes";
 import { getDynamicDatabase } from "./db";
-import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity, agentHierarchy, merchantHierarchy } from "@shared/schema";
+import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity, agentHierarchy, merchantHierarchy, underwritingStatusHistory } from "@shared/schema";
+import { runUnderwritingPipeline } from "./underwriting/orchestrator";
+import { notifyTransition } from "./underwriting/notifications";
 import { initAgentClosure, initMerchantClosure, setAgentParent, setMerchantParent, getAgentDescendantIds, getMerchantDescendantIds, isAgentDescendantOf, detachAgentForDelete, detachMerchantForDelete, HierarchyError, MAX_HIERARCHY_DEPTH } from "./hierarchyService";
 import crypto from "crypto";
 import { eq, or, ilike, sql, inArray } from "drizzle-orm";
@@ -3270,6 +3272,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   applicationData: { ...formData, ...(prospectApp.applicationData as Record<string, any> || {}) },
                   updatedAt: new Date()
                 }).where(eq(prospectApplications.id, prospectApp.id));
+
+                // Auto-trigger underwriting: SUB → CUW + run pipeline.
+                try {
+                  await devDb.update(prospectApplications)
+                    .set({ status: 'CUW', updatedAt: new Date() })
+                    .where(eq(prospectApplications.id, prospectApp.id));
+                  await devDb.insert(underwritingStatusHistory).values({
+                    applicationId: prospectApp.id,
+                    fromStatus: 'SUB',
+                    toStatus: 'CUW',
+                    changedBy: null,
+                    reason: 'Auto-advanced on submission',
+                  });
+                  await notifyTransition(devDb, prospectApp.id, 'CUW', {
+                    fromStatus: 'SUB', reason: 'Auto-advanced on submission',
+                  }).catch(e => console.error('underwriting notif (auto):', e));
+                  // Run the pipeline asynchronously so the HTTP response is not delayed.
+                  setImmediate(() => {
+                    runUnderwritingPipeline({ db: devDb, applicationId: prospectApp.id, startedBy: null })
+                      .catch(e => console.error('underwriting pipeline (auto):', e));
+                  });
+                } catch (autoErr) {
+                  console.error('Failed to auto-start underwriting:', autoErr);
+                }
 
                 console.log(`Filled PDF saved to ${generatedPdfPath}`);
               }

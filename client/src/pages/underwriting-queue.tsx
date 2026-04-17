@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { UserCheck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -70,6 +73,15 @@ export default function UnderwritingQueue() {
   const [mode, setMode] = useState("all");
   const [assignee, setAssignee] = useState("all");
   const [search, setSearch] = useState("");
+  const { toast } = useToast();
+  const pickupMut = useMutation({
+    mutationFn: async (appId: number) => apiRequest("POST", `/api/applications/${appId}/underwriting/assign`, { reviewerId: "me" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/underwriting/queue"] });
+      toast({ title: "Picked up application" });
+    },
+    onError: (e: Error) => toast({ title: "Pickup failed", description: e.message, variant: "destructive" }),
+  });
 
   const params = new URLSearchParams();
   if (status !== "all") params.set("status", status);
@@ -182,15 +194,16 @@ export default function UnderwritingQueue() {
                 <TableHead>Risk</TableHead>
                 <TableHead>Score</TableHead>
                 <TableHead>SLA / Halt</TableHead>
+                <TableHead>Assignee</TableHead>
                 <TableHead>Updated</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={11} className="text-center py-8 text-gray-500">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={12} className="text-center py-8 text-gray-500">Loading…</TableCell></TableRow>
               ) : filtered.length === 0 ? (
-                <TableRow><TableCell colSpan={11} className="text-center py-8 text-gray-500">No applications match your filters</TableCell></TableRow>
+                <TableRow><TableCell colSpan={12} className="text-center py-8 text-gray-500">No applications match your filters</TableCell></TableRow>
               ) : filtered.map(r => (
                 <TableRow key={r.id}>
                   <TableCell className="font-mono">#{r.id}</TableCell>
@@ -210,6 +223,15 @@ export default function UnderwritingQueue() {
                     ) : r.slaDeadline ? (
                       <SlaCountdown deadline={r.slaDeadline} />
                     ) : "—"}
+                  </TableCell>
+                  <TableCell>
+                    {r.assignedReviewerId ? (
+                      <Badge className="bg-blue-100 text-blue-800"><UserCheck className="h-3 w-3 mr-1" />{r.assignedReviewerId.slice(0, 8)}…</Badge>
+                    ) : (
+                      <Button size="sm" variant="outline" onClick={() => pickupMut.mutate(r.id)} disabled={pickupMut.isPending}>
+                        <UserCheck className="h-3 w-3 mr-1" />Pick up
+                      </Button>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm">{new Date(r.updatedAt).toLocaleString()}</TableCell>
                   <TableCell>

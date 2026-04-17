@@ -212,7 +212,8 @@ export function registerUnderwritingRoutes(app: Express) {
     async (req: RequestWithDB, res) => {
       try {
         const applicationId = parseInt(req.params.id);
-        const reviewerId = String((req.body as { reviewerId?: unknown })?.reviewerId || "").trim();
+        let reviewerId = String((req.body as { reviewerId?: unknown })?.reviewerId || "").trim();
+        if (reviewerId === "me") reviewerId = userId(req) || "";
         if (!reviewerId) return res.status(400).json({ message: "reviewerId required" });
         const db = getRequestDB(req);
         const [appRow] = await db.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);

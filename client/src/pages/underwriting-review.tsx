@@ -109,7 +109,7 @@ export default function UnderwritingReview() {
     queryFn: async () => (await fetch(`/api/applications/${id}/underwriting/history`)).json(),
     enabled: !!id,
   });
-  const { data: tasks } = useQuery<{ id: number; title: string; description: string | null; status: string; createdAt: string }[]>({
+  const { data: tasks } = useQuery<{ id: number; title: string; description: string | null; status: string; createdAt: string; assignedToUserId: string | null; assignedRole: string | null }[]>({
     queryKey: ["/api/applications", id, "underwriting/tasks"],
     queryFn: async () => (await fetch(`/api/applications/${id}/underwriting/tasks`)).json(),
     enabled: !!id,
@@ -220,8 +220,15 @@ export default function UnderwritingReview() {
 
   const [taskTitle, setTaskTitle] = useState("");
   const [taskDesc, setTaskDesc] = useState("");
+  const [taskAssignedRole, setTaskAssignedRole] = useState("none");
+  const [taskAssignedUser, setTaskAssignedUser] = useState("");
   const taskMut = useMutation({
-    mutationFn: async () => apiRequest("POST", `/api/applications/${id}/underwriting/tasks`, { title: taskTitle, description: taskDesc }),
+    mutationFn: async () => apiRequest("POST", `/api/applications/${id}/underwriting/tasks`, {
+      title: taskTitle,
+      description: taskDesc,
+      assignedRole: taskAssignedRole === "none" ? null : taskAssignedRole,
+      assignedToUserId: taskAssignedUser.trim() || null,
+    }),
     onSuccess: () => {
       setTaskTitle(""); setTaskDesc("");
       qc.invalidateQueries({ queryKey: ["/api/applications", id, "underwriting/tasks"] });
@@ -534,6 +541,27 @@ export default function UnderwritingReview() {
             <CardContent className="space-y-2">
               <Input placeholder="Title" value={taskTitle} onChange={e => setTaskTitle(e.target.value)} />
               <Textarea placeholder="Description (optional)" value={taskDesc} onChange={e => setTaskDesc(e.target.value)} />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">Assign to role</Label>
+                  <Select value={taskAssignedRole} onValueChange={setTaskAssignedRole}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">— Unassigned —</SelectItem>
+                      <SelectItem value="underwriter">Underwriter</SelectItem>
+                      <SelectItem value="senior_underwriter">Senior Underwriter</SelectItem>
+                      <SelectItem value="data_processing">Data Processing</SelectItem>
+                      <SelectItem value="deployment">Deployment</SelectItem>
+                      <SelectItem value="agent">Agent</SelectItem>
+                      <SelectItem value="merchant">Merchant</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Assign to user (ID)</Label>
+                  <Input placeholder="user id (optional)" value={taskAssignedUser} onChange={e => setTaskAssignedUser(e.target.value)} />
+                </div>
+              </div>
               <Button onClick={() => taskMut.mutate()} disabled={!taskTitle.trim() || taskMut.isPending}>Create Task</Button>
             </CardContent>
           </Card>
