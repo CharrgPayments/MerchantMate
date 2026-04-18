@@ -6,6 +6,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import { EntityActivityFeed } from "@/components/EntityActivityFeed";
+import { usePermissions } from "@/hooks/usePermissions";
+import { ACTIONS } from "@shared/permissions";
 
 type EntityKind = "prospect" | "agent" | "merchant";
 
@@ -43,6 +45,8 @@ export default function EntityDetail({ kind }: EntityDetailProps) {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const cfg = KIND_CONFIG[kind];
+  const { can } = usePermissions();
+  const canViewActivity = can(ACTIONS.AUDIT_READ);
 
   const { data, isLoading } = useQuery<Record<string, unknown>>({
     queryKey: [cfg.apiPath(id)],
@@ -74,7 +78,9 @@ export default function EntityDetail({ kind }: EntityDetailProps) {
           <Tabs defaultValue="overview">
             <TabsList>
               <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
-              <TabsTrigger value="activity" data-testid="tab-activity">Activity</TabsTrigger>
+              {canViewActivity && (
+                <TabsTrigger value="activity" data-testid="tab-activity">Activity</TabsTrigger>
+              )}
             </TabsList>
 
             <TabsContent value="overview" className="pt-4">
@@ -101,9 +107,11 @@ export default function EntityDetail({ kind }: EntityDetailProps) {
               )}
             </TabsContent>
 
-            <TabsContent value="activity" className="pt-4">
-              <EntityActivityFeed resource={cfg.resource} resourceId={id} />
-            </TabsContent>
+            {canViewActivity && (
+              <TabsContent value="activity" className="pt-4">
+                <EntityActivityFeed resource={cfg.resource} resourceId={id} />
+              </TabsContent>
+            )}
           </Tabs>
         </CardContent>
       </Card>
