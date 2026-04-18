@@ -8448,6 +8448,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const newResult = isApprove ? "approved" : "rejected";
       const reviewDecision = action === "unblock" ? null : action;
 
+      // ── Dispatch back into the underwriting domain ──
+      // When an underwriter approves/rejects a manual phase (Derogatory
+      // or G2) from the unified Worklist, the underwriting domain must
+      // remain the system of record. Run the manual phase first so
+      // underwriting_runs / underwriting_phase_results / underwriting_issues
+      // get the canonical record; the orchestrator's mirror updates the
+      // workflow_ticket_stage row, then our UPDATE below layers the
+      // review_decision/notes/reviewer metadata on top.
+      // Auto-resolve any open issues for the phase on approval so the
+      // ticket isn't blocked by stale issues. On rejection we leave the
+      // issues open for follow-up.
+      try {
+        const { loadTicketContext } = await import("./underwriting/workflowMirror");
+        const { runManualPhase } = await import("./underwriting/orchestrator");
+        const { underwritingIssues } = await import("@shared/schema");
+        const { eq: eqOp, and: andOp } = await import("drizzle-orm");
+        const ctx = await loadTicketContext(dynamicDB as unknown as Parameters<typeof loadTicketContext>[0], ticketStageId);
+        if (ctx && ctx.stageType === "manual" &&
+            (ctx.handlerKey === "derogatory_check" || ctx.handlerKey === "g2_check")) {
+          if (isApprove) {
+            await runManualPhase({
+              db: dynamicDB as unknown as Parameters<typeof runManualPhase>[0]["db"],
+              applicationId: ctx.applicationId,
+              phaseKey: ctx.handlerKey,
+              startedBy: currentUser?.id ?? null,
+            });
+            await dynamicDB.update(underwritingIssues)
+              .set({ status: "resolved", resolvedBy: currentUser?.id ?? "system", resolvedAt: new Date(),
+                     resolutionNote: notes ?? `Auto-resolved by Worklist ${action}` })
+              .where(andOp(eqOp(underwritingIssues.applicationId, ctx.applicationId),
+                           eqOp(underwritingIssues.phaseKey, ctx.handlerKey),
+                           eqOp(underwritingIssues.status, "open")));
+          }
+          // On reject we deliberately do not auto-run the phase — the
+          // reviewer is asserting a decision; leave the underwriting
+          // domain to be moved by the explicit /transition endpoint.
+        }
+      } catch (dispatchErr) {
+        console.error("[workflow-tickets] underwriting dispatch failed:", dispatchErr);
+      }
+
       // Update the ticket stage
       await dynamicDB.execute(sqlTag`
         UPDATE workflow_ticket_stages SET

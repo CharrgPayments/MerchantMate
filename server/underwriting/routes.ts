@@ -387,6 +387,16 @@ export function registerUnderwritingRoutes(app: Express) {
         if (!appRow) return res.status(404).json({ message: "Application not found" });
         if (!(await enforceAppScopeStrict(req, applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
         await db.update(prospectApplications).set({ pathway, updatedAt: new Date() }).where(eq(prospectApplications.id, applicationId));
+        // Reflect the pathway change on the workflow ticket so the
+        // Worklist relinks to the right definition (and pre-seeds the
+        // appropriate manual-phase stages).
+        try {
+          const { ensureTicket } = await import("./workflowMirror");
+          const [refreshed] = await db.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
+          if (refreshed) await ensureTicket(db as unknown as Parameters<typeof ensureTicket>[0], refreshed);
+        } catch (mirrorErr) {
+          console.error(`[underwriting] pathway change ticket sync failed for app=${applicationId}:`, mirrorErr);
+        }
         await audit(req, "update", "application_pathway", String(applicationId), {
           oldValues: { pathway: appRow.pathway }, newValues: { pathway },
         });

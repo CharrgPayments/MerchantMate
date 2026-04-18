@@ -13,6 +13,7 @@ import {
 import { computeRiskScore } from "./scoring";
 import type { getDynamicDatabase } from "../db";
 import { BUILTIN_VERIFIERS, hasBuiltin } from "./verifiers";
+import { ensureTicket, upsertTicketStage, markTicketPipelineFinished } from "./workflowMirror";
 
 type DB = ReturnType<typeof getDynamicDatabase>;
 
@@ -276,14 +277,16 @@ const PHASE_ADAPTERS: Record<string, (ctx: PhaseContext) => Promise<PhaseResult>
 async function persistPhaseResult(
   db: DB, runId: number, applicationId: number, phase: PhaseDef, result: PhaseResult,
   durationMs: number,
+  mirror?: { ticketId: number; definitionId: number; startedBy: string | null; startedAt: Date },
 ) {
+  const completedAt = new Date();
   await db.insert(underwritingPhaseResults).values({
     runId, phaseKey: phase.key, phaseOrder: phase.order,
     status: result.status, score: result.score, findings: result.findings,
     endpointId: result.endpointId ?? null,
     externalRequest: result.externalRequest ?? null,
     externalResponse: result.externalResponse ?? null,
-    durationMs, completedAt: new Date(),
+    durationMs, completedAt,
   });
   for (const f of result.findings) {
     if (f.severity === "info") continue;
@@ -292,6 +295,26 @@ async function persistPhaseResult(
       severity: f.severity, code: f.code || `${phase.key}_finding`, message: f.message,
       fieldPath: f.fieldPath ?? null, status: "open",
     });
+  }
+  // Mirror into the workflow_ticket_stages so the unified Worklist UI
+  // sees the phase outcome. Wrapped in try/catch so a mirror failure
+  // never breaks the underwriting domain (it's the system of record).
+  if (mirror) {
+    try {
+      await upsertTicketStage({
+        db: db as unknown as Parameters<typeof upsertTicketStage>[0]["db"],
+        ticketId: mirror.ticketId,
+        definitionId: mirror.definitionId,
+        phaseKey: phase.key,
+        result,
+        startedAt: mirror.startedAt,
+        completedAt,
+        executedBy: mirror.startedBy,
+        externalResponse: result.externalResponse,
+      });
+    } catch (mirrorErr) {
+      console.error(`[orchestrator] workflow ticket stage mirror failed for app=${applicationId} phase=${phase.key}:`, mirrorErr);
+    }
   }
 }
 
@@ -321,6 +344,16 @@ export async function runUnderwritingPipeline(opts: {
   const pathway = (app.pathway as Pathway) || PATHWAYS.TRADITIONAL;
   const phases = phasesForPathway(pathway, false);
 
+  // Mirror into the generic Workflows engine so the unified Worklist
+  // surfaces this application + its phase progress. Best-effort: a
+  // mirror failure must not abort the pipeline.
+  let ticketCtx: { ticketId: number; definitionId: number } | null = null;
+  try {
+    ticketCtx = await ensureTicket(db as unknown as Parameters<typeof ensureTicket>[0], app);
+  } catch (e) {
+    console.error(`[orchestrator] ensureTicket failed for app=${applicationId}:`, e);
+  }
+
   const [run] = await db.insert(underwritingRuns).values({
     applicationId, startedBy, status: "running",
     currentPhase: phases[0]?.key, totalPhases: phases.length,
@@ -334,6 +367,7 @@ export async function runUnderwritingPipeline(opts: {
   try {
     for (const phase of phases) {
       const t0 = Date.now();
+      const startedAt = new Date(t0);
       await db.update(underwritingRuns).set({ currentPhase: phase.key }).where(eq(underwritingRuns.id, run.id));
 
       let result: PhaseResult;
@@ -345,7 +379,10 @@ export async function runUnderwritingPipeline(opts: {
         result = { status: "error", score: 0, findings: [{ severity: "error", code: "phase_exception", message: e instanceof Error ? e.message : String(e) }] };
       }
 
-      await persistPhaseResult(db, run.id, applicationId, phase, result, Date.now() - t0);
+      await persistPhaseResult(
+        db, run.id, applicationId, phase, result, Date.now() - t0,
+        ticketCtx ? { ticketId: ticketCtx.ticketId, definitionId: ticketCtx.definitionId, startedBy, startedAt } : undefined,
+      );
       collected.push(result);
 
       // Checkpoint halt: a critical/fail at a checkpoint phase stops the pipeline.
@@ -394,6 +431,18 @@ export async function runUnderwritingPipeline(opts: {
       updatedAt: new Date(),
     }).where(eq(prospectApplications.id, applicationId));
 
+    if (ticketCtx) {
+      try {
+        await markTicketPipelineFinished({
+          db: db as unknown as Parameters<typeof markTicketPipelineFinished>[0]["db"],
+          ticketId: ticketCtx.ticketId,
+          haltedAtPhase, riskScore: score, riskTier: tier,
+        });
+      } catch (e) {
+        console.error(`[orchestrator] markTicketPipelineFinished failed for app=${applicationId}:`, e);
+      }
+    }
+
     return { runId: run.id, pathway, score, tier, haltedAtPhase, recommendedDecline, slaDeadline };
   } catch (err) {
     await db.update(underwritingRuns).set({
@@ -418,12 +467,22 @@ export async function runManualPhase(opts: {
   if (!prospect) throw new Error(`Prospect ${app.prospectId} not found`);
   const owners = await db.select().from(prospectOwners).where(eq(prospectOwners.prospectId, app.prospectId));
 
+  // Make sure the workflow ticket exists so this manual-phase result
+  // is visible in the unified Worklist alongside the automated phases.
+  let ticketCtx: { ticketId: number; definitionId: number } | null = null;
+  try {
+    ticketCtx = await ensureTicket(db as unknown as Parameters<typeof ensureTicket>[0], app);
+  } catch (e) {
+    console.error(`[orchestrator] ensureTicket (manual) failed for app=${applicationId}:`, e);
+  }
+
   const [run] = await db.insert(underwritingRuns).values({
     applicationId, startedBy, status: "running",
     currentPhase: phase.key, totalPhases: 1,
   }).returning();
 
   const t0 = Date.now();
+  const startedAt = new Date(t0);
   const ctx: PhaseContext = { db, app, prospect, owners, pathway: (app.pathway as Pathway) || PATHWAYS.TRADITIONAL };
   let result: PhaseResult;
   try {
@@ -432,7 +491,10 @@ export async function runManualPhase(opts: {
     result = { status: "error", score: 0, findings: [{ severity: "error", code: "phase_exception", message: e instanceof Error ? e.message : String(e) }] };
   }
 
-  await persistPhaseResult(db, run.id, applicationId, phase, result, Date.now() - t0);
+  await persistPhaseResult(
+    db, run.id, applicationId, phase, result, Date.now() - t0,
+    ticketCtx ? { ticketId: ticketCtx.ticketId, definitionId: ticketCtx.definitionId, startedBy, startedAt } : undefined,
+  );
   await db.update(underwritingRuns).set({
     status: "completed", currentPhase: null, completedAt: new Date(),
   }).where(eq(underwritingRuns.id, run.id));
