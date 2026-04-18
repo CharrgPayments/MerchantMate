@@ -377,6 +377,7 @@ export function registerUnderwritingRoutes(app: Express) {
         const db = getRequestDB(req);
         const [issueRow] = await db.select().from(underwritingIssues).where(eq(underwritingIssues.id, id)).limit(1);
         if (!issueRow) return res.status(404).json({ message: "Issue not found" });
+        if (await blockIfArchived(issueRow.applicationId, res)) return;
         if (!(await enforceAppScopeStrict(req, issueRow.applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
         const updates: Record<string, unknown> = { status };
         if (status === "resolved" || status === "waived") {
@@ -434,6 +435,7 @@ export function registerUnderwritingRoutes(app: Express) {
         const db = getRequestDB(req);
         const [existing] = await db.select().from(underwritingTasks).where(eq(underwritingTasks.id, id)).limit(1);
         if (!existing) return res.status(404).json({ message: "Task not found" });
+        if (await blockIfArchived(existing.applicationId, res)) return;
         if (!(await enforceAppScopeStrict(req, existing.applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
         const [t] = await db.update(underwritingTasks).set(updates).where(eq(underwritingTasks.id, id)).returning();
         if (!t) return res.status(404).json({ message: "Task not found" });
@@ -698,6 +700,7 @@ export function registerUnderwritingRoutes(app: Express) {
         const db = getRequestDB(req);
         const [row] = await db.select().from(underwritingFiles).where(eq(underwritingFiles.id, id)).limit(1);
         if (!row) return res.status(404).json({ message: "File not found" });
+        if (await blockIfArchived(row.applicationId, res)) return;
         if (!(await enforceAppScopeStrict(req, row.applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
         const abs = path.resolve(process.cwd(), row.storedPath);
         try { if (fs.existsSync(abs)) fs.unlinkSync(abs); } catch { /* ignore */ }
