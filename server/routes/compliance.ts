@@ -37,21 +37,29 @@ const router = Router();
 // Returns recent audit-log entries for a single resource. Restricted to users
 // with `audit:read` (admins, underwriters, deployment) so audit metadata cannot
 // be enumerated cross-tenant by ordinary authenticated users (IDOR mitigation).
-// Whitelist of resources we expose through this generic endpoint.
-const ALLOWED_AUDIT_RESOURCES = new Set([
-  "prospect", "application", "merchant", "agent", "user", "campaign",
-]);
+// Map of canonical (singular) resource → all aliases the audit writer may have used.
+// The audit middleware logs the URL path segment, which is typically plural
+// (e.g. "prospects", "applications"), but call sites also use singular forms.
+const AUDIT_RESOURCE_ALIASES: Record<string, string[]> = {
+  prospect:    ["prospect", "prospects", "merchant_prospect", "merchant_prospects"],
+  application: ["application", "applications", "prospect_application", "prospect_applications"],
+  merchant:    ["merchant", "merchants"],
+  agent:       ["agent", "agents"],
+  user:        ["user", "users"],
+  campaign:    ["campaign", "campaigns"],
+};
 
 router.get("/audit/entity/:resource/:resourceId", isAuthenticated, requirePerm("admin:read"), async (req, res) => {
   try {
     const { resource, resourceId } = req.params;
-    if (!ALLOWED_AUDIT_RESOURCES.has(resource)) {
+    const aliases = AUDIT_RESOURCE_ALIASES[resource];
+    if (!aliases) {
       return res.status(400).json({ message: "Unsupported resource" });
     }
     const limit = Math.min(Math.max(Number(req.query.limit ?? 100), 1), 500);
     const offset = Math.max(Number(req.query.offset ?? 0), 0);
     const rows = await db.select().from(auditLogs)
-      .where(and(eq(auditLogs.resource, resource), eq(auditLogs.resourceId, resourceId)))
+      .where(and(inArray(auditLogs.resource, aliases), eq(auditLogs.resourceId, resourceId)))
       .orderBy(desc(auditLogs.createdAt))
       .limit(limit)
       .offset(offset);

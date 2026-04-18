@@ -120,7 +120,7 @@ function SlaTab() {
       toast({ title: "SLA scan complete", description: "Breach list refreshed." });
       queryClient.invalidateQueries({ queryKey: ["/api/applications/sla-status"] });
     },
-    onError: (e: any) => toast({ title: "Scan failed", description: e?.message ?? "Unknown error", variant: "destructive" }),
+    onError: (e: unknown) => toast({ title: "Scan failed", description: (e instanceof Error ? e.message : null) ?? "Unknown error", variant: "destructive" }),
   });
 
   const ackMutation = useMutation({
@@ -129,7 +129,7 @@ function SlaTab() {
       toast({ title: "Breach acknowledged" });
       queryClient.invalidateQueries({ queryKey: ["/api/applications/sla-status"] });
     },
-    onError: (e: any) => toast({ title: "Acknowledge failed", description: e?.message ?? "Unknown error", variant: "destructive" }),
+    onError: (e: unknown) => toast({ title: "Acknowledge failed", description: (e instanceof Error ? e.message : null) ?? "Unknown error", variant: "destructive" }),
   });
 
   const overdueOpenCount = data?.overdueOpenCount ?? 0;
@@ -305,7 +305,7 @@ function ReportsTab() {
       setName(""); setRecipients(""); setTemplate("sla_summary"); setCadence("daily");
       queryClient.invalidateQueries({ queryKey: ["/api/admin/scheduled-reports"] });
     },
-    onError: (e: any) => toast({ title: "Create failed", description: e?.message ?? "Unknown error", variant: "destructive" }),
+    onError: (e: unknown) => toast({ title: "Create failed", description: (e instanceof Error ? e.message : null) ?? "Unknown error", variant: "destructive" }),
   });
 
   const deleteMutation = useMutation({
@@ -322,7 +322,7 @@ function ReportsTab() {
       toast({ title: "Report dispatched" });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/scheduled-reports"] });
     },
-    onError: (e: any) => toast({ title: "Run failed", description: e?.message ?? "Unknown error", variant: "destructive" }),
+    onError: (e: unknown) => toast({ title: "Run failed", description: (e instanceof Error ? e.message : null) ?? "Unknown error", variant: "destructive" }),
   });
 
   return (
@@ -510,7 +510,7 @@ function SchemaDriftTab() {
       toast({ title: "Schema drift scan complete" });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/schema-drift-alerts"] });
     },
-    onError: (e: any) => toast({ title: "Scan failed", description: e?.message ?? "Unknown error", variant: "destructive" }),
+    onError: (e: unknown) => toast({ title: "Scan failed", description: (e instanceof Error ? e.message : null) ?? "Unknown error", variant: "destructive" }),
   });
 
   const ackMutation = useMutation({
