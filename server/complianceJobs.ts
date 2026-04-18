@@ -14,6 +14,7 @@ import {
   scheduledReports,
   scheduledReportRuns,
   schemaDriftAlerts,
+  userAlerts,
   users,
   agents,
   type ScheduledReport,
@@ -431,11 +432,23 @@ export async function detectSchemaDrift(): Promise<{ alerts: number }> {
         riskLevel: "high",
         notes: `Schema drift production vs ${target}: ${diffs.length} differences`,
       });
-      // Notify super-admins (best effort).
+      // Notify super-admins (best effort): in-app alert + email.
       try {
-        const admins = await db.select({ email: users.email }).from(users)
+        const admins = await db.select({ id: users.id, email: users.email }).from(users)
           .where(sql`'super_admin' = ANY(${users.roles})`);
         for (const a of admins) {
+          // In-app notification (always, even if no email).
+          try {
+            await db.insert(userAlerts).values({
+              userId: a.id,
+              message: `Schema drift detected: production vs ${target} — ${diffs.length} difference${diffs.length === 1 ? "" : "s"}.`,
+              type: "warning",
+              actionUrl: "/admin-operations",
+            });
+          } catch (e) {
+            console.error("[complianceJobs] drift in-app alert failed", e);
+          }
+          // Email (best effort).
           if (!a.email) continue;
           await emailService.sendGenericEmail({
             to: a.email,

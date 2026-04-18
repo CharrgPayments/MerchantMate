@@ -58,6 +58,7 @@ import PortalLogin from "@/pages/portal-login";
 import ProspectPortal from "@/pages/portal";
 import PortalMagicLogin from "@/pages/portal-magic-login";
 import NotFound from "@/pages/not-found";
+import EntityDetail from "@/pages/entity-detail";
 import Landing from "@/pages/landing";
 import Auth from "@/pages/auth";
 import { useState, useEffect, createContext, useContext } from "react";
@@ -505,6 +506,45 @@ function AuthenticatedApp() {
                   />
                   <main className="flex-1 overflow-auto bg-gray-50">
                     <AgentDashboard />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/prospects/:id">
+            {() => {
+              if (!can(ACTIONS.NAV_PROSPECTS)) return <NotFound />;
+              return (
+                <>
+                  <Header title="Prospect Detail" onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <EntityDetail kind="prospect" />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/agents/:id">
+            {() => {
+              if (!can(ACTIONS.NAV_AGENTS)) return <NotFound />;
+              return (
+                <>
+                  <Header title="Agent Detail" onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <EntityDetail kind="agent" />
+                  </main>
+                </>
+              );
+            }}
+          </Route>
+          <Route path="/merchants/:id">
+            {() => {
+              if (!can(ACTIONS.NAV_MERCHANTS)) return <NotFound />;
+              return (
+                <>
+                  <Header title="Merchant Detail" onSearch={setGlobalSearch} />
+                  <main className="flex-1 overflow-auto bg-gray-50">
+                    <EntityDetail kind="merchant" />
                   </main>
                 </>
               );
