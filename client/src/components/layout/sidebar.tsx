@@ -40,7 +40,12 @@ const baseNavigation: NavItem[] = [
   { name: "Agent Dashboard", href: "/agent-dashboard", icon: CreditCard, requiresAction: ACTIONS.NAV_AGENT_DASHBOARD, requiresAnyRole: [ROLE_CODES.AGENT] },
   { name: "Merchants", href: "/merchants", icon: Store, requiresAction: ACTIONS.NAV_MERCHANTS },
   { name: "Locations", href: "/locations", icon: MapPin, requiresAction: ACTIONS.NAV_LOCATIONS },
-  { name: "Agents", href: "/agents", icon: Users, requiresAction: ACTIONS.NAV_AGENTS },
+  {
+    name: "Agents", href: "/agents", icon: Users, requiresAction: ACTIONS.NAV_AGENTS,
+    subItems: [
+      { name: "Commissions", href: "/commissions", icon: DollarSign, requiresAction: ACTIONS.NAV_COMMISSIONS },
+    ],
+  },
   { name: "Prospects", href: "/prospects", icon: UserPlus, requiresAction: ACTIONS.NAV_PROSPECTS },
   { name: "Underwriting", href: "/underwriting-queue", icon: Shield, requiresAction: ACTIONS.UNDERWRITING_VIEW_QUEUE },
   {
@@ -61,7 +66,6 @@ const baseNavigation: NavItem[] = [
     ],
   },
   { name: "Transactions", href: "/transactions", icon: Receipt, requiresAction: ACTIONS.NAV_TRANSACTIONS },
-  { name: "Commissions", href: "/commissions", icon: DollarSign, requiresAction: ACTIONS.NAV_COMMISSIONS },
   {
     name: "Users", href: "/users", icon: User, requiresAction: ACTIONS.NAV_USERS,
     subItems: [
