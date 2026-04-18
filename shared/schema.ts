@@ -1014,6 +1014,12 @@ export const prospectApplications = pgTable("prospect_applications", {
   rejectedAt: timestamp("rejected_at"),
   rejectionReason: text("rejection_reason"),
   generatedPdfPath: text("generated_pdf_path"),
+  // Epic F retention: marker set by complianceJobs.archiveExpiredApplications
+  // when a snapshot is moved to archived_applications. While the source row is
+  // preserved (so onDelete: cascade FKs don't drop audit/UW evidence), every
+  // active write path MUST treat archivedAt != null as read-only. Helper:
+  // server/lib/archiveGuard.assertNotArchived().
+  archivedAt: timestamp("archived_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({

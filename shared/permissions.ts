@@ -46,6 +46,7 @@ export const ACTIONS = {
   // Catch-alls for legacy requireRole signatures (preserves prior behaviour 1:1)
   ADMIN_MANAGE: "admin:manage",         // ['admin','super_admin']
   ADMIN_READ: "admin:read",             // ['admin','corporate','super_admin']
+  AUDIT_READ: "audit:read",             // ['admin','corporate','super_admin','underwriter','senior_underwriter','data_processing','deployment']
   AGENT_READ: "agent:read",             // ['admin','corporate','super_admin','agent']
   SUPERADMIN_ONLY: "system:superadmin", // ['super_admin']
 
@@ -106,6 +107,15 @@ export const DEFAULT_ACTION_GRANTS: Record<Action, ActionGrants> = {
     [ROLE_CODES.ADMIN]: "all",
     [ROLE_CODES.CORPORATE]: "all",
     [ROLE_CODES.SUPER_ADMIN]: "all",
+  },
+  [ACTIONS.AUDIT_READ]: {
+    [ROLE_CODES.ADMIN]: "all",
+    [ROLE_CODES.CORPORATE]: "all",
+    [ROLE_CODES.SUPER_ADMIN]: "all",
+    [ROLE_CODES.UNDERWRITER]: "all",
+    [ROLE_CODES.SENIOR_UNDERWRITER]: "all",
+    [ROLE_CODES.DATA_PROCESSING]: "all",
+    [ROLE_CODES.DEPLOYMENT]: "all",
   },
   [ACTIONS.AGENT_READ]: {
     [ROLE_CODES.ADMIN]: "all",
@@ -273,6 +283,7 @@ export const ACTION_GROUPS: { label: string; actions: Action[] }[] = [
 export const ACTION_LABELS: Record<Action, string> = {
   [ACTIONS.ADMIN_MANAGE]: "Admin: Manage (write)",
   [ACTIONS.ADMIN_READ]: "Admin: Read all",
+  [ACTIONS.AUDIT_READ]: "Audit: Read activity feeds",
   [ACTIONS.AGENT_READ]: "Agent or higher: Read",
   [ACTIONS.SUPERADMIN_ONLY]: "Super Admin only",
   [ACTIONS.UNDERWRITING_VIEW_QUEUE]: "View underwriting queue",

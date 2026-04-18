@@ -53,7 +53,7 @@ const AUDIT_RESOURCE_ALIASES: Record<string, string[]> = {
   campaign:    ["campaign", "campaigns"],
 };
 
-router.get("/audit/entity/:resource/:resourceId", isAuthenticated, requirePerm("admin:read"), async (req, res) => {
+router.get("/audit/entity/:resource/:resourceId", isAuthenticated, requirePerm("audit:read"), async (req, res) => {
   try {
     const { resource, resourceId } = req.params;
     const aliases = AUDIT_RESOURCE_ALIASES[resource];

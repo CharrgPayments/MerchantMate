@@ -178,6 +178,13 @@ export async function archiveExpiredApplications(): Promise<{ archived: number }
           applicationSnapshot: a,
           archivedReason: `retention_policy_${RETENTION_DAYS}d`,
         });
+        // Stamp the source row as archived so write paths (guarded by
+        // assertNotArchived) refuse mutations. Source row is intentionally
+        // retained because onDelete:cascade FKs would otherwise drop audit /
+        // underwriting evidence required by SOC2.
+        await db.update(prospectApplications)
+          .set({ archivedAt: new Date() })
+          .where(eq(prospectApplications.id, a.id));
         archived += 1;
         await auditService.logAction("application_archived", "applications", { ipAddress: "system" }, {
           resourceId: String(a.id),

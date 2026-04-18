@@ -217,6 +217,7 @@ export function registerUnderwritingRoutes(app: Express) {
         const db = getRequestDB(req);
         const [appRow] = await db.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);
         if (!appRow) return res.status(404).json({ message: "Application not found" });
+        if (appRow.archivedAt) return res.status(409).json({ message: "Application is archived (cold storage) and cannot be modified" });
         if (!(await enforceAppScopeStrict(req, applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
 
         const rule = findTransition(appRow.status as AppStatus, toStatus as AppStatus);
