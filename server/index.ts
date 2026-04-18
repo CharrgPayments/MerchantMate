@@ -46,6 +46,17 @@ app.use((req, res, next) => {
   const { startComplianceJobs } = await import("./complianceJobs");
   startComplianceJobs();
 
+  // Task #27 — Mirror the underwriting pipeline as Workflow Definitions so
+  // the Workflows admin shows it natively. Idempotent; the orchestrator
+  // continues to run off the in-code PHASES catalogue.
+  try {
+    const { seedUnderwritingWorkflows } = await import("./scripts/seedUnderwritingWorkflows");
+    const result = await seedUnderwritingWorkflows();
+    log(`underwriting workflows seeded (defs=${result.upsertedDefinitions}, endpoints=${result.upsertedEndpoints})`);
+  } catch (err) {
+    console.error("[seed] underwriting workflows failed:", err);
+  }
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
