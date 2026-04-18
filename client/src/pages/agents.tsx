@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -529,9 +530,13 @@ function AgentRowWithMerchants({
               </span>
             </div>
             <div>
-              <div className="font-medium text-gray-900">
+              <Link
+                href={`/agents/${agent.id}`}
+                className="font-medium text-gray-900 hover:text-blue-600 hover:underline"
+                data-testid={`link-agent-${agent.id}`}
+              >
                 {agent.firstName} {agent.lastName}
-              </div>
+              </Link>
               {depth > 0 && (
                 <div className="text-xs text-gray-500">Sub-agent · L{depth}</div>
               )}

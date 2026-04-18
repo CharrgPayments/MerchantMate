@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -389,9 +390,13 @@ export default function Prospects() {
                                         <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
                                           <User className="w-4 h-4 text-blue-600" />
                                         </div>
-                                        <div className="font-medium text-gray-900">
+                                        <Link
+                                          href={`/prospects/${prospect.id}`}
+                                          className="font-medium text-gray-900 hover:text-blue-600 hover:underline"
+                                          data-testid={`link-prospect-${prospect.id}`}
+                                        >
                                           {prospect.firstName} {prospect.lastName}
-                                        </div>
+                                        </Link>
                                       </div>
                                     </TableCell>
                                     <TableCell className="text-gray-500">{prospect.email}</TableCell>

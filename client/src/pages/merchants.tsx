@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -387,7 +388,13 @@ export default function Merchants() {
                               </span>
                             </div>
                             <div>
-                              <div className="font-medium text-gray-900">{merchant.businessName}</div>
+                              <Link
+                                href={`/merchants/${merchant.id}`}
+                                className="font-medium text-gray-900 hover:text-blue-600 hover:underline"
+                                data-testid={`link-merchant-${merchant.id}`}
+                              >
+                                {merchant.businessName}
+                              </Link>
                               <div className="text-sm text-gray-500">{merchant.email}</div>
                               {showExpandButton && (
                                 <div className="text-xs text-blue-600">
