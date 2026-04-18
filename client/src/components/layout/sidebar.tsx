@@ -62,7 +62,6 @@ const baseNavigation: NavItem[] = [
   },
   { name: "Transactions", href: "/transactions", icon: Receipt, requiresAction: ACTIONS.NAV_TRANSACTIONS },
   { name: "Commissions", href: "/commissions", icon: DollarSign, requiresAction: ACTIONS.NAV_COMMISSIONS },
-  { name: "PDF Forms", href: "/pdf-forms", icon: Upload, requiresAction: ACTIONS.NAV_PDF_FORMS },
   {
     name: "Users", href: "/users", icon: User, requiresAction: ACTIONS.NAV_USERS,
     subItems: [
