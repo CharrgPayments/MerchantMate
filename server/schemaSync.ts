@@ -1,7 +1,5 @@
-import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
-import * as os from "os";
 import * as crypto from "crypto";
 import { Pool, neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
@@ -259,149 +257,230 @@ export function getPlan(planId: string): Plan | undefined {
   return planCache.get(planId);
 }
 
+// ----- In-process schema diff -----
+// We previously shelled out to drizzle-kit, but its CLI mishandled absolute
+// `out` paths and silently produced empty diffs. We now build the desired
+// schema directly from shared/schema.ts via getTableConfig() and diff it
+// against the live DB introspected via information_schema.
+
+interface DesiredColumn {
+  name: string;
+  sqlType: string;
+  notNull: boolean;
+  hasDefault: boolean;
+  defaultLiteral: string | null;
+  primary: boolean;
+}
+interface DesiredTable {
+  name: string;
+  columns: DesiredColumn[];
+}
+
+async function loadDesiredTables(): Promise<Record<string, DesiredTable>> {
+  const mod = await import("../shared/schema.js" as any).catch(() =>
+    import("../shared/schema" as any),
+  );
+  const { getTableConfig, PgTable } = await import("drizzle-orm/pg-core");
+  const out: Record<string, DesiredTable> = {};
+  for (const v of Object.values(mod) as any[]) {
+    if (!v || !(v instanceof PgTable)) continue;
+    const cfg = getTableConfig(v);
+    out[cfg.name] = {
+      name: cfg.name,
+      columns: cfg.columns.map((c: any) => ({
+        name: c.name,
+        sqlType: typeof c.getSQLType === "function" ? c.getSQLType() : String(c.columnType ?? ""),
+        notNull: !!c.notNull,
+        hasDefault: !!c.hasDefault,
+        defaultLiteral: serializeDefault(c),
+        primary: !!c.primary,
+      })),
+    };
+  }
+  return out;
+}
+
+function serializeDefault(c: any): string | null {
+  if (!c.hasDefault) return null;
+  const d = c.default;
+  if (d === undefined || d === null) {
+    // serial / identity columns generate sequence defaults; treat as managed
+    if (typeof c.getSQLType === "function" && /^serial/i.test(c.getSQLType())) return "__SEQ__";
+    return null;
+  }
+  if (typeof d === "boolean") return d ? "true" : "false";
+  if (typeof d === "number") return String(d);
+  if (typeof d === "string") return `'${d.replace(/'/g, "''")}'`;
+  if (d && typeof d === "object" && "queryChunks" in d) {
+    // sql`...` template — best-effort string rep
+    try {
+      return d.queryChunks
+        .map((q: any) => (typeof q === "string" ? q : q?.value ?? ""))
+        .join("");
+    } catch {
+      return "__SQL__";
+    }
+  }
+  return null;
+}
+
+// Normalize types so `serial`↔`integer` (etc.) compare equal.
+function normalizeType(t: string): string {
+  const x = t.toLowerCase().trim();
+  if (x === "serial" || x === "bigserial" || x === "smallserial") return "integer";
+  if (x === "varchar" || x.startsWith("varchar(") || x === "character varying")
+    return "character varying";
+  if (x === "timestamp" || x.startsWith("timestamp(")) return "timestamp without time zone";
+  if (x === "timestamptz") return "timestamp with time zone";
+  if (x === "bool") return "boolean";
+  if (x === "int" || x === "int4") return "integer";
+  if (x === "int8" || x === "bigint") return "bigint";
+  if (x === "int2" || x === "smallint") return "smallint";
+  if (x === "float8" || x === "double precision") return "double precision";
+  if (x === "float4" || x === "real") return "real";
+  if (x.startsWith("numeric")) return "numeric";
+  if (x === "json") return "json";
+  if (x === "jsonb") return "jsonb";
+  // arrays: text[] vs _text[] from introspect
+  if (x.endsWith("[]")) {
+    let inner = x.slice(0, -2);
+    if (inner.startsWith("_")) inner = inner.slice(1);
+    return normalizeType(inner) + "[]";
+  }
+  return x;
+}
+
+function normalizeDefault(d: string | null | undefined): string | null {
+  if (d == null) return null;
+  let s = String(d).trim();
+  // strip ::type casts
+  s = s.replace(/::[a-zA-Z_ \[\]"]+(\(\d+(,\s*\d+)?\))?/g, "");
+  // sequence defaults
+  if (/^nextval\(/i.test(s)) return "__SEQ__";
+  if (s === "__SEQ__") return "__SEQ__";
+  // booleans
+  if (/^true$/i.test(s)) return "true";
+  if (/^false$/i.test(s)) return "false";
+  // strip outer quotes
+  s = s.replace(/^'(.*)'$/s, "$1");
+  return s;
+}
+
+function buildAddColumnSQL(table: string, col: DesiredColumn): string {
+  let sql = `ALTER TABLE "${table}" ADD COLUMN "${col.name}" ${col.sqlType}`;
+  if (col.notNull) sql += " NOT NULL";
+  if (col.hasDefault && col.defaultLiteral && col.defaultLiteral !== "__SEQ__") {
+    sql += ` DEFAULT ${col.defaultLiteral}`;
+  }
+  return sql + ";";
+}
+
+function buildCreateTableSQL(t: DesiredTable): string {
+  const colDefs = t.columns.map((c) => {
+    let s = `  "${c.name}" ${c.sqlType}`;
+    if (c.primary) s += " PRIMARY KEY";
+    if (c.notNull && !c.primary) s += " NOT NULL";
+    if (c.hasDefault && c.defaultLiteral && c.defaultLiteral !== "__SEQ__")
+      s += ` DEFAULT ${c.defaultLiteral}`;
+    return s;
+  });
+  return `CREATE TABLE "${t.name}" (\n${colDefs.join(",\n")}\n);`;
+}
+
 export async function generatePlan(
   targetEnv: Env,
-  renameAnswers: number[] = [],
+  _renameAnswers: number[] = [],
 ): Promise<Plan> {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "schema-sync-"));
-  try {
-    // Write the config inside the workspace so node_modules resolution works
-    // for any imports drizzle-kit may need to do, and use a plain object export
-    // (no imports) to avoid resolving "drizzle-kit" from a foreign tmp path.
-    const wsTmp = path.join(process.cwd(), ".local", "schema-sync-tmp");
-    fs.mkdirSync(wsTmp, { recursive: true });
-    const cfgFile = path.join(wsTmp, `drizzle.config.${Date.now()}.ts`);
-    fs.writeFileSync(
-      cfgFile,
-      `export default {
-  out: ${JSON.stringify(tmp)},
-  schema: ${JSON.stringify(path.join(process.cwd(), "shared", "schema.ts"))},
-  dialect: "postgresql",
-  dbCredentials: { url: process.env.SCHEMA_SYNC_TARGET_URL! },
-};
-`,
-    );
+  const [desired, actual] = await Promise.all([
+    loadDesiredTables(),
+    introspectSchema(targetEnv),
+  ]);
 
-    const promptsLog: string[] = [];
+  const statements: PlanStatement[] = [];
+  let idx = 0;
+  const push = (sql: string) => {
+    statements.push(classifyStatement(sql, idx++));
+  };
 
-    // Helper: spawn drizzle-kit with stdin pre-fed for any prompts.
-    const runDrizzle = (args: string[], label: string, timeoutMs = 90_000) =>
-      new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-        const stdoutChunks: string[] = [];
-        const stderrChunks: string[] = [];
-        const child = spawn("npx", ["drizzle-kit", ...args], {
-          cwd: process.cwd(),
-          env: {
-            ...process.env,
-            SCHEMA_SYNC_TARGET_URL: urlFor(targetEnv),
-            FORCE_COLOR: "0",
-            NO_COLOR: "1",
-          },
-        });
-
-        const answers: string[] = [];
-        for (let i = 0; i < 200; i++) answers.push(String(renameAnswers[i] ?? 0));
-        try {
-          child.stdin.write(answers.join("\n") + "\n");
-          child.stdin.end();
-        } catch {}
-
-        child.stdout.on("data", (b) => {
-          const s = b.toString();
-          stdoutChunks.push(s);
-          if (/created or renamed/i.test(s)) promptsLog.push(s.trim());
-        });
-        child.stderr.on("data", (b) => stderrChunks.push(b.toString()));
-
-        const killer = setTimeout(() => {
-          try {
-            child.kill("SIGKILL");
-          } catch {}
-          reject(new Error(`drizzle-kit ${label} timed out after ${timeoutMs / 1000}s`));
-        }, timeoutMs);
-
-        child.on("error", (e) => {
-          clearTimeout(killer);
-          reject(e);
-        });
-        child.on("close", (code) => {
-          clearTimeout(killer);
-          const stdout = stdoutChunks.join("");
-          const stderr = stderrChunks.join("");
-          if (code === 0) resolve({ stdout, stderr });
-          else
-            reject(
-              new Error(
-                `drizzle-kit ${label} exited with code ${code}\nstdout:\n${stdout}\nstderr:\n${stderr}`,
-              ),
-            );
-        });
-      });
-
-    // Step 1: introspect the live target DB into `tmp` so drizzle-kit has a
-    // baseline snapshot in tmp/meta/. This produces a 0000_*.sql + meta entry.
-    await runDrizzle(["introspect", "--config", cfgFile], "introspect");
-
-    // After introspect, drizzle wrote a `schema.ts` into the out dir. We must
-    // point the next generate at OUR schema.ts (already set in cfgFile.schema)
-    // so the diff is OUR schema vs the introspected snapshot.
-    // Wipe the SQL file produced by introspect (not the meta/) so we can
-    // unambiguously identify the new diff file.
-    for (const f of fs.readdirSync(tmp)) {
-      if (f.endsWith(".sql")) fs.unlinkSync(path.join(tmp, f));
-    }
-
-    // Step 2: generate the diff (schema.ts vs snapshot from introspect)
-    await runDrizzle(
-      ["generate", "--config", cfgFile, "--name", "schema_sync_plan"],
-      "generate",
-    );
-
-    // Locate the produced SQL file (drizzle names it like 0001_<name>.sql in `out`)
-    const sqlFile = fs
-      .readdirSync(tmp)
-      .filter((f) => f.endsWith(".sql"))
-      .map((f) => path.join(tmp, f))[0];
-
-    let statements: PlanStatement[] = [];
-    let noChanges = false;
-    if (!sqlFile) {
-      noChanges = true;
-    } else {
-      const sql = fs.readFileSync(sqlFile, "utf8");
-      const raw = sql
-        .split("--> statement-breakpoint")
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0 && !/^--/.test(s.split("\n")[0]?.trim() ?? ""));
-      statements = raw.map((s, i) => classifyStatement(s, i));
-      if (statements.length === 0) noChanges = true;
-    }
-
-    const planId = crypto.randomUUID();
-    const warnings: string[] = [];
-    const dropTables = statements.filter((s) => s.kind === "drop_table").length;
-    const dropCols = statements.filter((s) => s.kind === "drop_column").length;
-    if (dropTables > 0)
-      warnings.push(`${dropTables} DROP TABLE statement(s) will permanently delete data.`);
-    if (dropCols > 0)
-      warnings.push(`${dropCols} DROP COLUMN statement(s) will permanently delete data.`);
-    const plan: Plan = {
-      planId,
-      targetEnv,
-      generatedAt: new Date().toISOString(),
-      statements,
-      promptsLog,
-      noChanges,
-      hasAmbiguous: promptsLog.length > 0,
-      warnings,
-    };
-    planCache.set(planId, plan);
-    return plan;
-  } finally {
-    try {
-      fs.rmSync(tmp, { recursive: true, force: true });
-    } catch {}
+  // 1. Tables in desired but missing in actual → CREATE TABLE
+  for (const [name, dt] of Object.entries(desired)) {
+    if (!actual[name]) push(buildCreateTableSQL(dt));
   }
+
+  // 2. Tables in actual but not in desired → DROP TABLE
+  for (const name of Object.keys(actual)) {
+    if (!desired[name]) push(`DROP TABLE "${name}" CASCADE;`);
+  }
+
+  // 3. Common tables: column-level diff
+  for (const [name, dt] of Object.entries(desired)) {
+    const at = actual[name];
+    if (!at) continue;
+    const actualCols = new Map(at.columns.map((c) => [c.name, c]));
+    const desiredCols = new Map(dt.columns.map((c) => [c.name, c]));
+
+    for (const dc of dt.columns) {
+      const ac = actualCols.get(dc.name);
+      if (!ac) {
+        push(buildAddColumnSQL(name, dc));
+        continue;
+      }
+      // Compare type
+      const dType = normalizeType(dc.sqlType);
+      const aType = normalizeType(ac.type);
+      if (dType !== aType) {
+        push(
+          `ALTER TABLE "${name}" ALTER COLUMN "${dc.name}" SET DATA TYPE ${dc.sqlType}; -- was ${ac.type}`,
+        );
+      }
+      // Nullability
+      if (dc.notNull && ac.nullable) {
+        push(`ALTER TABLE "${name}" ALTER COLUMN "${dc.name}" SET NOT NULL;`);
+      } else if (!dc.notNull && !ac.nullable) {
+        push(`ALTER TABLE "${name}" ALTER COLUMN "${dc.name}" DROP NOT NULL;`);
+      }
+      // Default
+      const dDef = normalizeDefault(dc.defaultLiteral);
+      const aDef = normalizeDefault(ac.default);
+      if (dDef === "__SEQ__" || aDef === "__SEQ__") {
+        // sequence-managed, skip
+      } else if (dDef !== aDef) {
+        if (dDef == null) {
+          push(`ALTER TABLE "${name}" ALTER COLUMN "${dc.name}" DROP DEFAULT;`);
+        } else {
+          push(
+            `ALTER TABLE "${name}" ALTER COLUMN "${dc.name}" SET DEFAULT ${dc.defaultLiteral};`,
+          );
+        }
+      }
+    }
+    for (const ac of at.columns) {
+      if (!desiredCols.has(ac.name)) {
+        push(`ALTER TABLE "${name}" DROP COLUMN "${ac.name}";`);
+      }
+    }
+  }
+
+  const planId = crypto.randomUUID();
+  const warnings: string[] = [];
+  const dropTables = statements.filter((s) => s.kind === "drop_table").length;
+  const dropCols = statements.filter((s) => s.kind === "drop_column").length;
+  if (dropTables > 0)
+    warnings.push(`${dropTables} DROP TABLE statement(s) will permanently delete data.`);
+  if (dropCols > 0)
+    warnings.push(`${dropCols} DROP COLUMN statement(s) will permanently delete data.`);
+  const plan: Plan = {
+    planId,
+    targetEnv,
+    generatedAt: new Date().toISOString(),
+    statements,
+    promptsLog: [],
+    noChanges: statements.length === 0,
+    hasAmbiguous: false,
+    warnings,
+  };
+  planCache.set(planId, plan);
+  return plan;
 }
 
 export function classifyStatement(sqlIn: string, index: number): PlanStatement {
