@@ -97,6 +97,68 @@ function backupsDir(): string {
   return dir;
 }
 
+// ---------------- Promotion gating (dev → test → prod) ----------------
+
+function certificationsFile(): string {
+  const dir = path.join(process.cwd(), "migrations", "schema-backups");
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, "certifications.json");
+}
+
+interface Certification {
+  sha: string;            // sha256 of normalized statements
+  certifiedAt: string;
+  certifiedBy?: string;   // userId if known
+  statementCount: number;
+  snapshotFile?: string;  // pre-apply snapshot of test
+}
+
+function readCerts(): Certification[] {
+  try {
+    const f = certificationsFile();
+    if (!fs.existsSync(f)) return [];
+    return JSON.parse(fs.readFileSync(f, "utf8")) as Certification[];
+  } catch {
+    return [];
+  }
+}
+
+function writeCerts(certs: Certification[]) {
+  fs.writeFileSync(certificationsFile(), JSON.stringify(certs, null, 2));
+}
+
+export function planSha(plan: Plan): string {
+  const norm = plan.statements
+    .map((s) => s.sql.replace(/\s+/g, " ").trim())
+    .join("\n;\n");
+  return crypto.createHash("sha256").update(norm).digest("hex");
+}
+
+export function isPlanCertified(plan: Plan): { certified: boolean; record?: Certification } {
+  const sha = planSha(plan);
+  const rec = readCerts().find((c) => c.sha === sha);
+  return rec ? { certified: true, record: rec } : { certified: false };
+}
+
+export function listCertifications(): Certification[] {
+  return readCerts().sort((a, b) => (a.certifiedAt < b.certifiedAt ? 1 : -1));
+}
+
+function recordCertification(plan: Plan, snapshotFile?: string, userId?: string) {
+  const certs = readCerts();
+  const sha = planSha(plan);
+  if (!certs.find((c) => c.sha === sha)) {
+    certs.push({
+      sha,
+      certifiedAt: new Date().toISOString(),
+      certifiedBy: userId,
+      statementCount: plan.statements.length,
+      snapshotFile,
+    });
+    writeCerts(certs);
+  }
+}
+
 // ---------------- Introspection / Snapshots ----------------
 
 export async function introspectSchema(env: Env): Promise<SchemaSnapshot["tables"]> {
@@ -442,7 +504,7 @@ export interface ApplyEvent {
 
 export async function applyPlan(
   plan: Plan,
-  opts: { confirmProd?: boolean } = {},
+  opts: { confirmProd?: boolean; userId?: string } = {},
   onEvent?: (e: ApplyEvent) => void,
 ): Promise<ApplyResult> {
   const start = Date.now();
@@ -452,13 +514,35 @@ export async function applyPlan(
     } catch {}
   };
 
-  if (plan.targetEnv === "production" && !opts.confirmProd) {
-    return {
-      success: false,
-      appliedCount: 0,
-      error: "Production apply requires explicit confirmation",
-      durationMs: Date.now() - start,
-    };
+  // Promotion policy: changes flow dev → test → production.
+  // Direct apply to production is forbidden unless this exact plan was
+  // already certified by a successful apply against the test environment.
+  if (plan.targetEnv === "production") {
+    if (!opts.confirmProd) {
+      return {
+        success: false,
+        appliedCount: 0,
+        error: "Production apply requires explicit confirmation",
+        durationMs: Date.now() - start,
+      };
+    }
+    const cert = isPlanCertified(plan);
+    if (!cert.certified) {
+      const msg =
+        "Production apply rejected: this plan has not been certified by a successful apply against Test. " +
+        "Apply the same plan to Test first, then re-generate the plan for Production.";
+      emit({ type: "error", error: msg });
+      return {
+        success: false,
+        appliedCount: 0,
+        error: msg,
+        durationMs: Date.now() - start,
+      };
+    }
+    emit({
+      type: "info",
+      message: `Plan certified by Test apply at ${cert.record!.certifiedAt}`,
+    } as any);
   }
   if (plan.noChanges || plan.statements.length === 0) {
     emit({ type: "done", ok: true, message: "No changes to apply" });
@@ -520,6 +604,16 @@ export async function applyPlan(
     }
     await client.query("COMMIT");
     emit({ type: "commit" });
+    // A successful Test apply certifies this exact plan for promotion to Production.
+    if (plan.targetEnv === "test") {
+      try {
+        recordCertification(plan, snapshotFile, opts.userId);
+        emit({
+          type: "info",
+          message: "Plan certified — promotion to Production unlocked",
+        } as any);
+      } catch {}
+    }
     emit({ type: "done", ok: true, message: `Applied ${i} statement(s)` });
     return {
       success: true,

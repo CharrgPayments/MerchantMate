@@ -29,6 +29,9 @@ interface Plan {
   statements: PlanStatement[];
   hasAmbiguous: boolean;
   warnings: string[];
+  sha?: string;
+  certifiedFromTest?: boolean;
+  certification?: { certifiedAt: string; certifiedBy?: string } | null;
 }
 interface SnapshotItem {
   file: string;
@@ -270,6 +273,31 @@ export default function SchemaSyncPanel() {
                     ⚠ Provide rename answers above and regenerate to resolve.
                   </span>
                 )}
+                {plan.targetEnv === "production" && (
+                  plan.certifiedFromTest ? (
+                    <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200">
+                      ✓ Certified by Test {plan.certification?.certifiedAt
+                        ? `at ${new Date(plan.certification.certifiedAt).toLocaleString()}`
+                        : ""}
+                    </Badge>
+                  ) : (
+                    <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
+                      ✗ Not certified by Test — apply to Test first
+                    </Badge>
+                  )
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {plan && plan.targetEnv === "production" && !plan.certifiedFromTest && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                <strong>Promotion policy:</strong> changes flow Development → Test → Production.
+                This plan has not been certified by a successful apply against Test, so Production
+                apply is blocked. Switch the target to <strong>test</strong>, apply there, then
+                regenerate the plan for <strong>production</strong>.
               </AlertDescription>
             </Alert>
           )}
@@ -322,9 +350,18 @@ export default function SchemaSyncPanel() {
               <div className="flex gap-2">
                 <Button
                   onClick={onApplyClick}
-                  disabled={applying || plan.hasAmbiguous}
+                  disabled={
+                    applying ||
+                    plan.hasAmbiguous ||
+                    (plan.targetEnv === "production" && !plan.certifiedFromTest)
+                  }
                   variant={plan.targetEnv === "production" ? "destructive" : "default"}
                   data-testid="button-apply-plan"
+                  title={
+                    plan.targetEnv === "production" && !plan.certifiedFromTest
+                      ? "Apply to Test first to certify this plan"
+                      : undefined
+                  }
                 >
                   {applying ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
                   Apply to {plan.targetEnv}

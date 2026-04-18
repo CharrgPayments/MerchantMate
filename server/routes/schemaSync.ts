@@ -5,6 +5,9 @@ import {
   applyPlan,
   rollback,
   listSnapshots,
+  listCertifications,
+  isPlanCertified,
+  planSha,
   type Env,
   type ApplyEvent,
 } from "../schemaSync";
@@ -33,7 +36,16 @@ export function registerSchemaSyncRoutes(app: Express, requirePerm: any) {
           targetEnv,
           Array.isArray(renameAnswers) ? renameAnswers.map((n: any) => Number(n) || 0) : [],
         );
-        res.json({ success: true, plan });
+        const cert = isPlanCertified(plan);
+        res.json({
+          success: true,
+          plan: {
+            ...plan,
+            sha: planSha(plan),
+            certifiedFromTest: cert.certified,
+            certification: cert.record ?? null,
+          },
+        });
       } catch (e: any) {
         console.error("[schema-sync] plan error:", e);
         res.status(500).json({ success: false, message: e?.message ?? String(e) });
@@ -71,7 +83,12 @@ export function registerSchemaSyncRoutes(app: Express, requirePerm: any) {
       };
 
       try {
-        const result = await applyPlan(plan, { confirmProd: !!confirmProd }, send);
+        const userId = (req.session as any)?.userId;
+        const result = await applyPlan(
+          plan,
+          { confirmProd: !!confirmProd, userId },
+          send,
+        );
         send({ type: "done", ok: result.success, message: JSON.stringify(result) });
 
         try {
@@ -137,6 +154,15 @@ export function registerSchemaSyncRoutes(app: Express, requirePerm: any) {
       } finally {
         res.end();
       }
+    },
+  );
+
+  // GET /api/admin/schema-sync/certifications
+  app.get(
+    "/api/admin/schema-sync/certifications",
+    requirePerm("system:superadmin"),
+    async (_req: Request, res: Response) => {
+      res.json({ success: true, certifications: listCertifications() });
     },
   );
 
