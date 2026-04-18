@@ -63,6 +63,17 @@ export async function detectSlaBreaches(): Promise<{ inserted: number }> {
   const now = new Date();
   let inserted = 0;
   try {
+    // Task #29: SLA source of truth is now `workflow_stages.timeout_minutes`
+    // for the ticket's current stage. Refresh deadlines into
+    // `prospect_applications.sla_deadline` BEFORE running the scan so
+    // existing breach detection / acknowledgment / email logic keeps
+    // working unchanged.
+    try {
+      const { refreshAllOpenTicketSlaDeadlines } = await import("./underwriting/workflowMirror");
+      await refreshAllOpenTicketSlaDeadlines(db as unknown as Parameters<typeof refreshAllOpenTicketSlaDeadlines>[0]);
+    } catch (e) {
+      console.error("[complianceJobs] refreshAllOpenTicketSlaDeadlines failed", e);
+    }
     const overdue = await db.select({
       id: prospectApplications.id,
       prospectId: prospectApplications.prospectId,

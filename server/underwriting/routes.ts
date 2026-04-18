@@ -212,7 +212,49 @@ export function registerUnderwritingRoutes(app: Express) {
         const transitions = allowedTransitions(appRow.status as AppStatus).filter(
           (t: TransitionRule) => !!getActionScope(actor, t.requires, overrides),
         );
-        res.json({ application: appRow, latestRun: latest, runs, phases, allPhases, issues, transitions });
+        // Task #29: include the workflow ticket's current stage so the
+        // review page's "current stage / next action" widget mirrors
+        // what the unified Worklist shows.
+        let ticketInfo: {
+          ticketId: number;
+          ticketNumber: string;
+          status: string;
+          dueAt: Date | null;
+          currentStageCode: string | null;
+          currentStageName: string | null;
+          assignedToId: string | null;
+        } | null = null;
+        try {
+          const tRes = await db.execute(sqlTag`
+            SELECT wt.id AS ticket_id,
+                   wt.ticket_number,
+                   wt.status,
+                   wt.due_at,
+                   wt.assigned_to_id,
+                   ws.code AS current_stage_code,
+                   ws.name AS current_stage_name
+            FROM workflow_tickets wt
+            LEFT JOIN workflow_stages ws ON ws.id = wt.current_stage_id
+            WHERE wt.entity_type = 'prospect_application' AND wt.entity_id = ${applicationId}
+            LIMIT 1
+          `) as { rows?: Array<{
+            ticket_id: number; ticket_number: string; status: string;
+            due_at: Date | null; assigned_to_id: string | null;
+            current_stage_code: string | null; current_stage_name: string | null;
+          }> };
+          const t = tRes.rows?.[0];
+          if (t) {
+            ticketInfo = {
+              ticketId: t.ticket_id, ticketNumber: t.ticket_number,
+              status: t.status, dueAt: t.due_at, assignedToId: t.assigned_to_id,
+              currentStageCode: t.current_stage_code,
+              currentStageName: t.current_stage_name,
+            };
+          }
+        } catch (e) {
+          console.error(`[underwriting] load ticket info failed for app=${applicationId}:`, e);
+        }
+        res.json({ application: appRow, latestRun: latest, runs, phases, allPhases, issues, transitions, ticket: ticketInfo });
       } catch (err) {
         res.status(500).json({ message: err instanceof Error ? err.message : "Failed" });
       }
@@ -338,6 +380,19 @@ export function registerUnderwritingRoutes(app: Express) {
           return res.status(403).json({ message: "Your scope only allows claiming applications to yourself" });
         }
         await db.update(prospectApplications).set({ assignedReviewerId: reviewerId, updatedAt: new Date() }).where(eq(prospectApplications.id, applicationId));
+        // Task #29: keep workflow_tickets.assigned_to_id in sync so the
+        // unified Worklist shows the same assignee.
+        try {
+          await db.execute(sqlTag`
+            UPDATE workflow_tickets SET
+              assigned_to_id = ${reviewerId},
+              assigned_at = NOW(),
+              updated_at = NOW()
+            WHERE entity_type = 'prospect_application' AND entity_id = ${applicationId}
+          `);
+        } catch (e) {
+          console.error(`[underwriting] mirror assignee to workflow ticket failed for app=${applicationId}:`, e);
+        }
         await audit(req, "update", "application_reviewer", String(applicationId), {
           oldValues: { assignedReviewerId: appRow.assignedReviewerId }, newValues: { assignedReviewerId: reviewerId },
         });
@@ -659,7 +714,54 @@ export function registerUnderwritingRoutes(app: Express) {
           .orderBy(desc(prospectApplications.updatedAt))
           .limit(500);
 
-        res.json(rows);
+        // Task #29: enrich each row with workflow_ticket fields so the
+        // queue page can show the same "current stage / due_at" the
+        // unified Worklist shows. We do a batched lookup keyed by
+        // application id to keep this O(1) extra query.
+        type TicketRow = {
+          application_id: number;
+          ticket_id: number;
+          ticket_status: string;
+          ticket_due_at: Date | null;
+          current_stage_code: string | null;
+          current_stage_name: string | null;
+          ticket_assigned_to_id: string | null;
+        };
+        const ticketsByApp = new Map<number, TicketRow>();
+        const ids = rows.map(r => r.id);
+        if (ids.length > 0) {
+          const inList = sqlTag.join(ids.map(i => sqlTag`${i}`), sqlTag`,`);
+          const ticketRes = await db.execute(sqlTag`
+            SELECT wt.entity_id AS application_id,
+                   wt.id AS ticket_id,
+                   wt.status AS ticket_status,
+                   wt.due_at AS ticket_due_at,
+                   ws.code AS current_stage_code,
+                   ws.name AS current_stage_name,
+                   wt.assigned_to_id AS ticket_assigned_to_id
+            FROM workflow_tickets wt
+            LEFT JOIN workflow_stages ws ON ws.id = wt.current_stage_id
+            WHERE wt.entity_type = 'prospect_application'
+              AND wt.entity_id IN (${inList})
+          `) as { rows?: TicketRow[] };
+          for (const t of ticketRes.rows ?? []) ticketsByApp.set(t.application_id, t);
+        }
+        const enriched = rows.map(r => {
+          const t = ticketsByApp.get(r.id);
+          return {
+            ...r,
+            ticketId: t?.ticket_id ?? null,
+            ticketStatus: t?.ticket_status ?? null,
+            ticketDueAt: t?.ticket_due_at ?? null,
+            currentStageCode: t?.current_stage_code ?? null,
+            currentStageName: t?.current_stage_name ?? null,
+            // Prefer ticket assignment when present so the unified ticket
+            // is the source of truth for "who owns this".
+            assignedReviewerId: t?.ticket_assigned_to_id ?? r.assignedReviewerId,
+          };
+        });
+
+        res.json(enriched);
       } catch (err) {
         res.status(500).json({ message: err instanceof Error ? err.message : "Failed" });
       }

@@ -13,7 +13,7 @@ import {
 import { computeRiskScore } from "./scoring";
 import type { getDynamicDatabase } from "../db";
 import { BUILTIN_VERIFIERS, hasBuiltin } from "./verifiers";
-import { ensureTicket, upsertTicketStage, markTicketPipelineFinished } from "./workflowMirror";
+import { ensureTicket, upsertTicketStage, markTicketPipelineFinished, refreshTicketSlaDeadline } from "./workflowMirror";
 
 type DB = ReturnType<typeof getDynamicDatabase>;
 
@@ -438,6 +438,13 @@ export async function runUnderwritingPipeline(opts: {
           ticketId: ticketCtx.ticketId,
           haltedAtPhase, riskScore: score, riskTier: tier,
         });
+        // Task #29: derive ticket SLA from current stage's timeout_minutes
+        // and mirror to prospect_applications.sla_deadline.
+        await refreshTicketSlaDeadline({
+          db: db as unknown as Parameters<typeof refreshTicketSlaDeadline>[0]["db"],
+          ticketId: ticketCtx.ticketId,
+          applicationId,
+        });
       } catch (e) {
         console.error(`[orchestrator] markTicketPipelineFinished failed for app=${applicationId}:`, e);
       }
@@ -498,6 +505,20 @@ export async function runManualPhase(opts: {
   await db.update(underwritingRuns).set({
     status: "completed", currentPhase: null, completedAt: new Date(),
   }).where(eq(underwritingRuns.id, run.id));
+
+  // Task #29: refresh ticket SLA after a manual phase since the current
+  // workflow stage just changed.
+  if (ticketCtx) {
+    try {
+      await refreshTicketSlaDeadline({
+        db: db as unknown as Parameters<typeof refreshTicketSlaDeadline>[0]["db"],
+        ticketId: ticketCtx.ticketId,
+        applicationId,
+      });
+    } catch (e) {
+      console.error(`[orchestrator] refreshTicketSlaDeadline (manual) failed for app=${applicationId}:`, e);
+    }
+  }
 
   return { runId: run.id, phaseKey, result };
 }

@@ -32,6 +32,12 @@ interface QueueRow {
   email: string | null;
   companyName: string | null;
   acquirerName: string | null;
+  // Task #29: workflow ticket fields surfaced from the unified Worklist.
+  ticketId: number | null;
+  ticketStatus: string | null;
+  ticketDueAt: string | null;
+  currentStageCode: string | null;
+  currentStageName: string | null;
 }
 
 function tierBadge(tier: string | null) {
@@ -211,6 +217,7 @@ export default function UnderwritingQueue() {
                 <TableHead>Acquirer</TableHead>
                 <TableHead>Pathway</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Stage</TableHead>
                 <TableHead>Risk</TableHead>
                 <TableHead>Score</TableHead>
                 <TableHead>SLA / Halt</TableHead>
@@ -223,7 +230,7 @@ export default function UnderwritingQueue() {
               {isLoading ? (
                 <TableRow><TableCell colSpan={12} className="text-center py-8 text-gray-500">Loading…</TableCell></TableRow>
               ) : filtered.length === 0 ? (
-                <TableRow><TableCell colSpan={12} className="text-center py-8 text-gray-500">No applications match your filters</TableCell></TableRow>
+                <TableRow><TableCell colSpan={13} className="text-center py-8 text-gray-500">No applications match your filters</TableCell></TableRow>
               ) : filtered.map(r => (
                 <TableRow key={r.id}>
                   <TableCell className="font-mono">#{r.id}</TableCell>
@@ -235,6 +242,11 @@ export default function UnderwritingQueue() {
                   <TableCell>{r.acquirerName || "—"}</TableCell>
                   <TableCell><Badge variant="outline">{r.pathway}</Badge></TableCell>
                   <TableCell>{statusBadge(r.status)}</TableCell>
+                  <TableCell data-testid={`stage-${r.id}`}>
+                    {r.currentStageName ? (
+                      <Badge variant="outline" className="text-xs">{r.currentStageName}</Badge>
+                    ) : <span className="text-xs text-gray-400">—</span>}
+                  </TableCell>
                   <TableCell>{tierBadge(r.riskTier)}</TableCell>
                   <TableCell>{r.riskScore ?? "—"}</TableCell>
                   <TableCell>

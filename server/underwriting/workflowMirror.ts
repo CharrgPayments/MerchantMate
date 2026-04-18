@@ -248,6 +248,87 @@ export async function markTicketPipelineFinished(opts: {
   `);
 }
 
+// Task #29: Recompute the ticket's SLA deadline from
+// `workflow_stages.timeout_minutes` for the current stage and propagate
+// it to both `workflow_tickets.due_at` and the legacy
+// `prospect_applications.sla_deadline` so existing SLA scans, badges,
+// and emails keep working without changing their query shape.
+//
+// Rules:
+//  - If pipeline is halted at a checkpoint, deadline is null (work is
+//    blocked on a reviewer decision; SLA timer should not run).
+//  - If current_stage_id is null (no active stage), deadline is null.
+//  - If the stage has no timeout_minutes configured, deadline is null.
+//  - Otherwise deadline = (current_stage's started_at OR ticket.started_at
+//    OR now) + timeout_minutes.
+export async function refreshTicketSlaDeadline(opts: {
+  db: MirrorDB;
+  ticketId: number;
+  applicationId: number;
+}): Promise<{ deadline: Date | null }> {
+  const { db, ticketId, applicationId } = opts;
+  const row = await firstRow<{
+    timeout_minutes: number | null;
+    stage_started_at: Date | null;
+    ticket_started_at: Date | null;
+    halted_at: string | null;
+    current_stage_id: number | null;
+  }>(db, sql`
+    SELECT ws.timeout_minutes,
+           wts.started_at AS stage_started_at,
+           wt.started_at AS ticket_started_at,
+           pa.pipeline_halted_at_phase AS halted_at,
+           wt.current_stage_id
+    FROM workflow_tickets wt
+    LEFT JOIN workflow_stages ws ON ws.id = wt.current_stage_id
+    LEFT JOIN workflow_ticket_stages wts
+      ON wts.ticket_id = wt.id AND wts.stage_id = wt.current_stage_id
+    LEFT JOIN prospect_applications pa ON pa.id = wt.entity_id
+    WHERE wt.id = ${ticketId}
+    LIMIT 1
+  `);
+  let deadline: Date | null = null;
+  if (row && !row.halted_at && row.current_stage_id && row.timeout_minutes) {
+    const anchor = row.stage_started_at
+      ? new Date(row.stage_started_at)
+      : row.ticket_started_at
+      ? new Date(row.ticket_started_at)
+      : new Date();
+    deadline = new Date(anchor.getTime() + row.timeout_minutes * 60_000);
+  }
+  await db.execute(sql`
+    UPDATE workflow_tickets SET due_at = ${deadline}, updated_at = NOW() WHERE id = ${ticketId}
+  `);
+  await db.execute(sql`
+    UPDATE prospect_applications SET sla_deadline = ${deadline}, updated_at = NOW() WHERE id = ${applicationId}
+  `);
+  return { deadline };
+}
+
+// Refresh SLA deadlines for every active underwriting ticket. Used by
+// the SLA scan job so deadlines reflect the current workflow stage's
+// timeout_minutes before breach detection runs.
+export async function refreshAllOpenTicketSlaDeadlines(db: MirrorDB): Promise<{ refreshed: number }> {
+  const r = (await db.execute(sql`
+    SELECT wt.id AS ticket_id, wt.entity_id AS application_id
+    FROM workflow_tickets wt
+    JOIN prospect_applications pa ON pa.id = wt.entity_id
+    WHERE wt.entity_type = 'prospect_application'
+      AND pa.status IN ('SUB','CUW','P1','P2','P3')
+      AND pa.archived_at IS NULL
+  `)) as ExecResult<{ ticket_id: number; application_id: number }>;
+  let refreshed = 0;
+  for (const t of r.rows ?? []) {
+    try {
+      await refreshTicketSlaDeadline({ db, ticketId: t.ticket_id, applicationId: t.application_id });
+      refreshed += 1;
+    } catch (e) {
+      console.error(`[workflowMirror] refreshTicketSlaDeadline failed for ticket=${t.ticket_id}:`, e);
+    }
+  }
+  return { refreshed };
+}
+
 // Helper used by routes to find the application backing a ticket stage,
 // when dispatching manual approvals back into the underwriting domain.
 export async function loadTicketContext(

@@ -48,6 +48,16 @@ interface ReviewData {
   issues: { id: number; severity: string; message: string; phaseKey: string; code: string;
     fieldPath: string | null; status: string; resolutionNote: string | null }[];
   transitions: { to: AppStatus; requires: string; requireReason: boolean; description: string }[];
+  // Task #29: workflow ticket info — the unified Worklist's view of this app.
+  ticket: {
+    ticketId: number;
+    ticketNumber: string;
+    status: string;
+    dueAt: string | null;
+    currentStageCode: string | null;
+    currentStageName: string | null;
+    assignedToId: string | null;
+  } | null;
 }
 
 const PHASE_STATUS_ICON: Record<string, JSX.Element> = {
@@ -337,6 +347,19 @@ export default function UnderwritingReview() {
             <div><div className="text-gray-500">Submitted</div><div className="font-medium">{app.submittedAt ? new Date(app.submittedAt).toLocaleString() : "—"}</div></div>
             <div><div className="text-gray-500">Reviewer</div><div className="font-medium">{app.assignedReviewerId || "Unassigned"}</div></div>
           </div>
+          {data.ticket && (
+            <div className="mt-4 border rounded-md p-3 bg-blue-50 flex flex-wrap items-center gap-3 text-sm" data-testid="workflow-ticket-widget">
+              <Badge variant="outline" className="font-mono">{data.ticket.ticketNumber}</Badge>
+              <Badge className="bg-blue-100 text-blue-800">Ticket: {data.ticket.status}</Badge>
+              <div>
+                <span className="text-gray-500">Current stage: </span>
+                <span className="font-medium">{data.ticket.currentStageName || "—"}</span>
+              </div>
+              {data.ticket.dueAt && (
+                <div className="ml-auto"><SlaCountdown deadline={data.ticket.dueAt} /></div>
+              )}
+            </div>
+          )}
           {transitions.length > 0 && (
             <div className="mt-4 flex flex-wrap gap-2">
               {transitions.map(t => (
