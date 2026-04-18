@@ -63,13 +63,17 @@ const baseNavigation: NavItem[] = [
   { name: "Transactions", href: "/transactions", icon: Receipt, requiresAction: ACTIONS.NAV_TRANSACTIONS },
   { name: "Commissions", href: "/commissions", icon: DollarSign, requiresAction: ACTIONS.NAV_COMMISSIONS },
   { name: "PDF Forms", href: "/pdf-forms", icon: Upload, requiresAction: ACTIONS.NAV_PDF_FORMS },
-  { name: "Users", href: "/users", icon: User, requiresAction: ACTIONS.NAV_USERS },
+  {
+    name: "Users", href: "/users", icon: User, requiresAction: ACTIONS.NAV_USERS,
+    subItems: [
+      { name: "Roles & Permissions", href: "/roles-permissions", icon: KeyRound, requiresAction: ACTIONS.NAV_PERMISSION_MATRIX },
+    ],
+  },
   { name: "Reports", href: "/reports", icon: FileText, requiresAction: ACTIONS.NAV_REPORTS },
   { name: "Security", href: "/security", icon: Shield, requiresAction: ACTIONS.NAV_SECURITY },
   { name: "Communications", href: "/communications", icon: Mail, requiresAction: ACTIONS.NAV_COMMUNICATIONS },
   { name: "Workflows", href: "/workflows", icon: Zap, requiresAction: ACTIONS.NAV_WORKFLOWS },
   { name: "API Documentation", href: "/api-documentation", icon: Book, requiresAction: ACTIONS.NAV_API_DOCS },
-  { name: "Roles & Permissions", href: "/roles-permissions", icon: KeyRound, requiresAction: ACTIONS.NAV_PERMISSION_MATRIX },
   { name: "Admin Operations", href: "/admin-operations", icon: Activity, requiresAction: ACTIONS.NAV_ADMIN_OPERATIONS },
   { name: "Testing Utilities", href: "/testing-utilities", icon: TestTube, requiresAction: ACTIONS.NAV_TESTING },
 ];
