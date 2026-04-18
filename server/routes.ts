@@ -17,6 +17,7 @@ import { v4 as uuidv4 } from "uuid";
 import { dbEnvironmentMiddleware, adminDbMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
 import { registerUnderwritingRoutes } from "./underwriting/routes";
 import { registerCommissionsRoutes } from "./routes/commissions";
+import { registerSchemaSyncRoutes } from "./routes/schemaSync";
 import { calculateCommissionsForTransaction } from "./commissions";
 import { getDynamicDatabase } from "./db";
 import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity, agentHierarchy, merchantHierarchy, underwritingStatusHistory, prospectApplications as prospectAppsTable } from "@shared/schema";
@@ -10845,6 +10846,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ─── Epic B — Underwriting Engine API ──────────────────────────────────────
   registerUnderwritingRoutes(app);
   registerCommissionsRoutes(app);
+  registerSchemaSyncRoutes(app, requirePerm);
 
   const httpServer = createServer(app);
   return httpServer;

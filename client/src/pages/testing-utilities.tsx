@@ -11,7 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import TestingDashboard from "@/components/TestingDashboard";
-import { Trash2, RefreshCw, Database, CheckCircle, X, Server, Shield, ShieldCheck, TestTube, Settings, Play, Pause, BarChart3, FileText, AlertCircle, Clock } from "lucide-react";
+import { Trash2, RefreshCw, Database, CheckCircle, X, Server, Shield, ShieldCheck, TestTube, Settings, Play, Pause, BarChart3, FileText, AlertCircle, Clock, GitBranch, AlertTriangle, RotateCcw, History } from "lucide-react";
+import SchemaSyncPanel from "@/components/SchemaSyncPanel";
 
 interface ResetResult {
   success: boolean;
@@ -172,7 +173,7 @@ export default function TestingUtilities() {
     <div className="space-y-6">
       {/* Main Tabs for Testing Features */}
       <Tabs defaultValue="dashboard" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="dashboard" className="flex items-center gap-2">
             <TestTube className="h-4 w-4" />
             Test Dashboard
@@ -181,7 +182,15 @@ export default function TestingUtilities() {
             <Database className="h-4 w-4" />
             Data Utilities
           </TabsTrigger>
+          <TabsTrigger value="schema-sync" className="flex items-center gap-2" data-testid="tab-schema-sync">
+            <GitBranch className="h-4 w-4" />
+            Schema Sync
+          </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="schema-sync" className="space-y-4">
+          <SchemaSyncPanel />
+        </TabsContent>
 
         <TabsContent value="dashboard" className="space-y-4">
           <TestingDashboard />
