@@ -63,6 +63,31 @@ interface Owner {
   signatureType?: string;
 }
 
+interface SignatureCert {
+  signedAt: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  documentHash: string | null;
+  signatureType: string;
+}
+
+interface OwnerSignatureStatus {
+  name: string;
+  email: string;
+  percentage: string;
+  hasSignature: boolean;
+  cert: SignatureCert | null;
+}
+
+interface SignatureStatus {
+  required: number;
+  completed: number;
+  pending: number;
+  isComplete: boolean;
+  needsAttention: boolean;
+  ownerStatus: OwnerSignatureStatus[];
+}
+
 export default function ApplicationView() {
   const [, params] = useRoute('/application-view/:id');
   const prospectId = params?.id;
@@ -89,7 +114,7 @@ export default function ApplicationView() {
   });
 
   // Fetch signature status using database signatures
-  const { data: signatureStatus } = useQuery({
+  const { data: signatureStatus } = useQuery<SignatureStatus>({
     queryKey: ['/api/prospects', prospectId, 'signature-status'],
     queryFn: async () => {
       const response = await fetch(`/api/prospects/${prospectId}/signature-status`);
@@ -605,22 +630,24 @@ export default function ApplicationView() {
               })()}
 
               {/* E-Sign Certificate Summary (Epic F) — per-owner cert evidence */}
-              {signatureStatus?.ownerStatus?.some((o: any) => o.cert) && (
+              {signatureStatus?.ownerStatus?.some((o) => o.cert) && (
                 <div className="mt-6 pt-4 border-t" data-testid="esign-cert-summary">
                   <h4 className="text-sm font-semibold text-gray-700 mb-2">E-Sign Certificate (audit trail)</h4>
                   <div className="space-y-2">
-                    {signatureStatus.ownerStatus.filter((o: any) => o.cert).map((o: any, idx: number) => (
-                      <div key={idx} className="rounded border border-gray-200 bg-gray-50 p-3 text-xs space-y-1" data-testid={`esign-cert-${idx}`}>
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium text-gray-800">{o.name}</span>
-                          <span className="text-gray-500">{o.cert.signatureType === 'draw' ? 'Drawn' : 'Typed'}</span>
+                    {signatureStatus.ownerStatus
+                      .filter((o): o is OwnerSignatureStatus & { cert: SignatureCert } => o.cert !== null)
+                      .map((o, idx) => (
+                        <div key={idx} className="rounded border border-gray-200 bg-gray-50 p-3 text-xs space-y-1" data-testid={`esign-cert-${idx}`}>
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium text-gray-800">{o.name}</span>
+                            <span className="text-gray-500">{o.cert.signatureType === 'draw' ? 'Drawn' : 'Typed'}</span>
+                          </div>
+                          <div><span className="text-gray-500">Signed:</span> {o.cert.signedAt ? new Date(o.cert.signedAt).toLocaleString() : '—'}</div>
+                          <div><span className="text-gray-500">IP:</span> {o.cert.ipAddress ?? '—'}</div>
+                          <div className="truncate"><span className="text-gray-500">User-Agent:</span> {o.cert.userAgent ?? '—'}</div>
+                          <div className="truncate"><span className="text-gray-500">Document SHA-256:</span> <code className="font-mono">{o.cert.documentHash ?? '—'}</code></div>
                         </div>
-                        <div><span className="text-gray-500">Signed:</span> {o.cert.signedAt ? new Date(o.cert.signedAt).toLocaleString() : '—'}</div>
-                        <div><span className="text-gray-500">IP:</span> {o.cert.ipAddress ?? '—'}</div>
-                        <div className="truncate"><span className="text-gray-500">User-Agent:</span> {o.cert.userAgent ?? '—'}</div>
-                        <div className="truncate"><span className="text-gray-500">Document SHA-256:</span> <code className="font-mono">{o.cert.documentHash ?? '—'}</code></div>
-                      </div>
-                    ))}
+                      ))}
                   </div>
                 </div>
               )}

@@ -548,6 +548,11 @@ export function registerUnderwritingRoutes(app: Express) {
           conds.push(isNull(prospectApplications.assignedReviewerId) as ReturnType<typeof eq>);
         }
 
+        // Epic F: never include applications that have been moved to the
+        // archived ledger — they are read-only and should not appear in any
+        // active management queue.
+        conds.push(sqlTag`NOT EXISTS (SELECT 1 FROM archived_applications aa WHERE aa.original_application_id = ${prospectApplications.id})` as ReturnType<typeof eq>);
+
         // Scope-aware: 'own' permission scope sees their own assignments PLUS
         // unassigned items (so they can pick up new work).
         if (req.permScope === 'own') {
