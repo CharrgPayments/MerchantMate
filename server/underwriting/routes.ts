@@ -396,7 +396,6 @@ export function registerUnderwritingRoutes(app: Express) {
     dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_VIEW_QUEUE),
     async (req: RequestWithDB, res) => {
       const applicationId = parseInt(req.params.id);
-        if (await blockIfArchived(applicationId, res)) return;
       if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
       const db = getRequestDB(req);
       const tasks = await db.select().from(underwritingTasks)
@@ -448,7 +447,6 @@ export function registerUnderwritingRoutes(app: Express) {
     dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_VIEW_QUEUE),
     async (req: RequestWithDB, res) => {
       const applicationId = parseInt(req.params.id);
-        if (await blockIfArchived(applicationId, res)) return;
       if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
       const db = getRequestDB(req);
       const notes = await db.select().from(underwritingNotes)
@@ -640,7 +638,6 @@ export function registerUnderwritingRoutes(app: Express) {
     dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_VIEW_QUEUE),
     async (req: RequestWithDB, res) => {
       const applicationId = parseInt(req.params.id);
-        if (await blockIfArchived(applicationId, res)) return;
       if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
       const db = getRequestDB(req);
       const rows = await db.select().from(underwritingFiles)

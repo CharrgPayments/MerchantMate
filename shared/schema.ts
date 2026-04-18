@@ -511,6 +511,11 @@ export const prospectSignatures = pgTable("prospect_signatures", {
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
   documentHash: text("document_hash"), // sha256 of normalized payload that was signed
+  // Stable, immutable evidence URL for legal defense. Format:
+  //   /api/prospects/:prospectId/signature-trail#owner=<ownerId>
+  // Persisted at signing time so it survives later route refactors and can
+  // be quoted verbatim in audit exports / e-sign certificates.
+  recordLink: text("record_link"),
   submittedAt: timestamp("submitted_at").defaultNow(),
 });
 

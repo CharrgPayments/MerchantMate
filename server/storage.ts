@@ -1388,7 +1388,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createProspectSignature(signature: InsertProspectSignature): Promise<ProspectSignature> {
-    const [created] = await db.insert(prospectSignatures).values(signature).returning();
+    // Stamp the canonical, immutable evidence URL at signing time so it can
+    // be quoted verbatim in legal exports without depending on later route
+    // refactors.
+    const withRecordLink: InsertProspectSignature = {
+      ...signature,
+      recordLink:
+        signature.recordLink ??
+        `/api/prospects/${signature.prospectId}/signature-trail#owner=${signature.ownerId}`,
+    };
+    const [created] = await db.insert(prospectSignatures).values(withRecordLink).returning();
     return created;
   }
 

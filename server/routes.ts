@@ -3879,6 +3879,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               userAgent: sig.userAgent ?? null,
               documentHash: sig.documentHash ?? null,
               signatureType: sig.signatureType,
+              recordLink: sig.recordLink ?? `/api/prospects/${prospectId}/signature-trail#owner=${dbOwner?.id ?? ''}`,
             } : null,
           };
         })

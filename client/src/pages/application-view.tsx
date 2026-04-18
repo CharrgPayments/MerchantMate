@@ -69,6 +69,7 @@ interface SignatureCert {
   userAgent: string | null;
   documentHash: string | null;
   signatureType: string;
+  recordLink: string | null;
 }
 
 interface OwnerSignatureStatus {
@@ -646,6 +647,20 @@ export default function ApplicationView() {
                           <div><span className="text-gray-500">IP:</span> {o.cert.ipAddress ?? '—'}</div>
                           <div className="truncate"><span className="text-gray-500">User-Agent:</span> {o.cert.userAgent ?? '—'}</div>
                           <div className="truncate"><span className="text-gray-500">Document SHA-256:</span> <code className="font-mono">{o.cert.documentHash ?? '—'}</code></div>
+                          {o.cert.recordLink && (
+                            <div className="truncate">
+                              <span className="text-gray-500">Verifiable record:</span>{' '}
+                              <a
+                                href={o.cert.recordLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:underline font-mono"
+                                data-testid={`signature-record-link-${o.email}`}
+                              >
+                                {o.cert.recordLink}
+                              </a>
+                            </div>
+                          )}
                         </div>
                       ))}
                   </div>
