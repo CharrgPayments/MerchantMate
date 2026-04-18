@@ -18,7 +18,7 @@ import {
   archivedApplications,
   insertScheduledReportSchema,
 } from "@shared/schema";
-import { and, eq, desc, lt, isNotNull, sql, count } from "drizzle-orm";
+import { and, eq, desc, lt, isNotNull, sql, count, inArray } from "drizzle-orm";
 import { isAuthenticated, requirePerm } from "../replitAuth";
 import {
   detectSlaBreaches,
@@ -75,7 +75,12 @@ router.get("/applications/sla-status", isAuthenticated, requirePerm("admin:read"
       slaDeadline: prospectApplications.slaDeadline,
     })
     .from(prospectApplications)
-    .where(and(isNotNull(prospectApplications.slaDeadline), lt(prospectApplications.slaDeadline, now)));
+    .where(and(
+      isNotNull(prospectApplications.slaDeadline),
+      lt(prospectApplications.slaDeadline, now),
+      // Only open / time-bound states — closed (approved/declined/withdrawn) apps don't have an active SLA.
+      inArray(prospectApplications.status, ["SUB", "CUW", "P1", "P2", "P3"]),
+    ));
 
     const breaches = await db.select().from(slaBreaches)
       .where(eq(slaBreaches.acknowledged, false))
@@ -150,7 +155,7 @@ router.get("/prospects/:id/signature-trail", isAuthenticated, requirePerm("admin
 // ─── Scheduled reports CRUD ──────────────────────────────────────────────────
 
 const reportCadenceSchema = z.enum(["daily", "weekly", "monthly"]);
-const reportTemplateSchema = z.enum(["sla_summary", "underwriting_pipeline", "commission_payouts"]);
+const reportTemplateSchema = z.enum(["sla_summary", "underwriting_pipeline", "commission_payouts", "residual_summary", "prospect_funnel"]);
 
 const createReportSchema = z.object({
   name: z.string().min(1).max(120),
@@ -210,7 +215,7 @@ router.get("/admin/scheduled-reports/:id/runs", isAuthenticated, requirePerm("ad
 
 router.get("/admin/report-templates/:template/preview", isAuthenticated, requirePerm("admin:read"), async (req, res) => {
   const t = req.params.template as ReportTemplate;
-  if (!["sla_summary", "underwriting_pipeline", "commission_payouts"].includes(t)) {
+  if (!["sla_summary", "underwriting_pipeline", "commission_payouts", "residual_summary", "prospect_funnel"].includes(t)) {
     return res.status(400).json({ message: "Unknown template" });
   }
   const built = await buildReport(t);

@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { AlertTriangle, Clock, FileText, Play, RefreshCw, Trash2, Eye, ShieldAlert, CheckCircle2, Database } from "lucide-react";
+import { AlertTriangle, Clock, FileText, Play, RefreshCw, Trash2, Eye, ShieldAlert, CheckCircle2, Database, Archive } from "lucide-react";
 import { ROLE_CODES, getUserRoleCodes } from "@shared/permissions";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -69,16 +69,29 @@ type SchemaDriftAlert = {
   id: number;
   detectedAt: string;
   baseEnvironment: string;
-  comparedEnvironment: string;
-  differences: any;
+  targetEnvironment: string;
+  differenceCount: number;
+  differences: unknown;
   acknowledged: boolean;
   acknowledgedBy: string | null;
   acknowledgedAt: string | null;
 };
 
+type ArchivedApplication = {
+  id: number;
+  originalApplicationId: number;
+  prospectId: number | null;
+  finalStatus: string;
+  archivedAt: string;
+  archivedReason: string;
+  applicationSnapshot: unknown;
+};
+
 const TEMPLATES = [
   { value: "sla_summary", label: "SLA Breach Summary" },
-  { value: "underwriting_pipeline", label: "Underwriting Pipeline (Funnel)" },
+  { value: "underwriting_pipeline", label: "Underwriting Throughput" },
+  { value: "prospect_funnel", label: "Prospect Funnel" },
+  { value: "residual_summary", label: "Residual Summary (6mo)" },
   { value: "commission_payouts", label: "Commission Payouts (30-day)" },
 ];
 
@@ -483,7 +496,7 @@ function ReportsTab() {
 function SchemaDriftTab() {
   const { toast } = useToast();
   const { user } = useAuth();
-  const isSuper = getUserRoleCodes(user as any).includes(ROLE_CODES.SUPER_ADMIN);
+  const isSuper = getUserRoleCodes(user ?? null).includes(ROLE_CODES.SUPER_ADMIN);
 
   const driftQuery = useQuery<SchemaDriftAlert[] | null>({
     queryKey: ["/api/admin/schema-drift-alerts"],
@@ -572,7 +585,7 @@ function SchemaDriftTab() {
                       <Badge variant={a.acknowledged ? "outline" : "destructive"}>
                         {a.acknowledged ? "Acknowledged" : "Open"}
                       </Badge>
-                      <span className="text-sm font-medium">{a.baseEnvironment} ⇄ {a.comparedEnvironment}</span>
+                      <span className="text-sm font-medium">{a.baseEnvironment} ⇄ {a.targetEnvironment}</span>
                       <span className="text-xs text-gray-500">{fmtDate(a.detectedAt)}</span>
                     </div>
                     {!a.acknowledged && (
@@ -594,6 +607,78 @@ function SchemaDriftTab() {
   );
 }
 
+function ArchiveTab() {
+  const archiveQuery = useQuery<ArchivedApplication[] | null>({
+    queryKey: ["/api/admin/archived-applications"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
+  });
+  const statsQuery = useQuery<{ total: number } | null>({
+    queryKey: ["/api/admin/archived-applications/stats"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
+  });
+  const rows = archiveQuery.data ?? [];
+  const total = statsQuery.data?.total ?? rows.length;
+
+  return (
+    <div className="space-y-4" data-testid="tab-archive">
+      <div className="grid grid-cols-2 gap-4 max-w-xl">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Total archived</CardDescription>
+            <CardTitle className="text-3xl flex items-center gap-2" data-testid="card-archive-total">
+              <Archive className="w-6 h-6 text-blue-500" />
+              {total}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Showing</CardDescription>
+            <CardTitle className="text-3xl">{rows.length}</CardTitle>
+          </CardHeader>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Archived Applications</CardTitle>
+          <CardDescription>Read-only — declined and withdrawn applications moved here by the retention policy.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {archiveQuery.isLoading ? (
+            <div className="text-sm text-gray-500 py-6 text-center">Loading…</div>
+          ) : rows.length === 0 ? (
+            <div className="text-sm text-gray-500 py-6 text-center">No archived applications yet.</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Original ID</TableHead>
+                  <TableHead>Prospect</TableHead>
+                  <TableHead>Final Status</TableHead>
+                  <TableHead>Reason</TableHead>
+                  <TableHead>Archived At</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((r) => (
+                  <TableRow key={r.id} data-testid={`row-archive-${r.id}`}>
+                    <TableCell>{r.originalApplicationId}</TableCell>
+                    <TableCell>{r.prospectId ?? "—"}</TableCell>
+                    <TableCell><Badge variant="outline">{r.finalStatus}</Badge></TableCell>
+                    <TableCell className="text-xs text-gray-600">{r.archivedReason}</TableCell>
+                    <TableCell className="text-xs text-gray-500">{fmtDate(r.archivedAt)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function AdminOperations() {
   return (
     <div className="p-6 space-y-4" data-testid="page-admin-operations">
@@ -607,10 +692,12 @@ export default function AdminOperations() {
           <TabsTrigger value="sla" data-testid="tab-trigger-sla"><Clock className="w-4 h-4 mr-2" /> SLA Monitor</TabsTrigger>
           <TabsTrigger value="reports" data-testid="tab-trigger-reports"><FileText className="w-4 h-4 mr-2" /> Scheduled Reports</TabsTrigger>
           <TabsTrigger value="drift" data-testid="tab-trigger-drift"><Database className="w-4 h-4 mr-2" /> Schema Drift</TabsTrigger>
+          <TabsTrigger value="archive" data-testid="tab-trigger-archive"><Archive className="w-4 h-4 mr-2" /> Archived Applications</TabsTrigger>
         </TabsList>
         <TabsContent value="sla"><SlaTab /></TabsContent>
         <TabsContent value="reports"><ReportsTab /></TabsContent>
         <TabsContent value="drift"><SchemaDriftTab /></TabsContent>
+        <TabsContent value="archive"><ArchiveTab /></TabsContent>
       </Tabs>
     </div>
   );

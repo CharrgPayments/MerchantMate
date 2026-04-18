@@ -195,7 +195,12 @@ export async function archiveExpiredApplications(): Promise<{ archived: number }
 
 // ─── Scheduled reports ───────────────────────────────────────────────────────
 
-export type ReportTemplate = "sla_summary" | "underwriting_pipeline" | "commission_payouts";
+export type ReportTemplate =
+  | "sla_summary"
+  | "underwriting_pipeline"
+  | "commission_payouts"
+  | "residual_summary"
+  | "prospect_funnel";
 
 export async function buildReport(template: ReportTemplate): Promise<{ subject: string; html: string; text: string; rowCount: number }> {
   if (template === "sla_summary") {
@@ -231,6 +236,46 @@ export async function buildReport(template: ReportTemplate): Promise<{ subject: 
             `<table border="1" cellpadding="6" cellspacing="0"><thead><tr>` +
             `<th>Status</th><th>Count</th></tr></thead><tbody>${tableRows}</tbody></table>`,
       text: `Pipeline (${total} apps):\n` + rows.map((r) => `${r.status}: ${r.count}`).join("\n"),
+    };
+  }
+  if (template === "residual_summary") {
+    const data = await db.execute(sql`
+      SELECT to_char(date_trunc('month', created_at), 'YYYY-MM') AS period,
+             COUNT(*)::int AS count,
+             COALESCE(SUM(amount),0)::numeric AS total
+      FROM commission_events
+      WHERE created_at >= NOW() - INTERVAL '6 months'
+      GROUP BY 1 ORDER BY 1 DESC`)
+      .catch(() => ({ rows: [] as Array<{ period: string; count: number; total: string }> }));
+    const rows = (data.rows as Array<{ period: string; count: number; total: string }>) || [];
+    const tableRows = rows.map((r) => `<tr><td>${r.period}</td><td>${r.count}</td><td>$${Number(r.total).toFixed(2)}</td></tr>`).join("");
+    const total = rows.reduce((s, r) => s + Number(r.count), 0);
+    const grand = rows.reduce((s, r) => s + Number(r.total), 0);
+    return {
+      rowCount: total,
+      subject: `[CoreCRM] Residual Summary (6mo) — $${grand.toFixed(2)}`,
+      html: `<h2>Residuals — last 6 months</h2>` +
+            `<table border="1" cellpadding="6" cellspacing="0"><thead><tr>` +
+            `<th>Period</th><th>Entries</th><th>Net Total</th></tr></thead><tbody>${tableRows}</tbody></table>`,
+      text: `Residuals (6mo):\n` + rows.map((r) => `${r.period}: ${r.count} ($${Number(r.total).toFixed(2)})`).join("\n"),
+    };
+  }
+  if (template === "prospect_funnel") {
+    const data = await db.execute(sql`
+      SELECT status AS stage, COUNT(*)::int AS count
+      FROM merchant_prospects
+      GROUP BY status ORDER BY status`)
+      .catch(() => ({ rows: [] as Array<{ stage: string; count: number }> }));
+    const rows = (data.rows as Array<{ stage: string; count: number }>) || [];
+    const tableRows = rows.map((r) => `<tr><td>${r.stage ?? "(none)"}</td><td>${r.count}</td></tr>`).join("");
+    const total = rows.reduce((s, r) => s + Number(r.count), 0);
+    return {
+      rowCount: total,
+      subject: `[CoreCRM] Prospect Funnel — ${total} prospects`,
+      html: `<h2>Prospect funnel: ${total}</h2>` +
+            `<table border="1" cellpadding="6" cellspacing="0"><thead><tr>` +
+            `<th>Stage</th><th>Count</th></tr></thead><tbody>${tableRows}</tbody></table>`,
+      text: `Prospect funnel (${total}):\n` + rows.map((r) => `${r.stage ?? "(none)"}: ${r.count}`).join("\n"),
     };
   }
   // commission_payouts — last 30 days of commission_events grouped by status.
