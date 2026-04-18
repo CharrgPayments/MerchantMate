@@ -20,10 +20,27 @@ import { getOverrides } from "../permissionRegistry";
 import { dbEnvironmentMiddleware, getRequestDB, type RequestWithDB } from "../dbMiddleware";
 import { isAuthenticated, requirePerm } from "../replitAuth";
 import { auditService } from "../auditService";
+import { assertNotArchived, ArchivedApplicationError } from "../lib/archiveGuard";
 import { runUnderwritingPipeline, runManualPhase } from "./orchestrator";
 import { notifyRunCompleted, notifyTransition, alertUser } from "./notifications";
 import { emailService } from "../emailService";
 import { users } from "@shared/schema";
+
+// Tiny wrapper used by every UW write route below: returns true if the
+// caller's response was already sent (meaning the application is archived
+// and the route should bail out). Keeps the call sites to one line each.
+async function blockIfArchived(applicationId: number, res: import("express").Response): Promise<boolean> {
+  try {
+    await assertNotArchived(applicationId);
+    return false;
+  } catch (e) {
+    if (e instanceof ArchivedApplicationError) {
+      res.status(409).json({ message: e.message, code: e.code });
+      return true;
+    }
+    throw e;
+  }
+}
 
 function userId(req: RequestWithDB): string | null {
   const sess = req.session as { userId?: string } | undefined;
@@ -101,6 +118,7 @@ export function registerUnderwritingRoutes(app: Express) {
     async (req: RequestWithDB, res) => {
       try {
         const applicationId = parseInt(req.params.id);
+        if (await blockIfArchived(applicationId, res)) return;
         if (Number.isNaN(applicationId)) return res.status(400).json({ message: "Invalid application id" });
         const db = getRequestDB(req);
 
@@ -144,6 +162,7 @@ export function registerUnderwritingRoutes(app: Express) {
     async (req: RequestWithDB, res) => {
       try {
         const applicationId = parseInt(req.params.id);
+        if (await blockIfArchived(applicationId, res)) return;
         const parsed = manualPhaseSchema.safeParse(req.body);
         if (!parsed.success) return res.status(400).json({ message: "Invalid payload", errors: parsed.error.flatten() });
         const db = getRequestDB(req);
@@ -274,6 +293,7 @@ export function registerUnderwritingRoutes(app: Express) {
     async (req: RequestWithDB, res) => {
       try {
         const applicationId = parseInt(req.params.id);
+        if (await blockIfArchived(applicationId, res)) return;
         let reviewerId = String((req.body as { reviewerId?: unknown })?.reviewerId || "").trim();
         if (reviewerId === "me") reviewerId = userId(req) || "";
         if (!reviewerId) return res.status(400).json({ message: "reviewerId required" });
@@ -326,6 +346,7 @@ export function registerUnderwritingRoutes(app: Express) {
     async (req: RequestWithDB, res) => {
       try {
         const applicationId = parseInt(req.params.id);
+        if (await blockIfArchived(applicationId, res)) return;
         const pathway = String((req.body as { pathway?: unknown })?.pathway || "");
         if (pathway !== PATHWAYS.TRADITIONAL && pathway !== PATHWAYS.PAYFAC) {
           return res.status(400).json({ message: "Invalid pathway" });
@@ -375,6 +396,7 @@ export function registerUnderwritingRoutes(app: Express) {
     dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_VIEW_QUEUE),
     async (req: RequestWithDB, res) => {
       const applicationId = parseInt(req.params.id);
+        if (await blockIfArchived(applicationId, res)) return;
       if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
       const db = getRequestDB(req);
       const tasks = await db.select().from(underwritingTasks)
@@ -388,6 +410,7 @@ export function registerUnderwritingRoutes(app: Express) {
     async (req: RequestWithDB, res) => {
       try {
         const applicationId = parseInt(req.params.id);
+        if (await blockIfArchived(applicationId, res)) return;
         if (!(await enforceAppScopeStrict(req, applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
         const body = (req.body || {}) as Record<string, unknown>;
         const parsed = insertUnderwritingTaskSchema.safeParse({ ...body, applicationId, createdBy: userId(req) });
@@ -425,6 +448,7 @@ export function registerUnderwritingRoutes(app: Express) {
     dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_VIEW_QUEUE),
     async (req: RequestWithDB, res) => {
       const applicationId = parseInt(req.params.id);
+        if (await blockIfArchived(applicationId, res)) return;
       if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
       const db = getRequestDB(req);
       const notes = await db.select().from(underwritingNotes)
@@ -438,6 +462,7 @@ export function registerUnderwritingRoutes(app: Express) {
     async (req: RequestWithDB, res) => {
       try {
         const applicationId = parseInt(req.params.id);
+        if (await blockIfArchived(applicationId, res)) return;
         if (!(await enforceAppScopeStrict(req, applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
         const body = (req.body || {}) as Record<string, unknown>;
         const parsed = insertUnderwritingNoteSchema.safeParse({ ...body, applicationId, authorUserId: userId(req) });
@@ -472,6 +497,7 @@ export function registerUnderwritingRoutes(app: Express) {
     async (req: RequestWithDB, res) => {
       try {
         const applicationId = parseInt(req.params.id);
+        if (await blockIfArchived(applicationId, res)) return;
         const parsed = subStatusPatchSchema.safeParse(req.body);
         if (!parsed.success) return res.status(400).json({ message: "Invalid payload", errors: parsed.error.flatten() });
         const { subStatus, reason } = parsed.data;
@@ -614,6 +640,7 @@ export function registerUnderwritingRoutes(app: Express) {
     dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_VIEW_QUEUE),
     async (req: RequestWithDB, res) => {
       const applicationId = parseInt(req.params.id);
+        if (await blockIfArchived(applicationId, res)) return;
       if (!(await enforceAppScope(req, applicationId))) return res.status(403).json({ message: "Out of scope" });
       const db = getRequestDB(req);
       const rows = await db.select().from(underwritingFiles)
@@ -628,6 +655,7 @@ export function registerUnderwritingRoutes(app: Express) {
     async (req: RequestWithDB, res) => {
       try {
         const applicationId = parseInt(req.params.id);
+        if (await blockIfArchived(applicationId, res)) return;
         if (!(await enforceAppScopeStrict(req, applicationId))) return res.status(403).json({ message: "Out of scope — claim the application via assign first" });
         const file = (req as unknown as { file?: Express.Multer.File }).file;
         if (!file) return res.status(400).json({ message: "file required" });

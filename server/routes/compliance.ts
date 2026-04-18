@@ -76,7 +76,7 @@ router.get("/audit/entity/:resource/:resourceId", isAuthenticated, requirePerm("
 
 // ─── SLA status summary ──────────────────────────────────────────────────────
 
-router.get("/applications/sla-status", isAuthenticated, requirePerm("admin:read"), async (_req, res) => {
+router.get("/applications/sla-status", isAuthenticated, requirePerm("underwriting:view-queue"), async (_req, res) => {
   try {
     const now = new Date();
     const overdueOpen = await db.select({
