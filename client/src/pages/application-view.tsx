@@ -52,6 +52,7 @@ interface ProspectData {
   assignedAgent: string;
   validatedAt: string | null;
   applicationStartedAt: string | null;
+  applicationId: number | null;
 }
 
 interface Owner {
@@ -602,6 +603,27 @@ export default function ApplicationView() {
                 }
                 return null;
               })()}
+
+              {/* E-Sign Certificate Summary (Epic F) — per-owner cert evidence */}
+              {signatureStatus?.ownerStatus?.some((o: any) => o.cert) && (
+                <div className="mt-6 pt-4 border-t" data-testid="esign-cert-summary">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-2">E-Sign Certificate (audit trail)</h4>
+                  <div className="space-y-2">
+                    {signatureStatus.ownerStatus.filter((o: any) => o.cert).map((o: any, idx: number) => (
+                      <div key={idx} className="rounded border border-gray-200 bg-gray-50 p-3 text-xs space-y-1" data-testid={`esign-cert-${idx}`}>
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-gray-800">{o.name}</span>
+                          <span className="text-gray-500">{o.cert.signatureType === 'draw' ? 'Drawn' : 'Typed'}</span>
+                        </div>
+                        <div><span className="text-gray-500">Signed:</span> {o.cert.signedAt ? new Date(o.cert.signedAt).toLocaleString() : '—'}</div>
+                        <div><span className="text-gray-500">IP:</span> {o.cert.ipAddress ?? '—'}</div>
+                        <div className="truncate"><span className="text-gray-500">User-Agent:</span> {o.cert.userAgent ?? '—'}</div>
+                        <div className="truncate"><span className="text-gray-500">Document SHA-256:</span> <code className="font-mono">{o.cert.documentHash ?? '—'}</code></div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -858,7 +880,11 @@ export default function ApplicationView() {
             <TabsContent value="activity" className="mt-4">
               <Card>
                 <CardContent className="p-4">
-                  <EntityActivityFeed resource="prospect" resourceId={prospectId!} />
+                  {prospect?.applicationId ? (
+                    <EntityActivityFeed resource="application" resourceId={String(prospect.applicationId)} />
+                  ) : (
+                    <EntityActivityFeed resource="prospect" resourceId={String(prospectId)} />
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>

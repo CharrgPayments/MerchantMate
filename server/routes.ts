@@ -2031,10 +2031,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log('Returning prospect data with assigned agent:', assignedAgent);
+      // Look up the latest application for this prospect (Epic F: activity feed scoping)
+      let applicationId: number | null = null;
+      try {
+        const apps = await db.select({ id: prospectAppsTable.id })
+          .from(prospectAppsTable)
+          .where(eq(prospectAppsTable.prospectId, prospect.id))
+          .orderBy(desc(prospectAppsTable.id))
+          .limit(1);
+        applicationId = apps[0]?.id ?? null;
+      } catch (e) {
+        console.warn('Could not load applicationId for prospect', prospect.id, e);
+      }
       // Return prospect with agent info
       res.json({
         ...prospect,
-        assignedAgent
+        assignedAgent,
+        applicationId,
       });
     } catch (error) {
       console.error("Error fetching prospect:", error);
@@ -3566,11 +3579,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Create the signature record in database. Epic F: capture IP, user-agent
-      // and a SHA-256 hash of the signed payload for the e-sign trail.
+      // and a SHA-256 hash of the **document being signed** — i.e. a canonical
+      // serialization of the prospect's form data + owner identity at the
+      // moment of signing. This anchors the signature to the actual content,
+      // not just the click-to-sign payload, satisfying e-sign evidentiary req.
       const { createHash } = await import("node:crypto");
-      const documentHash = createHash("sha256")
-        .update(JSON.stringify({ token: signatureToken, signature, type: signatureType || "type" }))
-        .digest("hex");
+      const signedProspect = await storage.getMerchantProspect(owner.prospectId);
+      const canonicalDoc = JSON.stringify({
+        prospectId: owner.prospectId,
+        ownerId: owner.id,
+        ownerName: owner.name,
+        ownerEmail: owner.email,
+        ownershipPercentage: owner.ownershipPercentage,
+        formData: signedProspect?.formData ?? null,
+        signedAt: new Date().toISOString().slice(0, 10),
+      });
+      const documentHash = createHash("sha256").update(canonicalDoc).digest("hex");
       const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim()
         || req.socket?.remoteAddress || req.ip || "unknown";
       const userAgent = (req.headers["user-agent"] as string) || null;
@@ -3635,11 +3659,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const signatureToken = `inline_sig_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
       // Create the signature record in database. Epic F: capture IP, user-agent
-      // and a SHA-256 hash of the signed payload for the e-sign trail.
+      // and a SHA-256 hash of the **document being signed** (canonical
+      // serialization of prospect form data + owner identity).
       const { createHash } = await import("node:crypto");
-      const documentHash = createHash("sha256")
-        .update(JSON.stringify({ token: signatureToken, signature, type: signatureType }))
-        .digest("hex");
+      const signedProspect = await storage.getMerchantProspect(prospectId);
+      const canonicalDoc = JSON.stringify({
+        prospectId,
+        ownerId: owner.id,
+        ownerName: owner.name,
+        ownerEmail: owner.email,
+        ownershipPercentage: owner.ownershipPercentage,
+        formData: signedProspect?.formData ?? null,
+        signedAt: new Date().toISOString().slice(0, 10),
+      });
+      const documentHash = createHash("sha256").update(canonicalDoc).digest("hex");
       const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim()
         || req.socket?.remoteAddress || req.ip || "unknown";
       const userAgent = (req.headers["user-agent"] as string) || null;
@@ -3830,15 +3863,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         pending: requiredSignatures.length - completedSignatures.length,
         isComplete: requiredSignatures.length > 0 && completedSignatures.length === requiredSignatures.length,
         needsAttention: requiredSignatures.length > 0 && completedSignatures.length < requiredSignatures.length,
-        // Include owner-level details for application view
+        // Include owner-level details for application view, with e-sign cert
+        // evidence (Epic F): IP, user-agent, document hash, timestamp.
         ownerStatus: requiredSignatures.map((owner: any) => {
           const dbOwner = prospectOwners.find(po => po.email === owner.email);
-          const hasSignature = dbOwner ? dbSignatures.some((sig: any) => sig.ownerId === dbOwner.id) : false;
+          const sig = dbOwner ? dbSignatures.find((s: any) => s.ownerId === dbOwner.id) : null;
           return {
             name: owner.name,
             email: owner.email,
             percentage: owner.percentage,
-            hasSignature
+            hasSignature: !!sig,
+            cert: sig ? {
+              signedAt: sig.submittedAt,
+              ipAddress: sig.ipAddress ?? null,
+              userAgent: sig.userAgent ?? null,
+              documentHash: sig.documentHash ?? null,
+              signatureType: sig.signatureType,
+            } : null,
           };
         })
       };

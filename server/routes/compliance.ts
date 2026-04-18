@@ -4,7 +4,11 @@
 // admin permission; the entity-activity feed is broader (any authenticated
 // user) since it only exposes audit log rows scoped to a single resource.
 
-import { Router } from "express";
+import { Router, type Request } from "express";
+
+type AuthedRequest = Request & {
+  user?: { id?: string; claims?: { sub?: string } };
+};
 import { db } from "../db";
 import {
   auditLogs,
@@ -110,7 +114,7 @@ router.get("/applications/sla-status", isAuthenticated, requirePerm("admin:read"
   }
 });
 
-router.post("/applications/sla-breaches/:id/acknowledge", isAuthenticated, requirePerm("admin:manage"), async (req: any, res) => {
+router.post("/applications/sla-breaches/:id/acknowledge", isAuthenticated, requirePerm("admin:manage"), async (req: AuthedRequest, res) => {
   try {
     const id = Number(req.params.id);
     const userId = req.user?.claims?.sub ?? req.user?.id ?? "unknown";
@@ -178,7 +182,7 @@ router.get("/admin/scheduled-reports", isAuthenticated, requirePerm("admin:read"
   res.json(rows);
 });
 
-router.post("/admin/scheduled-reports", isAuthenticated, requirePerm("admin:manage"), async (req: any, res) => {
+router.post("/admin/scheduled-reports", isAuthenticated, requirePerm("admin:manage"), async (req: AuthedRequest, res) => {
   try {
     const parsed = createReportSchema.parse(req.body);
     const userId = req.user?.claims?.sub ?? req.user?.id ?? null;
@@ -237,7 +241,7 @@ router.get("/admin/schema-drift-alerts", isAuthenticated, requirePerm("system:su
   res.json(rows);
 });
 
-router.post("/admin/schema-drift-alerts/:id/acknowledge", isAuthenticated, requirePerm("system:superadmin"), async (req: any, res) => {
+router.post("/admin/schema-drift-alerts/:id/acknowledge", isAuthenticated, requirePerm("system:superadmin"), async (req: AuthedRequest, res) => {
   const id = Number(req.params.id);
   const userId = req.user?.claims?.sub ?? req.user?.id ?? "unknown";
   const result = await db.update(schemaDriftAlerts).set({

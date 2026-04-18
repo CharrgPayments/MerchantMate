@@ -99,6 +99,26 @@ export default function UnderwritingQueue() {
     },
   });
 
+  // Epic F: surface unacknowledged SLA breaches in the queue.
+  type SlaStatus = {
+    overdueOpenCount: number;
+    unacknowledgedBreaches: number;
+    breaches: Array<{ id: number; applicationId: number; hoursOverdue: number; acknowledged: boolean }>;
+  };
+  const { data: slaStatus } = useQuery<SlaStatus>({
+    queryKey: ["/api/applications/sla-status"],
+    queryFn: async () => {
+      const r = await fetch("/api/applications/sla-status");
+      if (!r.ok) throw new Error("Failed to load SLA status");
+      return r.json();
+    },
+    refetchInterval: 60_000,
+  });
+  const breachByAppId = new Map<number, { hoursOverdue: number }>();
+  for (const b of slaStatus?.breaches ?? []) {
+    breachByAppId.set(b.applicationId, { hoursOverdue: b.hoursOverdue });
+  }
+
   const filtered = (rows || []).filter(r => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
@@ -218,11 +238,19 @@ export default function UnderwritingQueue() {
                   <TableCell>{tierBadge(r.riskTier)}</TableCell>
                   <TableCell>{r.riskScore ?? "—"}</TableCell>
                   <TableCell>
-                    {r.pipelineHaltedAtPhase ? (
-                      <Badge className="bg-red-100 text-red-800"><AlertOctagon className="h-3 w-3 mr-1" />{r.pipelineHaltedAtPhase}</Badge>
-                    ) : r.slaDeadline ? (
-                      <SlaCountdown deadline={r.slaDeadline} />
-                    ) : "—"}
+                    <div className="flex flex-col gap-1">
+                      {r.pipelineHaltedAtPhase ? (
+                        <Badge className="bg-red-100 text-red-800"><AlertOctagon className="h-3 w-3 mr-1" />{r.pipelineHaltedAtPhase}</Badge>
+                      ) : r.slaDeadline ? (
+                        <SlaCountdown deadline={r.slaDeadline} />
+                      ) : <span>—</span>}
+                      {breachByAppId.has(r.id) && (
+                        <Badge className="bg-red-600 text-white" data-testid={`sla-breach-${r.id}`}>
+                          <AlertOctagon className="h-3 w-3 mr-1" />
+                          SLA breach +{breachByAppId.get(r.id)!.hoursOverdue}h
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     {r.assignedReviewerId ? (
