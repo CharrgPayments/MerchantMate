@@ -98,9 +98,49 @@ export function Header({ title, onSearch }: HeaderProps) {
     },
     staleTime: 0,
     gcTime: 0,
-    refetchInterval: 60000,
+    // Polling fallback only — primary update path is the SSE stream below.
+    // Kept at 5 minutes so the badge eventually self-heals if the stream
+    // drops and never reconnects (e.g. proxy edge case).
+    refetchInterval: 5 * 60_000,
     refetchOnWindowFocus: true,
   });
+
+  // Real-time bell updates via Server-Sent Events. On every push the
+  // unread-count and alerts-list caches are invalidated so React Query
+  // refetches them immediately. Auto-reconnects on transient errors.
+  useEffect(() => {
+    let es: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    const connect = () => {
+      if (cancelled) return;
+      try {
+        es = new EventSource('/api/alerts/stream', { withCredentials: true });
+        es.addEventListener('alert', () => {
+          queryClient.invalidateQueries({ queryKey: ['/api/alerts/count'] });
+          queryClient.invalidateQueries({ queryKey: ['/api/alerts'] });
+        });
+        es.onerror = () => {
+          es?.close();
+          es = null;
+          if (cancelled) return;
+          // Browser auto-reconnect can stall under proxies; explicit retry
+          // with a short backoff keeps the bell live.
+          reconnectTimer = setTimeout(connect, 5000);
+        };
+      } catch {
+        reconnectTimer = setTimeout(connect, 5000);
+      }
+    };
+    connect();
+
+    return () => {
+      cancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      es?.close();
+    };
+  }, [queryClient]);
 
   // Fetch recent unread alerts for the popover
   const { data: alertsData } = useQuery<{ alerts: Alert[] }>({

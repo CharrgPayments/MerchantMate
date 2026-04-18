@@ -24,7 +24,8 @@ import { assertNotArchived, ArchivedApplicationError } from "../lib/archiveGuard
 import { runUnderwritingPipeline, runManualPhase } from "./orchestrator";
 import { notifyRunCompleted, notifyTransition, alertUser } from "./notifications";
 import { emailService } from "../emailService";
-import { users } from "@shared/schema";
+import { createAlert } from "../alertService";
+import { users, agents } from "@shared/schema";
 
 // Tiny wrapper used by every UW write route below: returns true if the
 // caller's response was already sent (meaning the application is archived
@@ -274,6 +275,36 @@ export function registerUnderwritingRoutes(app: Express) {
         });
 
         await notifyTransition(db, applicationId, toStatus, { fromStatus: appRow.status, reason: reason || rule.description });
+
+        // In-app notification for the prospect's owning agent so the bell
+        // lights up the moment underwriting moves the file. Bell-only here —
+        // the email side is handled by notifyTransition above.
+        try {
+          if (appRow.prospectId) {
+            const [prospectRow] = await db
+              .select({ agentId: merchantProspects.agentId, firstName: merchantProspects.firstName, lastName: merchantProspects.lastName, email: merchantProspects.email })
+              .from(merchantProspects)
+              .where(eq(merchantProspects.id, appRow.prospectId))
+              .limit(1);
+            if (prospectRow) {
+              const [agentRow] = await db.select({ userId: agents.userId }).from(agents).where(eq(agents.id, prospectRow.agentId)).limit(1);
+              if (agentRow?.userId) {
+                const label = `${prospectRow.firstName} ${prospectRow.lastName}`.trim() || prospectRow.email;
+                const isApproved = toStatus === APP_STATUS.APPROVED;
+                const isDecline = (toStatus as string).startsWith("D");
+                await createAlert({
+                  userId: agentRow.userId,
+                  type: isApproved ? "success" : isDecline ? "error" : "info",
+                  message: `Application ${label}: ${appRow.status} → ${toStatus}${reason ? ` (${reason})` : ""}`,
+                  actionUrl: `/prospects/${appRow.prospectId}`,
+                });
+              }
+            }
+          }
+        } catch (alertErr) {
+          console.error("[underwriting] alert dispatch failed:", alertErr);
+        }
+
         await audit(req, "update", "application_status", String(applicationId), {
           riskLevel: toStatus === APP_STATUS.APPROVED || toStatus.startsWith("D") ? "high" : "medium",
           oldValues: { status: appRow.status },

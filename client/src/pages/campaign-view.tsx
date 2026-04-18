@@ -27,6 +27,114 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+type CampaignProspect = {
+  assignmentId: number;
+  assignedAt: string;
+  isActive: boolean;
+  prospectId: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  status: string;
+  createdAt: string;
+  agentId: number;
+  agentFirstName: string | null;
+  agentLastName: string | null;
+  agentEmail: string | null;
+};
+
+// Renders the list of prospects currently assigned to a campaign. Lazily
+// fetched (separate query) so the rest of the campaign view loads fast.
+function CampaignProspects({ campaignId }: { campaignId: number }) {
+  const { data, isLoading } = useQuery<{ prospects: CampaignProspect[] }>({
+    queryKey: ['/api/campaigns', campaignId, 'prospects'],
+    queryFn: async () => {
+      const r = await fetch(`/api/campaigns/${campaignId}/prospects`, { credentials: 'include' });
+      if (!r.ok) throw new Error('Failed to fetch prospects');
+      return r.json();
+    },
+    staleTime: 30_000,
+  });
+
+  const prospects = data?.prospects ?? [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg flex items-center gap-2">
+          <Users className="w-5 h-5 text-muted-foreground" />
+          Assigned Prospects
+          {!isLoading && (
+            <Badge variant="outline" className="ml-2" data-testid="badge-prospect-count">{prospects.length}</Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-12" />
+            <Skeleton className="h-12" />
+            <Skeleton className="h-12" />
+          </div>
+        ) : prospects.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground" data-testid="text-no-prospects">
+            <Users className="w-8 h-8 mx-auto mb-2 opacity-30" />
+            <p className="text-sm">No prospects have been assigned to this campaign yet.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="py-2 pr-4 font-medium">Prospect</th>
+                  <th className="py-2 pr-4 font-medium">Status</th>
+                  <th className="py-2 pr-4 font-medium">Agent</th>
+                  <th className="py-2 pr-4 font-medium">Assigned</th>
+                  <th className="py-2 pr-4 font-medium" />
+                </tr>
+              </thead>
+              <tbody>
+                {prospects.map((p) => (
+                  <tr key={p.assignmentId} className="border-b hover:bg-muted/30" data-testid={`row-prospect-${p.prospectId}`}>
+                    <td className="py-2 pr-4">
+                      <div className="font-medium" data-testid={`text-prospect-name-${p.prospectId}`}>
+                        {`${p.firstName} ${p.lastName}`.trim() || p.email}
+                      </div>
+                      <div className="text-xs text-muted-foreground">{p.email}</div>
+                    </td>
+                    <td className="py-2 pr-4"><StatusBadge status={p.status} /></td>
+                    <td className="py-2 pr-4">
+                      {p.agentFirstName || p.agentLastName ? (
+                        <div>
+                          <div>{`${p.agentFirstName ?? ''} ${p.agentLastName ?? ''}`.trim()}</div>
+                          {p.agentEmail && <div className="text-xs text-muted-foreground">{p.agentEmail}</div>}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="py-2 pr-4 text-muted-foreground">
+                      {new Date(p.assignedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {!p.isActive && <Badge variant="outline" className="ml-2 text-xs">Inactive</Badge>}
+                    </td>
+                    <td className="py-2 pr-4 text-right">
+                      <Link href={`/prospects/${p.prospectId}`}>
+                        <Button variant="outline" size="sm" data-testid={`button-view-prospect-${p.prospectId}`}>
+                          View
+                        </Button>
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function StatCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-lg border bg-card p-4 gap-1 text-center">
@@ -330,6 +438,9 @@ export default function CampaignView() {
           )}
         </CardContent>
       </Card>
+
+      {/* Assigned Prospects */}
+      <CampaignProspects campaignId={campaign.id} />
 
       {/* Associated Equipment */}
       {campaign.equipment && campaign.equipment.length > 0 && (

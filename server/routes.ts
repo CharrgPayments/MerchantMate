@@ -12,6 +12,7 @@ import connectPg from "connect-pg-simple";
 import multer from "multer";
 import { pdfFormParser } from "./pdfParser";
 import { emailService } from "./emailService";
+import { createAlert, createAlertForRoles } from "./alertService";
 import { v4 as uuidv4 } from "uuid";
 import { dbEnvironmentMiddleware, adminDbMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
 import { registerUnderwritingRoutes } from "./underwriting/routes";
@@ -3377,6 +3378,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log(`Application submitted for prospect ${prospectId}${generatedPdfPath ? ` (PDF: ${generatedPdfPath})` : ''}`);
+
+      // Drop in-app notifications for the assigned agent (so they see it in
+      // the bell instantly) and broadcast to the underwriting queue so any
+      // available reviewer can pick the new SUB application up.
+      const prospectLabel = `${prospect.firstName} ${prospect.lastName}`.trim() || prospect.email;
+      const companyLabel = formData.companyName || prospectLabel;
+      if (agent.userId) {
+        await createAlert({
+          userId: agent.userId,
+          type: "success",
+          message: `Application submitted by ${prospectLabel} (${companyLabel})`,
+          actionUrl: `/prospects/${prospectId}`,
+        });
+      }
+      await createAlertForRoles(
+        ["underwriter", "senior_underwriter", "super_admin"],
+        `New application in queue: ${companyLabel}`,
+        { type: "info", actionUrl: `/prospects/${prospectId}` },
+      );
+
       res.json({ 
         success: true, 
         message: "Application submitted successfully",
@@ -3534,6 +3555,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       if (success) {
+        // Mirror the email with an in-app alert for the requester so they
+        // get a confirmation in the bell that the signature request went out.
+        const requesterUserId = (req.session as { userId?: string } | undefined)?.userId
+          || (req.user as { claims?: { sub?: string } } | undefined)?.claims?.sub;
+        if (requesterUserId) {
+          await createAlert({
+            userId: requesterUserId,
+            type: "info",
+            message: `Signature request sent to ${ownerName} (${ownerEmail}) for ${companyName}`,
+          });
+        }
         res.json({ 
           success: true, 
           message: `Signature request sent to ${ownerEmail}`,
@@ -6168,6 +6200,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error fetching campaign:', error);
       res.status(500).json({ error: 'Failed to fetch campaign' });
+    }
+  });
+
+  // Prospects assigned to a given campaign. Backs the "Prospects" card on
+  // the campaign detail page. Joins through campaign_assignments so we
+  // surface every prospect rule-matched (or manually assigned) to the
+  // campaign, regardless of whether they've actually submitted an app yet.
+  app.get('/api/campaigns/:id/prospects', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid campaign id' });
+      const dbToUse = getRequestDB(req);
+      const { campaignAssignments, merchantProspects: prospectsTable, agents: agentsTable } = await import('@shared/schema');
+      const { eq: eqOp, desc: descOp, and: andOp } = await import('drizzle-orm');
+
+      const rows = await dbToUse
+        .select({
+          assignmentId: campaignAssignments.id,
+          assignedAt: campaignAssignments.assignedAt,
+          isActive: campaignAssignments.isActive,
+          prospectId: prospectsTable.id,
+          firstName: prospectsTable.firstName,
+          lastName: prospectsTable.lastName,
+          email: prospectsTable.email,
+          status: prospectsTable.status,
+          createdAt: prospectsTable.createdAt,
+          agentId: prospectsTable.agentId,
+          agentFirstName: agentsTable.firstName,
+          agentLastName: agentsTable.lastName,
+          agentEmail: agentsTable.email,
+        })
+        .from(campaignAssignments)
+        .innerJoin(prospectsTable, eqOp(prospectsTable.id, campaignAssignments.prospectId))
+        .leftJoin(agentsTable, eqOp(agentsTable.id, prospectsTable.agentId))
+        .where(eqOp(campaignAssignments.campaignId, id))
+        .orderBy(descOp(campaignAssignments.assignedAt));
+
+      res.json({ prospects: rows });
+    } catch (error) {
+      console.error('Error fetching campaign prospects:', error);
+      res.status(500).json({ error: 'Failed to fetch campaign prospects' });
     }
   });
 
@@ -10587,6 +10660,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error fetching alert count:", error);
       res.status(500).json({ message: "Failed to fetch alert count" });
     }
+  });
+
+  // Server-Sent Events stream for real-time bell updates. Replaces the
+  // 60-second polling that used to be the only update path. Clients open
+  // a single EventSource and receive `alert` events the moment a new row
+  // is inserted via createAlert(); a periodic comment frame keeps proxies
+  // from closing the idle connection.
+  app.get("/api/alerts/stream", async (req, res) => {
+    const userId = (req.session as { userId?: string } | undefined)?.userId;
+    if (!userId) return res.status(401).end();
+
+    res.status(200).set({
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    if (typeof (res as { flushHeaders?: () => void }).flushHeaders === "function") {
+      (res as { flushHeaders: () => void }).flushHeaders();
+    }
+    res.write(`: connected\n\n`);
+
+    const { alertBus } = await import("./alertBus");
+    const unsubscribe = alertBus.subscribe(userId, (alert) => {
+      try {
+        res.write(`event: alert\ndata: ${JSON.stringify(alert)}\n\n`);
+      } catch {
+        // socket already closed; cleanup happens via 'close' below
+      }
+    });
+
+    const heartbeat = setInterval(() => {
+      try { res.write(`: ping\n\n`); } catch { /* noop */ }
+    }, 25000);
+
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+      try { res.end(); } catch { /* noop */ }
+    });
   });
 
   app.patch("/api/alerts/:id/read", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
