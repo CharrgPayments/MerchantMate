@@ -16,6 +16,15 @@ export const merchants = pgTable("merchants", {
   status: text("status").notNull().default("active"), // active, pending, suspended
   monthlyVolume: decimal("monthly_volume", { precision: 12, scale: 2 }).default("0").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+
+  dbaName: text("dba_name"),
+  legalName: text("legal_name"),
+  ein: text("ein"),
+  website: text("website"),
+  industry: text("industry"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }),
+  companyId: integer("company_id").notNull(),
+  notes: text("notes"),
 });
 
 export const locations = pgTable("locations", {
@@ -29,6 +38,8 @@ export const locations = pgTable("locations", {
   status: text("status").notNull().default("active"), // active, inactive, temporarily_closed
   operatingHours: jsonb("operating_hours"), // Store days/hours as JSON
   createdAt: timestamp("created_at").defaultNow().notNull(),
+
+  companyId: integer("company_id"),
 });
 
 export const addresses = pgTable("addresses", {
@@ -63,6 +74,8 @@ export const agents = pgTable("agents", {
   parentAgentId: integer("parent_agent_id"),
   defaultCampaignId: integer("default_campaign_id"), // FK to campaigns.id (no .references — campaigns table defined later)
   createdAt: timestamp("created_at").defaultNow(),
+
+  companyId: integer("company_id").notNull(),
 });
 
 // Hierarchy closure tables. depth=0 row is the self-row.
@@ -109,6 +122,12 @@ export const merchantProspects = pgTable("merchant_prospects", {
   portalSetupAt: timestamp("portal_setup_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+
+  agentSignature: text("agent_signature"),
+  agentSignatureType: text("agent_signature_type"),
+  agentSignedAt: timestamp("agent_signed_at"),
+  userId: varchar("user_id"),
+  databaseEnv: text("database_env").default("development"),
 });
 
 // Prospect portal messaging (matches existing prospect_messages table)
@@ -172,6 +191,14 @@ export const transactions = pgTable("transactions", {
   processingFee: decimal("processing_fee", { precision: 12, scale: 2 }),
   netAmount: decimal("net_amount", { precision: 12, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow(),
+
+  commissionRate: numeric("commission_rate", { precision: 5, scale: 4 }).default(0.025),
+  commissionAmount: numeric("commission_amount", { precision: 12, scale: 2 }).default(0),
+  transactionDate: timestamp("transaction_date", { withTimezone: true }).defaultNow(),
+  referenceNumber: text("reference_number"),
+  locationId: integer("location_id"),
+  transactionType: text("transaction_type").notNull().default("payment"),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
 });
 
 // Junction table for agent-merchant associations
@@ -575,7 +602,9 @@ export const pdfFormFields = pgTable("pdf_form_fields", {
   validation: text("validation"), // JSON string for validation rules
   position: integer("position").notNull(), // field order
   section: text("section"), // section grouping for fields
-  createdAt: timestamp("created_at").defaultNow()
+  createdAt: timestamp("created_at").defaultNow(),
+
+  pdfFieldId: text("pdf_field_id"),
 });
 
 export const pdfFormSubmissions = pgTable("pdf_form_submissions", {
@@ -711,6 +740,8 @@ export const feeItems = pgTable("fee_items", {
   author: text("author").notNull().default("System"), // System or user who created it
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+
+  feeItemGroupId: integer("fee_item_group_id"),
 });
 
 // Fee Group Fee Items junction table - many-to-many relationship between fee groups and fee items
@@ -745,6 +776,8 @@ export const pricingTypeFeeItems = pgTable("pricing_type_fee_items", {
   isRequired: boolean("is_required").notNull().default(true),
   displayOrder: integer("display_order").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+
+  feeGroupId: integer("fee_group_id"),
 }, (table) => ({
   uniquePricingTypeFeeItem: unique().on(table.pricingTypeId, table.feeItemId),
 }));
@@ -763,6 +796,10 @@ export const equipmentItems = pgTable("equipment_items", {
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+
+  model: text("model"),
+  price: numeric("price", { precision: 10, scale: 2 }),
+  status: text("status").default("available"),
 });
 
 // Campaign Equipment junction table - links campaigns to multiple equipment items
@@ -791,6 +828,8 @@ export const campaigns = pgTable("campaigns", {
   createdBy: varchar("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+
+  acquirerId: integer("acquirer_id").notNull(),
 });
 
 // Campaign Fee Values table - stores the actual fee values for each campaign
@@ -802,6 +841,8 @@ export const campaignFeeValues = pgTable("campaign_fee_values", {
   valueType: text("value_type").notNull().default("percentage"), // Type of value: 'percentage', 'amount', 'placeholder'
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+
+  feeGroupFeeItemId: integer("fee_group_fee_item_id"),
 }, (table) => ({
   uniqueCampaignFeeItem: unique().on(table.campaignId, table.feeItemId),
 }));
@@ -988,6 +1029,9 @@ export const acquirerApplicationTemplates = pgTable("acquirer_application_templa
   signatureGroups: jsonb("signature_groups").default(sql`'[]'::jsonb`),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+
+  sourcePdfPath: text("source_pdf_path"),
+  disclosureGroups: jsonb("disclosure_groups").default(sql`'[]'::jsonb`),
 }, (table) => ({
   uniqueAcquirerTemplate: unique().on(table.acquirerId, table.templateName, table.version),
 }));
@@ -1251,6 +1295,22 @@ export const auditLogs = pgTable("audit_logs", {
   notes: text("notes"), // Human-readable description
   
   createdAt: timestamp("created_at").defaultNow().notNull(),
+
+  resourceType: text("resource_type"),
+  details: jsonb("details"),
+  timestamp: timestamp("timestamp").defaultNow(),
+  severity: text("severity").default("info"),
+  category: text("category"),
+  outcome: text("outcome"),
+  errorMessage: text("error_message"),
+  requestId: varchar("request_id"),
+  correlationId: varchar("correlation_id"),
+  metadata: jsonb("metadata"),
+  geolocation: jsonb("geolocation"),
+  deviceInfo: jsonb("device_info"),
+  retentionPolicy: text("retention_policy"),
+  encryptionKeyId: varchar("encryption_key_id"),
+  updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   userIdIdx: index("audit_logs_user_id_idx").on(table.userId),
   actionIdx: index("audit_logs_action_idx").on(table.action),
@@ -1358,6 +1418,14 @@ export const emailTemplates = pgTable('email_templates', {
   isActive: boolean('is_active').default(true),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
+  useWrapper: boolean('use_wrapper').default(true),
+  wrapperType: varchar('wrapper_type', { length: 50 }).default('notification'),
+  headerGradient: text('header_gradient'),
+  headerSubtitle: text('header_subtitle'),
+  ctaButtonText: text('cta_button_text'),
+  ctaButtonUrl: text('cta_button_url'),
+  ctaButtonColor: text('cta_button_color'),
+  customFooter: text('custom_footer'),
 });
 
 export const emailActivity = pgTable('email_activity', {
@@ -1422,6 +1490,15 @@ export const workflowDefinitions = pgTable("workflow_definitions", {
   createdBy: varchar("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+
+  code: varchar("code", { length: 50 }).notNull(),
+  version: text("version").notNull().default("1.0"),
+  category: text("category").notNull(),
+  entityType: text("entity_type").notNull(),
+  initialStatus: text("initial_status").notNull().default("submitted"),
+  finalStatuses: text("final_statuses").array().notNull().default(sql`ARRAY['approved'::text, 'declined'::text, 'withdrawn'::text]`),
+  configuration: jsonb("configuration").default(sql`'{}'::jsonb`),
+  isActive: boolean("is_active").notNull().default(true),
 });
 
 // External API endpoint configurations used by workflow steps
@@ -1445,6 +1522,9 @@ export const workflowEnvironmentConfigs = pgTable("workflow_environment_configs"
   workflowId: integer("workflow_id").notNull().references(() => workflowDefinitions.id, { onDelete: "cascade" }),
   environment: varchar("environment", { length: 20 }).notNull(), // production, development, test
   config: jsonb("config").default("{}"), // environment-specific config overrides
+  baseUrl: text("base_url"),
+  bearerToken: text("bearer_token"),
+  additionalHeaders: jsonb("additional_headers"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -1829,3 +1909,496 @@ export const schemaDriftAlerts = pgTable("schema_drift_alerts", {
 }));
 
 export type SchemaDriftAlert = typeof schemaDriftAlerts.$inferSelect;
+
+// ============================================================
+// Tables previously defined directly in databases via raw SQL.
+// Reverse-engineered from live schema so shared/schema.ts is
+// the single source of truth for all data structures.
+// ============================================================
+
+export const apiIntegrationConfigs = pgTable("api_integration_configs", {
+  id: serial("id").primaryKey(),
+  integrationKey: varchar("integration_key", { length: 50 }).notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  baseUrl: text("base_url"),
+  sandboxUrl: text("sandbox_url"),
+  configuration: jsonb("configuration").default(sql`'{}'::jsonb`),
+  isActive: boolean("is_active").notNull().default(true),
+  useSandbox: boolean("use_sandbox").notNull().default(true),
+  rateLimit: integer("rate_limit"),
+  rateLimitWindow: integer("rate_limit_window").default(60),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const companies = pgTable("companies", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  businessType: text("business_type"),
+  email: text("email"),
+  phone: text("phone"),
+  website: text("website"),
+  taxId: varchar("tax_id"),
+  address: jsonb("address"),
+  industry: text("industry"),
+  description: text("description"),
+  logoUrl: text("logo_url"),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  settings: jsonb("settings").default(sql`'{}'::jsonb`),
+});
+
+export const companyAddresses = pgTable("company_addresses", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id").notNull(),
+  addressId: integer("address_id").notNull(),
+  type: text("type").notNull().default("primary"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const disclosureAcknowledgments = pgTable("disclosure_acknowledgments", {
+  id: serial("id").primaryKey(),
+  disclosureContentId: integer("disclosure_content_id").notNull(),
+  disclosureVersion: text("disclosure_version").notNull(),
+  prospectApplicationId: integer("prospect_application_id"),
+  prospectId: integer("prospect_id"),
+  scrollStartedAt: timestamp("scroll_started_at"),
+  scrollCompletedAt: timestamp("scroll_completed_at"),
+  scrollDurationMs: integer("scroll_duration_ms"),
+  scrollPercentage: integer("scroll_percentage").default(0),
+  signatureData: text("signature_data"),
+  signerName: text("signer_name"),
+  signerEmail: text("signer_email"),
+  signedAt: timestamp("signed_at"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  status: text("status").notNull().default("pending"),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const disclosureContents = pgTable("disclosure_contents", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  version: text("version").notNull().default("1.0"),
+  isActive: boolean("is_active").notNull().default(true),
+  requiresSignature: boolean("requires_signature").notNull().default(true),
+  companyId: integer("company_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const disclosureSignatures = pgTable("disclosure_signatures", {
+  id: serial("id").primaryKey(),
+  disclosureVersionId: integer("disclosure_version_id").notNull(),
+  prospectId: integer("prospect_id"),
+  userId: varchar("user_id"),
+  signerName: text("signer_name").notNull(),
+  signerEmail: text("signer_email"),
+  signerTitle: text("signer_title"),
+  signatureType: text("signature_type").notNull(),
+  signatureData: text("signature_data"),
+  signatureStoragePath: text("signature_storage_path"),
+  scrollStartedAt: timestamp("scroll_started_at"),
+  scrollCompletedAt: timestamp("scroll_completed_at"),
+  scrollDurationMs: integer("scroll_duration_ms"),
+  signedAt: timestamp("signed_at").notNull().defaultNow(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  contentHashAtSigning: text("content_hash_at_signing"),
+  isRevoked: boolean("is_revoked").notNull().default(false),
+  revokedAt: timestamp("revoked_at"),
+  revokedBy: varchar("revoked_by"),
+  revokedReason: text("revoked_reason"),
+  applicationId: integer("application_id"),
+  templateId: integer("template_id"),
+  metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const emailWrappers = pgTable("email_wrappers", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  type: varchar("type", { length: 50 }).notNull(),
+  headerGradient: text("header_gradient"),
+  headerSubtitle: text("header_subtitle"),
+  ctaButtonText: text("cta_button_text"),
+  ctaButtonUrl: text("cta_button_url"),
+  ctaButtonColor: text("cta_button_color"),
+  customFooter: text("custom_footer"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const passwordHistory = pgTable("password_history", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull(),
+  passwordHash: varchar("password_hash").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const permissionAuditLog = pgTable("permission_audit_log", {
+  id: serial("id").primaryKey(),
+  actorUserId: varchar("actor_user_id").notNull(),
+  roleKey: text("role_key").notNull(),
+  resourceId: integer("resource_id").notNull(),
+  action: text("action").notNull(),
+  changeType: text("change_type").notNull(),
+  previousValue: boolean("previous_value"),
+  newValue: boolean("new_value").notNull(),
+  notes: text("notes"),
+  metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const prospectDocuments = pgTable("prospect_documents", {
+  id: serial("id").primaryKey(),
+  prospectId: integer("prospect_id").notNull(),
+  fileName: text("file_name").notNull(),
+  originalFileName: text("original_file_name").notNull(),
+  fileType: text("file_type").notNull(),
+  fileSize: integer("file_size").notNull(),
+  storageKey: text("storage_key").notNull(),
+  category: text("category").notNull().default("general"),
+  uploadedBy: varchar("uploaded_by"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const prospectNotifications = pgTable("prospect_notifications", {
+  id: serial("id").primaryKey(),
+  prospectId: integer("prospect_id").notNull(),
+  subject: text("subject").notNull(),
+  message: text("message").notNull(),
+  type: text("type").notNull().default("info"),
+  isRead: boolean("is_read").notNull().default(false),
+  readAt: timestamp("read_at"),
+  createdBy: varchar("created_by").notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const rbacResources = pgTable("rbac_resources", {
+  id: serial("id").primaryKey(),
+  resourceKey: text("resource_key").notNull(),
+  resourceType: text("resource_type").notNull(),
+  displayName: text("display_name").notNull(),
+  description: text("description"),
+  category: text("category"),
+  parentResourceKey: text("parent_resource_key"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
+});
+
+export const rolePermissions = pgTable("role_permissions", {
+  id: serial("id").primaryKey(),
+  roleKey: text("role_key").notNull(),
+  resourceId: integer("resource_id").notNull(),
+  action: text("action").notNull().default("view"),
+  isGranted: boolean("is_granted").notNull().default(true),
+  grantedAt: timestamp("granted_at").notNull().defaultNow(),
+  grantedBy: varchar("granted_by"),
+  notes: text("notes"),
+});
+
+export const schemaMigrations = pgTable("schema_migrations", {
+  id: serial("id").primaryKey(),
+  migrationId: varchar("migration_id", { length: 255 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  appliedAt: timestamp("applied_at").defaultNow(),
+  checksum: varchar("checksum", { length: 64 }).notNull(),
+  environment: varchar("environment", { length: 50 }).notNull(),
+});
+
+export const signatureCaptures = pgTable("signature_captures", {
+  id: serial("id").primaryKey(),
+  applicationId: integer("application_id"),
+  prospectId: integer("prospect_id"),
+  roleKey: text("role_key").notNull(),
+  signerType: text("signer_type").notNull(),
+  signerName: text("signer_name"),
+  signerEmail: text("signer_email"),
+  signature: text("signature"),
+  signatureType: text("signature_type"),
+  initials: text("initials"),
+  dateSigned: timestamp("date_signed"),
+  timestampSigned: timestamp("timestamp_signed"),
+  timestampRequested: timestamp("timestamp_requested"),
+  timestampExpires: timestamp("timestamp_expires"),
+  requestToken: text("request_token"),
+  status: text("status").notNull().default("pending"),
+  notes: text("notes"),
+  ownershipPercentage: numeric("ownership_percentage", { precision: 5, scale: 2 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const signatureDisclosureLinks = pgTable("signature_disclosure_links", {
+  id: serial("id").primaryKey(),
+  signatureCaptureId: integer("signature_capture_id").notNull(),
+  disclosureFieldName: text("disclosure_field_name").notNull(),
+  disclosureDefinitionId: integer("disclosure_definition_id"),
+  disclosureVersionId: integer("disclosure_version_id"),
+  isRequired: boolean("is_required").notNull().default(true),
+  signerRole: text("signer_role"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const signatureRequests = pgTable("signature_requests", {
+  id: serial("id").primaryKey(),
+  signatureCaptureId: integer("signature_capture_id").notNull(),
+  applicationId: integer("application_id"),
+  requestToken: text("request_token").notNull(),
+  signerEmail: text("signer_email").notNull(),
+  signerName: text("signer_name").notNull(),
+  status: text("status").notNull().default("pending"),
+  expiresAt: timestamp("expires_at").notNull(),
+  sentAt: timestamp("sent_at"),
+  openedAt: timestamp("opened_at"),
+  signedAt: timestamp("signed_at"),
+  cancelledAt: timestamp("cancelled_at"),
+  reminderCount: integer("reminder_count").notNull().default(0),
+  lastReminderAt: timestamp("last_reminder_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdBy: varchar("created_by"),
+});
+
+export const stageApiConfigs = pgTable("stage_api_configs", {
+  id: serial("id").primaryKey(),
+  stageId: integer("stage_id").notNull(),
+  integrationId: integer("integration_id"),
+  endpointUrl: text("endpoint_url"),
+  httpMethod: text("http_method").notNull().default("POST"),
+  headers: jsonb("headers").default(sql`'{}'::jsonb`),
+  authType: text("auth_type").default("none"),
+  authSecretKey: text("auth_secret_key"),
+  requestMapping: jsonb("request_mapping").default(sql`'{}'::jsonb`),
+  requestTemplate: text("request_template"),
+  responseMapping: jsonb("response_mapping").default(sql`'{}'::jsonb`),
+  rules: jsonb("rules").default(sql`'[]'::jsonb`),
+  timeoutSeconds: integer("timeout_seconds").default(30),
+  maxRetries: integer("max_retries").default(3),
+  retryDelaySeconds: integer("retry_delay_seconds").default(5),
+  fallbackOnError: text("fallback_on_error").default("pending_review"),
+  fallbackOnTimeout: text("fallback_on_timeout").default("pending_review"),
+  isActive: boolean("is_active").notNull().default(true),
+  testMode: boolean("test_mode").notNull().default(false),
+  mockResponse: jsonb("mock_response"),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const userCompanyAssociations = pgTable("user_company_associations", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull(),
+  companyId: integer("company_id").notNull(),
+  companyRole: text("company_role").notNull(),
+  permissions: jsonb("permissions").default(sql`'{}'::jsonb`),
+  title: text("title"),
+  department: text("department"),
+  isActive: boolean("is_active").notNull().default(true),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  startDate: timestamp("start_date"),
+  endDate: timestamp("end_date"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const volumeThresholds = pgTable("volume_thresholds", {
+  id: serial("id").primaryKey(),
+  acquirerId: integer("acquirer_id").notNull(),
+  name: text("name").notNull(),
+  maxMonthlyVolume: numeric("max_monthly_volume", { precision: 12, scale: 2 }),
+  minCardPresentPercent: numeric("min_card_present_percent", { precision: 5, scale: 2 }),
+  maxHighTicket: numeric("max_high_ticket", { precision: 10, scale: 2 }),
+  requiresApprovedMcc: boolean("requires_approved_mcc").notNull().default(false),
+  riskTier: text("risk_tier"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const workflowArtifacts = pgTable("workflow_artifacts", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").notNull(),
+  ticketStageId: integer("ticket_stage_id"),
+  fileName: text("file_name").notNull(),
+  fileType: text("file_type").notNull(),
+  fileSize: integer("file_size"),
+  filePath: text("file_path"),
+  artifactType: text("artifact_type").notNull(),
+  category: text("category"),
+  description: text("description"),
+  metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
+  status: text("status").notNull().default("active"),
+  uploadedBy: varchar("uploaded_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const workflowAssignments = pgTable("workflow_assignments", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").notNull(),
+  assignedToId: varchar("assigned_to_id").notNull(),
+  assignedById: varchar("assigned_by_id"),
+  assignmentType: text("assignment_type").notNull().default("primary"),
+  assignedAt: timestamp("assigned_at").notNull().defaultNow(),
+  unassignedAt: timestamp("unassigned_at"),
+  isActive: boolean("is_active").notNull().default(true),
+  notes: text("notes"),
+});
+
+export const workflowIssues = pgTable("workflow_issues", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").notNull(),
+  ticketStageId: integer("ticket_stage_id"),
+  issueCode: varchar("issue_code", { length: 50 }).notNull(),
+  issueType: text("issue_type").notNull(),
+  severity: text("severity").notNull().default("medium"),
+  title: text("title").notNull(),
+  description: text("description"),
+  affectedField: text("affected_field"),
+  affectedEntity: text("affected_entity"),
+  affectedEntityId: text("affected_entity_id"),
+  status: text("status").notNull().default("open"),
+  resolution: text("resolution"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: varchar("resolved_by"),
+  overrideReason: text("override_reason"),
+  overriddenAt: timestamp("overridden_at"),
+  overriddenBy: varchar("overridden_by"),
+  scoreImpact: integer("score_impact"),
+  sourceData: jsonb("source_data"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const workflowNotes = pgTable("workflow_notes", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").notNull(),
+  ticketStageId: integer("ticket_stage_id"),
+  content: text("content").notNull(),
+  noteType: text("note_type").notNull().default("general"),
+  isInternal: boolean("is_internal").notNull().default(true),
+  createdBy: varchar("created_by").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const workflowStages = pgTable("workflow_stages", {
+  id: serial("id").primaryKey(),
+  workflowDefinitionId: integer("workflow_definition_id").notNull(),
+  code: varchar("code", { length: 50 }).notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  orderIndex: integer("order_index").notNull(),
+  stageType: text("stage_type").notNull().default("automated"),
+  handlerKey: text("handler_key"),
+  isRequired: boolean("is_required").notNull().default(true),
+  requiresReview: boolean("requires_review").notNull().default(false),
+  autoAdvance: boolean("auto_advance").notNull().default(true),
+  issueBlocksSeverity: text("issue_blocks_severity"),
+  timeoutMinutes: integer("timeout_minutes"),
+  retryConfig: jsonb("retry_config"),
+  configuration: jsonb("configuration").default(sql`'{}'::jsonb`),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const workflowTasks = pgTable("workflow_tasks", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").notNull(),
+  issueId: integer("issue_id"),
+  title: text("title").notNull(),
+  description: text("description"),
+  taskType: text("task_type").notNull().default("action"),
+  assignedToId: varchar("assigned_to_id"),
+  assignedToRole: text("assigned_to_role"),
+  assignedAt: timestamp("assigned_at"),
+  status: text("status").notNull().default("pending"),
+  priority: text("priority").notNull().default("normal"),
+  dueAt: timestamp("due_at"),
+  completedAt: timestamp("completed_at"),
+  completedBy: varchar("completed_by"),
+  completionNotes: text("completion_notes"),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const workflowTicketStages = pgTable("workflow_ticket_stages", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").notNull(),
+  stageId: integer("stage_id").notNull(),
+  status: text("status").notNull().default("pending"),
+  result: text("result"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  executionCount: integer("execution_count").notNull().default(0),
+  lastExecutedAt: timestamp("last_executed_at"),
+  lastExecutedBy: varchar("last_executed_by"),
+  handlerResponse: jsonb("handler_response"),
+  errorMessage: text("error_message"),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewedBy: varchar("reviewed_by"),
+  reviewNotes: text("review_notes"),
+  reviewDecision: text("review_decision"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const workflowTickets = pgTable("workflow_tickets", {
+  id: serial("id").primaryKey(),
+  ticketNumber: varchar("ticket_number", { length: 50 }).notNull(),
+  workflowDefinitionId: integer("workflow_definition_id").notNull(),
+  entityType: text("entity_type").notNull(),
+  entityId: integer("entity_id").notNull(),
+  status: text("status").notNull().default("submitted"),
+  subStatus: text("sub_status"),
+  currentStageId: integer("current_stage_id"),
+  priority: text("priority").notNull().default("normal"),
+  riskLevel: text("risk_level"),
+  riskScore: integer("risk_score"),
+  assignedToId: varchar("assigned_to_id"),
+  assignedAt: timestamp("assigned_at"),
+  submittedAt: timestamp("submitted_at").notNull().defaultNow(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  dueAt: timestamp("due_at"),
+  lastReviewedAt: timestamp("last_reviewed_at"),
+  lastReviewedBy: varchar("last_reviewed_by"),
+  reviewCount: integer("review_count").notNull().default(0),
+  metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const workflowTransitions = pgTable("workflow_transitions", {
+  id: serial("id").primaryKey(),
+  ticketId: integer("ticket_id").notNull(),
+  transitionType: text("transition_type").notNull(),
+  fromValue: text("from_value"),
+  toValue: text("to_value"),
+  fromStageId: integer("from_stage_id"),
+  toStageId: integer("to_stage_id"),
+  reason: text("reason"),
+  notes: text("notes"),
+  triggeredBy: varchar("triggered_by"),
+  triggeredBySystem: boolean("triggered_by_system").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
