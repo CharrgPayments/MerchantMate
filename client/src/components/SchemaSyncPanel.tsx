@@ -70,17 +70,27 @@ export default function SchemaSyncPanel() {
     },
   });
 
-  const activityQ = useQuery<any[]>({
+  type ActivityRow = {
+    id: number;
+    action: "schema_sync_apply" | "schema_sync_rollback";
+    createdAt: string;
+    userId?: string | null;
+    userEmail?: string | null;
+    newValues?: { notes?: string; tags?: { targetEnv?: string } } | null;
+  };
+
+  const activityQ = useQuery<ActivityRow[]>({
     queryKey: ["/api/audit-logs", "schema-sync", 200],
     queryFn: async () => {
       const r = await fetch(`/api/audit-logs?limit=200`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed to load audit logs");
       const rows = await r.json();
       return (Array.isArray(rows) ? rows : [])
-        .filter((row: any) =>
-          row?.action === "schema_sync_apply" || row?.action === "schema_sync_rollback",
+        .filter(
+          (row: any) =>
+            row?.action === "schema_sync_apply" || row?.action === "schema_sync_rollback",
         )
-        .slice(0, 25);
+        .slice(0, 25) as ActivityRow[];
     },
   });
 
@@ -185,6 +195,7 @@ export default function SchemaSyncPanel() {
         () => {
           toast({ title: "Apply finished", description: "See live log for details" });
           snapshotsQ.refetch();
+          activityQ.refetch();
         },
       );
     } catch (e: any) {
@@ -217,6 +228,7 @@ export default function SchemaSyncPanel() {
         () => {
           toast({ title: "Rollback finished" });
           snapshotsQ.refetch();
+          activityQ.refetch();
         },
       );
     } catch (e: any) {
