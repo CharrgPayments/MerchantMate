@@ -126,7 +126,7 @@ async function phaseMccValidation(ctx: PhaseContext): Promise<PhaseResult> {
 }
 
 async function phaseGoogleKyb(ctx: PhaseContext): Promise<PhaseResult> {
-  return runEndpointOrBuiltin(ctx, "uw_google_kyb", "google_kyb", () => {
+  return runEndpointOrBuiltin(ctx, "uw_business_verification", "google_kyb", () => {
     const data = appData(ctx.app);
     return { legalName: data.companyName, ein: data.federalTaxId, address: data.address, state: data.state };
   });
@@ -157,7 +157,7 @@ async function phasePhoneVerification(ctx: PhaseContext): Promise<PhaseResult> {
 }
 
 async function phaseMatchEin(ctx: PhaseContext): Promise<PhaseResult> {
-  return runEndpointOrBuiltin(ctx, "uw_match_ein", "match_ein", () => {
+  return runEndpointOrBuiltin(ctx, "uw_fraud_screening", "match_ein", () => {
     const data = appData(ctx.app);
     return { ein: data.federalTaxId, legalName: data.companyName, owners: ctx.owners.map((o) => ({ name: o.name, email: o.email })) };
   });

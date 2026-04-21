@@ -9,6 +9,8 @@ import { verifyPhone } from "./phone";
 import { verifyWebsite } from "./website";
 import { verifyOfac } from "./ofac";
 import { verifyGoogleKyb } from "./googleKyb";
+import { verifyCreditCheck } from "./creditCheck";
+import { verifyFraudScreening } from "./fraudScreening";
 
 export interface BuiltinContext {
   app: ProspectApplication;
@@ -38,6 +40,19 @@ export const BUILTIN_VERIFIERS: Record<string, (ctx: BuiltinContext) => Promise<
       legalName: d.companyName as string | undefined,
       address: d.address as string | undefined,
       state: d.state as string | undefined,
+    });
+  },
+  credit_check: async (ctx) => {
+    return verifyCreditCheck({
+      owners: ctx.owners.map((o) => ({ name: o.name, email: o.email, ssn: (o as unknown as { ssn?: string }).ssn ?? null })),
+    });
+  },
+  match_ein: async (ctx) => {
+    const d = appData(ctx.app);
+    return verifyFraudScreening({
+      ein: d.federalTaxId as string | undefined,
+      legalName: d.companyName as string | undefined,
+      owners: ctx.owners.map((o) => ({ name: o.name, email: o.email })),
     });
   },
 };

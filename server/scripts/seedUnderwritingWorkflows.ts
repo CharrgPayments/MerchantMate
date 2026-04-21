@@ -16,7 +16,7 @@
 // UPDATE rather than .onConflictDoUpdate() — both patterns stay through
 // the per-request DynamicDB Proxy and remain env-isolated.
 
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import {
   db as defaultDb,
 } from "../db";
@@ -33,6 +33,72 @@ import {
   PAYFAC_SLA_HOURS,
   type Pathway,
 } from "@shared/underwriting";
+
+// Endpoint names that were renamed under task #22; cleared from the
+// registry so the orchestrator does not also pick up the legacy rows.
+const RETIRED_ENDPOINT_NAMES = ["uw_google_kyb", "uw_match_ein"];
+
+// Default URL/auth seeded for the four "real" external phases. Pulled
+// from env when present so a deployer can wire production providers
+// once and have every environment receive a working configuration on
+// the next seed run. When no env URL is set we keep the placeholder
+// invalid URL + isActive=false so the orchestrator falls back to the
+// real built-in verifier (OFAC SDN, Google Places, EIN heuristics).
+function defaultEndpointConfig(name: string): { url: string; isActive: boolean; authType: string; authConfig: Record<string, string>; headers: Record<string, string> } {
+  const placeholder = `https://example.invalid/${name}`;
+  const fromEnv = (envName: string): string | undefined => {
+    const v = process.env[envName];
+    return v && v.trim() ? v.trim() : undefined;
+  };
+  switch (name) {
+    case "uw_business_verification": {
+      const url = fromEnv("BUSINESS_VERIFICATION_API_URL");
+      const key = fromEnv("BUSINESS_VERIFICATION_API_KEY");
+      return {
+        url: url ?? placeholder,
+        isActive: !!url,
+        authType: key ? "bearer" : "none",
+        authConfig: key ? { token: key } : {},
+        headers: {},
+      };
+    }
+    case "uw_credit_check": {
+      const url = fromEnv("CREDIT_REPORT_API_URL");
+      const key = fromEnv("CREDIT_REPORT_API_KEY");
+      return {
+        url: url ?? placeholder,
+        isActive: !!url,
+        authType: key ? "bearer" : "none",
+        authConfig: key ? { token: key } : {},
+        headers: {},
+      };
+    }
+    case "uw_ofac_sanctions": {
+      const url = fromEnv("OFAC_API_URL");
+      const key = fromEnv("OFAC_API_KEY");
+      return {
+        url: url ?? placeholder,
+        isActive: !!url,
+        authType: key ? "bearer" : "none",
+        authConfig: key ? { token: key } : {},
+        headers: {},
+      };
+    }
+    case "uw_fraud_screening": {
+      const url = fromEnv("MATCH_API_URL");
+      const key = fromEnv("MATCH_API_KEY");
+      return {
+        url: url ?? placeholder,
+        isActive: !!url,
+        authType: key ? "bearer" : "none",
+        authConfig: key ? { token: key } : {},
+        headers: {},
+      };
+    }
+    default:
+      return { url: placeholder, isActive: false, authType: "none", authConfig: {}, headers: {} };
+  }
+}
 
 // Two definitions — one per pathway — matching the orchestrator's runtime
 // branching. Codes are stable identifiers used by external tooling and the
@@ -236,10 +302,26 @@ export async function seedUnderwritingWorkflows(db: DbLike = defaultDb): Promise
       }
     }
 
-    // ── workflow_endpoints (legacy/parallel registry the orchestrator
-    // looks up by name today). Keep one row per external phase, scoped
-    // to this workflow definition so the Workflows admin shows the
-    // mapping. Preserve admin-edited URL/auth.
+    // ── Drop retired endpoint names so the orchestrator only sees the
+    // current (renamed) external endpoints. Safe because workflow_endpoints
+    // are config rows; no FK references in underwriting_phase_results
+    // depend on a specific name.
+    await db
+      .delete(workflowEndpoints)
+      .where(
+        and(
+          eq(workflowEndpoints.workflowId, workflowId),
+          inArray(workflowEndpoints.name, RETIRED_ENDPOINT_NAMES),
+        ),
+      );
+
+    // ── workflow_endpoints (registry the orchestrator looks up by name).
+    // Keep one row per external phase, scoped to this workflow definition
+    // so the Workflows admin shows the mapping. Preserve admin-edited
+    // URL/auth (skip update when a row already exists). Defaults pull
+    // production URLs from env vars when present, otherwise leave a
+    // placeholder URL with isActive=false so the orchestrator falls back
+    // to the in-process built-in verifier.
     for (const stage of stages) {
       if (!stage.endpointName) continue;
       const existingEp = await db
@@ -253,15 +335,16 @@ export async function seedUnderwritingWorkflows(db: DbLike = defaultDb): Promise
         )
         .limit(1);
       if (existingEp[0]) continue;
+      const cfg = defaultEndpointConfig(stage.endpointName);
       await db.insert(workflowEndpoints).values({
         workflowId,
         name: stage.endpointName,
-        url: `https://example.invalid/${stage.endpointName}`,
+        url: cfg.url,
         method: "POST",
-        headers: {},
-        authType: "none",
-        authConfig: {},
-        isActive: false,
+        headers: cfg.headers,
+        authType: cfg.authType,
+        authConfig: cfg.authConfig,
+        isActive: cfg.isActive,
       });
       upsertedEndpoints++;
     }

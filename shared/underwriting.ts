@@ -169,10 +169,10 @@ export interface PhaseDef {
 
 export const PHASES: PhaseDef[] = [
   { key: "mcc_validation",     order: 1,  label: "MCC Validation",            description: "MCC supported by acquirer; not on restricted list.",       endpointName: null,                        weight: 10, checkpoint: true,  skipPaths: [] },
-  { key: "google_kyb",         order: 2,  label: "Google KYB",                description: "Verify legal entity via Google KYB.",                       endpointName: "uw_google_kyb",             weight: 10, checkpoint: false, skipPaths: [] },
+  { key: "google_kyb",         order: 2,  label: "Business Verification",     description: "Verify legal entity via business-listing provider (Google KYB).", endpointName: "uw_business_verification",  weight: 10, checkpoint: false, skipPaths: [] },
   { key: "volume_threshold",   order: 3,  label: "Volume Threshold",          description: "Projected volume within acquirer & pathway limits.",        endpointName: null,                        weight: 8,  checkpoint: false, skipPaths: [PATHWAYS.PAYFAC] },
   { key: "phone_verification", order: 4,  label: "Phone Verification",        description: "Business phone reachable & matches application.",          endpointName: "uw_phone_verification",     weight: 5,  checkpoint: false, skipPaths: [] },
-  { key: "match_ein",          order: 5,  label: "MATCH / EIN Lookup",        description: "TMF/MATCH and EIN lookup.",                                 endpointName: "uw_match_ein",              weight: 15, checkpoint: true,  skipPaths: [] },
+  { key: "match_ein",          order: 5,  label: "Fraud Screening (MATCH/EIN)", description: "TMF/MATCH and EIN fraud screening.",                       endpointName: "uw_fraud_screening",        weight: 15, checkpoint: true,  skipPaths: [] },
   { key: "ofac_sanctions",     order: 6,  label: "OFAC / Sanctions",          description: "Owners and entity screened against sanctions lists.",       endpointName: "uw_ofac_sanctions",         weight: 20, checkpoint: true,  skipPaths: [] },
   { key: "sos_lookup",         order: 7,  label: "Secretary of State Lookup", description: "Active registration in formation state.",                   endpointName: "uw_sos_lookup",             weight: 8,  checkpoint: false, skipPaths: [] },
   { key: "ssn_verification",   order: 8,  label: "SSN Verification",          description: "Principal SSN verification.",                               endpointName: "uw_ssn_verification",       weight: 10, checkpoint: false, skipPaths: [] },
