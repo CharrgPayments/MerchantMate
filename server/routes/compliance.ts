@@ -79,6 +79,17 @@ router.get("/audit/entity/:resource/:resourceId", isAuthenticated, requirePerm("
 router.get("/applications/sla-status", isAuthenticated, requirePerm("underwriting:view-queue"), async (_req, res) => {
   try {
     const now = new Date();
+    // Task #29: SLA source of truth is `workflow_stages.timeout_minutes`
+    // for the ticket's current stage. Refresh deadlines into
+    // `prospect_applications.sla_deadline` BEFORE serving the SLA Monitor
+    // cards so they reflect current workflow stage timeouts without
+    // waiting for the periodic scan.
+    try {
+      const { refreshAllOpenTicketSlaDeadlines } = await import("../underwriting/workflowMirror");
+      await refreshAllOpenTicketSlaDeadlines(db as unknown as Parameters<typeof refreshAllOpenTicketSlaDeadlines>[0]);
+    } catch (e) {
+      console.error("[compliance] sla-status refresh failed", e);
+    }
     const overdueOpen = await db.select({
       id: prospectApplications.id,
       prospectId: prospectApplications.prospectId,
