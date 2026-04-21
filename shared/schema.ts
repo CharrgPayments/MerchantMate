@@ -1033,7 +1033,7 @@ export const acquirerApplicationTemplates = pgTable("acquirer_application_templa
   sourcePdfPath: text("source_pdf_path"),
   disclosureGroups: jsonb("disclosure_groups").default(sql`'[]'::jsonb`),
 }, (table) => ({
-  uniqueAcquirerTemplate: unique().on(table.acquirerId, table.templateName, table.version),
+  uniqueAcquirerTemplate: unique("acq_app_tmpl_acq_name_ver_uniq").on(table.acquirerId, table.templateName, table.version),
 }));
 
 // Prospect Applications - store acquirer-specific application data
