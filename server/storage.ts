@@ -1,3 +1,4 @@
+import { userPreferences, type UserPreference } from "@shared/schema";
 import { merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, campaignAssignmentRules, equipmentItems, campaignEquipment, apiKeys, apiRequestLogs, emailTemplates, emailActivity, emailTriggers, workflowDefinitions, workflowEnvironmentConfigs, externalEndpoints, type ExternalEndpoint, type InsertExternalEndpoint, type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type InsertProspectSignature, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type CampaignAssignmentRule, type InsertCampaignAssignmentRule, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowEnvironmentConfig, type InsertWorkflowEnvironmentConfig, type WorkflowDefinitionWithDetails } from "@shared/schema";
 import { db } from "./db";
 import { eq, or, and, gte, sql, desc, inArray, like, ilike, not, count } from "drizzle-orm";
@@ -229,6 +230,11 @@ export interface IStorage {
   createWidgetPreference(preference: InsertUserDashboardPreference): Promise<UserDashboardPreference>;
   updateWidgetPreference(id: number, updates: Partial<InsertUserDashboardPreference>): Promise<UserDashboardPreference | undefined>;
   deleteWidgetPreference(id: number): Promise<boolean>;
+
+  // Generic per-user key/value preferences
+  getUserPreference(userId: string, key: string): Promise<unknown | undefined>;
+  setUserPreference(userId: string, key: string, value: unknown): Promise<void>;
+  deleteUserPreference(userId: string, key: string): Promise<boolean>;
 
   // Location revenue metrics
   getLocationRevenue(locationId: number): Promise<{
@@ -1270,6 +1276,52 @@ export class DatabaseStorage implements IStorage {
   async deleteWidgetPreference(id: number): Promise<boolean> {
     const result = await db.delete(userDashboardPreferences).where(eq(userDashboardPreferences.id, id));
     return result.rowCount > 0;
+  }
+
+  // Generic per-user key/value preferences (e.g. underwriting queue filters/sort).
+  // The table is created lazily on first use so the feature works even on databases
+  // that have not yet had the schemaSync run.
+  private userPreferencesTableEnsured = false;
+  private async ensureUserPreferencesTable(): Promise<void> {
+    if (this.userPreferencesTableEnsured) return;
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "user_preferences" (
+        "user_id" varchar NOT NULL,
+        "key" varchar NOT NULL,
+        "value" jsonb NOT NULL,
+        "updated_at" timestamp NOT NULL DEFAULT now(),
+        PRIMARY KEY ("user_id", "key")
+      )
+    `);
+    this.userPreferencesTableEnsured = true;
+  }
+
+  async getUserPreference(userId: string, key: string): Promise<unknown | undefined> {
+    await this.ensureUserPreferencesTable();
+    const [row] = await db
+      .select()
+      .from(userPreferences)
+      .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, key)));
+    return row ? (row as UserPreference).value : undefined;
+  }
+
+  async setUserPreference(userId: string, key: string, value: unknown): Promise<void> {
+    await this.ensureUserPreferencesTable();
+    await db
+      .insert(userPreferences)
+      .values({ userId, key, value })
+      .onConflictDoUpdate({
+        target: [userPreferences.userId, userPreferences.key],
+        set: { value, updatedAt: new Date() },
+      });
+  }
+
+  async deleteUserPreference(userId: string, key: string): Promise<boolean> {
+    await this.ensureUserPreferencesTable();
+    const result = await db
+      .delete(userPreferences)
+      .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, key)));
+    return (result.rowCount ?? 0) > 0;
   }
 
   async createLocation(location: InsertLocation): Promise<Location> {

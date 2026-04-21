@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -100,6 +100,8 @@ function SlaCountdown({ deadline }: { deadline: string }) {
 }
 
 const PREFS_KEY = "underwriting-queue-prefs:v1";
+const PREFS_SERVER_KEY = "underwriting-queue:v1";
+const PREFS_API_PATH = `/api/user/prefs/${PREFS_SERVER_KEY}`;
 
 type QueuePrefs = {
   status: string;
@@ -123,7 +125,7 @@ const DEFAULT_PREFS: QueuePrefs = {
   sortTouched: false,
 };
 
-function loadPrefs(): QueuePrefs {
+function loadLocalPrefs(): QueuePrefs {
   if (typeof window === "undefined") return DEFAULT_PREFS;
   try {
     const raw = window.localStorage.getItem(PREFS_KEY);
@@ -135,8 +137,22 @@ function loadPrefs(): QueuePrefs {
   }
 }
 
+function writeLocalPrefs(prefs: QueuePrefs) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    // ignore quota / serialization errors
+  }
+}
+
+function clearLocalPrefs() {
+  if (typeof window === "undefined") return;
+  try { window.localStorage.removeItem(PREFS_KEY); } catch { /* ignore */ }
+}
+
 export default function UnderwritingQueue() {
-  const initial = loadPrefs();
+  const initial = loadLocalPrefs();
   const [status, setStatus] = useState(initial.status);
   const [tier, setTier] = useState(initial.tier);
   const [pathway, setPathway] = useState(initial.pathway);
@@ -145,20 +161,79 @@ export default function UnderwritingQueue() {
   const [search, setSearch] = useState(initial.search);
   const [sortDir, setSortDir] = useState<"asc" | "desc" | null>(initial.sortDir);
   const [sortTouched, setSortTouched] = useState(initial.sortTouched);
+  // Wait until the server-side prefs have been hydrated (or confirmed missing)
+  // before persisting changes back, to avoid clobbering remote prefs with the
+  // initial localStorage snapshot.
+  const [hydrated, setHydrated] = useState(false);
+  // Allows hydration and reset to update state without triggering the
+  // write-through effect (which would otherwise re-save what we just
+  // received, or re-save defaults on top of a fresh server-side delete).
+  const skipNextPersist = useRef(false);
 
+  // Hydrate from server-side prefs on mount; falls back silently to the
+  // localStorage snapshot already loaded into state if the request fails or
+  // the user has no saved prefs yet.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(
-        PREFS_KEY,
-        JSON.stringify({ status, tier, pathway, mode, assignee, search, sortDir, sortTouched }),
-      );
-    } catch {
-      // ignore quota / serialization errors
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(PREFS_API_PATH, { credentials: "include" });
+        if (cancelled) return;
+        if (res.ok) {
+          const data = await res.json();
+          const remote = { ...DEFAULT_PREFS, ...(data?.value ?? {}) } as QueuePrefs;
+          // We just read these values from the server, so don't immediately
+          // PUT them back when the resulting state changes flow through.
+          skipNextPersist.current = true;
+          setStatus(remote.status);
+          setTier(remote.tier);
+          setPathway(remote.pathway);
+          setMode(remote.mode);
+          setAssignee(remote.assignee);
+          setSearch(remote.search);
+          setSortDir(remote.sortDir);
+          setSortTouched(remote.sortTouched);
+          writeLocalPrefs(remote);
+        }
+        // 404 / network failure: keep locally-loaded prefs.
+      } catch {
+        // ignore – offline or auth errors fall back to local prefs
+      } finally {
+        if (!cancelled) setHydrated(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Persist changes to localStorage immediately and to the server (debounced).
+  // Hydration and reset both flip skipNextPersist to suppress the next pass so
+  // we don't re-PUT values we just read from the server, or rewrite defaults
+  // immediately after a reset has explicitly cleared both copies.
+  useEffect(() => {
+    if (!hydrated) return;
+    if (skipNextPersist.current) {
+      skipNextPersist.current = false;
+      return;
     }
-  }, [status, tier, pathway, mode, assignee, search, sortDir, sortTouched]);
+    const prefs: QueuePrefs = { status, tier, pathway, mode, assignee, search, sortDir, sortTouched };
+    writeLocalPrefs(prefs);
+    const t = setTimeout(() => {
+      fetch(PREFS_API_PATH, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: prefs }),
+      }).catch(() => {
+        // Offline: localStorage already holds the latest copy and will resync on next change.
+      });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [hydrated, status, tier, pathway, mode, assignee, search, sortDir, sortTouched]);
 
   const resetPrefs = () => {
+    // Suppress the pending write-through so it doesn't immediately rewrite
+    // localStorage / re-PUT the defaults on top of the deletes below.
+    skipNextPersist.current = true;
     setStatus(DEFAULT_PREFS.status);
     setTier(DEFAULT_PREFS.tier);
     setPathway(DEFAULT_PREFS.pathway);
@@ -167,9 +242,11 @@ export default function UnderwritingQueue() {
     setSearch(DEFAULT_PREFS.search);
     setSortDir(DEFAULT_PREFS.sortDir);
     setSortTouched(DEFAULT_PREFS.sortTouched);
-    if (typeof window !== "undefined") {
-      try { window.localStorage.removeItem(PREFS_KEY); } catch { /* ignore */ }
-    }
+    clearLocalPrefs();
+    fetch(PREFS_API_PATH, { method: "DELETE", credentials: "include" }).catch(() => {
+      // Best-effort: if we're offline the next user-initiated change will
+      // overwrite the stale server copy.
+    });
   };
 
   const isCustomized =

@@ -492,6 +492,18 @@ export const insertUserDashboardPreferenceSchema = createInsertSchema(userDashbo
 export type InsertUserDashboardPreference = z.infer<typeof insertUserDashboardPreferenceSchema>;
 export type UserDashboardPreference = typeof userDashboardPreferences.$inferSelect;
 
+// Generic per-user key/value preferences (e.g. underwriting queue filters/sort).
+// Uses a composite primary key so each (userId, key) pair is unique.
+export const userPreferences = pgTable("user_preferences", {
+  userId: varchar("user_id").notNull(),
+  key: varchar("key").notNull(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [primaryKey({ columns: [table.userId, table.key] })]);
+
+export type UserPreference = typeof userPreferences.$inferSelect;
+export type InsertUserPreference = typeof userPreferences.$inferInsert;
+
 // User alerts / notification table
 export const userAlerts = pgTable("user_alerts", {
   id: serial("id").primaryKey(),

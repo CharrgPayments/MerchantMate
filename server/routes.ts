@@ -4645,6 +4645,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Widget preferences routes
+  // Per-user key/value preferences (e.g. underwriting queue filters & sort).
+  // Allows reviewer settings to follow them across browsers/devices.
+  const PREFS_KEY_PATTERN = /^[a-zA-Z0-9_:.-]{1,128}$/;
+  const getPrefsUserId = (req: any): string | null => {
+    return req.userId
+      || req.user?.id
+      || req.user?.claims?.sub
+      || req.session?.userId
+      || null;
+  };
+
+  app.get("/api/user/prefs/:key", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getPrefsUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthenticated" });
+      const key = req.params.key;
+      if (!PREFS_KEY_PATTERN.test(key)) {
+        return res.status(400).json({ message: "Invalid preference key" });
+      }
+      const value = await storage.getUserPreference(userId, key);
+      if (value === undefined) return res.status(404).json({ message: "Not found" });
+      res.json({ key, value });
+    } catch (error) {
+      console.error("Error fetching user preference:", error);
+      res.status(500).json({ message: "Failed to fetch preference" });
+    }
+  });
+
+  app.put("/api/user/prefs/:key", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getPrefsUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthenticated" });
+      const key = req.params.key;
+      if (!PREFS_KEY_PATTERN.test(key)) {
+        return res.status(400).json({ message: "Invalid preference key" });
+      }
+      if (!req.body || typeof req.body !== "object" || !("value" in req.body)) {
+        return res.status(400).json({ message: "Body must include a 'value' field" });
+      }
+      // Cap stored value to a reasonable size to avoid abuse.
+      const serialized = JSON.stringify(req.body.value);
+      if (serialized.length > 32_000) {
+        return res.status(413).json({ message: "Preference value too large" });
+      }
+      await storage.setUserPreference(userId, key, req.body.value);
+      res.json({ key, value: req.body.value });
+    } catch (error) {
+      console.error("Error saving user preference:", error);
+      res.status(500).json({ message: "Failed to save preference" });
+    }
+  });
+
+  app.delete("/api/user/prefs/:key", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getPrefsUserId(req);
+      if (!userId) return res.status(401).json({ message: "Unauthenticated" });
+      const key = req.params.key;
+      if (!PREFS_KEY_PATTERN.test(key)) {
+        return res.status(400).json({ message: "Invalid preference key" });
+      }
+      const removed = await storage.deleteUserPreference(userId, key);
+      res.json({ removed });
+    } catch (error) {
+      console.error("Error deleting user preference:", error);
+      res.status(500).json({ message: "Failed to delete preference" });
+    }
+  });
+
   app.get("/api/user/widgets", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
