@@ -24,11 +24,13 @@ import {
   XCircle,
   Pencil,
   Plus,
-  Bell
+  Bell,
+  Globe
 } from "lucide-react";
 
 // Import existing action templates page as a component
 import ActionTemplatesPage from "./action-templates";
+import { EndpointsManagement } from "@/components/endpoints-management";
 
 // Triggers Management Component
 function TriggersManagement() {
@@ -925,7 +927,7 @@ export default function CommunicationsManagement() {
 
       {/* Main Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="templates" className="flex items-center gap-2">
             <Mail className="w-4 h-4" />
             Templates
@@ -933,6 +935,10 @@ export default function CommunicationsManagement() {
           <TabsTrigger value="triggers" className="flex items-center gap-2">
             <Zap className="w-4 h-4" />
             Triggers
+          </TabsTrigger>
+          <TabsTrigger value="endpoints" className="flex items-center gap-2" data-testid="tab-endpoints">
+            <Globe className="w-4 h-4" />
+            Endpoints
           </TabsTrigger>
           <TabsTrigger value="activity" className="flex items-center gap-2">
             <Activity className="w-4 h-4" />
@@ -946,6 +952,10 @@ export default function CommunicationsManagement() {
 
         <TabsContent value="triggers" className="space-y-6">
           <TriggersManagement />
+        </TabsContent>
+
+        <TabsContent value="endpoints" className="space-y-6">
+          <EndpointsManagement />
         </TabsContent>
 
         <TabsContent value="activity" className="space-y-6">

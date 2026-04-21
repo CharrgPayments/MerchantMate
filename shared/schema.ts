@@ -1640,6 +1640,10 @@ export const actionTemplates = pgTable("action_templates", {
   variables: jsonb("variables"),
   isActive: boolean("is_active").default(true),
   version: integer("version").default(1),
+  // Optional FK into the External Endpoints Registry. For webhook templates,
+  // when set, the runtime loads url/method/headers/auth from the registry row
+  // and the `config` field only carries body/variables/isDataSource etc.
+  endpointId: integer("endpoint_id").references((): any => externalEndpoints.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

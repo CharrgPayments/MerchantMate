@@ -42,6 +42,7 @@ import {
   Search,
   Filter,
   Edit,
+  Pencil,
   Trash2,
   Copy,
   ExternalLink,
@@ -62,6 +63,7 @@ import {
   LayoutGrid,
   Layers,
 } from "lucide-react";
+import { EndpointEditorDialog, type EndpointShape } from "@/components/endpoint-editor-dialog";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -137,8 +139,9 @@ const urlOrSecretRef = (msg = "Must be a valid URL or a secret reference like {{
   );
 
 const webhookConfigSchema = z.object({
-  url: urlOrSecretRef("Must be a valid URL or contain a secret reference like {{$SECRET_NAME}}"),
-  method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
+  // url/method/headers are optional when endpointId is set (transport lives on the endpoint)
+  url: urlOrSecretRef("Must be a valid URL or contain a secret reference like {{$SECRET_NAME}}").optional(),
+  method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).optional(),
   headers: z.string().optional(),
   body: z.string().optional(),
   responseSchema: z.string().optional(),
@@ -228,6 +231,18 @@ interface TemplateModalProps {
 function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
   const { toast } = useToast();
   const [configFields, setConfigFields] = useState<any>({});
+  // Communications Endpoint Cutover (Task #32): webhook templates can
+  // reference an external endpoint by id. When set, transport (url/method/
+  // headers/auth) lives on the endpoint registry row.
+  const [endpointId, setEndpointId] = useState<number | null>(null);
+
+  const { data: externalEndpoints = [] } = useQuery<EndpointShape[]>({
+    queryKey: ["/api/external-endpoints"],
+    staleTime: 30_000,
+    enabled: open,
+  });
+  const [endpointDialogOpen, setEndpointDialogOpen] = useState(false);
+  const [editingEndpoint, setEditingEndpoint] = useState<EndpointShape | null>(null);
 
   // Fetch all webhook templates for the row-expansion detail template dropdown
   // (called at top-level of the component to satisfy Rules of Hooks)
@@ -301,6 +316,7 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
       } else {
         setConfigFields({});
       }
+      setEndpointId((template as any)?.endpointId ?? null);
     }
   }, [open, template, form]);
 
@@ -334,11 +350,32 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
     }
   };
 
+  const stripTransportFromConfig = (cfg: any) => {
+    if (!cfg) return cfg;
+    const { url, method, headers, auth, authType, authConfig, ...rest } = cfg;
+    return rest;
+  };
+
+  const assertWebhookTransport = (data: TemplateFormData) => {
+    if (data.actionType !== 'webhook') return;
+    if (endpointId) return;
+    const url = (configFields.url || '').trim();
+    const method = (configFields.method || '').trim();
+    if (!url || !method) {
+      throw new Error("Webhook requires either a selected Endpoint, or both an inline URL and HTTP method.");
+    }
+  };
+
   const createMutation = useMutation({
     mutationFn: async (data: TemplateFormData) => {
-      // Validate config
-      const validatedConfig = validateConfig(data.actionType, configFields);
-      
+      assertWebhookTransport(data);
+      // When a webhook references an endpoint, transport fields live on the
+      // registry row — strip them from config before validating/saving.
+      const effectiveConfig = (data.actionType === 'webhook' && endpointId)
+        ? stripTransportFromConfig(configFields)
+        : configFields;
+      const validatedConfig = validateConfig(data.actionType, effectiveConfig);
+
       // Parse variables safely
       let parsedVariables = null;
       if (data.variables) {
@@ -348,11 +385,12 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
           throw new Error("Invalid JSON in variables field");
         }
       }
-      
-      const payload = {
+
+      const payload: any = {
         ...data,
         config: validatedConfig,
         variables: parsedVariables,
+        endpointId: data.actionType === 'webhook' ? endpointId : null,
       };
       return apiRequest('POST', '/api/action-templates', payload);
     },
@@ -377,9 +415,12 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
 
   const updateMutation = useMutation({
     mutationFn: async (data: TemplateFormData) => {
-      // Validate config
-      const validatedConfig = validateConfig(data.actionType, configFields);
-      
+      assertWebhookTransport(data);
+      const effectiveConfig = (data.actionType === 'webhook' && endpointId)
+        ? stripTransportFromConfig(configFields)
+        : configFields;
+      const validatedConfig = validateConfig(data.actionType, effectiveConfig);
+
       // Parse variables safely
       let parsedVariables = null;
       if (data.variables) {
@@ -389,11 +430,12 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
           throw new Error("Invalid JSON in variables field");
         }
       }
-      
-      const payload = {
+
+      const payload: any = {
         ...data,
         config: validatedConfig,
         variables: parsedVariables,
+        endpointId: data.actionType === 'webhook' ? endpointId : null,
       };
       return apiRequest('PATCH', `/api/action-templates/${template?.id}`, payload);
     },
@@ -571,7 +613,10 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
   // Keep routeParams in sync whenever the URL field changes.
   useEffect(() => {
     if (actionType !== 'webhook') return;
-    const url = configFields.url || '';
+    // When a registry endpoint is selected, detect route params from the
+    // endpoint's URL instead of the (now hidden) inline url field.
+    const selected = endpointId ? externalEndpoints.find(ep => ep.id === endpointId) : null;
+    const url = selected?.url || configFields.url || '';
     const detected = extractRouteParamNames(url);
     const existing: RouteParam[] = configFields.routeParams || [];
 
@@ -589,7 +634,7 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
       setConfigFields((prev: any) => ({ ...prev, routeParams: merged }));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [configFields.url, actionType]);
+  }, [configFields.url, actionType, endpointId, externalEndpoints]);
 
   const handlePreview = () => {
     const variables = extractVariables();
@@ -629,25 +674,40 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
         const parsed = JSON.parse(configFields.mockData);
         setTestResult({ data: parsed, status: 200, mode: 'mock' });
       } else {
-        if (!configFields.url) throw new Error('No URL configured.');
-        const resolvedUrl = resolveUrlWithParams(configFields.url, configFields.routeParams || []);
+        // When endpointId is set, transport (URL/method/headers) lives on the
+        // registry — only require body / route-param resolution here. Server
+        // resolves the rest.
+        const selectedEp = endpointId
+          ? externalEndpoints.find(ep => ep.id === endpointId)
+          : null;
+        const transportSourceUrl = selectedEp?.url || configFields.url || '';
+        if (!transportSourceUrl) {
+          throw new Error('No URL configured. Pick an endpoint or set an inline URL.');
+        }
+        const resolvedUrl = resolveUrlWithParams(transportSourceUrl, configFields.routeParams || []);
         // Warn if any unresolved single-brace {param} remain — but ignore {{$SECRET}} and {{variable}} double-brace tokens
         if (/\{[^{}]+\}/.test(stripDoubleBraceTokens(resolvedUrl))) {
           throw new Error(`URL still contains unresolved route parameters: ${resolvedUrl}. Provide default values for each parameter.`);
         }
+        const requestPayload: any = {
+          mode: 'live',
+          // For unsaved drafts (id='preview') include endpointId so the server
+          // can resolve registry transport without a stored row.
+          endpointId: endpointId || undefined,
+          config: endpointId
+            ? { body: configFields.body }
+            : {
+                url: resolvedUrl,
+                method: configFields.method || 'GET',
+                headers: configFields.headers,
+                body: configFields.body,
+              },
+        };
         const response = await fetch(`/api/action-templates/${template?.id || 'preview'}/test`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({
-            mode: 'live',
-            config: {
-              url: resolvedUrl,
-              method: configFields.method || 'GET',
-              headers: configFields.headers,
-              body: configFields.body,
-            },
-          }),
+          body: JSON.stringify(requestPayload),
         });
         const json = await response.json();
         // Proxy route itself failed (auth, config error) — not the upstream
@@ -839,9 +899,81 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
         // eslint-disable-next-line no-case-declarations
         const routeParams: RouteParam[] = configFields.routeParams || [];
         // eslint-disable-next-line no-case-declarations
-        const resolvedPreviewUrl = resolveUrlWithParams(configFields.url || '', routeParams);
+        const selectedEndpoint = endpointId
+          ? externalEndpoints.find(ep => ep.id === endpointId)
+          : null;
+        // eslint-disable-next-line no-case-declarations
+        const effectiveUrl = selectedEndpoint?.url || configFields.url || '';
+        // eslint-disable-next-line no-case-declarations
+        const resolvedPreviewUrl = resolveUrlWithParams(effectiveUrl, routeParams);
         return (
           <>
+            {/* Endpoint picker — when set, transport (url/method/headers/auth)
+                lives on the External Endpoint registry row instead of inline. */}
+            <FormItem>
+              <div className="flex items-center justify-between">
+                <FormLabel className="flex items-center gap-2">
+                  <Webhook className="w-4 h-4" /> External Endpoint
+                </FormLabel>
+                {selectedEndpoint && (
+                  <Badge variant="outline" className="text-xs">
+                    {selectedEndpoint.method} • registered
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <Select
+                    value={endpointId ? String(endpointId) : '__inline__'}
+                    onValueChange={(value) => {
+                      if (value === '__inline__') {
+                        setEndpointId(null);
+                      } else {
+                        setEndpointId(parseInt(value, 10));
+                      }
+                    }}
+                  >
+                    <SelectTrigger data-testid="select-webhook-endpoint">
+                      <SelectValue placeholder="Choose an endpoint or define inline" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__inline__">Define inline (no registry)</SelectItem>
+                      {externalEndpoints.filter(ep => ep.isActive).map(ep => (
+                        <SelectItem key={ep.id} value={String(ep.id)}>
+                          {ep.name} — <span className="text-xs text-muted-foreground">{ep.method} {ep.url}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {selectedEndpoint && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setEditingEndpoint(selectedEndpoint); setEndpointDialogOpen(true); }}
+                    data-testid="button-edit-selected-endpoint"
+                  >
+                    <Pencil className="w-3.5 h-3.5 mr-1" /> Edit
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setEditingEndpoint(null); setEndpointDialogOpen(true); }}
+                  data-testid="button-new-endpoint-from-template"
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1" /> New
+                </Button>
+              </div>
+              <FormDescription className="text-xs">
+                Use <strong>New</strong> or <strong>Edit</strong> to manage endpoints without leaving the editor. Selecting one moves URL, method, headers and auth to the registry; the body, route params and data-binding stay on this template.
+              </FormDescription>
+            </FormItem>
+
+            {!endpointId && (
+            <>
             <FormItem>
               <div className="flex items-center justify-between">
                 <FormLabel>URL</FormLabel>
@@ -943,6 +1075,33 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
                 </SelectContent>
               </Select>
             </FormItem>
+            </>
+            )}
+
+            {endpointId && selectedEndpoint && (
+              <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs space-y-1" data-testid="endpoint-summary">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Transport from registry</span>
+                  <Badge variant="outline">{selectedEndpoint.method}</Badge>
+                </div>
+                <code className="font-mono text-[11px] break-all block text-muted-foreground">
+                  {selectedEndpoint.url}
+                </code>
+                {routeParams.length > 0 && (
+                  <div className="rounded-md bg-background border px-2 py-1 mt-1" data-testid="resolved-url-preview">
+                    <span className="text-muted-foreground font-medium mr-2">Resolved:</span>
+                    <span className="font-mono break-all">
+                      {resolvedPreviewUrl.split(/(\{[^{}]+\})/g).map((part, i) =>
+                        /^\{[^{}]+\}$/.test(part)
+                          ? <span key={i} className="text-destructive font-semibold">{part}</span>
+                          : <span key={i}>{part}</span>
+                      )}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Secrets Reference Panel */}
             {secretsData && secretsData.secrets.length > 0 && (
               <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/30 p-3 space-y-2">
@@ -992,6 +1151,7 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
               </div>
             )}
 
+            {!endpointId && (
             <FormItem>
               <div className="flex items-center justify-between">
                 <FormLabel>Headers (JSON, optional)</FormLabel>
@@ -1013,6 +1173,7 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
                 />
               </FormControl>
             </FormItem>
+            )}
             <FormItem>
               <div className="flex items-center justify-between">
                 <FormLabel>Body (optional)</FormLabel>
@@ -1126,6 +1287,12 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
                 allTemplates={allWebhookTemplates}
               />
             )}
+            <EndpointEditorDialog
+              open={endpointDialogOpen}
+              onOpenChange={setEndpointDialogOpen}
+              editing={editingEndpoint}
+              onSaved={(id) => setEndpointId(id)}
+            />
           </>
         );
       

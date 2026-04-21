@@ -6,6 +6,7 @@ import { isAuthenticated, requirePerm } from "../replitAuth";
 import { ACTIONS } from "@shared/permissions";
 import { insertExternalEndpointSchema } from "@shared/schema";
 import { resolveSecrets, resolveSecretsDeep } from "../lib/resolveSecrets";
+import { applyAuth } from "../lib/endpointTransport";
 
 const AUTH_TYPES = ["none", "api_key", "bearer", "basic"] as const;
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
@@ -34,46 +35,6 @@ const testSendSchema = z.object({
   body: z.string().optional(),
   endpointId: z.number().int().positive().optional(),
 });
-
-/**
- * Apply auth_type + auth_config to an outgoing fetch by mutating headers /
- * URL parameters. Mirrors how the workflow runner historically attached creds.
- */
-function applyAuth(
-  authType: string,
-  authConfig: Record<string, any>,
-  headers: Record<string, string>,
-  url: string,
-): { headers: Record<string, string>; url: string } {
-  switch (authType) {
-    case "bearer": {
-      const token = authConfig.token ?? authConfig.bearerToken;
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      return { headers, url };
-    }
-    case "basic": {
-      const username = authConfig.username ?? "";
-      const password = authConfig.password ?? "";
-      const encoded = Buffer.from(`${username}:${password}`).toString("base64");
-      headers["Authorization"] = `Basic ${encoded}`;
-      return { headers, url };
-    }
-    case "api_key": {
-      const placement = authConfig.in ?? "header";
-      const name = authConfig.headerName ?? authConfig.name ?? "X-API-Key";
-      const value = authConfig.value ?? authConfig.apiKey ?? "";
-      if (!value) return { headers, url };
-      if (placement === "query") {
-        const sep = url.includes("?") ? "&" : "?";
-        return { headers, url: `${url}${sep}${encodeURIComponent(name)}=${encodeURIComponent(value)}` };
-      }
-      headers[name] = value;
-      return { headers, url };
-    }
-    default:
-      return { headers, url };
-  }
-}
 
 export function registerExternalEndpointsRoutes(app: Express) {
   // List

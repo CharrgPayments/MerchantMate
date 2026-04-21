@@ -169,6 +169,7 @@ function getDefaultWidgetsForRole(role: string) {
 
 // Shared placeholder resolver — see server/lib/resolveSecrets.ts
 import { resolveSecrets } from "./lib/resolveSecrets";
+import { resolveTemplateTransport, finalizeTransport } from "./lib/endpointTransport";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Multer configuration for PDF uploads
@@ -9791,40 +9792,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/action-templates/:id/test — test send a template
   app.post("/api/action-templates/:id/test", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
-      const { mode, config: inlineConfig, recipientEmail } = req.body;
+      const { mode, config: inlineConfig, recipientEmail, endpointId: bodyEndpointId } = req.body;
 
       // Handle webhook live proxy
       if (mode === 'live') {
         // When a real template ID is given, verify it is a webhook template
+        // and prefer transport from the External Endpoints Registry when set.
         const proxyIdStr = req.params.id;
+        let storedTemplate: any = null;
         if (proxyIdStr !== 'preview' && !isNaN(parseInt(proxyIdStr))) {
           const db = req.db!;
           const [tmpl] = await db.select().from(actionTemplates).where(eq(actionTemplates.id, parseInt(proxyIdStr)));
           if (tmpl && tmpl.actionType !== 'webhook') {
             return res.status(400).json({ message: `Cannot run live request test on a '${tmpl.actionType}' template — only webhook templates support this mode.` });
           }
+          storedTemplate = tmpl ?? null;
         }
 
         const cfg = inlineConfig || {};
-        const { method = 'GET' } = cfg;
-        let { url, headers: headersStr, body: bodyStr } = cfg;
-        if (!url) return res.status(400).json({ message: "No URL configured for this webhook" });
+        let bodyStr: string | undefined = cfg.body;
 
-        // Resolve {{$SECRET_NAME}} placeholders before sending
+        // If the saved template references an endpoint, ALWAYS use the
+        // registry transport so the test reflects what production will do.
+        // Otherwise fall through to the inline `cfg` values supplied by the
+        // editor (this is what unsaved drafts use).
+        let url: string;
+        let method: string;
+        let finalHeaders: Record<string, string>;
+
         try {
-          url = resolveSecrets(url);
-          if (headersStr) headersStr = resolveSecrets(headersStr);
+          // Saved template's endpointId wins; otherwise honor an endpointId
+          // passed by an unsaved draft from the editor.
+          const effectiveEndpointId = storedTemplate?.endpointId ?? bodyEndpointId ?? null;
+          if (effectiveEndpointId) {
+            const { transport } = await resolveTemplateTransport({
+              endpointId: effectiveEndpointId,
+              config: storedTemplate?.config ?? cfg,
+            });
+            const finalized = finalizeTransport(transport);
+            url = finalized.url;
+            method = finalized.method;
+            finalHeaders = finalized.headers;
+          } else {
+            const m = (cfg.method as string) || 'GET';
+            let inlineUrl = cfg.url as string | undefined;
+            let headersStr = cfg.headers as string | undefined;
+            if (!inlineUrl) return res.status(400).json({ message: "No URL configured for this webhook" });
+            inlineUrl = resolveSecrets(inlineUrl);
+            if (headersStr) headersStr = resolveSecrets(headersStr);
+            let parsedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (headersStr) {
+              try { parsedHeaders = { ...parsedHeaders, ...JSON.parse(headersStr) }; } catch {}
+            }
+            url = inlineUrl;
+            method = m;
+            finalHeaders = parsedHeaders;
+          }
+
           if (bodyStr) bodyStr = resolveSecrets(bodyStr);
         } catch (secretErr: any) {
           return res.status(400).json({ message: secretErr.message });
         }
 
-        let parsedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (headersStr) {
-          try { parsedHeaders = { ...parsedHeaders, ...JSON.parse(headersStr) }; } catch {}
-        }
-
-        const fetchOptions: RequestInit = { method, headers: parsedHeaders };
+        const fetchOptions: RequestInit = { method, headers: finalHeaders };
         if (method !== 'GET' && method !== 'HEAD' && bodyStr) {
           fetchOptions.body = bodyStr;
         }
@@ -9903,15 +9933,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (template.actionType !== 'webhook') return res.status(400).json({ message: "Template is not a webhook type" });
 
       const cfg = (template.config || {}) as Record<string, any>;
-      if (!cfg.url) return res.status(400).json({ message: "Template has no URL configured" });
 
-      // Resolve {{$SECRET_NAME}} placeholders first so they don't interfere with route param detection
-      let url: string = cfg.url;
-      let headersRaw: string | undefined = cfg.headers;
+      // Prefer transport from External Endpoints Registry when set; fall back
+      // to legacy inline url/method/headers in `config` for not-yet-migrated
+      // rows.
+      let url: string;
+      let method: string;
+      let headersObj: Record<string, string> = {};
       let bodyRaw: string | undefined = cfg.body;
       try {
-        url = resolveSecrets(url);
-        if (headersRaw) headersRaw = resolveSecrets(headersRaw);
+        if ((template as any).endpointId) {
+          const { transport } = await resolveTemplateTransport({
+            endpointId: (template as any).endpointId,
+            config: cfg,
+          });
+          // Apply auth + secret resolution to URL/headers, but defer route
+          // param substitution below.
+          const finalized = finalizeTransport(transport);
+          url = finalized.url;
+          method = finalized.method;
+          headersObj = finalized.headers;
+        } else {
+          if (!cfg.url) return res.status(400).json({ message: "Template has no URL configured" });
+          url = resolveSecrets(cfg.url);
+          method = cfg.method || 'GET';
+          let headersRaw: string | undefined = cfg.headers;
+          if (headersRaw) headersRaw = resolveSecrets(headersRaw);
+          headersObj = { 'Content-Type': 'application/json' };
+          if (headersRaw) {
+            try { headersObj = { ...headersObj, ...JSON.parse(headersRaw) }; } catch {}
+          }
+        }
         if (bodyRaw) bodyRaw = resolveSecrets(bodyRaw);
       } catch (secretErr: any) {
         return res.status(400).json({ message: secretErr.message });
@@ -9925,7 +9977,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const value = runtimeValue || param.defaultValue;
         if (value) {
           url = url.replace(new RegExp(`\\{${param.name}\\}`, 'g'), encodeURIComponent(String(value)));
-          if (headersRaw) headersRaw = headersRaw.replace(new RegExp(`\\{${param.name}\\}`, 'g'), String(value));
+          // Substitute route params inside header values too.
+          for (const k of Object.keys(headersObj)) {
+            headersObj[k] = headersObj[k].replace(new RegExp(`\\{${param.name}\\}`, 'g'), String(value));
+          }
           if (bodyRaw)    bodyRaw    = bodyRaw.replace(new RegExp(`\\{${param.name}\\}`, 'g'), String(value));
         }
       }
@@ -9942,13 +9997,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: `URL has unresolved route parameters: ${url}. Set default values on the template or pass them as query parameters.` });
       }
 
-      let parsedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (headersRaw) {
-        try { parsedHeaders = { ...parsedHeaders, ...JSON.parse(headersRaw) }; } catch {}
-      }
-
-      const method = cfg.method || 'GET';
-      const fetchOptions: RequestInit = { method, headers: parsedHeaders };
+      const fetchOptions: RequestInit = { method, headers: headersObj };
       if (method !== 'GET' && method !== 'HEAD' && bodyRaw) {
         fetchOptions.body = bodyRaw;
       }
