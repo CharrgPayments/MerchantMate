@@ -2387,6 +2387,35 @@ export const workflowTickets = pgTable("workflow_tickets", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// External Endpoints Registry — transport-only catalogue of outbound HTTP calls
+// shared by workflow stages and Communications webhooks. Body templates,
+// response mapping, and stage/trigger bindings live with the consumer, NOT here.
+export const externalEndpoints = pgTable("external_endpoints", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull().unique(),
+  description: text("description"),
+  url: varchar("url", { length: 2048 }).notNull(),
+  method: varchar("method", { length: 10 }).notNull().default("POST"),
+  headers: jsonb("headers").default(sql`'{}'::jsonb`),
+  authType: varchar("auth_type", { length: 20 }).notNull().default("none"),
+  authConfig: jsonb("auth_config").default(sql`'{}'::jsonb`),
+  timeoutSeconds: integer("timeout_seconds").notNull().default(30),
+  maxRetries: integer("max_retries").notNull().default(0),
+  retryDelaySeconds: integer("retry_delay_seconds").notNull().default(5),
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertExternalEndpointSchema = createInsertSchema(externalEndpoints).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type ExternalEndpoint = typeof externalEndpoints.$inferSelect;
+export type InsertExternalEndpoint = z.infer<typeof insertExternalEndpointSchema>;
+
 export const workflowTransitions = pgTable("workflow_transitions", {
   id: serial("id").primaryKey(),
   ticketId: integer("ticket_id").notNull(),

@@ -1,4 +1,4 @@
-import { merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, campaignAssignmentRules, equipmentItems, campaignEquipment, apiKeys, apiRequestLogs, emailTemplates, emailActivity, emailTriggers, workflowDefinitions, workflowEndpoints, workflowEnvironmentConfigs, type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type InsertProspectSignature, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type CampaignAssignmentRule, type InsertCampaignAssignmentRule, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowEndpoint, type InsertWorkflowEndpoint, type WorkflowEnvironmentConfig, type InsertWorkflowEnvironmentConfig, type WorkflowDefinitionWithDetails } from "@shared/schema";
+import { merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, campaignAssignmentRules, equipmentItems, campaignEquipment, apiKeys, apiRequestLogs, emailTemplates, emailActivity, emailTriggers, workflowDefinitions, workflowEndpoints, workflowEnvironmentConfigs, externalEndpoints, type ExternalEndpoint, type InsertExternalEndpoint, type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type InsertProspectSignature, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type CampaignAssignmentRule, type InsertCampaignAssignmentRule, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowEndpoint, type InsertWorkflowEndpoint, type WorkflowEnvironmentConfig, type InsertWorkflowEnvironmentConfig, type WorkflowDefinitionWithDetails } from "@shared/schema";
 import { db } from "./db";
 import { eq, or, and, gte, sql, desc, inArray, like, ilike, not, count } from "drizzle-orm";
 import { auditLogs, securityEvents } from "@shared/schema";
@@ -385,6 +385,13 @@ export interface IStorage {
   getWorkflowEnvironmentConfigs(workflowId: number): Promise<WorkflowEnvironmentConfig[]>;
   upsertWorkflowEnvironmentConfig(workflowId: number, environment: string, config: any): Promise<WorkflowEnvironmentConfig>;
   deleteWorkflowEnvironmentConfig(workflowId: number, environment: string): Promise<void>;
+
+  // External Endpoints Registry (transport-only)
+  listExternalEndpoints(filters?: { search?: string; isActive?: boolean }): Promise<ExternalEndpoint[]>;
+  getExternalEndpoint(id: number): Promise<ExternalEndpoint | undefined>;
+  createExternalEndpoint(data: InsertExternalEndpoint): Promise<ExternalEndpoint>;
+  updateExternalEndpoint(id: number, data: Partial<InsertExternalEndpoint>): Promise<ExternalEndpoint | undefined>;
+  deleteExternalEndpoint(id: number): Promise<boolean>;
 }
 
 // Extended user input type that accepts legacy `role` string alongside new `roles` array
@@ -2427,6 +2434,45 @@ export class DatabaseStorage implements IStorage {
         eq(workflowEnvironmentConfigs.environment, environment)
       )
     );
+  }
+
+  // ─── External Endpoints Registry ────────────────────────────────────────────
+
+  async listExternalEndpoints(filters?: { search?: string; isActive?: boolean }): Promise<ExternalEndpoint[]> {
+    const conds: any[] = [];
+    if (filters?.search) {
+      const term = `%${filters.search}%`;
+      conds.push(or(ilike(externalEndpoints.name, term), ilike(externalEndpoints.url, term)));
+    }
+    if (typeof filters?.isActive === 'boolean') {
+      conds.push(eq(externalEndpoints.isActive, filters.isActive));
+    }
+    const q = db.select().from(externalEndpoints);
+    const rows = conds.length ? await q.where(and(...conds)).orderBy(externalEndpoints.name) : await q.orderBy(externalEndpoints.name);
+    return rows;
+  }
+
+  async getExternalEndpoint(id: number): Promise<ExternalEndpoint | undefined> {
+    const [row] = await db.select().from(externalEndpoints).where(eq(externalEndpoints.id, id));
+    return row || undefined;
+  }
+
+  async createExternalEndpoint(data: InsertExternalEndpoint): Promise<ExternalEndpoint> {
+    const [row] = await db.insert(externalEndpoints).values({ ...data, updatedAt: new Date() }).returning();
+    return row;
+  }
+
+  async updateExternalEndpoint(id: number, data: Partial<InsertExternalEndpoint>): Promise<ExternalEndpoint | undefined> {
+    const [row] = await db.update(externalEndpoints)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(externalEndpoints.id, id))
+      .returning();
+    return row || undefined;
+  }
+
+  async deleteExternalEndpoint(id: number): Promise<boolean> {
+    const result = await db.delete(externalEndpoints).where(eq(externalEndpoints.id, id));
+    return (result.rowCount ?? 0) > 0;
   }
 }
 

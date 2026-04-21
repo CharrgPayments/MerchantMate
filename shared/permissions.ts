@@ -91,6 +91,9 @@ export const ACTIONS = {
   COMMISSIONS_VIEW: "commissions:view",       // see your own (or downline) statement
   COMMISSIONS_MANAGE: "commissions:manage",   // edit overrides, recalc, settings
   PAYOUTS_MANAGE: "payouts:manage",           // create / mark paid / void payouts
+
+  // External endpoints registry (transport-only outbound HTTP catalogue)
+  EXTERNAL_ENDPOINTS_MANAGE: "external_endpoints:manage",
 } as const;
 export type Action = (typeof ACTIONS)[keyof typeof ACTIONS];
 export const ALL_ACTIONS: Action[] = Object.values(ACTIONS);
@@ -240,6 +243,9 @@ export const DEFAULT_ACTION_GRANTS: Record<Action, ActionGrants> = {
   [ACTIONS.PAYOUTS_MANAGE]: {
     [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.SUPER_ADMIN]: "all",
   },
+  [ACTIONS.EXTERNAL_ENDPOINTS_MANAGE]: {
+    [ROLE_CODES.ADMIN]: "all", [ROLE_CODES.SUPER_ADMIN]: "all",
+  },
 };
 
 export const ACTION_GROUPS: { label: string; actions: Action[] }[] = [
@@ -277,6 +283,10 @@ export const ACTION_GROUPS: { label: string; actions: Action[] }[] = [
   {
     label: "Commissions & Payouts",
     actions: [ACTIONS.COMMISSIONS_VIEW, ACTIONS.COMMISSIONS_MANAGE, ACTIONS.PAYOUTS_MANAGE],
+  },
+  {
+    label: "External Endpoints",
+    actions: [ACTIONS.EXTERNAL_ENDPOINTS_MANAGE],
   },
 ];
 
@@ -319,6 +329,7 @@ export const ACTION_LABELS: Record<Action, string> = {
   [ACTIONS.COMMISSIONS_VIEW]: "Commissions: View statement",
   [ACTIONS.COMMISSIONS_MANAGE]: "Commissions: Manage overrides & recalc",
   [ACTIONS.PAYOUTS_MANAGE]: "Payouts: Create / mark paid / void",
+  [ACTIONS.EXTERNAL_ENDPOINTS_MANAGE]: "External Endpoints: Manage registry",
 };
 
 // Destructive actions (UI confirms before granting "all" scope on these).

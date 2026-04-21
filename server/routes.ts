@@ -18,6 +18,7 @@ import { dbEnvironmentMiddleware, adminDbMiddleware, getRequestDB, type RequestW
 import { registerUnderwritingRoutes } from "./underwriting/routes";
 import { registerCommissionsRoutes } from "./routes/commissions";
 import { registerSchemaSyncRoutes } from "./routes/schemaSync";
+import { registerExternalEndpointsRoutes } from "./routes/externalEndpoints";
 import { calculateCommissionsForTransaction } from "./commissions";
 import { getDynamicDatabase } from "./db";
 import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity, agentHierarchy, merchantHierarchy, underwritingStatusHistory, prospectApplications as prospectAppsTable, roleDefinitions } from "@shared/schema";
@@ -166,19 +167,8 @@ function getDefaultWidgetsForRole(role: string) {
   }
 }
 
-/**
- * Resolve {{$SECRET_NAME}} placeholders in a string using process.env.
- * Throws if any referenced secret is missing.
- */
-function resolveSecrets(text: string): string {
-  return text.replace(/\{\{\$([A-Z0-9_]+)\}\}/g, (_match, name) => {
-    const val = process.env[name];
-    if (val === undefined || val === '') {
-      throw new Error(`Secret not found: "${name}". Ensure the environment variable ${name} is set.`);
-    }
-    return val;
-  });
-}
+// Shared placeholder resolver — see server/lib/resolveSecrets.ts
+import { resolveSecrets } from "./lib/resolveSecrets";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Multer configuration for PDF uploads
@@ -10857,6 +10847,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerUnderwritingRoutes(app);
   registerCommissionsRoutes(app);
   registerSchemaSyncRoutes(app, requirePerm);
+  registerExternalEndpointsRoutes(app);
 
   const httpServer = createServer(app);
   return httpServer;
