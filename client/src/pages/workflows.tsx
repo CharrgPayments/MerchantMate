@@ -30,6 +30,7 @@ import {
   Plus, Pencil, Trash2, Eye, EyeOff, Code, Server,
 } from "lucide-react";
 import { format } from "date-fns";
+import { EndpointEditorDialog, type EndpointShape } from "@/components/endpoint-editor-dialog";
 
 // ─── Status / type helpers ────────────────────────────────────────────────────
 
@@ -190,6 +191,17 @@ function StageFormDialog({
     gcTime: 0,
   });
 
+  // Workflow Endpoint Cutover (Task #33): use the shared external_endpoints
+  // registry as the picker source — the same one Communications uses.
+  const { data: registryEndpoints = [] } = useQuery<EndpointShape[]>({
+    queryKey: ["/api/external-endpoints"],
+    staleTime: 30_000,
+    enabled: open,
+  });
+  const [endpointId, setEndpointId] = useState<number | null>(null);
+  const [endpointDialogOpen, setEndpointDialogOpen] = useState(false);
+  const [editingEndpoint, setEditingEndpoint] = useState<EndpointShape | null>(null);
+
   const form = useForm({
     defaultValues: {
       code: stage?.code ?? "",
@@ -220,6 +232,14 @@ function StageFormDialog({
   useEffect(() => {
     if (existingApiConfig) {
       setShowApiSection(true);
+      // Workflow Endpoint Cutover (Task #33): prefer endpoint_id from the
+      // shared registry; fall back to legacy URL match against per-workflow
+      // endpoints.
+      if (existingApiConfig.endpoint_id) {
+        setEndpointId(existingApiConfig.endpoint_id);
+      } else {
+        setEndpointId(null);
+      }
       // Find matching endpoint by URL
       const matchedEp = endpoints.find(ep => ep.url === existingApiConfig.endpoint_url);
       form.setValue("api_selected_endpoint_id", matchedEp ? String(matchedEp.id) : "__custom__");
@@ -253,9 +273,10 @@ function StageFormDialog({
       } else {
         savedStage = await apiRequest("POST", `/api/admin/workflows/${workflowId}/stages`, stageBody);
       }
-      // Save api config if endpoint is configured
+      // Save api config if a registry endpoint or an inline URL is configured
       const stageId = savedStage?.id ?? stage?.id;
-      if (stageId && data.api_endpoint_url) {
+      const hasTransport = endpointId || data.api_endpoint_url;
+      if (stageId && hasTransport) {
         let reqMap: any = undefined;
         let resMap: any = undefined;
         let mockRes: any = undefined;
@@ -263,8 +284,12 @@ function StageFormDialog({
         try { resMap = data.api_response_mapping ? JSON.parse(data.api_response_mapping) : undefined; } catch {}
         try { mockRes = data.api_mock_response ? JSON.parse(data.api_mock_response) : undefined; } catch {}
         await apiRequest("PUT", `/api/admin/workflows/${workflowId}/stages/${stageId}/api-config`, {
-          endpoint_url: data.api_endpoint_url,
-          http_method: data.api_http_method,
+          endpoint_id: endpointId ?? null,
+          // When endpointId is set, transport (URL/method) lives on the
+          // registry — keep inline columns null so we don't mask future
+          // registry edits.
+          endpoint_url: endpointId ? null : data.api_endpoint_url,
+          http_method: endpointId ? "POST" : data.api_http_method,
           request_mapping: reqMap,
           response_mapping: resMap,
           timeout_seconds: data.api_timeout_seconds ? parseInt(data.api_timeout_seconds) : null,
@@ -274,8 +299,8 @@ function StageFormDialog({
           mock_response: mockRes,
           is_active: true,
         });
-      } else if (stageId && !data.api_endpoint_url && existingApiConfig) {
-        // Remove existing api config if endpoint was cleared
+      } else if (stageId && !hasTransport && existingApiConfig) {
+        // Remove existing api config if both endpoint and inline URL cleared
         await apiRequest("DELETE", `/api/admin/workflows/${workflowId}/stages/${stageId}/api-config`);
       }
       return savedStage;
@@ -400,48 +425,75 @@ function StageFormDialog({
 
             {showApiSection && (
               <div className="p-4 space-y-4 border-t">
-                {/* Endpoint selector */}
+                {/* Registry-backed endpoint picker (Task #33). Mirrors the
+                    Action Template editor — selecting a registry endpoint
+                    moves URL/method/headers/auth onto the shared row; the
+                    inline fields below are kept as a fallback. */}
                 <div className="space-y-1.5">
-                  <Label>Select Workflow Endpoint</Label>
-                  <Select value={selectedEpId} onValueChange={handleEndpointSelect}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Choose an endpoint…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">
-                        <span className="text-gray-400 italic">No endpoint</span>
-                      </SelectItem>
-                      {endpoints.length > 0 && (
-                        <>
-                          {endpoints.map((ep: any) => (
+                  <div className="flex items-center justify-between">
+                    <Label className="flex items-center gap-2">
+                      <Globe className="w-4 h-4" /> External Endpoint
+                    </Label>
+                    {endpointId && (() => {
+                      const sel = registryEndpoints.find(ep => ep.id === endpointId);
+                      return sel ? (
+                        <Badge variant="outline" className="text-xs">{sel.method} • registered</Badge>
+                      ) : null;
+                    })()}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <Select
+                        value={endpointId ? String(endpointId) : "__inline__"}
+                        onValueChange={(v) => {
+                          if (v === "__inline__") setEndpointId(null);
+                          else setEndpointId(parseInt(v, 10));
+                        }}
+                      >
+                        <SelectTrigger data-testid="select-stage-endpoint">
+                          <SelectValue placeholder="Choose an endpoint or define inline" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__inline__">Define inline (no registry)</SelectItem>
+                          {registryEndpoints.filter(ep => ep.isActive).map(ep => (
                             <SelectItem key={ep.id} value={String(ep.id)}>
                               <span className="flex items-center gap-2">
-                                <span className={`text-xs font-bold px-1 rounded ${METHOD_COLORS[ep.method] ?? "bg-gray-100 text-gray-700"}`}>
-                                  {ep.method}
-                                </span>
+                                <span className={`text-xs font-bold px-1 rounded ${METHOD_COLORS[ep.method] ?? "bg-gray-100 text-gray-700"}`}>{ep.method}</span>
                                 <span className="font-medium">{ep.name}</span>
                                 <span className="text-gray-400 font-mono text-xs truncate max-w-[160px]">{ep.url}</span>
                               </span>
                             </SelectItem>
                           ))}
-                          <SelectItem value="__custom__">
-                            <span className="text-gray-500 italic">Custom URL…</span>
-                          </SelectItem>
-                        </>
-                      )}
-                      {endpoints.length === 0 && (
-                        <SelectItem value="__custom__">
-                          <span className="text-gray-500 italic">Custom URL (no endpoints configured yet)</span>
-                        </SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
-                  {endpoints.length === 0 && (
-                    <p className="text-xs text-amber-600">No endpoints defined for this workflow yet. Add endpoints in the Endpoints tab first, or enter a custom URL below.</p>
-                  )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {endpointId && (() => {
+                      const sel = registryEndpoints.find(ep => ep.id === endpointId);
+                      return sel ? (
+                        <Button
+                          type="button" variant="outline" size="sm"
+                          onClick={() => { setEditingEndpoint(sel); setEndpointDialogOpen(true); }}
+                          data-testid="button-edit-stage-endpoint"
+                        >
+                          <Pencil className="w-3.5 h-3.5 mr-1" /> Edit
+                        </Button>
+                      ) : null;
+                    })()}
+                    <Button
+                      type="button" variant="outline" size="sm"
+                      onClick={() => { setEditingEndpoint(null); setEndpointDialogOpen(true); }}
+                      data-testid="button-new-stage-endpoint"
+                    >
+                      <Plus className="w-3.5 h-3.5 mr-1" /> New
+                    </Button>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Selecting a registry endpoint moves URL, method, headers and auth to the shared registry; request/response mapping, retries, and test mode below stay on this stage.
+                  </p>
                 </div>
 
-                {/* URL + Method */}
+                {/* URL + Method (only when no registry endpoint is selected) */}
+                {!endpointId && (
                 <div className="grid grid-cols-[auto_1fr] gap-3">
                   <div className="space-y-1.5">
                     <Label>Method</Label>
@@ -463,6 +515,7 @@ function StageFormDialog({
                     <Input {...form.register("api_endpoint_url")} placeholder="https://api.example.com/v1/screen" className="font-mono text-sm" />
                   </div>
                 </div>
+                )}
 
                 {/* Request / Response Mapping */}
                 <div className="grid grid-cols-2 gap-3">
@@ -533,6 +586,16 @@ function StageFormDialog({
             </Button>
           </DialogFooter>
         </form>
+        {/* Inline editor for the registry-backed picker (Task #33). */}
+        <EndpointEditorDialog
+          open={endpointDialogOpen}
+          onOpenChange={setEndpointDialogOpen}
+          editing={editingEndpoint}
+          onSaved={(id) => {
+            setEndpointId(id);
+            queryClient.invalidateQueries({ queryKey: ["/api/external-endpoints"] });
+          }}
+        />
       </DialogContent>
     </Dialog>
   );

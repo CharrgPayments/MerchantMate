@@ -1,10 +1,12 @@
 import { eq, and } from "drizzle-orm";
 import {
   prospectApplications, merchantProspects, prospectOwners, acquirers,
-  workflowEndpoints, underwritingRuns, underwritingPhaseResults,
+  workflowEndpoints, externalEndpoints, underwritingRuns, underwritingPhaseResults,
   underwritingIssues, mccPolicies, mccCodes,
   type ProspectApplication, type MerchantProspect, type ProspectOwner,
 } from "@shared/schema";
+import { applyAuth } from "../lib/endpointTransport";
+import { resolveSecrets, resolveSecretsDeep } from "../lib/resolveSecrets";
 import {
   PHASES, PATHWAYS, type Pathway, type PhaseDef, type PhaseResult,
   type PhaseFinding, phasesForPathway, tierFromScore, tierFromCheckpoints,
@@ -37,7 +39,25 @@ interface EndpointRecord {
   isActive: boolean;
 }
 
+// Workflow Endpoint Cutover (Task #33): prefer the shared external_endpoints
+// registry. If a registry row with the given name exists, build the
+// EndpointRecord from it; otherwise fall back to the legacy workflow_endpoints
+// table. This keeps the by-name contract used throughout the orchestrator.
 async function lookupEndpoint(db: DB, name: string): Promise<EndpointRecord | null> {
+  const regRows = await db.select().from(externalEndpoints)
+    .where(and(eq(externalEndpoints.name, name), eq(externalEndpoints.isActive, true))).limit(1);
+  if (regRows[0]) {
+    const r = regRows[0] as any;
+    return {
+      id: r.id,
+      url: r.url,
+      method: r.method ?? "POST",
+      authType: r.authType ?? "none",
+      authConfig: (r.authConfig ?? {}) as Record<string, unknown>,
+      headers: (r.headers ?? {}) as Record<string, string>,
+      isActive: r.isActive,
+    };
+  }
   const rows = await db.select().from(workflowEndpoints)
     .where(and(eq(workflowEndpoints.name, name), eq(workflowEndpoints.isActive, true))).limit(1);
   return (rows[0] as EndpointRecord) ?? null;
@@ -46,16 +66,22 @@ async function lookupEndpoint(db: DB, name: string): Promise<EndpointRecord | nu
 interface EndpointResponse { ok: boolean; status: number; data: unknown; error?: string }
 
 async function callEndpoint(ep: EndpointRecord, body: unknown): Promise<EndpointResponse> {
-  const headers: Record<string, string> = { "content-type": "application/json", ...(ep.headers || {}) };
-  const auth = (ep.authConfig || {}) as Record<string, string>;
-  if (ep.authType === "api_key" && auth.headerName && auth.apiKey) headers[auth.headerName] = auth.apiKey;
-  if (ep.authType === "bearer" && auth.token) headers.authorization = `Bearer ${auth.token}`;
-  if (ep.authType === "basic" && auth.username) headers.authorization = `Basic ${Buffer.from(`${auth.username}:${auth.password ?? ""}`).toString("base64")}`;
+  // Resolve {{$SECRET}} placeholders, then delegate to the shared applyAuth
+  // helper so workflow + Communications stay consistent.
+  let url = resolveSecrets(ep.url || "");
+  let headers: Record<string, string> = {
+    "content-type": "application/json",
+    ...resolveSecretsDeep((ep.headers || {}) as Record<string, string>),
+  };
+  const authConfig = resolveSecretsDeep((ep.authConfig || {}) as Record<string, any>);
+  const applied = applyAuth(ep.authType ?? "none", authConfig, headers, url);
+  url = applied.url;
+  headers = applied.headers;
 
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 15_000);
-    const r = await fetch(ep.url, { method: ep.method || "POST", headers, body: JSON.stringify(body), signal: ctrl.signal });
+    const r = await fetch(url, { method: ep.method || "POST", headers, body: JSON.stringify(body), signal: ctrl.signal });
     clearTimeout(t);
     const text = await r.text();
     let data: unknown = text;

@@ -389,6 +389,7 @@ export interface IStorage {
   // External Endpoints Registry (transport-only)
   listExternalEndpoints(filters?: { search?: string; isActive?: boolean }): Promise<ExternalEndpoint[]>;
   getExternalEndpoint(id: number): Promise<ExternalEndpoint | undefined>;
+  getExternalEndpointByName(name: string): Promise<ExternalEndpoint | undefined>;
   createExternalEndpoint(data: InsertExternalEndpoint): Promise<ExternalEndpoint>;
   updateExternalEndpoint(id: number, data: Partial<InsertExternalEndpoint>): Promise<ExternalEndpoint | undefined>;
   deleteExternalEndpoint(id: number): Promise<boolean>;
@@ -2454,6 +2455,11 @@ export class DatabaseStorage implements IStorage {
 
   async getExternalEndpoint(id: number): Promise<ExternalEndpoint | undefined> {
     const [row] = await db.select().from(externalEndpoints).where(eq(externalEndpoints.id, id));
+    return row || undefined;
+  }
+
+  async getExternalEndpointByName(name: string): Promise<ExternalEndpoint | undefined> {
+    const [row] = await db.select().from(externalEndpoints).where(eq(externalEndpoints.name, name));
     return row || undefined;
   }
 

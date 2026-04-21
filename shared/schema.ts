@@ -2182,6 +2182,10 @@ export const stageApiConfigs = pgTable("stage_api_configs", {
   id: serial("id").primaryKey(),
   stageId: integer("stage_id").notNull(),
   integrationId: integer("integration_id"),
+  // Workflow Endpoint Cutover (Task #33): nullable FK to the shared
+  // external_endpoints registry. When set, transport (url/method/headers/auth)
+  // is loaded from the registry; the inline columns below are legacy/fallback.
+  endpointId: integer("endpoint_id").references((): any => externalEndpoints.id, { onDelete: "set null" }),
   endpointUrl: text("endpoint_url"),
   httpMethod: text("http_method").notNull().default("POST"),
   headers: jsonb("headers").default(sql`'{}'::jsonb`),
