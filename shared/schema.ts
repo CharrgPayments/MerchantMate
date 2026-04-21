@@ -1102,7 +1102,7 @@ export const underwritingPhaseResults = pgTable("underwriting_phase_results", {
   status: text("status").notNull(), // pass | warn | fail | skipped | error
   score: integer("score").notNull().default(0),
   findings: jsonb("findings").default('[]'),
-  endpointId: integer("endpoint_id").references(() => workflowEndpoints.id),
+  endpointId: integer("endpoint_id").references((): any => externalEndpoints.id, { onDelete: "set null" }),
   externalRequest: jsonb("external_request"),
   externalResponse: jsonb("external_response"),
   durationMs: integer("duration_ms"),
@@ -1501,21 +1501,6 @@ export const workflowDefinitions = pgTable("workflow_definitions", {
   isActive: boolean("is_active").notNull().default(true),
 });
 
-// External API endpoint configurations used by workflow steps
-export const workflowEndpoints = pgTable("workflow_endpoints", {
-  id: serial("id").primaryKey(),
-  workflowId: integer("workflow_id").references(() => workflowDefinitions.id, { onDelete: "cascade" }),
-  name: varchar("name", { length: 255 }).notNull(),
-  url: varchar("url", { length: 2048 }).notNull(),
-  method: varchar("method", { length: 10 }).notNull().default("POST"), // GET, POST, PUT, DELETE, PATCH
-  headers: jsonb("headers").default("{}"),
-  authType: varchar("auth_type", { length: 20 }).default("none"), // none, api_key, bearer, basic
-  authConfig: jsonb("auth_config").default("{}"),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
 // Per-environment configuration overrides for workflows
 export const workflowEnvironmentConfigs = pgTable("workflow_environment_configs", {
   id: serial("id").primaryKey(),
@@ -1532,18 +1517,14 @@ export const workflowEnvironmentConfigs = pgTable("workflow_environment_configs"
 
 // Workflow Zod schemas and types
 export const insertWorkflowDefinitionSchema = createInsertSchema(workflowDefinitions).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertWorkflowEndpointSchema = createInsertSchema(workflowEndpoints).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkflowEnvironmentConfigSchema = createInsertSchema(workflowEnvironmentConfigs).omit({ id: true, createdAt: true, updatedAt: true });
 
 export type WorkflowDefinition = typeof workflowDefinitions.$inferSelect;
 export type InsertWorkflowDefinition = z.infer<typeof insertWorkflowDefinitionSchema>;
-export type WorkflowEndpoint = typeof workflowEndpoints.$inferSelect;
-export type InsertWorkflowEndpoint = z.infer<typeof insertWorkflowEndpointSchema>;
 export type WorkflowEnvironmentConfig = typeof workflowEnvironmentConfigs.$inferSelect;
 export type InsertWorkflowEnvironmentConfig = z.infer<typeof insertWorkflowEnvironmentConfigSchema>;
 
 export type WorkflowDefinitionWithDetails = WorkflowDefinition & {
-  endpoints?: WorkflowEndpoint[];
   environmentConfigs?: WorkflowEnvironmentConfig[];
 };
 
@@ -2182,15 +2163,9 @@ export const stageApiConfigs = pgTable("stage_api_configs", {
   id: serial("id").primaryKey(),
   stageId: integer("stage_id").notNull(),
   integrationId: integer("integration_id"),
-  // Workflow Endpoint Cutover (Task #33): nullable FK to the shared
-  // external_endpoints registry. When set, transport (url/method/headers/auth)
-  // is loaded from the registry; the inline columns below are legacy/fallback.
+  // FK to the shared external_endpoints registry. Transport
+  // (url/method/headers/auth) is loaded from the registry row.
   endpointId: integer("endpoint_id").references((): any => externalEndpoints.id, { onDelete: "set null" }),
-  endpointUrl: text("endpoint_url"),
-  httpMethod: text("http_method").notNull().default("POST"),
-  headers: jsonb("headers").default(sql`'{}'::jsonb`),
-  authType: text("auth_type").default("none"),
-  authSecretKey: text("auth_secret_key"),
   requestMapping: jsonb("request_mapping").default(sql`'{}'::jsonb`),
   requestTemplate: text("request_template"),
   responseMapping: jsonb("response_mapping").default(sql`'{}'::jsonb`),

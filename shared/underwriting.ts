@@ -153,7 +153,7 @@ export interface PhaseResult {
 // 10-phase pipeline in spec-correct order. Each phase declares:
 //   - whether it applies to traditional / payfac (skipPaths)
 //   - whether it is a checkpoint (halts pipeline on fail)
-//   - the workflow_endpoints lookup name for external phases
+//   - the external_endpoints registry lookup name for external phases
 //   - weight for risk-scoring path (Traditional)
 export interface PhaseDef {
   key: string;

@@ -3,13 +3,14 @@
 // runtime behavior. The orchestrator (server/underwriting/orchestrator.ts)
 // continues to drive execution off the hardcoded PHASES constant in
 // shared/underwriting.ts; this script just mirrors that catalogue as data
-// in workflow_definitions / workflow_stages / stage_api_configs and
-// workflow_endpoints so the Workflows admin surface lights up.
+// in workflow_definitions / workflow_stages / stage_api_configs and the
+// shared external_endpoints registry so the Workflows admin surface
+// lights up.
 //
 // Idempotent: safe to run on every server boot. Looks up by `code` (defs)
 // and (workflow_definition_id, code) (stages) before deciding insert vs
 // update; preserves any admin-customized URL/auth on stage_api_configs
-// and workflow_endpoints.
+// and external_endpoints.
 //
 // All DB access is via typed Drizzle (no raw SQL). The `code` columns are
 // not declared UNIQUE in shared/schema.ts, so we use SELECT-then-INSERT/
@@ -24,7 +25,7 @@ import {
   workflowDefinitions,
   workflowStages,
   stageApiConfigs,
-  workflowEndpoints,
+  externalEndpoints,
 } from "@shared/schema";
 import {
   PHASES,
@@ -35,7 +36,8 @@ import {
 } from "@shared/underwriting";
 
 // Endpoint names that were renamed under task #22; cleared from the
-// registry so the orchestrator does not also pick up the legacy rows.
+// shared external_endpoints registry so the orchestrator does not also
+// pick up the legacy rows.
 const RETIRED_ENDPOINT_NAMES = ["uw_google_kyb", "uw_match_ein"];
 
 // Default URL/auth seeded for the four "real" external phases. Pulled
@@ -280,8 +282,11 @@ export async function seedUnderwritingWorkflows(db: DbLike = defaultDb): Promise
       upsertedStages++;
 
       // ── stage_api_configs (1:1 with stage; UNIQUE on stage_id) ───────
-      // Only create when there's an external endpoint; preserves admin
-      // edits to URL/auth by skipping update if a row already exists.
+      // Only create when there's an external endpoint; the stage's
+      // transport now lives entirely on the shared external_endpoints
+      // registry (Task #43), so the row only carries the FK plus retry/
+      // fallback policy. Skip update if a row already exists to preserve
+      // admin edits.
       if (stage.endpointName) {
         const existingCfg = await db
           .select({ id: stageApiConfigs.id })
@@ -291,9 +296,6 @@ export async function seedUnderwritingWorkflows(db: DbLike = defaultDb): Promise
         if (!existingCfg[0]) {
           await db.insert(stageApiConfigs).values({
             stageId,
-            endpointUrl: `https://example.invalid/${stage.endpointName}`,
-            httpMethod: "POST",
-            authType: "none",
             isActive: false,
             fallbackOnError: "pending_review",
             fallbackOnTimeout: "pending_review",
@@ -302,42 +304,23 @@ export async function seedUnderwritingWorkflows(db: DbLike = defaultDb): Promise
       }
     }
 
-    // ── Drop retired endpoint names so the orchestrator only sees the
-    // current (renamed) external endpoints. Safe because workflow_endpoints
-    // are config rows; no FK references in underwriting_phase_results
-    // depend on a specific name.
-    await db
-      .delete(workflowEndpoints)
-      .where(
-        and(
-          eq(workflowEndpoints.workflowId, workflowId),
-          inArray(workflowEndpoints.name, RETIRED_ENDPOINT_NAMES),
-        ),
-      );
-
-    // ── workflow_endpoints (registry the orchestrator looks up by name).
-    // Keep one row per external phase, scoped to this workflow definition
-    // so the Workflows admin shows the mapping. Preserve admin-edited
-    // URL/auth (skip update when a row already exists). Defaults pull
-    // production URLs from env vars when present, otherwise leave a
-    // placeholder URL with isActive=false so the orchestrator falls back
-    // to the in-process built-in verifier.
+    // ── external_endpoints (registry the orchestrator looks up by name).
+    // Names are globally unique in the registry, so we upsert a single row
+    // per external phase regardless of which workflow definition seeds it.
+    // Preserve admin-edited URL/auth (skip when a row already exists).
+    // Defaults pull production URLs from env vars when present, otherwise
+    // leave a placeholder URL with isActive=false so the orchestrator
+    // falls back to the in-process built-in verifier.
     for (const stage of stages) {
       if (!stage.endpointName) continue;
       const existingEp = await db
-        .select({ id: workflowEndpoints.id })
-        .from(workflowEndpoints)
-        .where(
-          and(
-            eq(workflowEndpoints.workflowId, workflowId),
-            eq(workflowEndpoints.name, stage.endpointName),
-          ),
-        )
+        .select({ id: externalEndpoints.id })
+        .from(externalEndpoints)
+        .where(eq(externalEndpoints.name, stage.endpointName))
         .limit(1);
       if (existingEp[0]) continue;
       const cfg = defaultEndpointConfig(stage.endpointName);
-      await db.insert(workflowEndpoints).values({
-        workflowId,
+      await db.insert(externalEndpoints).values({
         name: stage.endpointName,
         url: cfg.url,
         method: "POST",
@@ -349,6 +332,13 @@ export async function seedUnderwritingWorkflows(db: DbLike = defaultDb): Promise
       upsertedEndpoints++;
     }
   }
+
+  // ── Clear retired endpoint names from the shared registry so the
+  // orchestrator does not also pick up the legacy rows. Run once after
+  // all definitions have been seeded since the registry is global.
+  await db
+    .delete(externalEndpoints)
+    .where(inArray(externalEndpoints.name, RETIRED_ENDPOINT_NAMES));
 
   return { upsertedDefinitions, upsertedStages, upsertedEndpoints };
 }

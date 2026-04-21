@@ -27,7 +27,7 @@ import {
   Zap, ChevronRight, ChevronDown, Loader2, CheckCircle2, Circle, Clock, AlertCircle,
   Bot, User, Globe, Settings2, FileText, Hash, Calendar, ArrowRight,
   XCircle, AlertTriangle, PlayCircle, PauseCircle, RefreshCw,
-  Plus, Pencil, Trash2, Eye, EyeOff, Code, Server,
+  Plus, Pencil, Trash2, Eye, EyeOff, Server,
 } from "lucide-react";
 import { format } from "date-fns";
 import { EndpointEditorDialog, type EndpointShape } from "@/components/endpoint-editor-dialog";
@@ -176,8 +176,8 @@ function WorkflowFormDialog({
 // ─── Stage Form Dialog ────────────────────────────────────────────────────────
 
 function StageFormDialog({
-  open, onClose, workflowId, stage, endpoints, onSaved,
-}: { open: boolean; onClose: () => void; workflowId: number; stage?: any; endpoints: any[]; onSaved: () => void }) {
+  open, onClose, workflowId, stage, onSaved,
+}: { open: boolean; onClose: () => void; workflowId: number; stage?: any; onSaved: () => void }) {
   const { toast } = useToast();
   const isEdit = !!stage;
   const [showApiSection, setShowApiSection] = useState(false);
@@ -191,8 +191,10 @@ function StageFormDialog({
     gcTime: 0,
   });
 
-  // Workflow Endpoint Cutover (Task #33): use the shared external_endpoints
-  // registry as the picker source — the same one Communications uses.
+  // Task #43: the shared external_endpoints registry is now the only source
+  // of transport for stages — the legacy per-workflow workflow_endpoints
+  // table and the inline endpoint_url/http_method columns on
+  // stage_api_configs were retired.
   const { data: registryEndpoints = [] } = useQuery<EndpointShape[]>({
     queryKey: ["/api/external-endpoints"],
     staleTime: 30_000,
@@ -215,9 +217,6 @@ function StageFormDialog({
       timeout_minutes: stage?.timeout_minutes ?? "",
       is_active: stage?.is_active ?? true,
       // API config fields
-      api_selected_endpoint_id: "",
-      api_endpoint_url: "",
-      api_http_method: "POST",
       api_request_mapping: "",
       api_response_mapping: "",
       api_timeout_seconds: "",
@@ -232,19 +231,7 @@ function StageFormDialog({
   useEffect(() => {
     if (existingApiConfig) {
       setShowApiSection(true);
-      // Workflow Endpoint Cutover (Task #33): prefer endpoint_id from the
-      // shared registry; fall back to legacy URL match against per-workflow
-      // endpoints.
-      if (existingApiConfig.endpoint_id) {
-        setEndpointId(existingApiConfig.endpoint_id);
-      } else {
-        setEndpointId(null);
-      }
-      // Find matching endpoint by URL
-      const matchedEp = endpoints.find(ep => ep.url === existingApiConfig.endpoint_url);
-      form.setValue("api_selected_endpoint_id", matchedEp ? String(matchedEp.id) : "__custom__");
-      form.setValue("api_endpoint_url", existingApiConfig.endpoint_url ?? "");
-      form.setValue("api_http_method", existingApiConfig.http_method ?? "POST");
+      setEndpointId(existingApiConfig.endpoint_id ?? null);
       form.setValue("api_request_mapping", existingApiConfig.request_mapping
         ? JSON.stringify(existingApiConfig.request_mapping, null, 2) : "");
       form.setValue("api_response_mapping", existingApiConfig.response_mapping
@@ -273,10 +260,9 @@ function StageFormDialog({
       } else {
         savedStage = await apiRequest("POST", `/api/admin/workflows/${workflowId}/stages`, stageBody);
       }
-      // Save api config if a registry endpoint or an inline URL is configured
+      // Save api config if a registry endpoint is selected
       const stageId = savedStage?.id ?? stage?.id;
-      const hasTransport = endpointId || data.api_endpoint_url;
-      if (stageId && hasTransport) {
+      if (stageId && endpointId) {
         let reqMap: any = undefined;
         let resMap: any = undefined;
         let mockRes: any = undefined;
@@ -284,12 +270,7 @@ function StageFormDialog({
         try { resMap = data.api_response_mapping ? JSON.parse(data.api_response_mapping) : undefined; } catch {}
         try { mockRes = data.api_mock_response ? JSON.parse(data.api_mock_response) : undefined; } catch {}
         await apiRequest("PUT", `/api/admin/workflows/${workflowId}/stages/${stageId}/api-config`, {
-          endpoint_id: endpointId ?? null,
-          // When endpointId is set, transport (URL/method) lives on the
-          // registry — keep inline columns null so we don't mask future
-          // registry edits.
-          endpoint_url: endpointId ? null : data.api_endpoint_url,
-          http_method: endpointId ? "POST" : data.api_http_method,
+          endpoint_id: endpointId,
           request_mapping: reqMap,
           response_mapping: resMap,
           timeout_seconds: data.api_timeout_seconds ? parseInt(data.api_timeout_seconds) : null,
@@ -299,8 +280,8 @@ function StageFormDialog({
           mock_response: mockRes,
           is_active: true,
         });
-      } else if (stageId && !hasTransport && existingApiConfig) {
-        // Remove existing api config if both endpoint and inline URL cleared
+      } else if (stageId && !endpointId && existingApiConfig) {
+        // Remove existing api config if the registry endpoint was cleared
         await apiRequest("DELETE", `/api/admin/workflows/${workflowId}/stages/${stageId}/api-config`);
       }
       return savedStage;
@@ -318,25 +299,8 @@ function StageFormDialog({
 
   const onSubmit = form.handleSubmit((data) => mutation.mutate(data));
   const stageType = form.watch("stage_type");
-  const selectedEpId = form.watch("api_selected_endpoint_id");
   const testMode = form.watch("api_test_mode");
-
-  // When endpoint is selected from dropdown, auto-fill URL and method
-  const handleEndpointSelect = (value: string) => {
-    form.setValue("api_selected_endpoint_id", value);
-    if (value === "__custom__" || value === "__none__") {
-      if (value === "__none__") {
-        form.setValue("api_endpoint_url", "");
-        form.setValue("api_http_method", "POST");
-      }
-      return;
-    }
-    const ep = endpoints.find(e => String(e.id) === value);
-    if (ep) {
-      form.setValue("api_endpoint_url", ep.url ?? "");
-      form.setValue("api_http_method", ep.method ?? "POST");
-    }
-  };
+  const selectedEndpoint = endpointId ? registryEndpoints.find(ep => ep.id === endpointId) : null;
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -414,9 +378,9 @@ function StageFormDialog({
               <div className="flex items-center gap-2">
                 <Globe className="h-4 w-4 text-blue-500" />
                 <span className="font-medium text-sm">API Endpoint</span>
-                {form.watch("api_endpoint_url") && (
-                  <Badge variant="secondary" className="text-xs font-mono truncate max-w-[180px]">
-                    {form.watch("api_http_method")} {form.watch("api_endpoint_url")}
+                {selectedEndpoint && (
+                  <Badge variant="secondary" className="text-xs font-mono truncate max-w-[220px]">
+                    {selectedEndpoint.method} {selectedEndpoint.name}
                   </Badge>
                 )}
               </div>
@@ -425,10 +389,10 @@ function StageFormDialog({
 
             {showApiSection && (
               <div className="p-4 space-y-4 border-t">
-                {/* Registry-backed endpoint picker (Task #33). Mirrors the
-                    Action Template editor — selecting a registry endpoint
-                    moves URL/method/headers/auth onto the shared row; the
-                    inline fields below are kept as a fallback. */}
+                {/* Registry-backed endpoint picker. Mirrors the Action
+                    Template editor — selecting a registry endpoint moves
+                    URL/method/headers/auth onto the shared external_endpoints
+                    row. */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
                     <Label className="flex items-center gap-2">
@@ -444,17 +408,17 @@ function StageFormDialog({
                   <div className="flex items-center gap-2">
                     <div className="flex-1">
                       <Select
-                        value={endpointId ? String(endpointId) : "__inline__"}
+                        value={endpointId ? String(endpointId) : "__none__"}
                         onValueChange={(v) => {
-                          if (v === "__inline__") setEndpointId(null);
+                          if (v === "__none__") setEndpointId(null);
                           else setEndpointId(parseInt(v, 10));
                         }}
                       >
                         <SelectTrigger data-testid="select-stage-endpoint">
-                          <SelectValue placeholder="Choose an endpoint or define inline" />
+                          <SelectValue placeholder="Choose an endpoint" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="__inline__">Define inline (no registry)</SelectItem>
+                          <SelectItem value="__none__">No endpoint</SelectItem>
                           {registryEndpoints.filter(ep => ep.isActive).map(ep => (
                             <SelectItem key={ep.id} value={String(ep.id)}>
                               <span className="flex items-center gap-2">
@@ -488,34 +452,9 @@ function StageFormDialog({
                     </Button>
                   </div>
                   <p className="text-xs text-gray-500">
-                    Selecting a registry endpoint moves URL, method, headers and auth to the shared registry; request/response mapping, retries, and test mode below stay on this stage.
+                    URL, method, headers and auth live on the shared external_endpoints registry. Request/response mapping, retries, and test mode below stay on this stage.
                   </p>
                 </div>
-
-                {/* URL + Method (only when no registry endpoint is selected) */}
-                {!endpointId && (
-                <div className="grid grid-cols-[auto_1fr] gap-3">
-                  <div className="space-y-1.5">
-                    <Label>Method</Label>
-                    <Select value={form.watch("api_http_method")} onValueChange={(v) => form.setValue("api_http_method", v)}>
-                      <SelectTrigger className="w-28">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {["GET","POST","PUT","PATCH","DELETE"].map(m => (
-                          <SelectItem key={m} value={m}>
-                            <span className={`font-bold text-xs px-1 rounded ${METHOD_COLORS[m] ?? ""}`}>{m}</span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Endpoint URL</Label>
-                    <Input {...form.register("api_endpoint_url")} placeholder="https://api.example.com/v1/screen" className="font-mono text-sm" />
-                  </div>
-                </div>
-                )}
 
                 {/* Request / Response Mapping */}
                 <div className="grid grid-cols-2 gap-3">
@@ -615,7 +554,6 @@ const ENV_COLORS: Record<string, string> = {
   test:        "bg-blue-100 text-blue-800 border-blue-200",
   production:  "bg-green-100 text-green-800 border-green-200",
 };
-const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 const ENVIRONMENTS = ["development", "test", "production"];
 
 function prettyJson(value: any): string {
@@ -628,328 +566,6 @@ function prettyJson(value: any): string {
 function parseJsonField(raw: string): any {
   if (!raw?.trim()) return null;
   try { return JSON.parse(raw); } catch { return null; }
-}
-
-// ─── Endpoint Dialog ──────────────────────────────────────────────────────────
-
-function EndpointDialog({ open, onClose, workflowId, endpoint, onSaved }: {
-  open: boolean; onClose: () => void; workflowId: number; endpoint?: any; onSaved: () => void;
-}) {
-  const { toast } = useToast();
-  const isEdit = !!endpoint;
-  const [form, setForm] = useState({
-    name:           endpoint?.name ?? "",
-    url:            endpoint?.url ?? "",
-    method:         endpoint?.method ?? "POST",
-    auth_type:      endpoint?.auth_type ?? "none",
-    bearer_token:   endpoint?.auth_config?.token ?? "",
-    request_schema: endpoint?.headers?.requestSchema ? prettyJson(endpoint.headers.requestSchema) : "",
-    response_schema:endpoint?.headers?.responseSchema ? prettyJson(endpoint.headers.responseSchema) : "",
-    default_headers:endpoint?.headers?.defaultHeaders ? prettyJson(endpoint.headers.defaultHeaders) : "",
-    is_active:      endpoint?.is_active ?? true,
-  });
-  const [showToken, setShowToken] = useState(false);
-
-  const mutation = useMutation({
-    mutationFn: async () => {
-      const body = {
-        name: form.name,
-        url: form.url,
-        method: form.method,
-        auth_type: form.auth_type,
-        auth_config: form.auth_type === "bearer" ? { token: form.bearer_token } : null,
-        headers: {
-          requestSchema:  parseJsonField(form.request_schema),
-          responseSchema: parseJsonField(form.response_schema),
-          defaultHeaders: parseJsonField(form.default_headers),
-        },
-        is_active: form.is_active,
-      };
-      if (isEdit) return apiRequest("PUT", `/api/admin/workflows/${workflowId}/endpoints/${endpoint.id}`, body);
-      return apiRequest("POST", `/api/admin/workflows/${workflowId}/endpoints`, body);
-    },
-    onSuccess: () => {
-      toast({ title: isEdit ? "Endpoint updated" : "Endpoint added" });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows", workflowId, "endpoints"] });
-      onSaved();
-      onClose();
-    },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
-  });
-
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit Endpoint" : "Add Endpoint"}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 py-1">
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <Label>Method <span className="text-red-500">*</span></Label>
-              <Select value={form.method} onValueChange={v => setForm(f => ({ ...f, method: v }))}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {HTTP_METHODS.map(m => (
-                    <SelectItem key={m} value={m}>
-                      <span className="font-mono text-xs font-bold">{m}</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="col-span-2 space-y-1.5">
-              <Label>Name <span className="text-red-500">*</span></Label>
-              <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Submit Application" />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>URL <span className="text-red-500">*</span></Label>
-            <Input value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))}
-              placeholder="https://api.example.com/merchants/{merchantId}" className="font-mono text-sm" />
-            <p className="text-xs text-gray-400">Use {"{paramName}"} for path variables. Base URL is set per environment.</p>
-          </div>
-
-          <Separator />
-
-          <div className="space-y-1.5">
-            <Label>Authentication</Label>
-            <Select value={form.auth_type} onValueChange={v => setForm(f => ({ ...f, auth_type: v }))}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No Authentication</SelectItem>
-                <SelectItem value="bearer">Bearer Token</SelectItem>
-                <SelectItem value="api_key">API Key</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {form.auth_type === "bearer" && (
-            <div className="space-y-1.5">
-              <Label>Bearer Token</Label>
-              <div className="flex gap-2">
-                <Input
-                  type={showToken ? "text" : "password"}
-                  value={form.bearer_token}
-                  onChange={e => setForm(f => ({ ...f, bearer_token: e.target.value }))}
-                  placeholder="eyJhbGci..."
-                  className="font-mono text-sm flex-1"
-                />
-                <Button type="button" variant="outline" size="sm" onClick={() => setShowToken(!showToken)} className="px-3">
-                  {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </Button>
-              </div>
-              <p className="text-xs text-gray-400">Sent as: <code className="bg-gray-100 px-1 rounded">Authorization: Bearer &lt;token&gt;</code></p>
-            </div>
-          )}
-
-          <Separator />
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label className="flex items-center gap-1.5"><Code className="w-3.5 h-3.5" /> Request Schema (JSON)</Label>
-              <Textarea
-                value={form.request_schema}
-                onChange={e => setForm(f => ({ ...f, request_schema: e.target.value }))}
-                placeholder={'{\n  "merchantId": "string"\n}'}
-                className="font-mono text-xs h-32"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="flex items-center gap-1.5"><Code className="w-3.5 h-3.5" /> Response Schema (JSON)</Label>
-              <Textarea
-                value={form.response_schema}
-                onChange={e => setForm(f => ({ ...f, response_schema: e.target.value }))}
-                placeholder={'{\n  "id": "string",\n  "status": "string"\n}'}
-                className="font-mono text-xs h-32"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Default Headers (JSON)</Label>
-            <Textarea
-              value={form.default_headers}
-              onChange={e => setForm(f => ({ ...f, default_headers: e.target.value }))}
-              placeholder={'{\n  "Content-Type": "application/json"\n}'}
-              className="font-mono text-xs h-20"
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Switch checked={form.is_active} onCheckedChange={v => setForm(f => ({ ...f, is_active: v }))} />
-            <Label>Active</Label>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !form.name || !form.url}>
-            {mutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {isEdit ? "Save Changes" : "Add Endpoint"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ─── Endpoint Card ────────────────────────────────────────────────────────────
-
-function EndpointCard({ endpoint, workflowId, onEdit, onDelete }: {
-  endpoint: any; workflowId: number; onEdit: (ep: any) => void; onDelete: (ep: any) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const headers = endpoint.headers ?? {};
-  const authConfig = endpoint.auth_config ?? {};
-
-  return (
-    <div className="border rounded-lg overflow-hidden">
-      <div
-        className="flex items-center gap-3 p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <Badge className={`font-mono text-xs border px-2 py-0.5 shrink-0 ${METHOD_COLORS[endpoint.method] || "bg-gray-100 text-gray-700"}`}>
-          {endpoint.method}
-        </Badge>
-        <code className="text-sm font-mono text-gray-700 flex-1 truncate">{endpoint.url}</code>
-        <span className="text-sm text-gray-500 hidden sm:block shrink-0">{endpoint.name}</span>
-        <div className="flex items-center gap-1 ml-auto shrink-0" onClick={e => e.stopPropagation()}>
-          <Button variant="ghost" size="sm" onClick={() => onEdit(endpoint)} className="h-7 w-7 p-0">
-            <Pencil className="w-3.5 h-3.5" />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => onDelete(endpoint)} className="h-7 w-7 p-0 text-red-600 hover:text-red-700">
-            <Trash2 className="w-3.5 h-3.5" />
-          </Button>
-          <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? "rotate-90" : ""}`} />
-        </div>
-      </div>
-
-      {expanded && (
-        <div className="p-4 space-y-4 border-t bg-white">
-          {endpoint.auth_type && endpoint.auth_type !== "none" && (
-            <div className="flex items-center gap-2 text-sm">
-              <Badge variant="outline" className="text-xs">
-                {endpoint.auth_type === "bearer" ? "Bearer Auth" : endpoint.auth_type}
-              </Badge>
-              {endpoint.auth_type === "bearer" && authConfig.token && (
-                <code className="text-xs text-gray-500 font-mono">Authorization: Bearer ••••••</code>
-              )}
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {headers.requestSchema && (
-              <div>
-                <Label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 block">Request Schema</Label>
-                <pre className="text-xs bg-gray-950 text-green-400 p-3 rounded overflow-auto max-h-48">{prettyJson(headers.requestSchema)}</pre>
-              </div>
-            )}
-            {headers.responseSchema && (
-              <div>
-                <Label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 block">Response Schema</Label>
-                <pre className="text-xs bg-gray-950 text-blue-400 p-3 rounded overflow-auto max-h-48">{prettyJson(headers.responseSchema)}</pre>
-              </div>
-            )}
-          </div>
-
-          {headers.defaultHeaders && (
-            <div>
-              <Label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 block">Default Headers</Label>
-              <pre className="text-xs bg-gray-950 text-gray-400 p-3 rounded overflow-auto max-h-32">{prettyJson(headers.defaultHeaders)}</pre>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Endpoints Tab ────────────────────────────────────────────────────────────
-
-function EndpointsTab({ workflowId }: { workflowId: number }) {
-  const { toast } = useToast();
-  const [showDialog, setShowDialog] = useState(false);
-  const [editingEndpoint, setEditingEndpoint] = useState<any>(null);
-  const [deletingEndpoint, setDeletingEndpoint] = useState<any>(null);
-
-  const { data: endpoints = [], isLoading } = useQuery<any[]>({
-    queryKey: ["/api/admin/workflows", workflowId, "endpoints"],
-    queryFn: () => fetch(`/api/admin/workflows/${workflowId}/endpoints`, { credentials: "include" }).then(r => r.json()),
-    staleTime: 0,
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (ep: any) => apiRequest("DELETE", `/api/admin/workflows/${workflowId}/endpoints/${ep.id}`),
-    onSuccess: () => {
-      toast({ title: "Endpoint deleted" });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows", workflowId, "endpoints"] });
-      setDeletingEndpoint(null);
-    },
-    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
-  });
-
-  if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>;
-
-  return (
-    <>
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-gray-500">Define HTTP endpoints for this workflow. Base URL is configured per environment.</p>
-        <Button size="sm" onClick={() => setShowDialog(true)}>
-          <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Endpoint
-        </Button>
-      </div>
-
-      {endpoints.length === 0 ? (
-        <div className="text-center py-12 border-2 border-dashed rounded-lg">
-          <Globe className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-          <p className="text-sm text-gray-400">No endpoints defined yet</p>
-          <Button variant="ghost" size="sm" className="mt-2" onClick={() => setShowDialog(true)}>Add your first endpoint</Button>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {(endpoints as any[]).map((ep: any) => (
-            <EndpointCard
-              key={ep.id}
-              endpoint={ep}
-              workflowId={workflowId}
-              onEdit={ep => { setEditingEndpoint(ep); setShowDialog(true); }}
-              onDelete={setDeletingEndpoint}
-            />
-          ))}
-        </div>
-      )}
-
-      {showDialog && (
-        <EndpointDialog
-          open={showDialog}
-          onClose={() => { setShowDialog(false); setEditingEndpoint(null); }}
-          workflowId={workflowId}
-          endpoint={editingEndpoint}
-          onSaved={() => {}}
-        />
-      )}
-
-      <AlertDialog open={!!deletingEndpoint} onOpenChange={() => setDeletingEndpoint(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Endpoint</AlertDialogTitle>
-            <AlertDialogDescription>
-              Delete <strong>{deletingEndpoint?.method} {deletingEndpoint?.url}</strong>? This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction className="bg-red-600 hover:bg-red-700" onClick={() => deleteMutation.mutate(deletingEndpoint)}>Delete</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
-  );
 }
 
 // ─── Environment Config Row ───────────────────────────────────────────────────
@@ -1112,8 +728,8 @@ function EnvironmentsTab({ workflowId }: { workflowId: number }) {
 // ─── Pipeline View ────────────────────────────────────────────────────────────
 
 function PipelineView({
-  stages, workflowId, endpoints, onStageChanged,
-}: { stages: any[]; workflowId: number; endpoints: any[]; onStageChanged: () => void }) {
+  stages, workflowId, onStageChanged,
+}: { stages: any[]; workflowId: number; onStageChanged: () => void }) {
   const { toast } = useToast();
   const [editingStage, setEditingStage] = useState<any>(null);
   const [deletingStage, setDeletingStage] = useState<any>(null);
@@ -1218,7 +834,6 @@ function PipelineView({
           onClose={() => setEditingStage(null)}
           workflowId={workflowId}
           stage={editingStage}
-          endpoints={endpoints}
           onSaved={onStageChanged}
         />
       )}
@@ -1884,9 +1499,6 @@ export default function Workflows() {
                     <TabsTrigger value="tickets" className="rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-transparent h-10">
                       <FileText className="h-3.5 w-3.5 mr-1.5" /> Tickets ({tickets.length})
                     </TabsTrigger>
-                    <TabsTrigger value="endpoints" className="rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-transparent h-10">
-                      <Globe className="h-3.5 w-3.5 mr-1.5" /> Endpoints ({wfDetail?.endpoints?.length ?? 0})
-                    </TabsTrigger>
                     <TabsTrigger value="environments" className="rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-transparent h-10">
                       <Settings2 className="h-3.5 w-3.5 mr-1.5" /> Environments
                     </TabsTrigger>
@@ -1913,7 +1525,6 @@ export default function Workflows() {
                         <PipelineView
                           stages={stages}
                           workflowId={selectedWorkflow.id}
-                          endpoints={wfDetail?.endpoints ?? []}
                           onStageChanged={() => queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows", selectedWorkflow.id, "stages"] })}
                         />
                       )}
@@ -1927,10 +1538,6 @@ export default function Workflows() {
                       ) : (
                         <TicketsView tickets={tickets as any[]} onSelect={setSelectedTicket} />
                       )}
-                    </TabsContent>
-
-                    <TabsContent value="endpoints" className="mt-0">
-                      <EndpointsTab workflowId={selectedWorkflow.id} />
                     </TabsContent>
 
                     <TabsContent value="environments" className="mt-0">
@@ -1969,7 +1576,6 @@ export default function Workflows() {
           open={showAddStage}
           onClose={() => setShowAddStage(false)}
           workflowId={selectedWorkflow.id}
-          endpoints={wfDetail?.endpoints ?? []}
           onSaved={() => {
             queryClient.invalidateQueries({ queryKey: ["/api/admin/workflows", selectedWorkflow.id, "stages"] });
             setShowAddStage(false);

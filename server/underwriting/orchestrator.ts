@@ -1,7 +1,7 @@
 import { eq, and } from "drizzle-orm";
 import {
   prospectApplications, merchantProspects, prospectOwners, acquirers,
-  workflowEndpoints, externalEndpoints, underwritingRuns, underwritingPhaseResults,
+  externalEndpoints, underwritingRuns, underwritingPhaseResults,
   underwritingIssues, mccPolicies, mccCodes,
   type ProspectApplication, type MerchantProspect, type ProspectOwner,
 } from "@shared/schema";
@@ -39,28 +39,23 @@ interface EndpointRecord {
   isActive: boolean;
 }
 
-// Workflow Endpoint Cutover (Task #33): prefer the shared external_endpoints
-// registry. If a registry row with the given name exists, build the
-// EndpointRecord from it; otherwise fall back to the legacy workflow_endpoints
-// table. This keeps the by-name contract used throughout the orchestrator.
+// Look up an outbound endpoint by name in the shared external_endpoints
+// registry. The legacy per-workflow workflow_endpoints fallback was retired
+// in Task #43; the registry is now the only source of truth.
 async function lookupEndpoint(db: DB, name: string): Promise<EndpointRecord | null> {
   const regRows = await db.select().from(externalEndpoints)
     .where(and(eq(externalEndpoints.name, name), eq(externalEndpoints.isActive, true))).limit(1);
-  if (regRows[0]) {
-    const r = regRows[0] as any;
-    return {
-      id: r.id,
-      url: r.url,
-      method: r.method ?? "POST",
-      authType: r.authType ?? "none",
-      authConfig: (r.authConfig ?? {}) as Record<string, unknown>,
-      headers: (r.headers ?? {}) as Record<string, string>,
-      isActive: r.isActive,
-    };
-  }
-  const rows = await db.select().from(workflowEndpoints)
-    .where(and(eq(workflowEndpoints.name, name), eq(workflowEndpoints.isActive, true))).limit(1);
-  return (rows[0] as EndpointRecord) ?? null;
+  if (!regRows[0]) return null;
+  const r = regRows[0] as any;
+  return {
+    id: r.id,
+    url: r.url,
+    method: r.method ?? "POST",
+    authType: r.authType ?? "none",
+    authConfig: (r.authConfig ?? {}) as Record<string, unknown>,
+    headers: (r.headers ?? {}) as Record<string, string>,
+    isActive: r.isActive,
+  };
 }
 
 interface EndpointResponse { ok: boolean; status: number; data: unknown; error?: string }

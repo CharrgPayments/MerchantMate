@@ -171,45 +171,6 @@ function getDefaultWidgetsForRole(role: string) {
 import { resolveSecrets } from "./lib/resolveSecrets";
 import { resolveTemplateTransport, finalizeTransport } from "./lib/endpointTransport";
 
-// Workflow Endpoint Cutover (Task #33): mirror writes from the legacy
-// per-workflow `workflow_endpoints` table into the shared external_endpoints
-// registry, upserting by name. Names are unique in the registry, so two
-// workflows defining endpoints with the same name will share a registry row
-// (last writer wins for transport). Best-effort: failures are logged, not
-// fatal — the workflow_endpoints write has already succeeded.
-async function mirrorWorkflowEndpointToRegistry(input: {
-  name: string;
-  url: string;
-  method?: string | null;
-  headers?: any;
-  auth_type?: string | null;
-  auth_config?: any;
-  is_active?: boolean | null;
-}) {
-  if (!input.name || !input.url) return;
-  const headers = (typeof input.headers === "string"
-    ? (() => { try { return JSON.parse(input.headers); } catch { return {}; } })()
-    : (input.headers || {})) as Record<string, string>;
-  const authConfig = (typeof input.auth_config === "string"
-    ? (() => { try { return JSON.parse(input.auth_config); } catch { return {}; } })()
-    : (input.auth_config || {})) as Record<string, any>;
-  const existing = await storage.getExternalEndpointByName(input.name);
-  const payload = {
-    name: input.name,
-    url: input.url,
-    method: input.method || "POST",
-    headers,
-    authType: input.auth_type || "none",
-    authConfig,
-    isActive: input.is_active ?? true,
-  };
-  if (existing) {
-    await storage.updateExternalEndpoint(existing.id, payload);
-  } else {
-    await storage.createExternalEndpoint(payload as any);
-  }
-}
-
 export async function registerRoutes(app: Express): Promise<Server> {
   // Multer configuration for PDF uploads
   const upload = multer({
@@ -7901,9 +7862,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       `);
       const workflow = (wfResult.rows ?? wfResult)[0];
       if (!workflow) return res.status(404).json({ message: "Workflow not found" });
-      const epResult = await dynamicDB.execute(sqlTag`SELECT * FROM workflow_endpoints WHERE workflow_id = ${id}`);
       const envResult = await dynamicDB.execute(sqlTag`SELECT * FROM workflow_environment_configs WHERE workflow_id = ${id}`);
-      res.json({ ...workflow, endpoints: epResult.rows ?? epResult, environmentConfigs: envResult.rows ?? envResult });
+      res.json({ ...workflow, environmentConfigs: envResult.rows ?? envResult });
       return;
     } catch (error) {
       console.error("Error fetching workflow:", error);
@@ -8011,100 +7971,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Workflow endpoints CRUD (raw SQL — actual schema: id,workflow_id,name,url,method,headers,auth_type,auth_config,is_active)
-  app.get("/api/admin/workflows/:id/endpoints", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
-    try {
-      const { sql: sqlTag } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const result = await dynamicDB.execute(sqlTag`
-        SELECT id, workflow_id, name, url, method, headers, auth_type, auth_config, is_active, created_at
-        FROM workflow_endpoints WHERE workflow_id = ${parseInt(req.params.id)} ORDER BY id
-      `);
-      res.json(result.rows ?? result);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch endpoints" });
-    }
-  });
-
-  app.post("/api/admin/workflows/:id/endpoints", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
-    try {
-      const { sql: sqlTag } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const workflowId = parseInt(req.params.id);
-      const { name, url, method = "POST", headers, auth_type = "none", auth_config, is_active = true } = req.body;
-      if (!name || !url) return res.status(400).json({ message: "name and url are required" });
-      const result = await dynamicDB.execute(sqlTag`
-        INSERT INTO workflow_endpoints (workflow_id, name, url, method, headers, auth_type, auth_config, is_active, created_at, updated_at)
-        VALUES (${workflowId}, ${name}, ${url}, ${method},
-                ${headers ? JSON.stringify(headers) : null}::jsonb,
-                ${auth_type},
-                ${auth_config ? JSON.stringify(auth_config) : null}::jsonb,
-                ${is_active}, NOW(), NOW())
-        RETURNING *
-      `);
-      // Workflow Endpoint Cutover (Task #33): mirror to the shared
-      // external_endpoints registry so the orchestrator's registry-first
-      // lookup picks it up. Upsert by name; preserve any registry-only fields.
-      try { await mirrorWorkflowEndpointToRegistry({ name, url, method, headers, auth_type, auth_config, is_active }); }
-      catch (e) { console.warn("[mirror] workflow_endpoints → external_endpoints failed:", (e as Error).message); }
-      res.status(201).json((result.rows ?? result)[0]);
-    } catch (error) {
-      console.error("Error creating endpoint:", error);
-      res.status(500).json({ message: "Failed to create endpoint" });
-    }
-  });
-
-  app.put("/api/admin/workflows/:id/endpoints/:epId", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
-    try {
-      const { sql: sqlTag } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const epId = parseInt(req.params.epId);
-      const { name, url, method, headers, auth_type, auth_config, is_active } = req.body;
-      const result = await dynamicDB.execute(sqlTag`
-        UPDATE workflow_endpoints SET
-          name = COALESCE(${name ?? null}, name),
-          url = COALESCE(${url ?? null}, url),
-          method = COALESCE(${method ?? null}, method),
-          headers = COALESCE(${headers ? JSON.stringify(headers) : null}::jsonb, headers),
-          auth_type = COALESCE(${auth_type ?? null}, auth_type),
-          auth_config = COALESCE(${auth_config ? JSON.stringify(auth_config) : null}::jsonb, auth_config),
-          is_active = COALESCE(${is_active ?? null}, is_active),
-          updated_at = NOW()
-        WHERE id = ${epId}
-        RETURNING *
-      `);
-      const rows = result.rows ?? result;
-      if (!rows.length) return res.status(404).json({ message: "Endpoint not found" });
-      const updated = rows[0] as any;
-      // Workflow Endpoint Cutover (Task #33): mirror updated transport into
-      // the shared registry (upsert by name).
-      try { await mirrorWorkflowEndpointToRegistry({
-        name: updated.name, url: updated.url, method: updated.method,
-        headers: updated.headers, auth_type: updated.auth_type,
-        auth_config: updated.auth_config, is_active: updated.is_active,
-      }); } catch (e) { console.warn("[mirror] update failed:", (e as Error).message); }
-      res.json(updated);
-    } catch (error) {
-      console.error("Error updating endpoint:", error);
-      res.status(500).json({ message: "Failed to update endpoint" });
-    }
-  });
-
-  app.delete("/api/admin/workflows/:id/endpoints/:epId", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
-    try {
-      const { sql: sqlTag } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const result = await dynamicDB.execute(sqlTag`
-        DELETE FROM workflow_endpoints WHERE id = ${parseInt(req.params.epId)} RETURNING id
-      `);
-      const rows = result.rows ?? result;
-      if (!rows.length) return res.status(404).json({ message: "Endpoint not found" });
-      res.json({ message: "Endpoint deleted" });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to delete endpoint" });
-    }
-  });
-
   // Workflow environment configs (raw SQL — actual schema: id,workflow_id,environment,config jsonb,is_active)
   app.get("/api/admin/workflows/:id/env-configs", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
@@ -8178,12 +8044,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         SELECT ws.id, ws.workflow_definition_id, ws.code, ws.name, ws.description, ws.order_index,
                ws.stage_type, ws.handler_key, ws.is_required, ws.requires_review, ws.auto_advance,
                ws.issue_blocks_severity, ws.timeout_minutes, ws.is_active, ws.created_at,
-               sac.id AS api_config_id, sac.endpoint_url, sac.http_method,
-               sac.auth_type, sac.request_mapping, sac.response_mapping,
+               sac.id AS api_config_id, sac.endpoint_id,
+               ee.url AS endpoint_url, ee.method AS http_method, ee.name AS endpoint_name,
+               sac.request_mapping, sac.response_mapping,
                sac.timeout_seconds, sac.max_retries, sac.retry_delay_seconds,
                sac.test_mode, sac.is_active AS api_config_active
         FROM workflow_stages ws
         LEFT JOIN stage_api_configs sac ON sac.stage_id = ws.id AND sac.is_active = true
+        LEFT JOIN external_endpoints ee ON ee.id = sac.endpoint_id
         WHERE ws.workflow_definition_id = ${id}
         ORDER BY ws.order_index
       `);
@@ -8200,17 +8068,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
       const stageId = parseInt(req.params.stageId);
-      // Workflow Endpoint Cutover (Task #33): join the registry as well so
-      // the editor can show the active endpoint name + transport when
-      // `endpoint_id` is set, with workflow_endpoints kept for legacy rows.
+      // Task #43: legacy workflow_endpoints retired — the shared registry
+      // (external_endpoints) is the only source of transport for stages.
       const result = await dynamicDB.execute(sqlTag`
         SELECT sac.*,
-               we.name AS endpoint_name, we.url AS endpoint_base_url,
-               ee.name AS registry_endpoint_name,
-               ee.url  AS registry_endpoint_url,
-               ee.method AS registry_endpoint_method
+               ee.name AS endpoint_name,
+               ee.url  AS endpoint_url,
+               ee.method AS http_method,
+               ee.auth_type AS endpoint_auth_type
         FROM stage_api_configs sac
-        LEFT JOIN workflow_endpoints we ON we.id = sac.integration_id
         LEFT JOIN external_endpoints ee ON ee.id = sac.endpoint_id
         WHERE sac.stage_id = ${stageId}
         ORDER BY sac.id LIMIT 1
@@ -8230,8 +8096,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const stageId = parseInt(req.params.stageId);
       const currentUser = (req as any).currentUser;
       const {
-        integration_id, endpoint_id, endpoint_url, http_method = "POST",
-        auth_type, auth_secret_key,
+        integration_id, endpoint_id,
         request_mapping, response_mapping,
         timeout_seconds, max_retries = 3, retry_delay_seconds = 5,
         fallback_on_error, fallback_on_timeout,
@@ -8246,10 +8111,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           UPDATE stage_api_configs SET
             integration_id = ${integration_id ?? null},
             endpoint_id = ${endpoint_id ?? null},
-            endpoint_url = ${endpoint_url ?? null},
-            http_method = ${http_method},
-            auth_type = ${auth_type ?? null},
-            auth_secret_key = ${auth_secret_key ?? null},
             request_mapping = ${request_mapping ? JSON.stringify(request_mapping) : null}::jsonb,
             response_mapping = ${response_mapping ? JSON.stringify(response_mapping) : null}::jsonb,
             timeout_seconds = ${timeout_seconds ?? null},
@@ -8267,14 +8128,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         result = await dynamicDB.execute(sqlTag`
           INSERT INTO stage_api_configs (
-            stage_id, integration_id, endpoint_id, endpoint_url, http_method,
-            auth_type, auth_secret_key, request_mapping, response_mapping,
+            stage_id, integration_id, endpoint_id,
+            request_mapping, response_mapping,
             timeout_seconds, max_retries, retry_delay_seconds,
             fallback_on_error, fallback_on_timeout, test_mode, mock_response,
             is_active, created_by, created_at, updated_at
           ) VALUES (
-            ${stageId}, ${integration_id ?? null}, ${endpoint_id ?? null}, ${endpoint_url ?? null}, ${http_method},
-            ${auth_type ?? null}, ${auth_secret_key ?? null},
+            ${stageId}, ${integration_id ?? null}, ${endpoint_id ?? null},
             ${request_mapping ? JSON.stringify(request_mapping) : null}::jsonb,
             ${response_mapping ? JSON.stringify(response_mapping) : null}::jsonb,
             ${timeout_seconds ?? null}, ${max_retries}, ${retry_delay_seconds},
