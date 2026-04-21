@@ -23,9 +23,10 @@ import {
   userAlerts,
   users,
   agents,
+  commissionEvents,
   type ScheduledReport,
 } from "@shared/schema";
-import { and, eq, lt, isNotNull, sql, desc, gte, inArray } from "drizzle-orm";
+import { and, eq, lt, isNotNull, sql, desc, gte, inArray, count, sum } from "drizzle-orm";
 import { auditService } from "./auditService";
 import { emailService } from "./emailService";
 
@@ -247,11 +248,13 @@ export async function buildReport(template: ReportTemplate): Promise<{ subject: 
     };
   }
   if (template === "underwriting_pipeline") {
-    const counts = await db.execute(sql`
-      SELECT status, COUNT(*)::int as count
-      FROM prospect_applications
-      GROUP BY status ORDER BY status`);
-    const rows = (counts.rows as Array<{ status: string; count: number }>) || [];
+    // Typed Drizzle aggregation — env-isolated through the Proxy `db`.
+    const grouped = await db
+      .select({ status: prospectApplications.status, count: count() })
+      .from(prospectApplications)
+      .groupBy(prospectApplications.status)
+      .orderBy(prospectApplications.status);
+    const rows = grouped.map((r) => ({ status: String(r.status ?? ""), count: Number(r.count) }));
     const tableRows = rows.map((r) => `<tr><td>${r.status}</td><td>${r.count}</td></tr>`).join("");
     const total = rows.reduce((s, r) => s + Number(r.count), 0);
     return {
@@ -264,15 +267,23 @@ export async function buildReport(template: ReportTemplate): Promise<{ subject: 
     };
   }
   if (template === "residual_summary") {
-    const data = await db.execute(sql`
-      SELECT to_char(date_trunc('month', created_at), 'YYYY-MM') AS period,
-             COUNT(*)::int AS count,
-             COALESCE(SUM(amount),0)::numeric AS total
-      FROM commission_events
-      WHERE created_at >= NOW() - INTERVAL '6 months'
-      GROUP BY 1 ORDER BY 1 DESC`)
-      .catch(() => ({ rows: [] as Array<{ period: string; count: number; total: string }> }));
-    const rows = (data.rows as Array<{ period: string; count: number; total: string }>) || [];
+    // Typed Drizzle aggregation; the period derivation still needs a small
+    // sql expression for to_char + date_trunc — Drizzle has no first-class
+    // builder for those formatters.
+    const period = sql<string>`to_char(date_trunc('month', ${commissionEvents.createdAt}), 'YYYY-MM')`;
+    const sixMonthsAgo = sql`now() - interval '6 months'`;
+    const data = await db
+      .select({
+        period,
+        count: count(),
+        total: sql<string>`coalesce(sum(${commissionEvents.amount}),0)::numeric`,
+      })
+      .from(commissionEvents)
+      .where(gte(commissionEvents.createdAt, sixMonthsAgo as any))
+      .groupBy(period)
+      .orderBy(desc(period))
+      .catch(() => [] as Array<{ period: string; count: number; total: string }>);
+    const rows = (data as Array<{ period: string; count: number; total: string }>) || [];
     const tableRows = rows.map((r) => `<tr><td>${r.period}</td><td>${r.count}</td><td>$${Number(r.total).toFixed(2)}</td></tr>`).join("");
     const total = rows.reduce((s, r) => s + Number(r.count), 0);
     const grand = rows.reduce((s, r) => s + Number(r.total), 0);
@@ -286,12 +297,13 @@ export async function buildReport(template: ReportTemplate): Promise<{ subject: 
     };
   }
   if (template === "prospect_funnel") {
-    const data = await db.execute(sql`
-      SELECT status AS stage, COUNT(*)::int AS count
-      FROM merchant_prospects
-      GROUP BY status ORDER BY status`)
-      .catch(() => ({ rows: [] as Array<{ stage: string; count: number }> }));
-    const rows = (data.rows as Array<{ stage: string; count: number }>) || [];
+    const data = await db
+      .select({ stage: merchantProspects.status, count: count() })
+      .from(merchantProspects)
+      .groupBy(merchantProspects.status)
+      .orderBy(merchantProspects.status)
+      .catch(() => [] as Array<{ stage: string | null; count: number }>);
+    const rows = (data as Array<{ stage: string | null; count: number }>) || [];
     const tableRows = rows.map((r) => `<tr><td>${r.stage ?? "(none)"}</td><td>${r.count}</td></tr>`).join("");
     const total = rows.reduce((s, r) => s + Number(r.count), 0);
     return {
@@ -304,12 +316,19 @@ export async function buildReport(template: ReportTemplate): Promise<{ subject: 
     };
   }
   // commission_payouts — last 30 days of commission_events grouped by status.
-  const commissionData = await db.execute(sql`
-    SELECT status, COUNT(*)::int AS count, COALESCE(SUM(amount),0)::numeric AS total
-    FROM commission_events
-    WHERE created_at >= NOW() - INTERVAL '30 days'
-    GROUP BY status ORDER BY status`).catch(() => ({ rows: [] as Array<{ status: string; count: number; total: string }> }));
-  const rows = (commissionData.rows as Array<{ status: string; count: number; total: string }>) || [];
+  const thirtyDaysAgo = sql`now() - interval '30 days'`;
+  const commissionData = await db
+    .select({
+      status: commissionEvents.status,
+      count: count(),
+      total: sql<string>`coalesce(sum(${commissionEvents.amount}),0)::numeric`,
+    })
+    .from(commissionEvents)
+    .where(gte(commissionEvents.createdAt, thirtyDaysAgo as any))
+    .groupBy(commissionEvents.status)
+    .orderBy(commissionEvents.status)
+    .catch(() => [] as Array<{ status: string; count: number; total: string }>);
+  const rows = (commissionData as Array<{ status: string; count: number; total: string }>) || [];
   const tableRows = rows.map((r) => `<tr><td>${r.status}</td><td>${r.count}</td><td>$${Number(r.total).toFixed(2)}</td></tr>`).join("");
   const total = rows.reduce((s, r) => s + Number(r.count), 0);
   return {
@@ -389,6 +408,9 @@ async function getSchemaSnapshot(env: string): Promise<any | null> {
   try {
     const { getDynamicDatabase } = await import("./db");
     const envDb = getDynamicDatabase(env);
+    // db-tier-allow: information_schema introspection has no Drizzle
+    // model (it's a metadata catalog, not an app table). Connection is
+    // still through the per-env DynamicDB Proxy.
     const tables = await envDb.execute(sql`
       SELECT table_name, column_name, data_type, is_nullable, column_default
       FROM information_schema.columns

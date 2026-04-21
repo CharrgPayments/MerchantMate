@@ -1,3 +1,12 @@
+// db-tier-allow: hierarchyService.ts uses raw SQL for recursive CTE
+// traversals over the agent_hierarchy and merchant_hierarchy closure
+// tables (5-level cap enforced in app code). Drizzle has no first-class
+// recursive CTE builder, and the closure-table maintenance queries need
+// `WITH RECURSIVE … UNION ALL` which is materially clearer in raw SQL.
+// All access goes through the per-request DynamicDB Proxy / TxClient
+// so environment isolation is preserved. Column references are bound
+// against the typed `schema` import.
+
 import { eq, and, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-serverless";
 import * as schema from "@shared/schema";

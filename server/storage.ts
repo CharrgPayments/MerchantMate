@@ -1,6 +1,7 @@
 import { merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, campaignAssignmentRules, equipmentItems, campaignEquipment, apiKeys, apiRequestLogs, emailTemplates, emailActivity, emailTriggers, workflowDefinitions, workflowEndpoints, workflowEnvironmentConfigs, type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type InsertProspectSignature, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type CampaignAssignmentRule, type InsertCampaignAssignmentRule, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowEndpoint, type InsertWorkflowEndpoint, type WorkflowEnvironmentConfig, type InsertWorkflowEnvironmentConfig, type WorkflowDefinitionWithDetails } from "@shared/schema";
 import { db } from "./db";
-import { eq, or, and, gte, sql, desc, inArray, like, ilike, not } from "drizzle-orm";
+import { eq, or, and, gte, sql, desc, inArray, like, ilike, not, count } from "drizzle-orm";
+import { auditLogs, securityEvents } from "@shared/schema";
 
 export interface IStorage {
   // Merchant operations
@@ -2018,18 +2019,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAuditStats() {
-    const [totalAudits] = await db.execute(`SELECT COUNT(*) as count FROM audit_logs`);
-    const [highRiskActions] = await db.execute(`SELECT COUNT(*) as count FROM audit_logs WHERE risk_level = 'high'`);
-    const [securityEvents] = await db.execute(`SELECT COUNT(*) as count FROM security_events WHERE severity = 'critical'`);
-    const [successfulLogins] = await db.execute(`SELECT COUNT(*) as count FROM login_attempts WHERE status = 'success'`);
-    const [failedLogins] = await db.execute(`SELECT COUNT(*) as count FROM login_attempts WHERE status = 'failed'`);
+    // Typed Drizzle counts. The Proxy `db` resolves to the per-request env
+    // via runWithDb, so this stays environment-isolated.
+    const [totalAudits] = await db.select({ count: count() }).from(auditLogs);
+    const [highRiskActions] = await db.select({ count: count() }).from(auditLogs).where(eq(auditLogs.riskLevel, "high"));
+    const [criticalSecurityEvents] = await db.select({ count: count() }).from(securityEvents).where(eq(securityEvents.severity, "critical"));
+    const [successfulLogins] = await db.select({ count: count() }).from(loginAttempts).where(eq(loginAttempts.success, true));
+    const [failedLogins] = await db.select({ count: count() }).from(loginAttempts).where(eq(loginAttempts.success, false));
 
     return {
-      totalAuditLogs: totalAudits.rows[0]?.count || 0,
-      highRiskActions: highRiskActions.rows[0]?.count || 0,
-      securityEvents: securityEvents.rows[0]?.count || 0,
-      successfulLogins: successfulLogins.rows[0]?.count || 0,
-      failedLogins: failedLogins.rows[0]?.count || 0
+      totalAuditLogs: Number(totalAudits?.count ?? 0),
+      highRiskActions: Number(highRiskActions?.count ?? 0),
+      securityEvents: Number(criticalSecurityEvents?.count ?? 0),
+      successfulLogins: Number(successfulLogins?.count ?? 0),
+      failedLogins: Number(failedLogins?.count ?? 0),
     };
   }
 
@@ -2125,15 +2128,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getEmailActivityStats() {
-    const totalSentResult = await db.execute(sql`SELECT COUNT(*) as count FROM email_activity WHERE status = 'sent'`);
-    const totalOpenedResult = await db.execute(sql`SELECT COUNT(*) as count FROM email_activity WHERE status = 'opened'`);
-    const totalClickedResult = await db.execute(sql`SELECT COUNT(*) as count FROM email_activity WHERE status = 'clicked'`);
-    const totalFailedResult = await db.execute(sql`SELECT COUNT(*) as count FROM email_activity WHERE status = 'failed'`);
-    
-    const totalSent = Number(totalSentResult.rows[0]?.count || 0);
-    const totalOpened = Number(totalOpenedResult.rows[0]?.count || 0);
-    const totalClicked = Number(totalClickedResult.rows[0]?.count || 0);
-    const totalFailed = Number(totalFailedResult.rows[0]?.count || 0);
+    // Typed Drizzle counts via the env-isolated Proxy.
+    const [sentRow] = await db.select({ count: count() }).from(emailActivity).where(eq(emailActivity.status, "sent"));
+    const [openedRow] = await db.select({ count: count() }).from(emailActivity).where(eq(emailActivity.status, "opened"));
+    const [clickedRow] = await db.select({ count: count() }).from(emailActivity).where(eq(emailActivity.status, "clicked"));
+    const [failedRow] = await db.select({ count: count() }).from(emailActivity).where(eq(emailActivity.status, "failed"));
+
+    const totalSent = Number(sentRow?.count ?? 0);
+    const totalOpened = Number(openedRow?.count ?? 0);
+    const totalClicked = Number(clickedRow?.count ?? 0);
+    const totalFailed = Number(failedRow?.count ?? 0);
     
     return {
       totalSent,

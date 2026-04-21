@@ -71,14 +71,15 @@ export async function setGrant(
     .where(sql`role_code = ${roleCode} AND action = ${action}`);
   const prev = existing[0]?.scope ?? null;
 
-  await db.execute(sql`
-    INSERT INTO role_action_grants (role_code, action, scope, updated_at, updated_by)
-    VALUES (${roleCode}, ${action}, ${scope}, now(), ${changedBy})
-    ON CONFLICT (role_code, action) DO UPDATE
-      SET scope = EXCLUDED.scope,
-          updated_at = now(),
-          updated_by = EXCLUDED.updated_by
-  `);
+  // Typed upsert via Drizzle's onConflictDoUpdate — env-isolated through
+  // the per-request `db` parameter (DynamicDB).
+  await db
+    .insert(roleActionGrants)
+    .values({ roleCode, action, scope, updatedBy: changedBy ?? undefined })
+    .onConflictDoUpdate({
+      target: [roleActionGrants.roleCode, roleActionGrants.action],
+      set: { scope, updatedAt: sql`now()`, updatedBy: changedBy ?? null },
+    });
 
   await db.insert(roleActionAudit).values({
     roleCode,

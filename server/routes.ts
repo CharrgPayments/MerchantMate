@@ -20,7 +20,7 @@ import { registerCommissionsRoutes } from "./routes/commissions";
 import { registerSchemaSyncRoutes } from "./routes/schemaSync";
 import { calculateCommissionsForTransaction } from "./commissions";
 import { getDynamicDatabase } from "./db";
-import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity, agentHierarchy, merchantHierarchy, underwritingStatusHistory, prospectApplications as prospectAppsTable } from "@shared/schema";
+import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity, agentHierarchy, merchantHierarchy, underwritingStatusHistory, prospectApplications as prospectAppsTable, roleDefinitions } from "@shared/schema";
 import { runUnderwritingPipeline } from "./underwriting/orchestrator";
 import { notifyTransition } from "./underwriting/notifications";
 import { initAgentClosure, initMerchantClosure, setAgentParent, setMerchantParent, getAgentDescendantIds, getMerchantDescendantIds, isAgentDescendantOf, detachAgentForDelete, detachMerchantForDelete, HierarchyError, MAX_HIERARCHY_DEPTH } from "./hierarchyService";
@@ -1015,8 +1015,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const dbForRoles = getRequestDB(req);
-      const knownRoles = await dbForRoles.execute(sql`SELECT code FROM role_definitions`);
-      const validCodes = (knownRoles.rows as { code: string }[]).map((r) => r.code);
+      // Typed Drizzle SELECT through the per-request DynamicDB.
+      const knownRoles = await dbForRoles.select({ code: roleDefinitions.code }).from(roleDefinitions);
+      const validCodes = knownRoles.map((r) => r.code);
       const invalid = requested.filter((r) => !validCodes.includes(r));
       if (invalid.length > 0) {
         return res.status(400).json({ message: "Invalid role(s)", invalid, validCodes });
@@ -1093,8 +1094,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // the live role_definitions catalog (same check as PATCH /:id/role) so
       // non-catalog roles can't sneak in via the generic edit form.
       if (Array.isArray(updates.roles)) {
-        const known = await dynamicDB.execute(sql`SELECT code FROM role_definitions`);
-        const validCodes = (known.rows as { code: string }[]).map((r) => r.code);
+        // Typed Drizzle SELECT through the per-request DynamicDB.
+        const known = await dynamicDB.select({ code: roleDefinitions.code }).from(roleDefinitions);
+        const validCodes = known.map((r) => r.code);
         const invalid = (updates.roles as string[]).filter((r) => !validCodes.includes(r));
         if (invalid.length > 0) {
           return res.status(400).json({ message: "Invalid role(s)", invalid, validCodes });
@@ -10238,13 +10240,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const dynamicDB = getRequestDB(req);
       const limit = Math.min(parseInt((req.query.limit as string) ?? '100', 10) || 100, 500);
-      const result = await dynamicDB.execute(sql`
-        SELECT id, role_code, action, prev_scope, new_scope, changed_by, changed_at
-        FROM role_action_audit
-        ORDER BY changed_at DESC
-        LIMIT ${limit}
-      `);
-      res.json(result.rows ?? result);
+      // Typed Drizzle SELECT through the per-request DynamicDB.
+      const rows = await dynamicDB
+        .select({
+          id: roleActionAudit.id,
+          role_code: roleActionAudit.roleCode,
+          action: roleActionAudit.action,
+          prev_scope: roleActionAudit.prevScope,
+          new_scope: roleActionAudit.newScope,
+          changed_by: roleActionAudit.changedBy,
+          changed_at: roleActionAudit.changedAt,
+        })
+        .from(roleActionAudit)
+        .orderBy(desc(roleActionAudit.changedAt))
+        .limit(limit);
+      res.json(rows);
     } catch (error: any) {
       if (error?.code === '42P01') return res.json([]);
       console.error("Error fetching role-action audit:", error);

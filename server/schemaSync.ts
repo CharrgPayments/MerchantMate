@@ -1,3 +1,10 @@
+// db-tier-allow: schemaSync.ts performs cross-environment schema
+// introspection and DDL planning. It must construct dedicated pools
+// per target environment (production/test/development) to read
+// information_schema and pg_catalog, which Drizzle does not model.
+// All pools are created and disposed within the sync lifecycle —
+// never bound to a request — so the per-request env-isolation
+// guarantee is unaffected.
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";

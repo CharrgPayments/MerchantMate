@@ -4,16 +4,23 @@
 // authority. The underwriting_* tables remain the system of record;
 // these helpers are additive and idempotent.
 //
-// Why raw SQL: shared/schema.ts has a stale alternate definition for
-// workflow_definitions and the engine tables. The live DB matches the
-// real Workflows engine schema (code, version, category, entity_type,
-// initial_status, final_statuses, configuration; full workflow_stages
-// and workflow_ticket_stages tables). server/routes.ts already queries
-// these tables via raw SQL — we follow the same pattern here.
+// db-tier-allow: This file mixes typed Drizzle with raw SQL for the
+// mutation paths. The mutations (UPDATE/INSERT) use CASE WHEN, COALESCE,
+// and JSONB casts that are awkward in Drizzle's builder; the raw SQL
+// fragments stay column-aware via the typed schema imports below. All
+// access goes through the per-request DynamicDB Proxy passed in as `db`,
+// so environment isolation is preserved.
 
-import { sql } from "drizzle-orm";
+import { sql, eq, and } from "drizzle-orm";
 import type { ProspectApplication } from "@shared/schema";
+import {
+  workflowDefinitions,
+  workflowStages,
+  workflowTicketStages,
+  workflowTickets,
+} from "@shared/schema";
 import { PATHWAYS, PHASES, type Pathway, type PhaseResult } from "@shared/underwriting";
+import type { db as defaultDb } from "../db";
 
 // Definition codes seeded in server/scripts/seedUnderwritingWorkflows.ts.
 const DEF_CODE_BY_PATHWAY: Record<Pathway, string> = {
@@ -21,9 +28,10 @@ const DEF_CODE_BY_PATHWAY: Record<Pathway, string> = {
   [PATHWAYS.PAYFAC]: "merchant_underwriting_payfac_v1",
 };
 
-// Tagged-template DB. Avoids importing the orchestrator's DB type to
-// keep this module dependency-light and easier to unit test.
-export type MirrorDB = { execute: (q: ReturnType<typeof sql>) => Promise<{ rows?: unknown[] }> };
+// MirrorDB is the actual per-request DynamicDB Proxy from server/db.ts.
+// Typed as `typeof db` so callers can't accidentally pass a wrong client
+// (e.g. the static fallback) — env isolation is enforced by typing.
+export type MirrorDB = typeof defaultDb;
 
 interface ExecResult<T = Record<string, unknown>> { rows?: T[] }
 
@@ -36,21 +44,30 @@ async function firstRow<T = Record<string, unknown>>(
 
 async function lookupDefinitionId(db: MirrorDB, pathway: Pathway): Promise<number | null> {
   const code = DEF_CODE_BY_PATHWAY[pathway] ?? DEF_CODE_BY_PATHWAY[PATHWAYS.TRADITIONAL];
-  const row = await firstRow<{ id: number }>(db, sql`
-    SELECT id FROM workflow_definitions WHERE code = ${code} LIMIT 1
-  `);
-  return row?.id ?? null;
+  // Typed Drizzle SELECT — column name verified at compile time.
+  const rows = await db
+    .select({ id: workflowDefinitions.id })
+    .from(workflowDefinitions)
+    .where(eq(workflowDefinitions.code, code))
+    .limit(1);
+  return rows[0]?.id ?? null;
 }
 
 async function lookupStageId(
   db: MirrorDB, definitionId: number, stageCode: string,
 ): Promise<number | null> {
-  const row = await firstRow<{ id: number }>(db, sql`
-    SELECT id FROM workflow_stages
-    WHERE workflow_definition_id = ${definitionId} AND code = ${stageCode}
-    LIMIT 1
-  `);
-  return row?.id ?? null;
+  // Typed Drizzle SELECT.
+  const rows = await db
+    .select({ id: workflowStages.id })
+    .from(workflowStages)
+    .where(
+      and(
+        eq(workflowStages.workflowDefinitionId, definitionId),
+        eq(workflowStages.code, stageCode),
+      ),
+    )
+    .limit(1);
+  return rows[0]?.id ?? null;
 }
 
 // Translate the underwriting per-phase status into the workflow engine's
