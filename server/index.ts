@@ -38,6 +38,12 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Enforce data-tier abstraction: ban `import { pool }` and `new Pool(...)`
+  // outside the two allow-listed files (server/db.ts, server/schemaSync.ts).
+  // Throws in dev/test on violation; warns only in production.
+  const { runDbAbstractionGuard } = await import("./dbAbstractionGuard");
+  await runDbAbstractionGuard();
+
   const server = await registerRoutes(app);
 
   // Epic F — start compliance background tickers (SLA scan, retention archival,
@@ -46,12 +52,20 @@ app.use((req, res, next) => {
   const { startComplianceJobs } = await import("./complianceJobs");
   startComplianceJobs();
 
+  // Both startup jobs below run outside any HTTP request, so we explicitly
+  // bind them to a Drizzle context via runWithDb. This keeps the data-tier
+  // abstraction intact (no silent staticDb fallback) and makes the target
+  // env explicit (production by default; override with STARTUP_JOBS_ENV).
+  const { getDynamicDatabase, runWithDb } = await import("./db");
+  const startupEnv = process.env.STARTUP_JOBS_ENV || "production";
+  const startupDb = getDynamicDatabase(startupEnv);
+
   // Task #27 — Mirror the underwriting pipeline as Workflow Definitions so
   // the Workflows admin shows it natively. Idempotent; the orchestrator
   // continues to run off the in-code PHASES catalogue.
   try {
     const { seedUnderwritingWorkflows } = await import("./scripts/seedUnderwritingWorkflows");
-    const result = await seedUnderwritingWorkflows();
+    const result = await runWithDb(startupDb, () => seedUnderwritingWorkflows());
     log(`underwriting workflows seeded (defs=${result.upsertedDefinitions}, endpoints=${result.upsertedEndpoints})`);
   } catch (err) {
     console.error("[seed] underwriting workflows failed:", err);
@@ -62,7 +76,7 @@ app.use((req, res, next) => {
   // historical underwriting work. Idempotent on every boot.
   try {
     const { backfillUnderwritingTickets } = await import("./scripts/backfillUnderwritingTickets");
-    const r = await backfillUnderwritingTickets();
+    const r = await runWithDb(startupDb, () => backfillUnderwritingTickets());
     log(`underwriting tickets backfilled (apps=${r.applicationsScanned}, tickets=${r.ticketsEnsured}, stages=${r.stagesUpserted}, failures=${r.failures})`);
   } catch (err) {
     console.error("[backfill] underwriting tickets failed:", err);

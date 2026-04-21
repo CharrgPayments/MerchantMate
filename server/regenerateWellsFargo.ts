@@ -1,43 +1,50 @@
-import { pool } from './db';
-import { getWellsFargoMPAForm } from './wellsFargoMPA';
+/**
+ * One-shot ops script: regenerates the Wells Fargo MPA form fields.
+ *
+ * Run with:  TARGET_DB=development tsx server/regenerateWellsFargo.ts
+ *
+ * Routes through the Drizzle ORM (`getActiveDb`) so the script honours the
+ * data-tier abstraction — no direct `pool.query` calls. The target environment
+ * is selected via the TARGET_DB env var; unspecified ⇒ production (matches
+ * the static fallback in db.ts).
+ */
+import { getActiveDb, getDynamicDatabase, runWithDb } from "./db";
+import { pdfFormFields } from "@shared/schema";
+import { getWellsFargoMPAForm } from "./wellsFargoMPA";
 
 async function regenerateFormFields() {
   try {
     const formSections = getWellsFargoMPAForm();
     const formId = 1;
-    
-    console.log('Regenerating Wells Fargo form with', formSections.reduce((acc, section) => acc + section.fields.length, 0), 'fields');
-    
+    const totalFields = formSections.reduce((acc, s) => acc + s.fields.length, 0);
+
+    console.log(`Regenerating Wells Fargo form with ${totalFields} fields`);
+
+    const db = getActiveDb();
     for (const section of formSections) {
       for (const field of section.fields) {
-        const query = `
-          INSERT INTO pdf_form_fields (
-            form_id, field_name, field_type, field_label, is_required, 
-            options, default_value, validation, position, section, created_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
-        `;
-        
-        await pool.query(query, [
+        await db.insert(pdfFormFields).values({
           formId,
-          field.fieldName,
-          field.fieldType,
-          field.fieldLabel,
-          field.isRequired,
-          field.options || null,
-          field.defaultValue || null,
-          field.validation || null,
-          field.position,
-          field.section
-        ]);
+          fieldName: field.fieldName,
+          fieldType: field.fieldType,
+          fieldLabel: field.fieldLabel,
+          isRequired: field.isRequired,
+          options: field.options ?? null,
+          defaultValue: field.defaultValue ?? null,
+          validation: field.validation ?? null,
+          position: field.position,
+          section: section.title ?? null,
+        } as any);
       }
     }
-    
-    console.log('Form fields regenerated successfully');
+
+    console.log("Form fields regenerated successfully");
     process.exit(0);
   } catch (error) {
-    console.error('Error regenerating form fields:', error);
+    console.error("Error regenerating form fields:", error);
     process.exit(1);
   }
 }
 
-regenerateFormFields();
+const targetEnv = process.env.TARGET_DB || "production";
+runWithDb(getDynamicDatabase(targetEnv), regenerateFormFields);

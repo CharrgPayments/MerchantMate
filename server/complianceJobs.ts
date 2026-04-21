@@ -2,10 +2,16 @@
 //
 // Background tickers and helpers for SLA breach detection, retention archival,
 // scheduled report dispatch, and schema drift monitoring. All jobs run on
-// simple in-process timers, are best-effort (errors are logged, not thrown),
-// and use the static `db` pool — no per-request env switching.
+// simple in-process timers, are best-effort (errors are logged, not thrown).
+//
+// Data-tier abstraction: each ticker callback is wrapped in `runWithDb` so
+// the AsyncLocalStorage context resolves to an explicit Drizzle instance
+// instead of silently falling back to the static production pool. Currently
+// every ticker targets production (server-wide jobs, not per-tenant); to fan
+// out across envs, iterate ['production', 'development', 'test'] and bind
+// each via runWithDb on its own interval.
 
-import { db } from "./db";
+import { db, getDynamicDatabase, runWithDb } from "./db";
 import {
   prospectApplications,
   merchantProspects,
@@ -497,16 +503,26 @@ const HOUR = 60 * MIN;
 export function startComplianceJobs(): void {
   if (started) return;
   started = true;
-  // Stagger initial runs so we don't slam the DB at boot.
-  setTimeout(() => detectSlaBreaches(), 30_000);
-  setTimeout(() => dispatchDueReports(), 60_000);
-  setTimeout(() => archiveExpiredApplications(), 90_000);
-  setTimeout(() => detectSchemaDrift(), 120_000);
 
-  handles.push(setInterval(detectSlaBreaches, 15 * MIN));
-  handles.push(setInterval(dispatchDueReports, HOUR));
-  handles.push(setInterval(archiveExpiredApplications, 24 * HOUR));
-  handles.push(setInterval(detectSchemaDrift, 24 * HOUR));
+  // Bind every ticker to an explicit Drizzle context so the AsyncLocalStorage
+  // store always resolves to a real DB instance — never the silent staticDb
+  // fallback. Currently production-only; change to a fan-out across envs by
+  // wrapping each callback in a loop over getDynamicDatabase(env).
+  const inDb = (fn: () => Promise<void> | void) => () => {
+    const env = process.env.COMPLIANCE_JOBS_ENV || "production";
+    return runWithDb(getDynamicDatabase(env), fn as any);
+  };
+
+  // Stagger initial runs so we don't slam the DB at boot.
+  setTimeout(inDb(detectSlaBreaches), 30_000);
+  setTimeout(inDb(dispatchDueReports), 60_000);
+  setTimeout(inDb(archiveExpiredApplications), 90_000);
+  setTimeout(inDb(detectSchemaDrift), 120_000);
+
+  handles.push(setInterval(inDb(detectSlaBreaches), 15 * MIN));
+  handles.push(setInterval(inDb(dispatchDueReports), HOUR));
+  handles.push(setInterval(inDb(archiveExpiredApplications), 24 * HOUR));
+  handles.push(setInterval(inDb(detectSchemaDrift), 24 * HOUR));
   console.log("[complianceJobs] scheduled tickers started (sla=15m, reports=1h, archive=24h, drift=24h)");
 }
 

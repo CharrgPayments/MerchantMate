@@ -56,9 +56,33 @@ const staticDb: DrizzleDB = drizzle({ client: pool, schema });
 // Proxy that transparently routes to the per-request DB when one is bound
 // via runWithDb(...) (see dbMiddleware), or falls back to the production DB.
 // This lets storage.ts and auditService.ts use `db.*` unchanged.
+//
+// Data-tier abstraction guard: when running outside any runWithDb scope
+// (e.g. an HTTP handler that forgot to be wrapped, or a background timer
+// that didn't bind a context), we fall back to the static production pool.
+// In dev/test we log a one-time warning per call site so regressions are
+// visible without flooding production logs.
+const fallbackWarned = new Set<string>();
+function warnStaticFallback(prop: string | symbol): void {
+  if (process.env.NODE_ENV === 'production') return;
+  // Capture a short stack frame to identify the offender's call site
+  const stack = new Error().stack?.split('\n').slice(3, 6).join('\n') || '';
+  const key = `${String(prop)}::${stack.split('\n')[0] || ''}`;
+  if (fallbackWarned.has(key)) return;
+  fallbackWarned.add(key);
+  console.warn(
+    `[db] WARNING: db.${String(prop)} accessed outside runWithDb() — ` +
+    `falling back to staticDb (production). This bypasses per-request ` +
+    `environment isolation. Wrap the caller in runWithDb(...) or use ` +
+    `getDynamicDatabase(env) explicitly.\n${stack}`
+  );
+}
+
 export const db: DrizzleDB = new Proxy({} as DrizzleDB, {
   get(_target, prop, receiver) {
-    const active = dbContext.getStore() || staticDb;
+    const store = dbContext.getStore();
+    const active = store || staticDb;
+    if (!store) warnStaticFallback(prop);
     const value = Reflect.get(active as any, prop, receiver);
     return typeof value === 'function' ? value.bind(active) : value;
   },
