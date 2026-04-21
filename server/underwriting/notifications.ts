@@ -3,6 +3,7 @@ import { userAlerts, users, prospectApplications, merchantProspects, agents } fr
 import { ROLE_CODES } from "@shared/permissions";
 import { APP_STATUS, STATUS_FAMILY, STATUS_LABEL, type AppStatus } from "@shared/underwriting";
 import { emailService } from "../emailService";
+import { auditService } from "../auditService";
 import type { getDynamicDatabase } from "../db";
 
 type DB = ReturnType<typeof getDynamicDatabase>;
@@ -65,7 +66,61 @@ const STATUS_ROLE_ROUTING: Partial<Record<AppStatus, string[]>> = {
   ],
 };
 
-export async function notifyTransition(db: DB, applicationId: number, toStatus: string, opts: { fromStatus?: string | null; reason?: string } = {}) {
+export interface TransitionAuditContext {
+  userId?: string;
+  sessionId?: string;
+  ipAddress?: string;
+  environment?: string;
+}
+
+async function logEmailAudit(
+  applicationId: number,
+  toStatus: string,
+  family: string,
+  audience: string,
+  recipient: string,
+  delivered: boolean,
+  reason: string | undefined,
+  ctx: TransitionAuditContext,
+) {
+  try {
+    await auditService.logAction("email_sent", "application_status_email", {
+      endpoint: "underwriting/notifyTransition",
+      userId: ctx.userId,
+      sessionId: ctx.sessionId,
+      ipAddress: ctx.ipAddress,
+      environment: ctx.environment,
+    }, {
+      resourceId: String(applicationId),
+      riskLevel: family === "approved" || family === "declined" ? "high" : "medium",
+      newValues: { toStatus, family, audience, recipient, delivered },
+      notes: reason ? `Reason: ${reason}` : undefined,
+      tags: { channel: "email", audience, family },
+    });
+  } catch (e) {
+    console.error("email audit log failed:", e);
+  }
+}
+
+async function sendAndAudit(
+  applicationId: number,
+  toStatus: string,
+  family: string,
+  audience: "applicant" | "reviewer" | "agent" | "internal",
+  payload: Parameters<typeof emailService.sendUnderwritingTransitionEmail>[0],
+  ctx: TransitionAuditContext,
+) {
+  let delivered = false;
+  try {
+    delivered = await emailService.sendUnderwritingTransitionEmail({ ...payload, family, audience });
+  } catch (e) {
+    console.error(`transition email failed (${audience}):`, e);
+  }
+  await logEmailAudit(applicationId, toStatus, family, audience, payload.to, delivered, payload.reason, ctx);
+}
+
+export async function notifyTransition(db: DB, applicationId: number, toStatus: string, opts: { fromStatus?: string | null; reason?: string; auditContext?: TransitionAuditContext } = {}) {
+  const auditCtx: TransitionAuditContext = opts.auditContext ?? {};
   const status = toStatus as AppStatus;
   const family = STATUS_FAMILY[status];
   const label = STATUS_LABEL[status] || toStatus;
@@ -87,8 +142,17 @@ export async function notifyTransition(db: DB, applicationId: number, toStatus: 
     reason: opts.reason, reviewUrl: fullUrl,
   };
 
+  // Assigned reviewer: in-app alert + email.
   if (app?.assignedReviewerId) {
     await alertUser(db, app.assignedReviewerId, message, url, alertType);
+    try {
+      const [reviewerRow] = await db.select().from(users).where(eq(users.id, app.assignedReviewerId)).limit(1) as unknown as UserRow[];
+      if (reviewerRow?.email) {
+        await sendAndAudit(applicationId, toStatus, family, "reviewer", {
+          to: reviewerRow.email, firstName: reviewerRow.firstName ?? undefined, ...emailPayload,
+        }, auditCtx);
+      }
+    } catch (e) { console.error("assigned reviewer email failed:", e); }
   }
 
   const fullRoleCodes = STATUS_ROLE_ROUTING[status] || [];
@@ -99,10 +163,12 @@ export async function notifyTransition(db: DB, applicationId: number, toStatus: 
     await alertRoles(db, internalRoles, message, url, alertType);
     try {
       const targets = await targetsForRoles(db, internalRoles);
-      await Promise.all(targets.filter((u) => u.email).map((u) =>
-        emailService.sendUnderwritingTransitionEmail({
+      // Skip the assigned reviewer here — they were already emailed above.
+      const filtered = targets.filter((u) => u.email && u.id !== app?.assignedReviewerId);
+      await Promise.all(filtered.map((u) =>
+        sendAndAudit(applicationId, toStatus, family, "internal", {
           to: u.email!, firstName: u.firstName ?? undefined, ...emailPayload,
-        }),
+        }, auditCtx),
       ));
     } catch (e) { console.error("transition email fan-out failed:", e); }
   }
@@ -113,21 +179,19 @@ export async function notifyTransition(db: DB, applicationId: number, toStatus: 
       const [agentRow] = await db.select().from(agents).where(eq(agents.id, prospect.agentId)).limit(1);
       if (agentRow?.userId) await alertUser(db, agentRow.userId, message, url, alertType);
       if (agentRow?.email) {
-        await emailService.sendUnderwritingTransitionEmail({
+        await sendAndAudit(applicationId, toStatus, family, "agent", {
           to: agentRow.email, firstName: agentRow.firstName ?? undefined, ...emailPayload,
-        });
+        }, auditCtx);
       }
     } catch (e) { console.error("agent transition notify failed:", e); }
   }
 
-  // Email the merchant/prospect for any actionable family (pending/withdrawn/
-  // approved/declined) — the merchant has visibility into all non-internal states.
+  // Email the merchant/prospect (applicant) for any actionable family
+  // (pending/withdrawn/approved/declined).
   const merchantEmailFamilies = new Set(["pending", "withdrawn", "approved", "declined"]);
   if (merchantEmailFamilies.has(family) && prospect?.email) {
-    try {
-      await emailService.sendUnderwritingTransitionEmail({
-        to: prospect.email, firstName: prospect.firstName ?? undefined, ...emailPayload,
-      });
-    } catch (e) { console.error("merchant transition email failed:", e); }
+    await sendAndAudit(applicationId, toStatus, family, "applicant", {
+      to: prospect.email, firstName: prospect.firstName ?? undefined, ...emailPayload,
+    }, auditCtx);
   }
 }

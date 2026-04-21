@@ -612,29 +612,77 @@ This email was sent to ${data.ownerEmail}
     to: string; firstName?: string; applicationId: number;
     fromStatus: string | null; toStatus: string; statusLabel: string;
     reason?: string; reviewUrl: string;
+    family?: string;
+    audience?: "applicant" | "reviewer" | "agent" | "internal";
   }): Promise<boolean> {
-    const { to, firstName, applicationId, fromStatus, toStatus, statusLabel, reason, reviewUrl } = data;
-    const subject = `Application #${applicationId} status: ${toStatus} · ${statusLabel}`;
+    const { to, firstName, applicationId, fromStatus, toStatus, statusLabel, reason, reviewUrl, family, audience } = data;
+
+    const variant = (() => {
+      switch (family) {
+        case "approved":
+          return {
+            headline: "Application Approved",
+            headerBg: "#047857",
+            ctaBg: "#047857",
+            subjectPrefix: "Approved",
+            applicantBody: `Great news — your merchant application has been <strong>approved</strong>. Our team will reach out shortly with next steps for boarding.`,
+            internalBody: `Application <strong>#${applicationId}</strong> was approved.`,
+          };
+        case "declined":
+          return {
+            headline: "Application Declined",
+            headerBg: "#b91c1c",
+            ctaBg: "#b91c1c",
+            subjectPrefix: "Declined",
+            applicantBody: `After review, your merchant application has been <strong>declined</strong>. The reason is included below. If you believe this is in error, please contact your agent.`,
+            internalBody: `Application <strong>#${applicationId}</strong> was declined. The rejection reason is captured in the audit trail.`,
+          };
+        case "pending":
+          return {
+            headline: "More Information Needed",
+            headerBg: "#b45309",
+            ctaBg: "#b45309",
+            subjectPrefix: "Pending Info",
+            applicantBody: `We need additional information to continue reviewing your merchant application. Details are below — please respond as soon as possible.`,
+            internalBody: `Application <strong>#${applicationId}</strong> is awaiting applicant info.`,
+          };
+        default:
+          return {
+            headline: "Underwriting Update",
+            headerBg: "#1f2937",
+            ctaBg: "#2563eb",
+            subjectPrefix: "Status Update",
+            applicantBody: `There is an update on your merchant application.`,
+            internalBody: `Application <strong>#${applicationId}</strong> changed status.`,
+          };
+      }
+    })();
+
+    const isApplicant = audience === "applicant";
+    const subject = `[CoreCRM] ${variant.subjectPrefix} — Application #${applicationId} (${statusLabel})`;
     const greeting = firstName ? `Hi ${firstName},` : "Hello,";
+    const bodyCopy = isApplicant ? variant.applicantBody : variant.internalBody;
+    const transitionLine = `Status: ${fromStatus ? `<strong>${fromStatus}</strong> → ` : ""}<strong>${toStatus}</strong> (${statusLabel})`;
+    const ctaLabel = isApplicant ? "View Application Status" : "Open Review";
+
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background:#1f2937;color:white;padding:24px;text-align:center;">
-          <h1 style="margin:0;font-size:20px;">Underwriting Update</h1>
+        <div style="background:${variant.headerBg};color:white;padding:24px;text-align:center;">
+          <h1 style="margin:0;font-size:20px;">${variant.headline}</h1>
         </div>
         <div style="padding:24px;background:#fff;">
           <p>${greeting}</p>
-          <p>Application <strong>#${applicationId}</strong> moved
-            ${fromStatus ? `from <strong>${fromStatus}</strong> ` : ""}
-            to <strong>${toStatus}</strong> (${statusLabel}).</p>
-          ${reason ? `<p style="background:#f3f4f6;padding:12px;border-radius:6px;">${reason}</p>` : ""}
+          <p>${bodyCopy}</p>
+          <p style="color:#374151;">${transitionLine}</p>
+          ${reason ? `<div style="background:#f3f4f6;padding:12px;border-radius:6px;margin:12px 0;"><strong>${family === "declined" ? "Rejection reason" : "Reason"}:</strong><br/>${reason}</div>` : ""}
           <div style="text-align:center;margin:24px 0;">
-            <a href="${reviewUrl}" style="background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;">Open Review</a>
+            <a href="${reviewUrl}" style="background:${variant.ctaBg};color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;">${ctaLabel}</a>
           </div>
         </div>
         <div style="padding:12px;text-align:center;color:#6b7280;font-size:12px;">© ${new Date().getFullYear()} Core CRM</div>
       </div>`;
-    const text = `${greeting}\n\nApplication #${applicationId} moved ${fromStatus ? `from ${fromStatus} ` : ""}to ${toStatus} (${statusLabel}).\n${reason ? `\nReason: ${reason}\n` : ""}\nOpen review: ${reviewUrl}`;
-    if (!SENDGRID_ENABLED) { console.log(`[Email disabled] Underwriting transition to ${to}: app #${applicationId} → ${toStatus}`); return false; }
+    const text = `${greeting}\n\n${bodyCopy.replace(/<[^>]+>/g, "")}\n\nStatus: ${fromStatus ? `${fromStatus} → ` : ""}${toStatus} (${statusLabel})\n${reason ? `\n${family === "declined" ? "Rejection reason" : "Reason"}: ${reason}\n` : ""}\n${ctaLabel}: ${reviewUrl}`;
+    if (!SENDGRID_ENABLED) { console.log(`[Email disabled] Underwriting transition (${family ?? "n/a"}/${audience ?? "n/a"}) to ${to}: app #${applicationId} → ${toStatus}`); return false; }
     try {
       await mailService.send({ to, from: process.env.SENDGRID_FROM_EMAIL!, subject, html, text });
       return true;

@@ -316,7 +316,20 @@ export function registerUnderwritingRoutes(app: Express) {
           changedBy: userId(req), reason: reason || rule.description,
         });
 
-        await notifyTransition(db, applicationId, toStatus, { fromStatus: appRow.status, reason: reason || rule.description });
+        const isDecline = declineCodes.includes(toStatus as AppStatus);
+        const transitionReason = isDecline
+          ? (rejectionReason || reason || rule.description)
+          : (reason || rule.description);
+        await notifyTransition(db, applicationId, toStatus, {
+          fromStatus: appRow.status,
+          reason: transitionReason,
+          auditContext: {
+            userId: userId(req) || undefined,
+            sessionId: req.sessionID,
+            ipAddress: req.ip,
+            environment: req.dbEnv,
+          },
+        });
 
         // In-app notification for the prospect's owning agent so the bell
         // lights up the moment underwriting moves the file. Bell-only here —
