@@ -99,15 +99,88 @@ function SlaCountdown({ deadline }: { deadline: string }) {
   return <Badge className={cls}><Clock className="h-3 w-3 mr-1" />{hrs}h {mins}m</Badge>;
 }
 
+const PREFS_KEY = "underwriting-queue-prefs:v1";
+
+type QueuePrefs = {
+  status: string;
+  tier: string;
+  pathway: string;
+  mode: string;
+  assignee: string;
+  search: string;
+  sortDir: "asc" | "desc" | null;
+  sortTouched: boolean;
+};
+
+const DEFAULT_PREFS: QueuePrefs = {
+  status: "all",
+  tier: "all",
+  pathway: "all",
+  mode: "all",
+  assignee: "all",
+  search: "",
+  sortDir: null,
+  sortTouched: false,
+};
+
+function loadPrefs(): QueuePrefs {
+  if (typeof window === "undefined") return DEFAULT_PREFS;
+  try {
+    const raw = window.localStorage.getItem(PREFS_KEY);
+    if (!raw) return DEFAULT_PREFS;
+    const parsed = JSON.parse(raw);
+    return { ...DEFAULT_PREFS, ...parsed };
+  } catch {
+    return DEFAULT_PREFS;
+  }
+}
+
 export default function UnderwritingQueue() {
-  const [status, setStatus] = useState("all");
-  const [tier, setTier] = useState("all");
-  const [pathway, setPathway] = useState("all");
-  const [mode, setMode] = useState("all");
-  const [assignee, setAssignee] = useState("all");
-  const [search, setSearch] = useState("");
-  const [sortDir, setSortDir] = useState<"asc" | "desc" | null>(null);
-  const [sortTouched, setSortTouched] = useState(false);
+  const initial = loadPrefs();
+  const [status, setStatus] = useState(initial.status);
+  const [tier, setTier] = useState(initial.tier);
+  const [pathway, setPathway] = useState(initial.pathway);
+  const [mode, setMode] = useState(initial.mode);
+  const [assignee, setAssignee] = useState(initial.assignee);
+  const [search, setSearch] = useState(initial.search);
+  const [sortDir, setSortDir] = useState<"asc" | "desc" | null>(initial.sortDir);
+  const [sortTouched, setSortTouched] = useState(initial.sortTouched);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        PREFS_KEY,
+        JSON.stringify({ status, tier, pathway, mode, assignee, search, sortDir, sortTouched }),
+      );
+    } catch {
+      // ignore quota / serialization errors
+    }
+  }, [status, tier, pathway, mode, assignee, search, sortDir, sortTouched]);
+
+  const resetPrefs = () => {
+    setStatus(DEFAULT_PREFS.status);
+    setTier(DEFAULT_PREFS.tier);
+    setPathway(DEFAULT_PREFS.pathway);
+    setMode(DEFAULT_PREFS.mode);
+    setAssignee(DEFAULT_PREFS.assignee);
+    setSearch(DEFAULT_PREFS.search);
+    setSortDir(DEFAULT_PREFS.sortDir);
+    setSortTouched(DEFAULT_PREFS.sortTouched);
+    if (typeof window !== "undefined") {
+      try { window.localStorage.removeItem(PREFS_KEY); } catch { /* ignore */ }
+    }
+  };
+
+  const isCustomized =
+    status !== DEFAULT_PREFS.status ||
+    tier !== DEFAULT_PREFS.tier ||
+    pathway !== DEFAULT_PREFS.pathway ||
+    mode !== DEFAULT_PREFS.mode ||
+    assignee !== DEFAULT_PREFS.assignee ||
+    search !== DEFAULT_PREFS.search ||
+    sortDir !== DEFAULT_PREFS.sortDir ||
+    sortTouched !== DEFAULT_PREFS.sortTouched;
   const { toast } = useToast();
   const pickupMut = useMutation({
     mutationFn: async (appId: number) => apiRequest("POST", `/api/applications/${appId}/underwriting/assign`, { reviewerId: "me" }),
@@ -203,7 +276,18 @@ export default function UnderwritingQueue() {
       </div>
 
       <Card>
-        <CardHeader><CardTitle className="text-base">Filters</CardTitle></CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-base">Filters</CardTitle>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={resetPrefs}
+            disabled={!isCustomized}
+            data-testid="reset-prefs"
+          >
+            Reset
+          </Button>
+        </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
             <Input placeholder="Search company / name / email" value={search} onChange={e => setSearch(e.target.value)} />
