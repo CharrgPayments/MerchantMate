@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ShieldCheck, RefreshCw, Clock, AlertOctagon } from "lucide-react";
+import { ShieldCheck, RefreshCw, Clock, AlertOctagon, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { STATUS_LABEL, STATUS_FAMILY, type AppStatus } from "@shared/underwriting";
 
 interface QueueRow {
@@ -61,6 +61,33 @@ function statusBadge(s: AppStatus) {
   return <Badge className={cls}>{s} · {STATUS_LABEL[s]}</Badge>;
 }
 
+function DueInCell({ dueAt }: { dueAt: string | null }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60_000); return () => clearInterval(t); }, []);
+  if (!dueAt) return <span className="text-xs text-gray-400">—</span>;
+  const ms = new Date(dueAt).getTime() - now;
+  const overdue = ms < 0;
+  const abs = Math.abs(ms);
+  const hrs = Math.floor(abs / 3_600_000);
+  const mins = Math.floor((abs % 3_600_000) / 60_000);
+  const days = Math.floor(hrs / 24);
+  const label = overdue
+    ? `overdue ${hrs >= 24 ? `${days}d` : `${hrs}h ${mins}m`}`
+    : hrs >= 24 ? `${days}d ${hrs % 24}h` : `${hrs}h ${mins}m`;
+  const cls = overdue
+    ? "bg-red-100 text-red-800"
+    : hrs < 4
+    ? "bg-red-100 text-red-800"
+    : hrs < 12
+    ? "bg-amber-100 text-amber-800"
+    : "bg-emerald-100 text-emerald-800";
+  return (
+    <Badge className={cls} data-testid="due-in-badge">
+      <Clock className="h-3 w-3 mr-1" />{label}
+    </Badge>
+  );
+}
+
 function SlaCountdown({ deadline }: { deadline: string }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60_000); return () => clearInterval(t); }, []);
@@ -79,6 +106,8 @@ export default function UnderwritingQueue() {
   const [mode, setMode] = useState("all");
   const [assignee, setAssignee] = useState("all");
   const [search, setSearch] = useState("");
+  const [sortDir, setSortDir] = useState<"asc" | "desc" | null>(null);
+  const [sortTouched, setSortTouched] = useState(false);
   const { toast } = useToast();
   const pickupMut = useMutation({
     mutationFn: async (appId: number) => apiRequest("POST", `/api/applications/${appId}/underwriting/assign`, { reviewerId: "me" }),
@@ -132,6 +161,30 @@ export default function UnderwritingQueue() {
       || (r.email || "").toLowerCase().includes(q)
       || `${r.firstName ?? ""} ${r.lastName ?? ""}`.toLowerCase().includes(q);
   });
+
+  // Default to ascending (soonest-due first) when SLA-focused filter is active
+  // and the user has not explicitly chosen a sort direction.
+  const slaFilterActive = mode === "final";
+  const effectiveSortDir: "asc" | "desc" | null =
+    sortDir ?? (slaFilterActive && !sortTouched ? "asc" : null);
+
+  const sorted = effectiveSortDir
+    ? [...filtered].sort((a, b) => {
+        const at = a.ticketDueAt ? new Date(a.ticketDueAt).getTime() : null;
+        const bt = b.ticketDueAt ? new Date(b.ticketDueAt).getTime() : null;
+        if (at === null && bt === null) return 0;
+        if (at === null) return 1;
+        if (bt === null) return -1;
+        return effectiveSortDir === "asc" ? at - bt : bt - at;
+      })
+    : filtered;
+
+  const toggleDueSort = () => {
+    setSortTouched(true);
+    setSortDir(prev => (prev === "asc" ? "desc" : prev === "desc" ? null : "asc"));
+  };
+
+  const SortIcon = effectiveSortDir === "asc" ? ArrowUp : effectiveSortDir === "desc" ? ArrowDown : ArrowUpDown;
 
   return (
     <div className="p-6 space-y-4">
@@ -221,6 +274,17 @@ export default function UnderwritingQueue() {
                 <TableHead>Risk</TableHead>
                 <TableHead>Score</TableHead>
                 <TableHead>SLA / Halt</TableHead>
+                <TableHead>
+                  <button
+                    type="button"
+                    onClick={toggleDueSort}
+                    className="inline-flex items-center gap-1 hover:text-gray-900"
+                    data-testid="sort-due-in"
+                  >
+                    Due in
+                    <SortIcon className="h-3 w-3" />
+                  </button>
+                </TableHead>
                 <TableHead>Assignee</TableHead>
                 <TableHead>Updated</TableHead>
                 <TableHead></TableHead>
@@ -228,10 +292,10 @@ export default function UnderwritingQueue() {
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={12} className="text-center py-8 text-gray-500">Loading…</TableCell></TableRow>
-              ) : filtered.length === 0 ? (
-                <TableRow><TableCell colSpan={13} className="text-center py-8 text-gray-500">No applications match your filters</TableCell></TableRow>
-              ) : filtered.map(r => (
+                <TableRow><TableCell colSpan={14} className="text-center py-8 text-gray-500">Loading…</TableCell></TableRow>
+              ) : sorted.length === 0 ? (
+                <TableRow><TableCell colSpan={14} className="text-center py-8 text-gray-500">No applications match your filters</TableCell></TableRow>
+              ) : sorted.map(r => (
                 <TableRow key={r.id}>
                   <TableCell className="font-mono">#{r.id}</TableCell>
                   <TableCell className="font-medium">{r.companyName || "—"}</TableCell>
@@ -263,6 +327,9 @@ export default function UnderwritingQueue() {
                         </Badge>
                       )}
                     </div>
+                  </TableCell>
+                  <TableCell data-testid={`due-in-${r.id}`}>
+                    <DueInCell dueAt={r.ticketDueAt} />
                   </TableCell>
                   <TableCell>
                     {r.assignedReviewerId ? (
