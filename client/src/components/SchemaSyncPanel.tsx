@@ -70,6 +70,20 @@ export default function SchemaSyncPanel() {
     },
   });
 
+  const activityQ = useQuery<any[]>({
+    queryKey: ["/api/audit-logs", "schema-sync", 200],
+    queryFn: async () => {
+      const r = await fetch(`/api/audit-logs?limit=200`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to load audit logs");
+      const rows = await r.json();
+      return (Array.isArray(rows) ? rows : [])
+        .filter((row: any) =>
+          row?.action === "schema_sync_apply" || row?.action === "schema_sync_rollback",
+        )
+        .slice(0, 25);
+    },
+  });
+
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [events]);
@@ -132,14 +146,24 @@ export default function SchemaSyncPanel() {
         if (!m) continue;
         try {
           const ev = JSON.parse(m[1]);
-          if (ev.type === "stmt-start") {
-            appendLog(`▶ [${ev.index! + 1}] ${ev.message}`);
-          } else if (ev.type === "stmt-ok") {
-            appendLog(`✓ [${ev.index! + 1}] ${ev.message ?? "ok"}`);
-          } else if (ev.type === "stmt-error") {
-            appendLog(`✗ [${ev.index! + 1}] ${ev.error}`);
+          const n = typeof ev.index === "number" ? ev.index + 1 : null;
+          const total = ev.total ? `/${ev.total}` : "";
+          if (ev.type === "snapshot") {
+            appendLog(`📸 Snapshot saved: ${ev.snapshotFile ?? ""}`);
+          } else if (ev.type === "begin") {
+            appendLog(`⇢ BEGIN transaction`);
+          } else if (ev.type === "statement") {
+            if (ev.ok === false) {
+              appendLog(`✗ [${n}${total}] ${ev.message ?? ""} — ${ev.error}`);
+            } else {
+              appendLog(`✓ [${n}${total}] ${ev.message ?? "ok"}`);
+            }
+          } else if (ev.type === "commit") {
+            appendLog(`⇠ COMMIT`);
+          } else if (ev.type === "rollback") {
+            appendLog(`⇠ ROLLBACK`);
           } else if (ev.type === "done") {
-            appendLog(`DONE: ${ev.ok ? "success" : "failed"}`);
+            appendLog(`DONE: ${ev.ok ? "success" : "failed"}${ev.message ? ` — ${ev.message}` : ""}`);
           } else if (ev.type === "info") {
             appendLog(`• ${ev.message}`);
           } else if (ev.type === "error") {
@@ -434,6 +458,61 @@ export default function SchemaSyncPanel() {
                       </TableCell>
                     </TableRow>
                   ))}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <History className="h-5 w-5" />
+            Recent activity
+          </CardTitle>
+          <CardDescription>Last 25 schema-sync apply / rollback events from the audit log.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {activityQ.isLoading ? (
+            <div className="text-sm text-muted-foreground">Loading…</div>
+          ) : (activityQ.data ?? []).length === 0 ? (
+            <div className="text-sm text-muted-foreground">No schema-sync activity recorded yet.</div>
+          ) : (
+            <ScrollArea className="max-h-72">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>When</TableHead>
+                    <TableHead>Action</TableHead>
+                    <TableHead>Env</TableHead>
+                    <TableHead>User</TableHead>
+                    <TableHead>Notes</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(activityQ.data ?? []).map((row: any) => {
+                    const tags = row.newValues?.tags || row.tags || {};
+                    const env = tags.targetEnv ?? row.newValues?.targetEnv ?? "—";
+                    const notes = row.newValues?.notes ?? row.notes ?? "";
+                    const user = row.userEmail || row.userId || "system";
+                    const isRollback = row.action === "schema_sync_rollback";
+                    return (
+                      <TableRow key={row.id} data-testid={`row-activity-${row.id}`}>
+                        <TableCell className="text-xs whitespace-nowrap">
+                          {new Date(row.createdAt).toLocaleString()}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={isRollback ? "outline" : "secondary"}>
+                            {isRollback ? "rollback" : "apply"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">{env}</TableCell>
+                        <TableCell className="text-xs">{user}</TableCell>
+                        <TableCell className="text-xs">{notes}</TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </ScrollArea>
