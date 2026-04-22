@@ -133,19 +133,26 @@ export default function UsersPage() {
     defaultValues: { code: "", label: "", description: "", color: "secondary", permissions: [], capabilities: "" },
   });
 
-  // ── Queries (paginated)
+  // ── Queries (paginated, server-side search)
   const PAGE_SIZE = 50;
   const [usersPage, setUsersPage] = useState(1);
-  const { data: usersPageData, isLoading: usersLoading, refetch } = useQuery({
-    queryKey: ["/api/users", "paged", usersPage, PAGE_SIZE],
+  // Reset to page 1 whenever the search term changes, so the user never lands
+  // on a now-empty page after narrowing the result set.
+  React.useEffect(() => { setUsersPage(1); }, [searchTerm]);
+
+  interface UsersPage { items: User[]; total: number; page: number; pageSize: number; }
+  const { data: usersPageData, isLoading: usersLoading, refetch } = useQuery<UsersPage>({
+    queryKey: ["/api/users", "paged", usersPage, PAGE_SIZE, searchTerm],
     queryFn: async () => {
-      const r = await fetch(`/api/users?page=${usersPage}&pageSize=${PAGE_SIZE}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } });
+      const params = new URLSearchParams({ page: String(usersPage), pageSize: String(PAGE_SIZE) });
+      if (searchTerm) params.set("search", searchTerm);
+      const r = await fetch(`/api/users?${params.toString()}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json() as Promise<{ items: any[]; total: number; page: number; pageSize: number }>;
+      return r.json() as Promise<UsersPage>;
     },
     staleTime: 0, gcTime: 0, refetchOnMount: true,
   });
-  const users = usersPageData?.items ?? [];
+  const users: User[] = usersPageData?.items ?? [];
   const usersTotal = usersPageData?.total ?? 0;
 
   const { data: roleDefs = [], isLoading: rolesLoading } = useQuery<RoleDefinition[]>({
@@ -242,13 +249,10 @@ export default function UsersPage() {
 
   const formatLastLogin = (d: string | null) => d ? new Date(d).toLocaleDateString() : "Never";
 
-  const filteredUsers = users.filter((user: User) =>
-    user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    getUserRole(user).toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Search is now applied server-side (see the `?search=` query param above),
+  // so the page rows are already the matching set. We keep this alias so the
+  // existing render code reads cleanly.
+  const filteredUsers: User[] = users;
 
   function openEditUserDialog(user: User) {
     setEditingUser(user);

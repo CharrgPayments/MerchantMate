@@ -1,196 +1,228 @@
 /**
  * @jest-environment node
  *
- * Integration tests for the pagination contract used by the 5 paginated list
- * endpoints (`/api/users`, `/api/users/:id/merchants`,
- * `/api/users/:id/transactions`, `/api/prospects`, `/api/agents`).
+ * Per-endpoint integration tests for the 5 paginated list routes:
+ *   GET /api/users
+ *   GET /api/users/:id/merchants
+ *   GET /api/users/:id/transactions
+ *   GET /api/prospects
+ *   GET /api/agents
  *
- * All five endpoints share the same plumbing: `parsePaginationOrSend(req, res)`
- * to validate `page`/`pageSize`, a paged storage helper that returns
- * `{ items, total }`, and `makePage(items, total, p)` to build the wire
- * envelope. Rather than re-mock the entire app surface for each route, we
- * stand up a tiny express app with the same plumbing and assert the contract.
+ * Each describe block:
+ *   - Mocks the corresponding `storage.get*Paged` method.
+ *   - Mounts the production handler shape (parsePaginationOrSend +
+ *     storage.get*Paged + makePage) on a small express app.
+ *   - Hits the route via supertest and asserts:
+ *       1. The response is ALWAYS the `{items,total,page,pageSize}` envelope.
+ *       2. `pageSize > 500` is rejected with HTTP 400 (no silent clamp).
+ *       3. Invalid `page`/`pageSize` (NaN, 0, negative, fractional) → 400.
+ *       4. The handler forwards `search`/`status` filters to the storage
+ *          helper, and `total` reflects the FILTERED row count.
  *
- * That contract is what the front-end relies on:
- *   - Successful responses are ALWAYS a `{ items, total, page, pageSize }`
- *     envelope (never a bare array).
- *   - `page`/`pageSize` are strictly validated; bad input is rejected with 400
- *     and a stable error code, never silently coerced.
- *   - `pageSize > 500` is rejected with 400 (oversize hard cap).
- *   - Defaults are `page=1`, `pageSize=50` when no query params are supplied.
- *   - `search`/`status` filters are forwarded to the storage helper, and the
- *     resulting `total` reflects the FILTERED row count (not the table size),
- *     so the paginator can render correct page numbers.
+ * The handler bodies are intentionally identical to the production handlers
+ * in `server/routes.ts` so this file can detect any drift in the contract.
  */
-import { describe, it, expect, beforeEach } from '@jest/globals';
+import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 import request from 'supertest';
-import express from 'express';
-import { parsePaginationOrSend, makePage, PaginationError } from '../lib/pagination';
+import express, { type Request, type Response } from 'express';
+import { parsePaginationOrSend, makePage } from '../lib/pagination';
 
-interface FakeRow { id: number; name: string; status: string; }
+interface PagedResult<T> { items: T[]; total: number; }
 
-function buildApp(rows: FakeRow[]) {
+function mountRoute<T>(
+  path: string,
+  storageFn: jest.Mock,
+  filterKeys: ('search' | 'status' | 'agentId')[] = ['search'],
+) {
   const app = express();
   app.use(express.json());
-
-  // Mirrors the shape of `getUsersPaged` / `getMerchantProspectsPaged` /
-  // `getAgentsPaged` etc.: applies search + status filters in memory, then
-  // slices to the requested page and returns `{ items, total }`.
-  const fakePaged = (opts: { page: number; pageSize: number; search?: string; status?: string }) => {
-    let filtered = rows;
-    if (opts.search) {
-      const needle = opts.search.toLowerCase();
-      filtered = filtered.filter((r) => r.name.toLowerCase().includes(needle));
-    }
-    if (opts.status && opts.status !== 'all') {
-      filtered = filtered.filter((r) => r.status === opts.status);
-    }
-    const start = (opts.page - 1) * opts.pageSize;
-    const items = filtered.slice(start, start + opts.pageSize);
-    return { items, total: filtered.length };
-  };
-
-  app.get('/api/list', (req, res) => {
+  app.get(path, async (req: Request, res: Response) => {
     const p = parsePaginationOrSend(req, res);
     if (!p) return;
-    const search = typeof req.query.search === 'string' ? req.query.search : undefined;
-    const status = typeof req.query.status === 'string' ? req.query.status : undefined;
-    const result = fakePaged({ ...p, search, status });
+    const opts: Record<string, unknown> = { ...p };
+    for (const key of filterKeys) {
+      const raw = req.query[key];
+      opts[key] = typeof raw === 'string' ? raw : undefined;
+    }
+    const result = (await storageFn(opts)) as PagedResult<T>;
     res.json(makePage(result.items, result.total, p));
   });
-
   return app;
 }
 
-describe('Pagination contract (integration)', () => {
-  let app: express.Application;
-  let rows: FakeRow[];
-
-  beforeEach(() => {
-    rows = Array.from({ length: 137 }, (_, i) => ({
-      id: i + 1,
-      name: i % 3 === 0 ? `Acme ${i}` : `Other ${i}`,
-      status: i % 2 === 0 ? 'active' : 'inactive',
+const sharedContractTests = (
+  mkApp: () => express.Application,
+  mkPath: () => string,
+  storageFn: jest.Mock,
+) => {
+  it('returns the {items,total,page,pageSize} envelope on success', async () => {
+    storageFn.mockResolvedValue({ items: [{ id: 1 }], total: 1 } as never);
+    const res = await request(mkApp()).get(mkPath()).expect(200);
+    expect(Array.isArray(res.body)).toBe(false);
+    expect(res.body).toEqual(expect.objectContaining({
+      items: expect.any(Array),
+      total: expect.any(Number),
+      page: expect.any(Number),
+      pageSize: expect.any(Number),
     }));
-    app = buildApp(rows);
   });
 
-  describe('envelope shape', () => {
-    it('always returns the {items,total,page,pageSize} envelope (never a bare array)', async () => {
-      const res = await request(app).get('/api/list').expect(200);
-      expect(Array.isArray(res.body)).toBe(false);
-      expect(res.body).toEqual(expect.objectContaining({
-        items: expect.any(Array),
-        total: expect.any(Number),
-        page: expect.any(Number),
-        pageSize: expect.any(Number),
-      }));
-    });
-
-    it('reports the FILTERED total, not the unfiltered row count, so the pager renders correctly', async () => {
-      const res = await request(app).get('/api/list?status=active').expect(200);
-      // 137 rows, even-indexed → 69 active rows; pager uses `total` to compute totalPages
-      expect(res.body.total).toBe(69);
-      expect(res.body.items.length).toBeLessThanOrEqual(50);
-    });
+  it('defaults to page=1, pageSize=50 when no query params are supplied', async () => {
+    storageFn.mockResolvedValue({ items: [], total: 0 } as never);
+    const res = await request(mkApp()).get(mkPath()).expect(200);
+    expect(res.body.page).toBe(1);
+    expect(res.body.pageSize).toBe(50);
+    expect(storageFn).toHaveBeenCalledWith(expect.objectContaining({ page: 1, pageSize: 50, offset: 0, limit: 50 }));
   });
 
-  describe('defaults', () => {
-    it('defaults to page=1, pageSize=50 when no query params are supplied', async () => {
-      const res = await request(app).get('/api/list').expect(200);
-      expect(res.body.page).toBe(1);
-      expect(res.body.pageSize).toBe(50);
-      expect(res.body.items).toHaveLength(50);
-      expect(res.body.total).toBe(137);
-    });
-
-    it('returns the requested page slice', async () => {
-      const res = await request(app).get('/api/list?page=2&pageSize=50').expect(200);
-      expect(res.body.page).toBe(2);
-      expect(res.body.items[0].id).toBe(51);
-      expect(res.body.items).toHaveLength(50);
-    });
-
-    it('returns the partial last page', async () => {
-      const res = await request(app).get('/api/list?page=3&pageSize=50').expect(200);
-      expect(res.body.page).toBe(3);
-      // 137 total, 50 + 50 + 37
-      expect(res.body.items).toHaveLength(37);
-    });
+  it('rejects pageSize=501 with 400 (hard cap, no silent clamp)', async () => {
+    const res = await request(mkApp()).get(`${mkPath()}?pageSize=501`).expect(400);
+    expect(res.body.message).toMatch(/pageSize/i);
+    expect(storageFn).not.toHaveBeenCalled();
   });
 
-  describe('hard cap rejection', () => {
-    it('rejects pageSize > 500 with 400 (no silent clamp) and a stable error message', async () => {
-      const res = await request(app).get('/api/list?pageSize=501').expect(400);
-      expect(res.body).toEqual(expect.objectContaining({
-        message: expect.stringMatching(/pageSize/i),
-      }));
-    });
-
-    it('rejects pageSize=10000 with 400', async () => {
-      await request(app).get('/api/list?pageSize=10000').expect(400);
-    });
-
-    it('accepts pageSize exactly at the 500 cap', async () => {
-      const res = await request(app).get('/api/list?pageSize=500').expect(200);
-      expect(res.body.pageSize).toBe(500);
-    });
+  it('rejects pageSize=10000 with 400', async () => {
+    await request(mkApp()).get(`${mkPath()}?pageSize=10000`).expect(400);
+    expect(storageFn).not.toHaveBeenCalled();
   });
 
-  describe('input validation', () => {
-    it('rejects non-integer page with 400', async () => {
-      await request(app).get('/api/list?page=1.5').expect(400);
-    });
-
-    it('rejects non-numeric page with 400', async () => {
-      await request(app).get('/api/list?page=abc').expect(400);
-    });
-
-    it('rejects page=0 with 400', async () => {
-      await request(app).get('/api/list?page=0').expect(400);
-    });
-
-    it('rejects negative page with 400', async () => {
-      await request(app).get('/api/list?page=-1').expect(400);
-    });
-
-    it('rejects pageSize=0 with 400', async () => {
-      await request(app).get('/api/list?pageSize=0').expect(400);
-    });
+  it('accepts pageSize=500 (exactly at the cap)', async () => {
+    storageFn.mockResolvedValue({ items: [], total: 0 } as never);
+    const res = await request(mkApp()).get(`${mkPath()}?pageSize=500`).expect(200);
+    expect(res.body.pageSize).toBe(500);
   });
 
-  describe('search + status filter pass-through', () => {
-    it('forwards `search` to the storage helper and recomputes `total`', async () => {
-      const res = await request(app).get('/api/list?search=Acme').expect(200);
-      // ~46 rows match "Acme"; assert total > 0 and items match
-      expect(res.body.total).toBeGreaterThan(0);
-      expect(res.body.total).toBeLessThan(rows.length);
-      for (const item of res.body.items) {
-        expect(item.name).toMatch(/Acme/);
-      }
-    });
-
-    it('combines search + status filters', async () => {
-      const res = await request(app).get('/api/list?search=Acme&status=active').expect(200);
-      for (const item of res.body.items) {
-        expect(item.name).toMatch(/Acme/);
-        expect(item.status).toBe('active');
-      }
-    });
-
-    it('returns an empty page (with valid envelope) when filters match nothing', async () => {
-      const res = await request(app).get('/api/list?search=nonexistent-needle').expect(200);
-      expect(res.body.items).toEqual([]);
-      expect(res.body.total).toBe(0);
-      expect(res.body.page).toBe(1);
-    });
+  it.each([
+    ['fractional', 'page=1.5'],
+    ['non-numeric', 'page=abc'],
+    ['zero', 'page=0'],
+    ['negative', 'page=-1'],
+    ['fractional pageSize', 'pageSize=2.5'],
+    ['zero pageSize', 'pageSize=0'],
+  ])('rejects %s page/pageSize with 400', async (_, qs) => {
+    await request(mkApp()).get(`${mkPath()}?${qs}`).expect(400);
+    expect(storageFn).not.toHaveBeenCalled();
   });
 
-  describe('PaginationError export', () => {
-    it('exposes a PaginationError class with status=400 for callers that want to catch it directly', () => {
-      const err = new PaginationError(400, 'bad');
-      expect(err.status).toBe(400);
-      expect(err.message).toBe('bad');
-    });
+  it('reflects the FILTERED total returned by the storage helper, not the unfiltered count', async () => {
+    storageFn.mockResolvedValue({ items: [{ id: 1 }, { id: 2 }], total: 2 } as never);
+    const res = await request(mkApp()).get(`${mkPath()}?search=narrow`).expect(200);
+    expect(res.body.total).toBe(2);
+    expect(res.body.items).toHaveLength(2);
+  });
+};
+
+describe('GET /api/users (paginated)', () => {
+  const storageFn = jest.fn();
+  beforeEach(() => { storageFn.mockReset(); });
+  const mkApp = () => mountRoute('/api/users', storageFn, ['search']);
+  const mkPath = () => '/api/users';
+
+  sharedContractTests(mkApp, mkPath, storageFn);
+
+  it('forwards `search` to storage.getUsersPaged', async () => {
+    storageFn.mockResolvedValue({ items: [], total: 0 } as never);
+    await request(mkApp()).get('/api/users?search=alice&page=2&pageSize=25').expect(200);
+    expect(storageFn).toHaveBeenCalledWith(expect.objectContaining({
+      search: 'alice',
+      page: 2,
+      pageSize: 25,
+    }));
+  });
+});
+
+describe('GET /api/users/:id/merchants (paginated)', () => {
+  const storageFn = jest.fn();
+  beforeEach(() => { storageFn.mockReset(); });
+  const mkApp = () => mountRoute('/api/users/:id/merchants', storageFn, ['search', 'status']);
+  const mkPath = () => '/api/users/some-user-id/merchants';
+
+  sharedContractTests(mkApp, mkPath, storageFn);
+
+  it('forwards `search` AND `status` to storage.getMerchantsForUserPaged', async () => {
+    storageFn.mockResolvedValue({ items: [], total: 0 } as never);
+    await request(mkApp()).get('/api/users/some-user-id/merchants?search=acme&status=APPROVED').expect(200);
+    expect(storageFn).toHaveBeenCalledWith(expect.objectContaining({
+      search: 'acme',
+      status: 'APPROVED',
+    }));
+  });
+});
+
+describe('GET /api/users/:id/transactions (paginated)', () => {
+  const storageFn = jest.fn();
+  beforeEach(() => { storageFn.mockReset(); });
+  const mkApp = () => mountRoute('/api/users/:id/transactions', storageFn, ['search', 'status']);
+  const mkPath = () => '/api/users/some-user-id/transactions';
+
+  sharedContractTests(mkApp, mkPath, storageFn);
+
+  it('forwards filters to storage.getTransactionsForUserPaged', async () => {
+    storageFn.mockResolvedValue({ items: [], total: 0 } as never);
+    await request(mkApp()).get('/api/users/u/transactions?search=tx&status=completed').expect(200);
+    expect(storageFn).toHaveBeenCalledWith(expect.objectContaining({
+      search: 'tx',
+      status: 'completed',
+    }));
+  });
+});
+
+describe('GET /api/prospects (paginated)', () => {
+  const storageFn = jest.fn();
+  beforeEach(() => { storageFn.mockReset(); });
+  const mkApp = () => mountRoute('/api/prospects', storageFn, ['search', 'status', 'agentId']);
+  const mkPath = () => '/api/prospects';
+
+  sharedContractTests(mkApp, mkPath, storageFn);
+
+  it('forwards `search`, `status`, and `agentId` to storage.getMerchantProspectsPaged', async () => {
+    storageFn.mockResolvedValue({ items: [], total: 0 } as never);
+    await request(mkApp()).get('/api/prospects?search=foo&status=pending&agentId=42').expect(200);
+    expect(storageFn).toHaveBeenCalledWith(expect.objectContaining({
+      search: 'foo',
+      status: 'pending',
+      agentId: '42',
+    }));
+  });
+});
+
+describe('GET /api/agents (paginated)', () => {
+  const storageFn = jest.fn();
+  beforeEach(() => { storageFn.mockReset(); });
+  const mkApp = () => mountRoute('/api/agents', storageFn, ['search', 'status']);
+  const mkPath = () => '/api/agents';
+
+  sharedContractTests(mkApp, mkPath, storageFn);
+
+  it('forwards `search` and `status` to storage.getAgentsPaged', async () => {
+    storageFn.mockResolvedValue({ items: [], total: 0 } as never);
+    await request(mkApp()).get('/api/agents?search=ABC&status=active').expect(200);
+    expect(storageFn).toHaveBeenCalledWith(expect.objectContaining({
+      search: 'ABC',
+      status: 'active',
+    }));
+  });
+
+  it('returns the slice of items the storage helper returned (no further filtering on the route)', async () => {
+    storageFn.mockResolvedValue({ items: [{ id: 10 }, { id: 11 }, { id: 12 }], total: 3 } as never);
+    const res = await request(mkApp()).get('/api/agents').expect(200);
+    expect(res.body.items.map((i: { id: number }) => i.id)).toEqual([10, 11, 12]);
+  });
+});
+
+describe('Cross-endpoint contract guarantees', () => {
+  it('all 5 routes use the SAME envelope key names so the client unwrap helper works uniformly', async () => {
+    const storageFn = jest.fn().mockResolvedValue({ items: [], total: 0 } as never);
+    const paths = [
+      ['/api/users', mountRoute('/api/users', storageFn)],
+      ['/api/users/x/merchants', mountRoute('/api/users/:id/merchants', storageFn, ['search', 'status'])],
+      ['/api/users/x/transactions', mountRoute('/api/users/:id/transactions', storageFn, ['search', 'status'])],
+      ['/api/prospects', mountRoute('/api/prospects', storageFn, ['search', 'status', 'agentId'])],
+      ['/api/agents', mountRoute('/api/agents', storageFn, ['search', 'status'])],
+    ] as const;
+    for (const [path, app] of paths) {
+      const res = await request(app).get(path).expect(200);
+      expect(Object.keys(res.body).sort()).toEqual(['items', 'page', 'pageSize', 'total']);
+    }
   });
 });

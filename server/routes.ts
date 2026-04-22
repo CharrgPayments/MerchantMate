@@ -1023,9 +1023,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // User management routes (admin and super admin only) - Development bypass
   app.get("/api/users", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     try {
-      // Always paginates SQL-side (cap = 500). Returns the `{items,total,…}`
-      // envelope only when the caller opts in via `?page=`, `?pageSize=`, or
-      // `?paginated=1`; otherwise returns the bare array for backwards compat.
+      // Paginates SQL-side (default pageSize=50, hard cap=500). Always
+      // returns the `{ items, total, page, pageSize }` envelope; legacy
+      // callers that expect a bare array are handled transparently by the
+      // default React Query fetcher (see client/src/lib/queryClient.ts).
       const p = parsePaginationOrSend(req, res);
       if (!p) return;
       const search = typeof req.query.search === "string" ? req.query.search : undefined;

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
+import { PaginationControls } from "@/components/pagination-controls";
 import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -136,12 +137,26 @@ export default function Agents() {
     },
   });
 
-  // Search results (flat list from server-side search)
-  const { data: searchResults = [], isLoading: isSearchLoading } = useQuery({
-    queryKey: ["/api/agents", searchQuery],
-    queryFn: () => agentsApi.getAll(searchQuery || undefined),
-    enabled: !!searchQuery,
+  // Server-side paged search results. The flat search view (shown when the
+  // user types a query or filters by status) uses true server-side
+  // pagination via /api/agents?page=&pageSize=&search=&status=. Resets to
+  // page 1 on filter change.
+  const AGENTS_PAGE_SIZE = 50;
+  const [agentsPage, setAgentsPage] = useState(1);
+  React.useEffect(() => { setAgentsPage(1); }, [searchQuery, statusFilter]);
+  const isSearchActive = !!searchQuery || statusFilter !== "all";
+  const { data: searchPageData, isLoading: isSearchLoading } = useQuery({
+    queryKey: ["/api/agents", "paged", agentsPage, AGENTS_PAGE_SIZE, searchQuery, statusFilter],
+    queryFn: () => agentsApi.getPaged({
+      page: agentsPage,
+      pageSize: AGENTS_PAGE_SIZE,
+      search: searchQuery || undefined,
+      status: statusFilter,
+    }),
+    enabled: isSearchActive,
   });
+  const searchResults = searchPageData?.items ?? [];
+  const searchTotal = searchPageData?.total ?? 0;
 
   const depthById = new Map<number, number>(hierarchyTree.map((a) => [a.id, a.depth]));
   // True hierarchy expand/collapse: collapsed parents hide their entire subtree.
@@ -424,13 +439,17 @@ export default function Agents() {
             </Table>
           </div>
 
-          {/* Pagination placeholder */}
-          {filteredAgents.length > 0 && (
-            <div className="flex items-center justify-between mt-6">
-              <div className="text-sm text-gray-500">
-                Showing {filteredAgents.length} of {agents.length} agents
-              </div>
-            </div>
+          {/* Server-side pagination — only meaningful when the user is in the
+              flat search/filter view. The hierarchy view shows the full DFS
+              tree from a separate endpoint (no pagination there). */}
+          {isSearchActive && (
+            <PaginationControls
+              page={agentsPage}
+              pageSize={AGENTS_PAGE_SIZE}
+              total={searchTotal}
+              onPageChange={setAgentsPage}
+              isLoading={isSearchLoading}
+            />
           )}
         </CardContent>
       </Card>

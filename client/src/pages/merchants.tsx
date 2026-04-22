@@ -1,4 +1,5 @@
-import { useState } from "react";
+import React, { useState } from "react";
+import { PaginationControls } from "@/components/pagination-controls";
 import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,10 +40,24 @@ export default function Merchants() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
 
-  const { data: merchants = [], isLoading } = useQuery({
-    queryKey: ["/api/merchants", searchQuery],
-    queryFn: () => merchantsApi.getAll(searchQuery || undefined),
+  // Server-side paged + filtered. The hierarchy view inside this page only
+  // renders rows from the current page; the hierarchy tree is fetched
+  // separately and provides depth/parent context. Resets to page 1 whenever
+  // the search changes.
+  const MERCHANTS_PAGE_SIZE = 50;
+  const [merchantsPage, setMerchantsPage] = useState(1);
+  React.useEffect(() => { setMerchantsPage(1); }, [searchQuery]);
+
+  const { data: merchantsPageData, isLoading } = useQuery({
+    queryKey: ["/api/merchants", "paged", merchantsPage, MERCHANTS_PAGE_SIZE, searchQuery],
+    queryFn: () => merchantsApi.getPaged({
+      page: merchantsPage,
+      pageSize: MERCHANTS_PAGE_SIZE,
+      search: searchQuery || undefined,
+    }),
   });
+  const merchants = merchantsPageData?.items ?? [];
+  const merchantsTotal = merchantsPageData?.total ?? 0;
 
   // Hierarchy tree (DFS-ordered with depth) — used as the primary row order
   // so children render directly under their parent. Same pattern as the
@@ -490,14 +505,18 @@ export default function Merchants() {
             </Table>
           </div>
 
-          {/* Pagination placeholder */}
-          {filteredMerchants.length > 0 && (
-            <div className="flex items-center justify-between mt-6">
-              <div className="text-sm text-gray-500">
-                Showing {filteredMerchants.length} of {merchants.length} merchants
-              </div>
-            </div>
-          )}
+          {/* Server-side pagination via /api/merchants?page=&pageSize= */}
+          <PaginationControls
+            page={merchantsPage}
+            pageSize={MERCHANTS_PAGE_SIZE}
+            total={merchantsTotal}
+            onPageChange={setMerchantsPage}
+            isLoading={isLoading}
+          />
+          <div className="text-sm text-gray-500 mt-2">
+            Hierarchy view shows up to the page-size cap; use search to narrow
+            results across the full set.
+          </div>
         </CardContent>
       </Card>
 
