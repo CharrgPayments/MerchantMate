@@ -12,7 +12,13 @@ export interface RequestWithDB extends Request {
   permScope?: 'own' | 'downline' | 'all';
   // Resolved DB user attached by the various auth middlewares so handlers
   // don't have to re-fetch it. `unknown` to force a typed cast at use sites.
-  currentUser?: { id: string; roles?: string[] | null; role?: string | null } | null;
+  currentUser?: {
+    id: string;
+    username?: string | null;
+    roles?: string[] | null;
+    role?: string | null;
+    [key: string]: unknown;
+  } | null;
 }
 
 /**
@@ -51,7 +57,7 @@ export const dbEnvironmentMiddleware = (req: RequestWithDB, res: Response, next:
   }
 
   // 2. Session value wins on all other domains (test-crm.charrg.com, *.replit.app, localhost)
-  const sessionDbEnv = (req.session as any)?.dbEnv;
+  const sessionDbEnv = req.session?.dbEnv;
   if (sessionDbEnv && ['test', 'development', 'dev', 'production'].includes(sessionDbEnv)) {
     req.dbEnv = sessionDbEnv;
     req.dynamicDB = getDynamicDatabase(sessionDbEnv);

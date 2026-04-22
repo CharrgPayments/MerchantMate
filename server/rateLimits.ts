@@ -5,7 +5,7 @@ const buckets = new Map<string, Bucket>();
 
 function clientIp(req: Request): string {
   const fwd = (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim();
-  return fwd || req.ip || (req.socket as any)?.remoteAddress || "unknown";
+  return fwd || req.ip || req.socket?.remoteAddress || "unknown";
 }
 
 export interface RateLimitOptions {

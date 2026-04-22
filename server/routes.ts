@@ -218,7 +218,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Enhanced CRUD audit logging middleware
   app.use(async (req: RequestWithDB, res, next) => {
-    const userId = (req.session as any)?.userId;
+    const userId = req.session?.userId;
     const originalSend = res.send;
     let requestBody: any = null;
     let responseBody: any = null;
@@ -370,7 +370,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const requireAuthOrProspectToken = async (req: any, res: Response, next: any) => {
     // Accept any of: session-based login, Passport `req.user`/isAuthenticated(),
     // or a valid prospect token (header or body).
-    if ((req.session as any)?.userId) return next();
+    if (req.session?.userId) return next();
     if (typeof req.isAuthenticated === 'function' && req.isAuthenticated()) return next();
     if (req.user) return next();
     const token =
@@ -648,7 +648,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/agent/dashboard/stats", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
-      const userId = (req.session as any)?.userId;
+      const userId = req.session?.userId;
       if (!userId) {
         return res.status(401).json({ message: "Authentication required" });
       }
@@ -707,7 +707,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/agent/applications", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
-      const userId = (req.session as any)?.userId;
+      const userId = req.session?.userId;
       if (!userId) {
         return res.status(401).json({ message: "Authentication required" });
       }
@@ -1661,7 +1661,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/agents/:agentId/merchants/:merchantId", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     try {
       const { agentId, merchantId } = req.params;
-      const userId = (req as any).user.claims.sub;
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ message: "Authentication required" });
       const dynamicDB = getRequestDB(req);
       console.log(`Agent assignment endpoint - Database environment: ${req.dbEnv}`);
 
@@ -1732,7 +1733,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Merchant Prospect routes
   app.get("/api/prospects", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
-      const userId = (req.session as any).userId;
+      const userId = req.session.userId;
+      if (!userId) return res.status(401).json({ message: "Authentication required" });
       const user = await storage.getUser(userId);
       if (!user) return res.status(401).json({ message: "User not found" });
 
@@ -1771,7 +1773,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { emailService } = await import("./emailService");
       
       // Check user role authorization
-      const userId = (req.session as any).userId;
+      const userId = req.session.userId;
+      if (!userId) return res.status(401).json({ message: "Authentication required" });
       const user = await storage.getUser(userId);
       
       if (!user) {
@@ -1941,7 +1944,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       
       // Check user role authorization
-      const userId = (req.session as any).userId;
+      const userId = req.session.userId;
+      if (!userId) return res.status(401).json({ message: "Authentication required" });
       const user = await storage.getUser(userId);
       
       if (!user) {
@@ -2220,7 +2224,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         validatedAt: prospect.validatedAt,
         applicationStartedAt: prospect.applicationStartedAt,
         formData: prospect.formData,
-        portalSetupAt: (prospect as any).portalSetupAt ?? null,
+        portalSetupAt: prospect.portalSetupAt ?? null,
         hasGeneratedPdf,
       });
     } catch (error) {
@@ -2297,10 +2301,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Clear user authentication data but preserve database environment setting
       delete req.session.userId;
       delete req.session.user;
-      delete (req.session as any).passport;
+      delete req.session.passport;
       
       // Set the new database environment for the next login
-      (req.session as any).dbEnv = newEnvironment;
+      req.session.dbEnv = newEnvironment;
       
       console.log(`Session cleared and database environment set to ${newEnvironment}`);
       
@@ -2622,9 +2626,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // middleware. The actual sync execution is delegated to the existing
   // schema-sync engine; this endpoint is the auditable entry point.
   app.post("/api/admin/db-sync", isAuthenticated, requirePerm('system:superadmin'), async (req, res) => {
-    const actingUserId =
-      (req.session as any)?.userId || (req as any).user?.claims?.sub || null;
-    const ip = req.ip || (req as any).connection?.remoteAddress || 'unknown';
+    const actingUserId: string | null =
+      req.session?.userId || req.user?.claims?.sub || null;
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
 
     try {
       const body = req.body || {};
@@ -2677,15 +2681,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // the generic CRUD audit middleware row.
       const { AuditService } = await import('./auditService');
       const dbModule = await import('./db');
-      const auditDB = (req as any).dynamicDB || dbModule.db;
+      const auditDB = req.dynamicDB || dbModule.db;
       const explicitAudit = new AuditService(auditDB);
       const auditId = await explicitAudit.logAction(
         'cross_env_sync',
         'database',
         {
-          userId: actingUserId,
+          userId: actingUserId ?? undefined,
           ipAddress: ip,
-          userAgent: req.get('User-Agent') || null,
+          userAgent: req.get('User-Agent') || undefined,
           method: req.method,
           endpoint: req.path,
           environment: toEnvironment,
@@ -3374,7 +3378,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   template.originalPdfBase64,
                   mergedSubmit,
                   template.fieldConfiguration,
-                  Array.isArray(template.pdfMappingConfiguration) ? template.pdfMappingConfiguration as any[] : []
+                  Array.isArray(template.pdfMappingConfiguration) ? template.pdfMappingConfiguration as unknown[] : []
                 );
                 filledFromTemplate = true;
 
@@ -6049,7 +6053,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { feeValues, equipmentIds, templateId, ...campaignData } = req.body;
       const dbToUse = getRequestDB(req);
-      const session = req.session as any;
+      const session = req.session;
       const userId = session?.userId;
 
       const { campaigns: campaignsTable, campaignApplicationTemplates: catTable } = await import('@shared/schema');
@@ -6448,7 +6452,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const id = parseInt(req.params.id);
       const { feeValues, equipmentIds, pricingTypeIds, templateId, selectedEquipment, ...campaignData } = parsed.data;
       const dbToUse = getRequestDB(req);
-      const session = req.session as any;
+      const session = req.session;
       const userId = session?.userId;
 
       // Handle pricing type ID properly
@@ -6527,7 +6531,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/campaign-rules', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const { insertCampaignAssignmentRuleSchema } = await import('@shared/schema');
-      const userId = (req.session as any)?.userId;
+      const userId = req.session?.userId;
       const parsed = insertCampaignAssignmentRuleSchema.safeParse({ ...req.body, createdBy: userId });
       if (!parsed.success) return res.status(400).json({ message: 'Invalid rule', errors: parsed.error.errors });
       const created = await storage.createCampaignAssignmentRule(parsed.data);
@@ -6676,7 +6680,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         merged,
         template.fieldConfiguration,
         Array.isArray(template.pdfMappingConfiguration)
-          ? template.pdfMappingConfiguration as any[]
+          ? template.pdfMappingConfiguration as unknown[]
           : [],
       );
 
@@ -6736,8 +6740,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Ownership check: anyone holding admin:manage at scope 'all' (admin /
       // super_admin) bypasses; otherwise the caller must own the prospect via
       // their agent record.
-      const userId = (req.session as any)?.userId;
-      const scope = (req as any).permScope as 'own' | 'downline' | 'all' | undefined;
+      const userId = req.session?.userId;
+      if (!userId) return res.status(401).json({ message: "Authentication required" });
+      const scope = req.permScope as 'own' | 'downline' | 'all' | undefined;
       if (scope !== 'all') {
         const callerAgent = userId ? await storage.getAgentByUserId(userId).catch(() => null) : null;
         if (!callerAgent || callerAgent.id !== prospect.agentId) {
@@ -8091,7 +8096,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
-      const currentUser = (req as any).currentUser;
+      const currentUser = req.currentUser;
       const { code, name, description, version = "1.0", category, entity_type,
               initial_status = "submitted", final_statuses = ["approved","rejected"],
               configuration = {}, is_active = true } = req.body;
@@ -8354,7 +8359,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
       const stageId = parseInt(req.params.stageId);
-      const currentUser = (req as any).currentUser;
+      const currentUser = req.currentUser;
       const {
         integration_id, endpoint_id,
         request_mapping, response_mapping,
@@ -8628,7 +8633,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dynamicDB = getRequestDB(req);
       const ticketId = parseInt(req.params.ticketId);
       const ticketStageId = parseInt(req.params.ticketStageId);
-      const currentUser = (req as any).currentUser;
+      const currentUser = req.currentUser;
       const { action, notes } = parsed.data;
 
       // Get the current ticket stage record with stage info
@@ -8714,7 +8719,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const nextStageRows = nextStageResult.rows ?? nextStageResult;
 
         if (nextStageRows.length > 0) {
-          const nextStageId = (nextStageRows[0] as any).id;
+          const nextStageId = (nextStageRows[0] as { id: number }).id;
           // Check if ticket stage record already exists for next stage
           const existingNext = await dynamicDB.execute(sqlTag`
             SELECT id FROM workflow_ticket_stages WHERE ticket_id = ${ticketId} AND stage_id = ${nextStageId}
@@ -8799,7 +8804,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
       const ticketId = parseInt(req.params.id);
-      const currentUser = (req as any).currentUser;
+      const currentUser = req.currentUser;
       const { assigned_to_id } = parsed.data;
 
       if (assigned_to_id !== null && assigned_to_id !== undefined) {
@@ -8815,7 +8820,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             updated_at = NOW()
           WHERE id = ${ticketId}
         `);
-        const assignee = ((userCheck.rows ?? userCheck)[0] as any).username;
+        const assignee = ((userCheck.rows ?? userCheck)[0] as { username: string }).username;
         // Log to notes
         await dynamicDB.execute(sqlTag`
           INSERT INTO workflow_notes (ticket_id, content, note_type, is_internal, created_by, created_at, updated_at)
@@ -9013,7 +9018,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         FROM prospect_applications
         GROUP BY template_id
       `);
-      const rows = (result as any).rows ?? result;
+      const rows = ((result as { rows?: unknown[] }).rows ?? (result as unknown as unknown[])) as Array<{ template_id: number | string; count: number | string }>;
       const counts: Record<number, number> = {};
       for (const row of rows) {
         counts[Number(row.template_id)] = Number(row.count);
@@ -9260,8 +9265,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const { pdfFieldId, templateFieldId, action } = fmParsed.data;
 
+      // fieldConfiguration is jsonb with a free-form per-template shape
       const fieldConfig: any = { ...(template.fieldConfiguration as any) };
-      const rawFields: any[] = Array.isArray(template.pdfMappingConfiguration) ? [...(template.pdfMappingConfiguration as any[])] : [];
+      const rawFields: any[] = Array.isArray(template.pdfMappingConfiguration) ? [...(template.pdfMappingConfiguration as unknown[])] : [];
 
       if (action === 'map') {
         if (Array.isArray(fieldConfig.sections)) {
@@ -9357,7 +9363,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .limit(1);
 
       // If not found in session's DB, fall back to the dev database (templates are managed in dev)
-      const sessionDbEnv: string = (req.session as any)?.dbEnv || 'production';
+      const sessionDbEnv: string = req.session?.dbEnv || 'production';
       const isAlreadyDevDB = sessionDbEnv === 'dev' || sessionDbEnv === 'development';
       if (!template && !isAlreadyDevDB) {
         const { getDynamicDatabase } = await import("./db");
@@ -9528,7 +9534,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         template.originalPdfBase64,
         application.applicationData as Record<string, any>,
         template.fieldConfiguration,
-        Array.isArray(template.pdfMappingConfiguration) ? template.pdfMappingConfiguration as any[] : []
+        Array.isArray(template.pdfMappingConfiguration) ? template.pdfMappingConfiguration as unknown[] : []
       );
 
       const safeFilename = template.templateName.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -9552,7 +9558,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { mccCodes } = await import("@shared/schema");
       const { sql: sqlTag } = await import("drizzle-orm");
       const result = await dbToUse.execute(sqlTag`SELECT DISTINCT category FROM mcc_codes WHERE is_active = true ORDER BY category`);
-      const rows = (result as any).rows ?? result;
+      const rows = (result as { rows?: unknown[] }).rows ?? (result as unknown as unknown[]);
       res.json(rows.map((r: any) => r.category));
     } catch (error) {
       console.error('Error fetching MCC categories:', error);
@@ -9567,6 +9573,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { mccCodes } = await import("@shared/schema");
       const { ilike, or, eq } = await import("drizzle-orm");
       const { search, category } = req.query;
+      // Drizzle's chained builder narrows the return type after `.where`,
+      // so reassigning to the same `let` requires an `as any` round-trip.
       let query = dbToUse.select().from(mccCodes);
       if (search) {
         const searchStr = `%${search}%`;
@@ -9703,7 +9711,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
       const { mccPolicies, insertMccPolicySchema } = await import("@shared/schema");
-      const session = req.session as any;
+      const session = req.session;
       const validated = insertMccPolicySchema.parse({ ...req.body, createdBy: session?.userId });
       const [newPolicy] = await dbToUse.insert(mccPolicies).values(validated).returning();
       res.status(201).json(newPolicy);
@@ -9808,7 +9816,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!def) {
         // Also try dev DB if not found in session DB
-        const sessionDbEnv: string = (req.session as any)?.dbEnv || 'production';
+        const sessionDbEnv: string = req.session?.dbEnv || 'production';
         const isAlreadyDevDB = sessionDbEnv === 'dev' || sessionDbEnv === 'development';
         if (!isAlreadyDevDB) {
           const { getDynamicDatabase } = await import("./db");
@@ -9835,7 +9843,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
       const { disclosureDefinitions } = await import("@shared/schema");
-      const session = req.session as any;
+      const session = req.session;
       const { slug, displayName, description, category, requiresSignature, companyId } = req.body;
       if (!slug || !displayName) return res.status(400).json({ success: false, message: 'Slug and display name are required' });
       const [newDef] = await dbToUse.insert(disclosureDefinitions).values({
@@ -9891,7 +9899,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { disclosureVersions } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
       const definitionId = parseInt(req.params.definitionId);
-      const session = req.session as any;
+      const session = req.session;
       const { version, title, content, requiresSignature, effectiveDate } = req.body;
       if (!version || !title || !content) return res.status(400).json({ success: false, message: 'Version, title, and content are required' });
       // Set all existing versions to not current
@@ -9937,7 +9945,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
       const { disclosureVersions } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
-      const session = req.session as any;
+      const session = req.session;
       const [original] = await dbToUse.select().from(disclosureVersions).where(eq(disclosureVersions.id, parseInt(req.params.id))).limit(1);
       if (!original) return res.status(404).json({ success: false, message: 'Version not found' });
       const newVersionLabel = req.body.version || `${original.version}-copy`;
@@ -10137,7 +10145,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const [template] = await db.select().from(actionTemplates).where(eq(actionTemplates.id, parseInt(idStr)));
         if (!template) return res.status(404).json({ message: "Template not found" });
         if (template.actionType === 'email' && recipientEmail) {
-          const cfg = template.config as any;
+          const cfg = (template.config ?? {}) as Record<string, string | undefined>;
           await emailService.sendEmail({
             to: recipientEmail,
             subject: `[TEST] ${cfg.subject || template.name}`,
@@ -10190,9 +10198,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let headersObj: Record<string, string> = {};
       let bodyRaw: string | undefined = cfg.body;
       try {
-        if ((template as any).endpointId) {
+        if (template.endpointId) {
           const { transport } = await resolveTemplateTransport({
-            endpointId: (template as any).endpointId,
+            endpointId: template.endpointId,
             config: cfg,
           });
           // Apply auth + secret resolution to URL/headers, but defer route
@@ -10580,7 +10588,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ── Prospect Portal ──────────────────────────────────────────────────────
   // Helper: check prospect portal session
   const requireProspectPortalAuth = async (req: RequestWithDB, res: any, next: any) => {
-    const prospectId = (req.session as any)?.portalProspectId;
+    const prospectId = req.session?.portalProspectId;
     if (!prospectId) return res.status(401).json({ message: "Portal session required" });
     next();
   };
@@ -10601,9 +10609,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (prospect.portalPasswordHash) return res.status(409).json({ message: "Portal account already set up. Please log in." });
       const hash = await bcrypt.hash(password, 10);
       await dynamicDB.update(merchantProspects).set({ portalPasswordHash: hash, portalSetupAt: new Date() }).where(eq(merchantProspects.id, prospect.id));
-      (req.session as any).portalProspectId = prospect.id;
-      (req.session as any).portalProspectEmail = prospect.email;
-      (req.session as any).portalDbEnv = req.dbEnv;
+      req.session.portalProspectId = prospect.id;
+      req.session.portalProspectEmail = prospect.email;
+      req.session.portalDbEnv = req.dbEnv;
       res.json({ message: "Portal account created", prospect: { id: prospect.id, firstName: prospect.firstName, lastName: prospect.lastName, email: prospect.email } });
     } catch (error) {
       console.error("Error setting up portal password:", error);
@@ -10624,9 +10632,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!prospect || !prospect.portalPasswordHash) return res.status(401).json({ message: "Invalid email or password" });
       const valid = await bcrypt.compare(password, prospect.portalPasswordHash);
       if (!valid) return res.status(401).json({ message: "Invalid email or password" });
-      (req.session as any).portalProspectId = prospect.id;
-      (req.session as any).portalProspectEmail = prospect.email;
-      (req.session as any).portalDbEnv = req.dbEnv;
+      req.session.portalProspectId = prospect.id;
+      req.session.portalProspectEmail = prospect.email;
+      req.session.portalDbEnv = req.dbEnv;
       res.json({ prospect: { id: prospect.id, firstName: prospect.firstName, lastName: prospect.lastName, email: prospect.email, status: prospect.status } });
     } catch (error) {
       console.error("Error in portal login:", error);
@@ -10659,7 +10667,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
       await dynamicDB.insert(portalMagicLinks).values({ prospectId: prospect.id, token, expiresAt });
       // Determine the portal URL for the email
-      const dbParam = (req as any).dbEnv === "dev" ? "?db=dev" : "";
+      const dbParam = req.dbEnv === "dev" ? "?db=dev" : "";
       const baseUrl = process.env.BASE_URL || `https://${req.hostname}`;
       const magicUrl = `${baseUrl}/portal/magic-login${dbParam}#token=${token}`;
       emailService.sendMagicLinkEmail({ firstName: prospect.firstName, email: prospect.email, magicUrl }).catch(() => {});
@@ -10687,9 +10695,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [prospect] = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.id, link.prospectId));
       if (!prospect) return res.status(404).json({ message: "Account not found" });
       // Create portal session
-      (req.session as any).portalProspectId = prospect.id;
-      (req.session as any).portalProspectEmail = prospect.email;
-      (req.session as any).portalDbEnv = (req as any).dbEnv || "production";
+      req.session.portalProspectId = prospect.id;
+      req.session.portalProspectEmail = prospect.email;
+      req.session.portalDbEnv = req.dbEnv || "production";
       res.json({ message: "Signed in", prospect: { id: prospect.id, firstName: prospect.firstName, lastName: prospect.lastName, email: prospect.email } });
     } catch (error) {
       console.error("Magic link login error:", error);
@@ -10700,7 +10708,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/portal/me
   app.get("/api/portal/me", dbEnvironmentMiddleware, requireProspectPortalAuth, async (req: RequestWithDB, res) => {
     try {
-      const prospectId = (req.session as any).portalProspectId;
+      const prospectId = req.session.portalProspectId!;
       const { merchantProspects, prospectApplications, acquirerApplicationTemplates } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -10730,7 +10738,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/portal/messages
   app.get("/api/portal/messages", dbEnvironmentMiddleware, requireProspectPortalAuth, async (req: RequestWithDB, res) => {
     try {
-      const prospectId = (req.session as any).portalProspectId;
+      const prospectId = req.session.portalProspectId!;
       const { prospectMessages } = await import("@shared/schema");
       const { eq, desc } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -10747,8 +10755,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/portal/messages — prospect sends a message
   app.post("/api/portal/messages", dbEnvironmentMiddleware, requireProspectPortalAuth, async (req: RequestWithDB, res) => {
     try {
-      const prospectId = (req.session as any).portalProspectId;
-      const email = (req.session as any).portalProspectEmail;
+      const prospectId = req.session.portalProspectId!;
+      const email = req.session.portalProspectEmail ?? "";
       const { subject = "", message } = req.body;
       if (!message?.trim()) return res.status(400).json({ message: "Message body required" });
       const { prospectMessages, merchantProspects } = await import("@shared/schema");
@@ -10769,7 +10777,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/portal/file-requests
   app.get("/api/portal/file-requests", dbEnvironmentMiddleware, requireProspectPortalAuth, async (req: RequestWithDB, res) => {
     try {
-      const prospectId = (req.session as any).portalProspectId;
+      const prospectId = req.session.portalProspectId!;
       const { prospectFileRequests } = await import("@shared/schema");
       const { eq, desc } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -10792,8 +10800,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/portal/file-requests/:id/upload — prospect uploads a document
   app.post("/api/portal/file-requests/:id/upload", dbEnvironmentMiddleware, requireProspectPortalAuth, async (req: RequestWithDB, res) => {
     try {
-      const prospectId = (req.session as any).portalProspectId;
-      const email = (req.session as any).portalProspectEmail;
+      const prospectId = req.session.portalProspectId!;
+      const email = req.session.portalProspectEmail ?? "";
       const frId = parseInt(req.params.id);
       const { fileName, mimeType, fileData } = req.body; // base64 fileData from client
       if (!fileName || !mimeType || !fileData) return res.status(400).json({ message: "fileName, mimeType, fileData required" });
@@ -10834,7 +10842,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const prospectId = parseInt(req.params.id);
       const { subject = "", message } = req.body;
       if (!message?.trim()) return res.status(400).json({ message: "Message body required" });
-      const userId = (req.session as any)?.userId || (req as any).user?.claims?.sub || "agent";
+      const userId = req.session?.userId || req.user?.claims?.sub || "agent";
       const { prospectMessages, users, merchantProspects } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -10851,7 +10859,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const [prospect] = await dynamicDB.select({ firstName: merchantProspects.firstName, lastName: merchantProspects.lastName, email: merchantProspects.email, validationToken: merchantProspects.validationToken })
             .from(merchantProspects).where(eq(merchantProspects.id, prospectId));
           if (prospect) {
-            const dbParam = (req as any).dbEnv === "dev" ? "?db=dev" : "";
+            const dbParam = req.dbEnv === "dev" ? "?db=dev" : "";
             const baseUrl = process.env.BASE_URL || `https://${req.hostname}`;
             const portalUrl = `${baseUrl}/portal/login${dbParam}`;
             await emailService.sendNewMessageNotification({ firstName: prospect.firstName, lastName: prospect.lastName, email: prospect.email, portalUrl, agentName: senderName, subject: subject.trim() || undefined });
@@ -10918,13 +10926,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Non-blocking: notify prospect by email
       (async () => {
         try {
-          const userId = (req.session as any)?.userId || (req as any).user?.claims?.sub || "agent";
+          const userId = req.session?.userId || req.user?.claims?.sub || "agent";
           const [prospect] = await dynamicDB.select({ firstName: merchantProspects.firstName, lastName: merchantProspects.lastName, email: merchantProspects.email })
             .from(merchantProspects).where(eq(merchantProspects.id, prospectId));
           const userRows = await dynamicDB.select({ username: users.username }).from(users).where(eq(users.id, userId));
           const agentName = userRows[0]?.username || "Your advisor";
           if (prospect) {
-            const dbParam = (req as any).dbEnv === "dev" ? "?db=dev" : "";
+            const dbParam = req.dbEnv === "dev" ? "?db=dev" : "";
             const baseUrl = process.env.BASE_URL || `https://${req.hostname}`;
             const portalUrl = `${baseUrl}/portal/login${dbParam}`;
             await emailService.sendFileRequestNotification({ firstName: prospect.firstName, lastName: prospect.lastName, email: prospect.email, portalUrl, agentName, label: label.trim() });
@@ -10995,7 +11003,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ── User Alerts / Notifications ─────────────────────────────────────────
   app.get("/api/alerts", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
-      const userId = (req.session as any)?.userId;
+      const userId = req.session?.userId;
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const { sql: sqlTag } = await import("drizzle-orm");
       const { userAlerts } = await import("@shared/schema");
@@ -11024,7 +11032,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/alerts/count", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
-      const userId = (req.session as any)?.userId;
+      const userId = req.session?.userId;
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const { sql: sqlTag, count } = await import("drizzle-orm");
       const { userAlerts } = await import("@shared/schema");
@@ -11086,7 +11094,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid payload", errors: parsed.error.flatten() });
       }
-      const userId = (req.session as any)?.userId;
+      const userId = req.session?.userId;
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const { sql: sqlTag, eq, and } = await import("drizzle-orm");
       const { userAlerts } = await import("@shared/schema");
@@ -11107,7 +11115,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/alerts/read-all", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
-      const userId = (req.session as any)?.userId;
+      const userId = req.session?.userId;
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const { eq } = await import("drizzle-orm");
       const { userAlerts } = await import("@shared/schema");
@@ -11125,7 +11133,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/alerts/read/all", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
-      const userId = (req.session as any)?.userId;
+      const userId = req.session?.userId;
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const { sql: sqlTag } = await import("drizzle-orm");
       const { userAlerts } = await import("@shared/schema");
@@ -11142,7 +11150,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/alerts/:id", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
-      const userId = (req.session as any)?.userId;
+      const userId = req.session?.userId;
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const { and, eq } = await import("drizzle-orm");
       const { userAlerts } = await import("@shared/schema");
@@ -11170,7 +11178,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [prospect] = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.id, prospectId));
       if (!prospect) return res.status(404).json({ message: "Prospect not found" });
       if (!prospect.validationToken) return res.status(400).json({ message: "Prospect does not have a validation token" });
-      const userId = (req.session as any)?.userId || (req as any).user?.claims?.sub || "agent";
+      const userId = req.session?.userId || req.user?.claims?.sub || "agent";
       const userRows = await dynamicDB.select({ username: users.username }).from(users).where(eq(users.id, userId));
       const agentName = userRows[0]?.username || "Your advisor";
       const baseUrl = process.env.BASE_URL || `https://${req.hostname}`;

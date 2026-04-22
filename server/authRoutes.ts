@@ -43,13 +43,7 @@ const resetPasswordLimiter = rateLimit({
   message: 'Too many password reset attempts. Please try again later.',
 });
 
-declare module "express-session" {
-  interface SessionData {
-    userId: string;
-    sessionId: string;
-    dbEnv: string;
-  }
-}
+// SessionData is augmented in server/types/express.d.ts.
 
 export function setupAuthRoutes(app: Express) {
   // Authentication middleware with database environment support

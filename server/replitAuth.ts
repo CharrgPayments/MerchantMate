@@ -164,8 +164,8 @@ export async function setupAuth(app: Express) {
 
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
   // Check for session-based authentication first (works in both dev and production)
-  const sessionUserId = (req.session as any)?.userId;
-  const sessionDbEnv = (req.session as any)?.dbEnv;
+  const sessionUserId = req.session?.userId;
+  const sessionDbEnv = req.session?.dbEnv;
   
   if (sessionUserId) {
     console.log('Session Auth - UserId from session:', sessionUserId);
@@ -199,8 +199,8 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
           email: dbUser.email,
           claims: { sub: sessionUserId } 
         };
-        (req as any).currentUser = dbUser;
-        (req as any).userId = sessionUserId;
+        req.currentUser = dbUser;
+        req.userId = sessionUserId;
         return next();
       }
     } catch (error) {
@@ -212,8 +212,8 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
   if (process.env.NODE_ENV === 'development') {
     console.log('DevAuth - No valid session, using dev auth fallback');
     const userId = 'admin-prod-001'; // Default super admin user for development
-    (req.session as any).userId = userId;
-    (req.session as any).sessionId = uuidv4();
+    req.session.userId = userId;
+    req.session.sessionId = uuidv4();
     
     try {
       const dbUser = await storage.getUser(userId);
@@ -226,8 +226,8 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
         email: dbUser.email,
         claims: { sub: userId } 
       };
-      (req as any).currentUser = dbUser;
-      (req as any).userId = userId;
+      req.currentUser = dbUser;
+      req.userId = userId;
       return next();
     } catch (error) {
       console.error("Error fetching user data:", error);
@@ -251,7 +251,7 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     try {
       if (user.claims?.sub) {
         const dbUser = await storage.getUser(user.claims.sub);
-        (req as any).currentUser = dbUser;
+        req.currentUser = dbUser;
       }
     } catch (error) {
       console.error("Error fetching user data:", error);
@@ -273,7 +273,7 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     // Attach user data to request after refresh
     if (user.claims?.sub) {
       const dbUser = await storage.getUser(user.claims.sub);
-      (req as any).currentUser = dbUser;
+      req.currentUser = dbUser;
     }
     return next();
   } catch (error) {
@@ -286,7 +286,7 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
 export const requireRole = (allowedRoles: string[]): RequestHandler => {
   return async (req, res, next) => {
     // Check for session-based authentication first (works in both dev and production)
-    const sessionUserId = (req.session as any)?.userId;
+    const sessionUserId = req.session?.userId;
     if (sessionUserId) {
       try {
         const dbUser = await storage.getUser(sessionUserId);
@@ -303,7 +303,7 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
         }
 
         // Attach user info to request for use in route handlers
-        (req as any).currentUser = dbUser;
+        req.currentUser = dbUser;
         req.user = { 
           id: sessionUserId,
           email: dbUser.email,
@@ -319,8 +319,8 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
     // Development mode: use fallback authentication if no session
     if (process.env.NODE_ENV === 'development') {
       const userId = 'admin-prod-001'; // Default admin user for development
-      (req.session as any).userId = userId;
-      (req.session as any).sessionId = uuidv4();
+      req.session.userId = userId;
+      req.session.sessionId = uuidv4();
       
       try {
         const dbUser = await storage.getUser(userId);
@@ -336,7 +336,7 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
           return res.status(403).json({ message: "Insufficient permissions" });
         }
 
-        (req as any).currentUser = dbUser;
+        req.currentUser = dbUser;
         req.user = { 
           id: userId,
           email: dbUser.email,
@@ -374,7 +374,7 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
       }
 
       // Attach user info to request for use in route handlers
-      (req as any).currentUser = dbUser;
+      req.currentUser = dbUser;
       next();
     } catch (error) {
       console.error("Error checking user role:", error);
@@ -396,7 +396,7 @@ export const requirePerm = (action: string): RequestHandler => {
     // Order-tolerant env resolution. If dbEnvironmentMiddleware did not run,
     // derive env from session and take a direct DB handle (no ALS reliance).
     if (!reqWithCtx.dbEnv) {
-      const sessionDbEnv = (req.session as any)?.dbEnv;
+      const sessionDbEnv = req.session?.dbEnv;
       const fallbackEnv =
         sessionDbEnv && ['test', 'development', 'dev', 'production'].includes(sessionDbEnv)
           ? sessionDbEnv
@@ -441,7 +441,7 @@ export const requirePerm = (action: string): RequestHandler => {
       }
     };
 
-    const sessionUserId = (req.session as any)?.userId;
+    const sessionUserId = req.session?.userId;
     if (sessionUserId) {
       await finishWith(sessionUserId);
       return;
@@ -449,8 +449,8 @@ export const requirePerm = (action: string): RequestHandler => {
 
     if (process.env.NODE_ENV === 'development') {
       const userId = 'admin-prod-001';
-      (req.session as any).userId = userId;
-      (req.session as any).sessionId = uuidv4();
+      req.session.userId = userId;
+      req.session.sessionId = uuidv4();
       await finishWith(userId);
       return;
     }
@@ -491,7 +491,7 @@ export const requirePermission = (permission: string): RequestHandler => {
       
       // Super admin has all permissions
       if (dbUser.role === 'super_admin') {
-        (req as any).currentUser = dbUser;
+        req.currentUser = dbUser;
         return next();
       }
 
@@ -499,7 +499,7 @@ export const requirePermission = (permission: string): RequestHandler => {
         return res.status(403).json({ message: `Permission '${permission}' required` });
       }
 
-      (req as any).currentUser = dbUser;
+      req.currentUser = dbUser;
       next();
     } catch (error) {
       console.error("Error checking user permission:", error);
