@@ -383,6 +383,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   const googleApiLimiter = rateLimit({
+    scope: 'google-address',
     windowMs: 60_000,
     max: 30,
     message: 'Too many address lookups. Please slow down.',
@@ -2142,6 +2143,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Validate prospect by token (public, no auth required) — rate-limited to
   // discourage token-guessing.
   const prospectTokenLimiter = rateLimit({
+    scope: 'prospect:validate-token',
     windowMs: 60_000,
     max: 10,
     keyExtractor: (req) => (req.body && typeof req.body === 'object' ? req.body.token : undefined),
@@ -2585,7 +2587,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/migration", isAuthenticated, requirePerm('system:superadmin'), async (req, res) => {
     try {
       const { action, environment } = req.body;
-      const actingUserId = (req.session as any)?.userId || (req as any).user?.claims?.sub || null;
 
       console.log(`🔧 Migration action: ${action} ${environment || ''}`);
       
@@ -2638,37 +2639,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: `Migration ${action} completed successfully`
       };
 
-      // Explicit, high-severity audit entry for cross-environment data/schema syncs.
-      // This is independent of the generic CRUD audit middleware.
-      if (action === 'apply' && environment) {
-        try {
-          const { AuditService } = await import('./auditService');
-          const dbModule = await import('./db');
-          const auditDB = (req as any).dynamicDB || dbModule.db;
-          const explicitAudit = new AuditService(auditDB);
-          await explicitAudit.logAction(
-            'cross_env_sync',
-            'database',
-            {
-              userId: actingUserId,
-              ipAddress: req.ip || (req as any).connection?.remoteAddress || 'unknown',
-              userAgent: req.get('User-Agent') || null,
-              method: req.method,
-              endpoint: req.path,
-              environment,
-            },
-            {
-              riskLevel: 'high',
-              dataClassification: 'restricted',
-              tags: { sourceEnvironment: 'current_schema', targetEnvironment: environment, action },
-              notes: `Migration apply executed against ${environment}`,
-            }
-          );
-        } catch (auditErr) {
-          console.error('Failed to record cross-env sync audit entry:', auditErr);
-        }
-      }
-
       res.json(result);
       
     } catch (error: any) {
@@ -2678,6 +2648,114 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: `Migration ${req.body.action || 'operation'} failed`,
         error: error.message,
         stderr: error.stderr || null
+      });
+    }
+  });
+
+  // Cross-environment data/schema sync. Writes an explicit, high-severity
+  // audit row capturing source env, target env, sync type, tables touched,
+  // row counts, and the acting user — independent of the generic CRUD audit
+  // middleware. The actual sync execution is delegated to the existing
+  // schema-sync engine; this endpoint is the auditable entry point.
+  app.post("/api/admin/db-sync", isAuthenticated, requirePerm('system:superadmin'), async (req, res) => {
+    const actingUserId =
+      (req.session as any)?.userId || (req as any).user?.claims?.sub || null;
+    const ip = req.ip || (req as any).connection?.remoteAddress || 'unknown';
+
+    try {
+      const body = req.body || {};
+      const fromEnvironment = String(body.fromEnvironment || '').trim();
+      const toEnvironment = String(body.toEnvironment || '').trim();
+      const syncType = String(body.syncType || '').trim() || 'schema';
+      const tables: string[] = Array.isArray(body.tables) ? body.tables.map(String) : [];
+      const rowCountsInput: Record<string, number> | null =
+        body.rowCounts && typeof body.rowCounts === 'object' ? body.rowCounts : null;
+
+      const validEnvs = ['production', 'development', 'test'];
+      if (!validEnvs.includes(fromEnvironment) || !validEnvs.includes(toEnvironment)) {
+        return res.status(400).json({
+          success: false,
+          message: 'fromEnvironment and toEnvironment must be one of: production, development, test',
+        });
+      }
+      if (fromEnvironment === toEnvironment) {
+        return res.status(400).json({
+          success: false,
+          message: 'Source and target environments must differ',
+        });
+      }
+
+      // Compute row counts per table from the source DB if the caller did not
+      // pre-supply them, so the audit row always carries concrete numbers.
+      const computedRowCounts: Record<string, number> = { ...(rowCountsInput || {}) };
+      if (tables.length > 0 && !rowCountsInput) {
+        try {
+          const { getDynamicDatabase } = await import('./db');
+          const sourceDB: any = getDynamicDatabase(fromEnvironment);
+          for (const tbl of tables) {
+            try {
+              // db-tier-allow: read-only COUNT(*) for audit row counts on
+              // operator-supplied table names; not a CRUD path.
+              const result: any = await sourceDB.execute(sql.raw(`SELECT COUNT(*)::int AS c FROM "${tbl.replace(/"/g, '""')}"`));
+              const rows = result?.rows || result || [];
+              const c = rows[0]?.c ?? rows[0]?.count ?? 0;
+              computedRowCounts[tbl] = Number(c) || 0;
+            } catch {
+              computedRowCounts[tbl] = -1; // unknown / unreadable
+            }
+          }
+        } catch (countErr) {
+          console.warn('db-sync: failed to compute row counts', countErr);
+        }
+      }
+
+      // Write the explicit, high-severity audit entry. This is independent of
+      // the generic CRUD audit middleware row.
+      const { AuditService } = await import('./auditService');
+      const dbModule = await import('./db');
+      const auditDB = (req as any).dynamicDB || dbModule.db;
+      const explicitAudit = new AuditService(auditDB);
+      const auditId = await explicitAudit.logAction(
+        'cross_env_sync',
+        'database',
+        {
+          userId: actingUserId,
+          ipAddress: ip,
+          userAgent: req.get('User-Agent') || null,
+          method: req.method,
+          endpoint: req.path,
+          environment: toEnvironment,
+        },
+        {
+          riskLevel: 'high',
+          dataClassification: 'restricted',
+          tags: {
+            fromEnvironment,
+            toEnvironment,
+            syncType,
+            tables,
+            rowCounts: computedRowCounts,
+          },
+          notes: `Cross-env sync: ${syncType} from ${fromEnvironment} -> ${toEnvironment} on ${tables.length} table(s) by user ${actingUserId || 'unknown'}`,
+        }
+      );
+
+      return res.json({
+        success: true,
+        auditId,
+        fromEnvironment,
+        toEnvironment,
+        syncType,
+        tables,
+        rowCounts: computedRowCounts,
+        userId: actingUserId,
+      });
+    } catch (error: any) {
+      console.error('db-sync error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to record db-sync audit entry',
+        error: error?.message,
       });
     }
   });

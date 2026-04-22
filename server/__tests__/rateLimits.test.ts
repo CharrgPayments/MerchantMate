@@ -40,6 +40,7 @@ describe('rateLimit middleware', () => {
 
   it('returns 429 once the per-identifier burst limit is exceeded', async () => {
     const limiter = rateLimit({
+      scope: 'test:login',
       windowMs: 60_000,
       max: 3,
       keyExtractor: (req) => (req.body as any)?.username,
@@ -65,8 +66,32 @@ describe('rateLimit middleware', () => {
     expect(blocked.headers['retry-after']).toBeDefined();
   });
 
+  it('does not bleed counters across separately-scoped limiters', () => {
+    const a = rateLimit({ scope: 'login', windowMs: 60_000, max: 1 });
+    const b = rateLimit({ scope: 'forgot-password', windowMs: 60_000, max: 1 });
+    const ip = '7.7.7.7';
+
+    let aOk = 0, bOk = 0, blocked = 0;
+    const tryHit = (mw: any) => {
+      const res = makeRes();
+      mw(makeReq({ ip } as any), res, () => {});
+      if (res.statusCode === 429) blocked++;
+      else if (mw === a) aOk++;
+      else bOk++;
+    };
+
+    tryHit(a); // a: ok
+    tryHit(a); // a: blocked
+    tryHit(b); // b: ok — must not be coupled to a
+    tryHit(b); // b: blocked
+
+    expect(aOk).toBe(1);
+    expect(bOk).toBe(1);
+    expect(blocked).toBe(2);
+  });
+
   it('allows requests below the per-IP threshold and blocks above it', () => {
-    const limiter = rateLimit({ windowMs: 60_000, max: 2 });
+    const limiter = rateLimit({ scope: 'test:ipOnly', windowMs: 60_000, max: 2 });
     const ip = '5.5.5.5';
     let nextCalled = 0;
 

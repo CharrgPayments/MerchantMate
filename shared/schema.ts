@@ -192,8 +192,8 @@ export const transactions = pgTable("transactions", {
   netAmount: decimal("net_amount", { precision: 12, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow(),
 
-  commissionRate: numeric("commission_rate", { precision: 5, scale: 4 }).default(0.025),
-  commissionAmount: numeric("commission_amount", { precision: 12, scale: 2 }).default(0),
+  commissionRate: numeric("commission_rate", { precision: 5, scale: 4 }).default("0.025"),
+  commissionAmount: numeric("commission_amount", { precision: 12, scale: 2 }).default("0"),
   transactionDate: timestamp("transaction_date", { withTimezone: true }).defaultNow(),
   referenceNumber: text("reference_number"),
   locationId: integer("location_id"),

@@ -200,9 +200,9 @@ export class AuditService {
                 req.path,
                 {
                   userId,
-                  sessionId,
+                  sessionId: sessionId || undefined,
                   ipAddress: req.ip || req.connection.remoteAddress || 'unknown',
-                  userAgent: req.get('User-Agent') || null,
+                  userAgent: req.get('User-Agent') || undefined,
                   method: req.method,
                   endpoint: req.path,
                   requestParams: req.query,

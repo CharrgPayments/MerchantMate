@@ -15,6 +15,7 @@ import { rateLimit } from "./rateLimits";
 // Rate limiters for auth-sensitive endpoints. Per-IP and per-account
 // (username/email) sliding windows; bursts get a 429 with Retry-After.
 const loginLimiter = rateLimit({
+  scope: 'auth:login',
   windowMs: 15 * 60_000,
   max: 10,
   keyExtractor: (req) =>
@@ -25,6 +26,7 @@ const loginLimiter = rateLimit({
 });
 
 const forgotPasswordLimiter = rateLimit({
+  scope: 'auth:forgot-password',
   windowMs: 60 * 60_000,
   max: 5,
   keyExtractor: (req) =>
@@ -33,6 +35,7 @@ const forgotPasswordLimiter = rateLimit({
 });
 
 const resetPasswordLimiter = rateLimit({
+  scope: 'auth:reset-password',
   windowMs: 15 * 60_000,
   max: 10,
   keyExtractor: (req) =>
