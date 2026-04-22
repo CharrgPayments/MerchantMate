@@ -1100,25 +1100,28 @@ export default function CampaignsPage() {
   // Note: Individual fee item selection removed - pricing types now associate fee items only via fee groups
 
   // Handle opening edit pricing type dialog
-  const handleEditPricingType = async (pricingType: any) => {
+  const handleEditPricingType = async (pricingType: PricingType) => {
     setEditingPricingType(pricingType);
-    
+
     try {
-      // Fetch the detailed fee items for this pricing type
-      const response = await fetch(`/api/pricing-types/${pricingType.id}/fee-items`);
-      const pricingTypeDetails = await response.json();
-      
-      // Extract fee item IDs from the detailed response
-      const validFeeItemIds = pricingTypeDetails.feeItems
-        ?.filter((item: any) => item.feeItem && item.feeItem.id && item.feeItem.name)
-        .map((item: any) => item.feeItem.id) || [];
-      
-      const formData = {
+      const response = await fetch(`/api/pricing-types/${pricingType.id}/fee-groups`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to load pricing type fee groups (HTTP ${response.status})`);
+      }
+      const data = await response.json();
+      const groupIds: number[] = Array.isArray(data?.feeGroups)
+        ? data.feeGroups.map((g: { id: number }) => g.id)
+        : [];
+
+      setPricingTypeForm({
         name: pricingType.name,
         description: pricingType.description || '',
-        feeGroupIds: [] as number[] // TODO: Need to implement fee group association fetching for edit mode
-      };
-      setPricingTypeForm(formData);
+        selectedFeeGroupIds: groupIds,
+        feeGroupIds: groupIds,
+        expandedFeeGroups: [],
+      });
       setShowEditPricingType(true);
     } catch (error) {
       console.error('Error fetching pricing type details:', error);
@@ -2571,7 +2574,12 @@ export default function CampaignsPage() {
       </Dialog>
 
       {/* Add Pricing Type Dialog */}
-      <Dialog open={showAddPricingType} onOpenChange={setShowAddPricingType}>
+      <Dialog open={showAddPricingType} onOpenChange={(open) => {
+        setShowAddPricingType(open);
+        if (!open) {
+          setPricingTypeForm({ name: '', description: '', selectedFeeGroupIds: [], feeGroupIds: [], expandedFeeGroups: [] });
+        }
+      }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden">
           <DialogHeader>
             <DialogTitle>Add New Pricing Type</DialogTitle>
@@ -2686,6 +2694,7 @@ export default function CampaignsPage() {
         setShowEditPricingType(open);
         if (!open) {
           setEditingPricingType(null);
+          setPricingTypeForm({ name: '', description: '', selectedFeeGroupIds: [], feeGroupIds: [], expandedFeeGroups: [] });
         }
       }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden">
