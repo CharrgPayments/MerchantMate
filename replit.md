@@ -43,6 +43,7 @@ Preferred communication style: Simple, everyday language.
 - **Multi-Environment Support**: Session-based database environment switching.
 - **Dynamic Data Grid**: `ApiDataGrid` component for template-powered data grids with search, sort, and pagination.
 - **Full-Page Data Viewer**: Route for viewing any webhook data-source template.
+- **API Documentation Page**: `/api-documentation` is the canonical in-app reference for external consumers — its Endpoints tab catalogues every public route in `server/routes.ts` (grouped by domain, with method, path, permission, request-body schema, and a "validated" flag for Zod-checked routes). Update it whenever public routes are added or changed.
 
 ## External Dependencies
 - **@neondatabase/serverless**: Serverless PostgreSQL connector.
