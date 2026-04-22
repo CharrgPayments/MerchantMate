@@ -240,7 +240,7 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     return res.status(401).json({ message: "Unauthorized" });
   }
 
-  const user = req.user as any;
+  const user = req.user;
   if (!user?.expires_at) {
     return res.status(401).json({ message: "Unauthorized" });
   }
@@ -354,7 +354,7 @@ export const requireRole = (allowedRoles: string[]): RequestHandler => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const user = req.user as any;
+    const user = req.user;
     if (!user?.claims?.sub) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -459,7 +459,7 @@ export const requirePerm = (action: string): RequestHandler => {
       res.status(401).json({ message: "Unauthorized" });
       return;
     }
-    const passportUser = req.user as any;
+    const passportUser = req.user;
     if (!passportUser?.claims?.sub) {
       res.status(401).json({ message: "Unauthorized" });
       return;
@@ -471,9 +471,9 @@ export const requirePerm = (action: string): RequestHandler => {
 // Permission-based access control
 export const requirePermission = (permission: string): RequestHandler => {
   return async (req, res, next) => {
-    const user = req.user as any;
+    const user = req.user;
     
-    if (!req.isAuthenticated() || !user.claims?.sub) {
+    if (!req.isAuthenticated() || !user?.claims?.sub) {
       return res.status(401).json({ message: "Unauthorized" });
     }
 

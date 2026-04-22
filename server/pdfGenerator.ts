@@ -1793,9 +1793,14 @@ startxref
                   else (pdfField as any).uncheck();
                   filledCount++;
                 } else if (fieldType === 'PDFDropdown') {
-                  try { (pdfField as any).select(value); filledCount++; } catch {}
+                  // Best-effort: pdf-lib throws if the value is not in the dropdown
+                  // option list. Skip silently — the outer text-overlay fallback
+                  // will paint the value onto the page if no field accepted it.
+                  try { (pdfField as any).select(value); filledCount++; } catch { /* noop: value not in option list */ }
                 } else if (fieldType === 'PDFRadioGroup') {
-                  try { (pdfField as any).select(value); filledCount++; } catch {}
+                  // Same rationale as PDFDropdown: invalid radio value just
+                  // means we can't tick a button — text overlay will catch it.
+                  try { (pdfField as any).select(value); filledCount++; } catch { /* noop: value not a valid radio option */ }
                 }
               } catch (e) {
                 console.warn(`Could not fill PDF field ${fieldName}:`, e);
@@ -1862,7 +1867,9 @@ startxref
         }
       }
 
-      try { form.flatten(); } catch {}
+      // Flattening fails on PDFs with malformed appearance streams; the
+      // unflattened PDF is still valid output, so swallow and continue.
+      try { form.flatten(); } catch { /* noop: leave form unflattened on error */ }
 
       const filledPdfBytes = await pdfDoc.save();
       return Buffer.from(filledPdfBytes);

@@ -2,7 +2,7 @@ import type { Express, Request as ExpressRequest, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuthRoutes } from "./authRoutes";
-import { insertMerchantSchema, insertAgentSchema, insertTransactionSchema, insertLocationSchema, insertAddressSchema, insertPdfFormSchema, insertApiKeySchema, insertAcquirerSchema, insertAcquirerApplicationTemplateSchema } from "@shared/schema";
+import { insertMerchantSchema, insertAgentSchema, insertTransactionSchema, insertLocationSchema, insertAddressSchema, insertPdfFormSchema, insertApiKeySchema, insertAcquirerSchema, insertAcquirerApplicationTemplateSchema, insertUserSchema, insertMerchantProspectSchema } from "@shared/schema";
 import { authenticateApiKey, requireApiPermission, logApiRequest, generateApiKey } from "./apiAuth";
 import { setupAuth, isAuthenticated, requireRole, requirePermission, requirePerm } from "./replitAuth";
 import { auditService } from "./auditService";
@@ -1041,7 +1041,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/users/:id/role", isAuthenticated, dbEnvironmentMiddleware, requirePerm('system:superadmin'), async (req: RequestWithDB, res) => {
     try {
       const { id } = req.params;
-      const body = req.body as { role?: string; roles?: string[] };
+      const bodySchema = z.object({
+        role: z.string().min(1).optional(),
+        roles: z.array(z.string().min(1)).optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid body", errors: parsed.error.flatten() });
+      }
+      const body = parsed.data;
 
       // Multi-role assignment: prefer `roles[]` from the body, fall back to a
       // single `role` for legacy callers. Each role must exist in the live
@@ -1076,11 +1084,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/users/:id/status", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     try {
       const { id } = req.params;
-      const { status } = req.body;
-      
-      if (!['active', 'suspended', 'inactive'].includes(status)) {
-        return res.status(400).json({ message: "Invalid status" });
+      const parsed = z.object({
+        status: z.enum(['active', 'suspended', 'inactive']),
+      }).safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid status", errors: parsed.error.flatten() });
       }
+      const { status } = parsed.data;
 
       const user = await storage.updateUserStatus(id, status);
       if (!user) {
@@ -1114,18 +1124,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/users/:id", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const userId = req.params.id;
-      const updates = req.body;
-      
+
+      // Validate the partial-user payload via Zod and strip any sensitive
+      // fields the caller may have included in the body (passwordHash,
+      // reset tokens, id, createdAt) before persisting.
+      const updateUserSchema = insertUserSchema
+        .partial()
+        .omit({
+          passwordHash: true,
+          passwordResetToken: true,
+          passwordResetExpires: true,
+          id: true,
+          createdAt: true,
+        } as any);
+      const parsed = updateUserSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid user payload", errors: parsed.error.flatten() });
+      }
+      const updates: Record<string, any> = { ...parsed.data };
+
       console.log('Update user endpoint - User ID:', userId);
-      console.log('Update user endpoint - Updates:', updates);
       console.log('Update user endpoint - Database environment:', req.dbEnv);
-      
-      // Remove sensitive fields that shouldn't be updated via this endpoint
-      delete updates.passwordHash;
-      delete updates.passwordResetToken;
-      delete updates.passwordResetExpires;
-      delete updates.id;
-      delete updates.createdAt;
 
       const dynamicDB = getRequestDB(req);
 
@@ -1828,18 +1847,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const prospectId = parseInt(id);
-      
+
+      const parsed = insertMerchantProspectSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid prospect payload", errors: parsed.error.flatten() });
+      }
+      const updates = parsed.data;
+
       // If email is being updated, check if it already exists for a different prospect
-      if (req.body.email) {
-        const existingProspect = await storage.getMerchantProspectByEmail(req.body.email);
+      if (updates.email) {
+        const existingProspect = await storage.getMerchantProspectByEmail(updates.email);
         if (existingProspect && existingProspect.id !== prospectId) {
-          return res.status(400).json({ 
-            message: "A prospect with this email already exists" 
+          return res.status(400).json({
+            message: "A prospect with this email already exists"
           });
         }
       }
-      
-      const prospect = await storage.updateMerchantProspect(prospectId, req.body);
+
+      const prospect = await storage.updateMerchantProspect(prospectId, updates);
       
       if (!prospect) {
         return res.status(404).json({ message: "Prospect not found" });
@@ -3509,7 +3534,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (prospectApp?.generatedPdfPath) {
           hasGeneratedPdf = true;
         }
-      } catch {}
+      } catch { /* noop: dev-DB lookup is best-effort enrichment, leave hasGeneratedPdf=false on error */ }
       
       const response = {
         ...prospect,
@@ -5400,19 +5425,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/pdf-forms/:id", isAuthenticated, requirePerm('admin:manage'), async (req: any, res) => {
     try {
       const formId = parseInt(req.params.id);
-      const { name, description, showInNavigation, navigationTitle, allowedRoles } = req.body;
-      
-      if (!name && !description && showInNavigation === undefined && navigationTitle === undefined && !allowedRoles) {
+      const parsed = z.object({
+        name: z.string().min(1).optional(),
+        description: z.string().optional(),
+        showInNavigation: z.boolean().optional(),
+        navigationTitle: z.string().optional(),
+        allowedRoles: z.array(z.string()).optional(),
+      }).safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid PDF form payload", errors: parsed.error.flatten() });
+      }
+      const updateData = parsed.data;
+      if (Object.keys(updateData).length === 0) {
         return res.status(400).json({ message: "No update data provided" });
       }
 
-      const updateData: any = {};
-      if (name !== undefined) updateData.name = name;
-      if (description !== undefined) updateData.description = description;
-      if (showInNavigation !== undefined) updateData.showInNavigation = showInNavigation;
-      if (navigationTitle !== undefined) updateData.navigationTitle = navigationTitle;
-      if (allowedRoles !== undefined) updateData.allowedRoles = allowedRoles;
-      
       const updatedForm = await storage.updatePdfForm(formId, updateData);
       
       if (!updatedForm) {
@@ -7477,16 +7504,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/admin/api-keys/:id", requirePerm('admin:manage'), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const { name, organizationName, contactEmail, permissions, rateLimit, isActive, expiresAt } = req.body;
+      const parsed = z.object({
+        name: z.string().min(1).optional(),
+        organizationName: z.string().optional(),
+        contactEmail: z.string().email().optional(),
+        permissions: z.array(z.string()).optional(),
+        rateLimit: z.number().int().nonnegative().optional(),
+        isActive: z.boolean().optional(),
+        expiresAt: z.union([z.string(), z.null()]).optional(),
+      }).safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid API key payload", errors: parsed.error.flatten() });
+      }
+      const body = parsed.data;
 
-      const updateData: any = {};
-      if (name !== undefined) updateData.name = name;
-      if (organizationName !== undefined) updateData.organizationName = organizationName;
-      if (contactEmail !== undefined) updateData.contactEmail = contactEmail;
-      if (permissions !== undefined) updateData.permissions = permissions;
-      if (rateLimit !== undefined) updateData.rateLimit = rateLimit;
-      if (isActive !== undefined) updateData.isActive = isActive;
-      if (expiresAt !== undefined) updateData.expiresAt = expiresAt ? new Date(expiresAt) : null;
+      const updateData: Record<string, unknown> = {};
+      if (body.name !== undefined) updateData.name = body.name;
+      if (body.organizationName !== undefined) updateData.organizationName = body.organizationName;
+      if (body.contactEmail !== undefined) updateData.contactEmail = body.contactEmail;
+      if (body.permissions !== undefined) updateData.permissions = body.permissions;
+      if (body.rateLimit !== undefined) updateData.rateLimit = body.rateLimit;
+      if (body.isActive !== undefined) updateData.isActive = body.isActive;
+      if (body.expiresAt !== undefined) updateData.expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
 
       const apiKey = await storage.updateApiKey(id, updateData);
       if (!apiKey) {
@@ -9635,7 +9674,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           try {
             [def] = await devDB.select().from(disclosureDefinitions).where(eq(disclosureDefinitions.id, disclosureId)).limit(1);
             if (def) dbToUse = devDB;
-          } catch {}
+          } catch { /* noop: cross-env disclosure lookup is best-effort, fall through to default DB */ }
         }
       }
 
@@ -9896,7 +9935,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (headersStr) headersStr = resolveSecrets(headersStr);
             let parsedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
             if (headersStr) {
-              try { parsedHeaders = { ...parsedHeaders, ...JSON.parse(headersStr) }; } catch {}
+              try { parsedHeaders = { ...parsedHeaders, ...JSON.parse(headersStr) }; } catch { /* noop: malformed header JSON ignored, keep prior headers */ }
             }
             url = inlineUrl;
             method = m;
@@ -10015,7 +10054,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (headersRaw) headersRaw = resolveSecrets(headersRaw);
           headersObj = { 'Content-Type': 'application/json' };
           if (headersRaw) {
-            try { headersObj = { ...headersObj, ...JSON.parse(headersRaw) }; } catch {}
+            try { headersObj = { ...headersObj, ...JSON.parse(headersRaw) }; } catch { /* noop: malformed header JSON ignored, keep prior headers */ }
           }
         }
         if (bodyRaw) bodyRaw = resolveSecrets(bodyRaw);
