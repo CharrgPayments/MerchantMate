@@ -5977,12 +5977,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         name: z.string().min(1, "Fee group name is required"),
         description: z.string().nullable().optional(),
         displayOrder: z.union([z.number(), z.string()]).optional(),
+        feeItemIds: z.array(z.number().int().positive()).optional(),
       });
       const parsed = bodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid fee group payload", errors: parsed.error.flatten() });
       }
-      const { name, description, displayOrder } = parsed.data;
+      const { name, description, displayOrder, feeItemIds } = parsed.data;
 
       const feeGroupData: InsertFeeGroup = {
         name: String(name),
@@ -5999,8 +6000,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ message: "Database connection not available" });
       }
       
-      const { feeGroups } = await import("@shared/schema");
+      const { feeGroups, feeGroupFeeItems } = await import("@shared/schema");
       const [feeGroup] = await dbToUse.insert(feeGroups).values(feeGroupData).returning();
+
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
+      if (feeItemIds && feeItemIds.length > 0) {
+        await dbToUse.insert(feeGroupFeeItems).values(
+          feeItemIds.map((feeItemId, idx) => ({
+            feeGroupId: feeGroup.id,
+            feeItemId,
+            displayOrder: idx,
+          }))
+        );
+      }
+
       res.status(201).json(feeGroup);
     } catch (error: any) {
       console.error("Error creating fee group:", error);
@@ -6020,12 +6033,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put('/api/fee-groups/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { insertFeeGroupSchema } = await import("@shared/schema");
-      const parsed = insertFeeGroupSchema.partial().safeParse(req.body);
+      const updateBodySchema = insertFeeGroupSchema.partial().extend({
+        feeItemIds: z.array(z.number().int().positive()).optional(),
+      });
+      const parsed = updateBodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid fee group payload", errors: parsed.error.flatten() });
       }
       const id = parseInt(req.params.id);
-      const { name, description, displayOrder } = parsed.data;
+      const { name, description, displayOrder, feeItemIds } = parsed.data;
       console.log(`Updating fee group ${id} - Database environment: ${req.dbEnv}`);
 
       if (!name) {
@@ -6046,7 +6062,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updatedAt: new Date()
       };
 
-      const { feeGroups } = await import("@shared/schema");
+      const { feeGroups, feeGroupFeeItems } = await import("@shared/schema");
       const [updatedFeeGroup] = await dbToUse.update(feeGroups)
         .set(updateData)
         .where(eq(feeGroups.id, id))
@@ -6055,7 +6071,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!updatedFeeGroup) {
         return res.status(404).json({ message: "Fee group not found" });
       }
-      
+
+      // If caller provided a fee-item membership list, replace it wholesale.
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
+      if (feeItemIds !== undefined) {
+        await dbToUse.delete(feeGroupFeeItems).where(eq(feeGroupFeeItems.feeGroupId, id));
+        if (feeItemIds.length > 0) {
+          await dbToUse.insert(feeGroupFeeItems).values(
+            feeItemIds.map((feeItemId, idx) => ({
+              feeGroupId: id,
+              feeItemId,
+              displayOrder: idx,
+            }))
+          );
+        }
+      }
+
       res.json(updatedFeeGroup);
     } catch (error: any) {
       console.error("Error updating fee group:", error);

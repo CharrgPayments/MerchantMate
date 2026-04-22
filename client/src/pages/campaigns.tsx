@@ -133,6 +133,7 @@ interface CreateFeeGroupData {
   name: string;
   description?: string;
   displayOrder: number;
+  feeItemIds?: number[];
 }
 
 interface CreateFeeItemData {
@@ -199,12 +200,18 @@ export default function CampaignsPage() {
                            isViewMode ? parseInt(location.split('/')[2]) : null;
 
   // Fee Group form state
-  const [feeGroupForm, setFeeGroupForm] = useState({
+  const [feeGroupItemSearch, setFeeGroupItemSearch] = useState('');
+  const [feeGroupForm, setFeeGroupForm] = useState<{
+    name: string;
+    description: string;
+    displayOrder: number;
+    selectedFeeItemIds: number[];
+  }>({
     name: '',
     description: '',
-    displayOrder: 1
+    displayOrder: 1,
+    selectedFeeItemIds: [],
   });
-
   // Fee Item form state
   const [feeItemForm, setFeeItemForm] = useState({
     name: '',
@@ -403,7 +410,8 @@ export default function CampaignsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/fee-groups'] });
       setShowAddFeeGroup(false);
-      setFeeGroupForm({ name: '', description: '', displayOrder: 1 });
+      setFeeGroupForm({ name: '', description: '', displayOrder: 1, selectedFeeItemIds: [] });
+      setFeeGroupItemSearch('');
       toast({
         title: "Fee Group Created",
         description: "The fee group has been successfully created.",
@@ -572,7 +580,8 @@ export default function CampaignsPage() {
       queryClient.invalidateQueries({ queryKey: ['/api/fee-groups'] });
       setShowEditFeeGroup(false);
       setEditFeeGroupId(null);
-      setFeeGroupForm({ name: '', description: '', displayOrder: 1 });
+      setFeeGroupForm({ name: '', description: '', displayOrder: 1, selectedFeeItemIds: [] });
+      setFeeGroupItemSearch('');
       toast({
         title: "Fee Group Updated",
         description: "The fee group has been successfully updated.",
@@ -875,16 +884,16 @@ export default function CampaignsPage() {
   };
 
   // Handle fee group edit
-  const handleEditFeeGroup = (feeGroup: FeeGroup) => {
-    console.log('Edit fee group clicked:', feeGroup);
+  const handleEditFeeGroup = (feeGroup: FeeGroupWithItems | FeeGroup) => {
     setEditFeeGroupId(feeGroup.id);
     setFeeGroupForm({
       name: feeGroup.name,
       description: feeGroup.description || '',
       displayOrder: feeGroup.displayOrder,
+      selectedFeeItemIds: (feeGroup.feeItems ?? []).map((it) => it.id),
     });
+    setFeeGroupItemSearch('');
     setShowEditFeeGroup(true);
-    console.log('Edit dialog should open, showEditFeeGroup:', true);
   };
 
   // Handle fee item group edit
@@ -918,6 +927,7 @@ export default function CampaignsPage() {
           name: feeGroupForm.name.trim(),
           description: feeGroupForm.description.trim() || undefined,
           displayOrder: feeGroupForm.displayOrder || 1,
+          feeItemIds: feeGroupForm.selectedFeeItemIds,
         },
       });
     }
@@ -2095,55 +2105,162 @@ export default function CampaignsPage() {
 
       {/* Edit Fee Group Dialog */}
       <Dialog open={showEditFeeGroup} onOpenChange={(open) => {
-        console.log('🔄 Dialog onOpenChange called with:', open);
         setShowEditFeeGroup(open);
+        if (!open) {
+          setEditFeeGroupId(null);
+          setFeeGroupForm({ name: '', description: '', displayOrder: 1, selectedFeeItemIds: [] });
+          setFeeGroupItemSearch('');
+        }
       }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>Edit Fee Group</DialogTitle>
             <DialogDescription>
-              Update fee group information
+              Update fee group details and choose which fee items belong to this group.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>Group Name *</Label>
-              <Input 
-                placeholder="Enter fee group name" 
-                value={feeGroupForm.name}
-                onChange={(e) => setFeeGroupForm(prev => ({ ...prev, name: e.target.value }))}
-              />
+          <div className="space-y-4 overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Group Name *</Label>
+                <Input
+                  placeholder="Enter fee group name"
+                  value={feeGroupForm.name}
+                  onChange={(e) => setFeeGroupForm(prev => ({ ...prev, name: e.target.value }))}
+                  data-testid="input-edit-fee-group-name"
+                />
+              </div>
+              <div>
+                <Label>Display Order</Label>
+                <Input
+                  type="number"
+                  placeholder="1"
+                  min="1"
+                  value={feeGroupForm.displayOrder}
+                  onChange={(e) => setFeeGroupForm(prev => ({ ...prev, displayOrder: parseInt(e.target.value) || 1 }))}
+                  data-testid="input-edit-fee-group-display-order"
+                />
+              </div>
             </div>
             <div>
               <Label>Description</Label>
-              <Textarea 
-                placeholder="Enter description (optional)" 
+              <Textarea
+                placeholder="Enter description (optional)"
                 value={feeGroupForm.description}
                 onChange={(e) => setFeeGroupForm(prev => ({ ...prev, description: e.target.value }))}
+                data-testid="input-edit-fee-group-description"
               />
             </div>
+
             <div>
-              <Label>Display Order</Label>
-              <Input 
-                type="number" 
-                placeholder="1" 
-                min="1" 
-                value={feeGroupForm.displayOrder}
-                onChange={(e) => setFeeGroupForm(prev => ({ ...prev, displayOrder: parseInt(e.target.value) || 1 }))}
-              />
+              <div className="flex items-center justify-between mb-2">
+                <Label>Fee Items in this Group</Label>
+                <span className="text-xs text-muted-foreground" data-testid="text-edit-fee-group-selected-count">
+                  {feeGroupForm.selectedFeeItemIds.length} selected
+                </span>
+              </div>
+
+              <div className="relative mb-2">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                <Input
+                  placeholder="Search fee items by name or description..."
+                  className="pl-10"
+                  value={feeGroupItemSearch}
+                  onChange={(e) => setFeeGroupItemSearch(e.target.value)}
+                  data-testid="input-edit-fee-group-item-search"
+                />
+              </div>
+
+              {feeItemsLoading ? (
+                <div className="border rounded-md p-6 text-center text-sm text-muted-foreground">
+                  Loading fee items...
+                </div>
+              ) : feeItems.length === 0 ? (
+                <div className="border rounded-md p-6 text-center text-sm text-muted-foreground">
+                  No fee items have been created yet.
+                </div>
+              ) : (
+                (() => {
+                  const q = feeGroupItemSearch.trim().toLowerCase();
+                  const filtered = q
+                    ? feeItems.filter((it) =>
+                        it.name.toLowerCase().includes(q) ||
+                        (it.description ?? '').toLowerCase().includes(q)
+                      )
+                    : feeItems;
+                  const sorted = [...filtered].sort((a, b) => {
+                    const aSel = feeGroupForm.selectedFeeItemIds.includes(a.id) ? 0 : 1;
+                    const bSel = feeGroupForm.selectedFeeItemIds.includes(b.id) ? 0 : 1;
+                    if (aSel !== bSel) return aSel - bSel;
+                    return a.name.localeCompare(b.name);
+                  });
+                  return (
+                    <div className="border rounded-md max-h-72 overflow-y-auto divide-y" data-testid="list-edit-fee-group-items">
+                      {sorted.length === 0 ? (
+                        <div className="p-4 text-center text-sm text-muted-foreground">
+                          No fee items match your search.
+                        </div>
+                      ) : sorted.map((item) => {
+                        const checked = feeGroupForm.selectedFeeItemIds.includes(item.id);
+                        return (
+                          <label
+                            key={item.id}
+                            htmlFor={`edit-fg-item-${item.id}`}
+                            className="flex items-start gap-3 p-3 cursor-pointer hover:bg-muted/40"
+                            data-testid={`row-edit-fee-group-item-${item.id}`}
+                          >
+                            <input
+                              id={`edit-fg-item-${item.id}`}
+                              type="checkbox"
+                              className="mt-1 rounded"
+                              checked={checked}
+                              onChange={(e) => {
+                                const isChecked = e.target.checked;
+                                setFeeGroupForm(prev => ({
+                                  ...prev,
+                                  selectedFeeItemIds: isChecked
+                                    ? Array.from(new Set([...prev.selectedFeeItemIds, item.id]))
+                                    : prev.selectedFeeItemIds.filter(id => id !== item.id),
+                                }));
+                              }}
+                              data-testid={`checkbox-edit-fee-group-item-${item.id}`}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium truncate">{item.name}</span>
+                                <Badge variant="outline" className="text-xs shrink-0">
+                                  {item.valueType === 'percentage' ? '%' : item.valueType === 'fixed' ? '$' : 'bps'}
+                                </Badge>
+                                {checked && (
+                                  <CheckCircle2 className="h-3 w-3 text-green-600 shrink-0" />
+                                )}
+                              </div>
+                              {item.description && (
+                                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{item.description}</p>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  );
+                })()
+              )}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => {
               setShowEditFeeGroup(false);
               setEditFeeGroupId(null);
-              setFeeGroupForm({ name: '', description: '', displayOrder: 1 });
+              setFeeGroupForm({ name: '', description: '', displayOrder: 1, selectedFeeItemIds: [] });
+              setFeeGroupItemSearch('');
             }}>
               Cancel
             </Button>
-            <Button 
+            <Button
               onClick={handleUpdateFeeGroup}
               disabled={updateFeeGroupMutation.isPending}
+              data-testid="button-edit-fee-group-save"
             >
               {updateFeeGroupMutation.isPending ? 'Updating...' : 'Update Fee Group'}
             </Button>
