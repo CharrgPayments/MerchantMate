@@ -82,9 +82,12 @@ export function MerchantModal({ isOpen, onClose, merchant }: MerchantModalProps)
   const { data: allMerchants = [] } = useQuery<Merchant[]>({
     queryKey: ["/api/merchants"],
     queryFn: async () => {
-      const res = await fetch("/api/merchants", { credentials: "include" });
+      // /api/merchants returns the paginated envelope `{items,total,...}`.
+      // Fetch a large page so the parent picker sees the full list.
+      const res = await fetch("/api/merchants?pageSize=500", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load merchants");
-      return res.json();
+      const body = await res.json();
+      return Array.isArray(body) ? body : (body?.items ?? []);
     },
     enabled: isOpen,
   });

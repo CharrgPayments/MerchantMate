@@ -84,9 +84,12 @@ export function AgentModal({ isOpen, onClose, agent }: AgentModalProps) {
   const { data: allAgents = [] } = useQuery<Agent[]>({
     queryKey: ["/api/agents"],
     queryFn: async () => {
-      const res = await fetch("/api/agents", { credentials: "include" });
+      // /api/agents returns the paginated envelope `{items,total,...}`.
+      // Fetch a large page so the parent picker sees the full list.
+      const res = await fetch("/api/agents?pageSize=500", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load agents");
-      return res.json();
+      const body = await res.json();
+      return Array.isArray(body) ? body : (body?.items ?? []);
     },
     enabled: isOpen,
   });

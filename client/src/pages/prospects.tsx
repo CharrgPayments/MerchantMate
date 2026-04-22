@@ -715,9 +715,12 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
   const { data: agents = [] } = useQuery({
     queryKey: ["/api/agents"],
     queryFn: async () => {
-      const response = await fetch("/api/agents");
+      // /api/agents returns the paginated envelope `{items,total,...}`.
+      // Fetch a large page so the dropdown shows the full list.
+      const response = await fetch("/api/agents?pageSize=500");
       if (!response.ok) throw new Error('Failed to fetch agents');
-      return response.json() as Promise<Agent[]>;
+      const body = await response.json();
+      return (Array.isArray(body) ? body : (body?.items ?? [])) as Agent[];
     },
   });
 
