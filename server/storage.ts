@@ -419,25 +419,67 @@ export class DatabaseStorage implements IStorage {
 
   // Fee Groups implementation
   async getAllFeeGroups(): Promise<FeeGroupWithItems[]> {
-    // Two queries instead of N+1: pull all fee groups and all fee items
-    // in parallel, then bucket items in memory by feeGroupId.
-    const [groups, allItems] = await Promise.all([
-      db.select().from(feeGroups).orderBy(feeGroups.displayOrder),
-      db.select().from(feeItems).orderBy(feeItems.displayOrder),
-    ]);
+    // Single grouped round-trip: LEFT JOIN fee_items onto fee_groups and
+    // aggregate the items into a JSON array per group. Items appear in
+    // each group's array ordered by display_order. Empty groups still
+    // come back with an empty array (COALESCE on the aggregate).
+    // db-tier-allow: PostgreSQL `jsonb_agg` correlated subquery — Drizzle
+    // has no first-class builder for nested JSON aggregation.
+    const rows = await db.execute(sql`
+      SELECT
+        fg.*,
+        COALESCE(
+          (
+            SELECT jsonb_agg(to_jsonb(fi.*) ORDER BY fi.display_order)
+            FROM ${feeItems} fi
+            WHERE fi.fee_group_id = fg.id
+          ),
+          '[]'::jsonb
+        ) AS fee_items
+      FROM ${feeGroups} fg
+      ORDER BY fg.display_order
+    `);
 
-    const itemsByGroup = new Map<number, typeof allItems>();
-    for (const item of allItems) {
-      if (item.feeGroupId == null) continue;
-      const bucket = itemsByGroup.get(item.feeGroupId);
-      if (bucket) bucket.push(item);
-      else itemsByGroup.set(item.feeGroupId, [item]);
-    }
+    const list = (rows as any).rows ?? rows;
+    return (list as any[]).map((r) => {
+      const { fee_items, ...rest } = r;
+      const group = this.snakeToCamelFeeGroup(rest);
+      const items = (fee_items as any[]).map((it) => this.snakeToCamelFeeItem(it));
+      return { ...group, feeItems: items } as FeeGroupWithItems;
+    });
+  }
 
-    return groups.map((group) => ({
-      ...group,
-      feeItems: itemsByGroup.get(group.id) ?? [],
-    }));
+  // Map a snake_cased DB row into a camelCased FeeGroup-shaped object.
+  private snakeToCamelFeeGroup(row: any): FeeGroup {
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      displayOrder: row.display_order,
+      isActive: row.is_active,
+      author: row.author,
+      createdAt: row.created_at ? new Date(row.created_at) : row.created_at,
+      updatedAt: row.updated_at ? new Date(row.updated_at) : row.updated_at,
+    } as FeeGroup;
+  }
+
+  // Map a snake_cased DB row into a camelCased FeeItem-shaped object.
+  private snakeToCamelFeeItem(row: any): FeeItem {
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      valueType: row.value_type,
+      defaultValue: row.default_value,
+      additionalInfo: row.additional_info,
+      displayOrder: row.display_order,
+      isActive: row.is_active,
+      author: row.author,
+      createdAt: row.created_at ? new Date(row.created_at) : row.created_at,
+      updatedAt: row.updated_at ? new Date(row.updated_at) : row.updated_at,
+      feeGroupId: row.fee_group_id ?? null,
+      feeItemGroupId: row.fee_item_group_id ?? null,
+    } as FeeItem;
   }
 
   async getFeeGroup(id: number): Promise<FeeGroup | undefined> {
@@ -446,51 +488,74 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getFeeGroupWithItemGroups(id: number): Promise<FeeGroupWithItemGroups | undefined> {
-    // Step 1: load the fee group + its item groups in parallel.
-    const [feeGroup] = await db.select().from(feeGroups).where(eq(feeGroups.id, id));
-    if (!feeGroup) return undefined;
+    // Single grouped round-trip: pull the fee group with two pre-aggregated
+    // JSON arrays — one for nested item groups (each carrying its own items),
+    // and one for direct items (fee_group_id = id, no item-group association).
+    // Preserves prior semantics where item-group items are matched purely
+    // by fee_item_group_id (independent of fee_group_id).
+    // db-tier-allow: PostgreSQL nested `jsonb_agg` + `jsonb_build_object`
+    // — Drizzle has no first-class builder for this shape of nested JSON
+    // aggregation; using it here collapses three round-trips into one.
+    const rows = await db.execute(sql`
+      SELECT
+        fg.*,
+        COALESCE(
+          (
+            SELECT jsonb_agg(grp ORDER BY (grp->>'display_order')::int)
+            FROM (
+              SELECT to_jsonb(fig.*) || jsonb_build_object(
+                'fee_items',
+                COALESCE(
+                  (
+                    SELECT jsonb_agg(to_jsonb(fi.*) ORDER BY fi.display_order)
+                    FROM ${feeItems} fi
+                    WHERE fi.fee_item_group_id = fig.id
+                  ),
+                  '[]'::jsonb
+                )
+              ) AS grp
+              FROM ${feeItemGroups} fig
+              WHERE fig.fee_group_id = fg.id
+            ) sub
+          ),
+          '[]'::jsonb
+        ) AS fee_item_groups,
+        COALESCE(
+          (
+            SELECT jsonb_agg(to_jsonb(fi.*) ORDER BY fi.display_order)
+            FROM ${feeItems} fi
+            WHERE fi.fee_group_id = fg.id AND fi.fee_item_group_id IS NULL
+          ),
+          '[]'::jsonb
+        ) AS direct_items
+      FROM ${feeGroups} fg
+      WHERE fg.id = ${id}
+      LIMIT 1
+    `);
 
-    const itemGroups = await db.select().from(feeItemGroups)
-      .where(eq(feeItemGroups.feeGroupId, id))
-      .orderBy(feeItemGroups.displayOrder);
+    const list = (rows as any).rows ?? rows;
+    const r = (list as any[])[0];
+    if (!r) return undefined;
 
-    // Step 2: pull every fee item that belongs to either the fee group
-    // directly OR to one of its item groups, in a single query — preserves
-    // the prior behaviour where item-group items are matched purely by
-    // `fee_item_group_id` (independent of whether `fee_group_id` is set),
-    // while still capturing direct items via `fee_group_id = id`.
-    const itemGroupIds = itemGroups.map((g) => g.id);
-    const allItems = await db.select().from(feeItems)
-      .where(
-        itemGroupIds.length > 0
-          ? or(eq(feeItems.feeGroupId, id), inArray(feeItems.feeItemGroupId, itemGroupIds))
-          : eq(feeItems.feeGroupId, id),
-      )
-      .orderBy(feeItems.displayOrder);
-
-    const itemsByItemGroup = new Map<number, typeof allItems>();
-    const directItems: typeof allItems = [];
-    for (const item of allItems) {
-      if (item.feeItemGroupId == null) {
-        // Direct item on the fee group (no item-group association).
-        directItems.push(item);
-      } else {
-        const bucket = itemsByItemGroup.get(item.feeItemGroupId);
-        if (bucket) bucket.push(item);
-        else itemsByItemGroup.set(item.feeItemGroupId, [item]);
-      }
-    }
-
-    const feeItemGroupsWithItems: FeeItemGroupWithItems[] = itemGroups.map((itemGroup) => ({
-      ...itemGroup,
-      feeItems: itemsByItemGroup.get(itemGroup.id) ?? [],
-    }));
-
-    return {
-      ...feeGroup,
-      feeItemGroups: feeItemGroupsWithItems,
-      feeItems: directItems,
-    };
+    const { fee_item_groups, direct_items, ...rest } = r;
+    const group = this.snakeToCamelFeeGroup(rest);
+    const feeItemGroupsWithItems: FeeItemGroupWithItems[] = (fee_item_groups as any[]).map((g) => {
+      const items = (g.fee_items as any[]).map((it) => this.snakeToCamelFeeItem(it));
+      return {
+        id: g.id,
+        feeGroupId: g.fee_group_id,
+        name: g.name,
+        description: g.description,
+        displayOrder: g.display_order,
+        isActive: g.is_active,
+        author: g.author,
+        createdAt: g.created_at ? new Date(g.created_at) : g.created_at,
+        updatedAt: g.updated_at ? new Date(g.updated_at) : g.updated_at,
+        feeItems: items,
+      } as FeeItemGroupWithItems;
+    });
+    const directItems = (direct_items as any[]).map((it) => this.snakeToCamelFeeItem(it));
+    return { ...group, feeItemGroups: feeItemGroupsWithItems, feeItems: directItems };
   }
 
   async createFeeGroup(feeGroup: InsertFeeGroup): Promise<FeeGroup> {
