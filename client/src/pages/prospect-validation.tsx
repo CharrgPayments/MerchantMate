@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -43,13 +43,17 @@ export default function ProspectValidation() {
     },
   });
 
-  // Token-based auto-validation as a proper mutation (POST semantics)
-  const validateByTokenMutation = useMutation({
-    mutationFn: async (token: string) => {
+  // Token-based auto-validation as a useQuery, gated on URL token presence.
+  // The endpoint is implemented as POST server-side, so the queryFn issues a
+  // POST; React Query's caching/dedup/state machine still applies and the
+  // success/error side effects are driven from useEffect reacting to data.
+  const tokenQuery = useQuery({
+    queryKey: ['/api/prospects/validate-token', prospectToken],
+    queryFn: async () => {
       const response = await fetch("/api/prospects/validate-token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify({ token: prospectToken }),
       });
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -57,31 +61,43 @@ export default function ProspectValidation() {
       }
       return response.json();
     },
-    onSuccess: (data) => {
-      setValidationState('success');
-      setProspectData(data.prospect);
-      toast({
-        title: "Email Validated",
-        description: "Redirecting to merchant application...",
-      });
-      setTimeout(() => {
-        setLocation(`/merchant-application?token=${data.prospect.validationToken}`);
-      }, 1500);
-    },
-    onError: (error: Error) => {
-      setValidationState('error');
-      setErrorMessage(error.message);
-    },
+    enabled: !!prospectToken,
+    retry: false,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
 
-  // Auto-validate if token is present in URL (fires once on mount when token exists)
+  // Reflect the in-flight query into the local validationState UI flag.
   useEffect(() => {
-    if (prospectToken && validationState === 'initial') {
+    if (!prospectToken) return;
+    if (tokenQuery.isFetching && validationState === 'initial') {
       setValidationState('validating');
-      validateByTokenMutation.mutate(prospectToken);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prospectToken]);
+  }, [prospectToken, tokenQuery.isFetching, validationState]);
+
+  // Success side effect: capture prospect, toast, and redirect.
+  useEffect(() => {
+    if (!tokenQuery.isSuccess || !tokenQuery.data) return;
+    setValidationState('success');
+    setProspectData(tokenQuery.data.prospect);
+    toast({
+      title: "Email Validated",
+      description: "Redirecting to merchant application...",
+    });
+    const t = setTimeout(() => {
+      setLocation(`/merchant-application?token=${tokenQuery.data.prospect.validationToken}`);
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [tokenQuery.isSuccess, tokenQuery.data, setLocation, toast]);
+
+  // Error side effect.
+  useEffect(() => {
+    if (!tokenQuery.isError) return;
+    setValidationState('error');
+    setErrorMessage((tokenQuery.error as Error)?.message ?? 'Token validation failed');
+  }, [tokenQuery.isError, tokenQuery.error]);
 
   const validateMutation = useMutation({
     mutationFn: async (data: ValidationData) => {
