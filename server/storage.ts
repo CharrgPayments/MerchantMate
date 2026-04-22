@@ -1,5 +1,5 @@
 import { userPreferences, type UserPreference } from "@shared/schema";
-import { merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, campaignAssignmentRules, equipmentItems, campaignEquipment, apiKeys, apiRequestLogs, emailTemplates, emailActivity, emailTriggers, workflowDefinitions, workflowEnvironmentConfigs, externalEndpoints, type ExternalEndpoint, type InsertExternalEndpoint, type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type InsertProspectSignature, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type CampaignAssignmentRule, type InsertCampaignAssignmentRule, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowEnvironmentConfig, type InsertWorkflowEnvironmentConfig, type WorkflowDefinitionWithDetails } from "@shared/schema";
+import { merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, campaignAssignmentRules, equipmentItems, campaignEquipment, apiKeys, apiRequestLogs, emailTemplates, emailActivity, emailTriggers, workflowDefinitions, workflowEnvironmentConfigs, externalEndpoints, prospectMessages, prospectFileRequests, portalMagicLinks, prospectApplications, acquirerApplicationTemplates, mccCodes, mccPolicies, acquirers, disclosureDefinitions, disclosureVersions, type ProspectMessage, type InsertProspectMessage, type ProspectFileRequest, type InsertProspectFileRequest, type PortalMagicLink, type ProspectApplication, type MccCode, type InsertMccCode, type MccPolicy, type InsertMccPolicy, type DisclosureDefinition, type InsertDisclosureDefinition, type DisclosureVersion, type InsertDisclosureVersion, type ExternalEndpoint, type InsertExternalEndpoint, type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type InsertProspectSignature, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type CampaignAssignmentRule, type InsertCampaignAssignmentRule, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowEnvironmentConfig, type InsertWorkflowEnvironmentConfig, type WorkflowDefinitionWithDetails } from "@shared/schema";
 import { db } from "./db";
 import { eq, or, and, gte, sql, desc, inArray, like, ilike, not, count, type SQL } from "drizzle-orm";
 import { auditLogs, securityEvents } from "@shared/schema";
@@ -391,6 +391,59 @@ export interface IStorage {
   createExternalEndpoint(data: InsertExternalEndpoint): Promise<ExternalEndpoint>;
   updateExternalEndpoint(id: number, data: Partial<InsertExternalEndpoint>): Promise<ExternalEndpoint | undefined>;
   deleteExternalEndpoint(id: number): Promise<boolean>;
+
+  // Prospect portal — messages
+  getProspectMessages(prospectId: number): Promise<ProspectMessage[]>;
+  markProspectMessagesReadForProspect(prospectId: number): Promise<void>;
+  markProspectMessageRead(messageId: number): Promise<void>;
+  createProspectMessage(data: InsertProspectMessage): Promise<ProspectMessage>;
+
+  // Prospect portal — file requests (list view omits the inline file blob)
+  getProspectFileRequestsSummary(prospectId: number): Promise<Omit<ProspectFileRequest, "fileData">[]>;
+  getProspectFileRequest(frId: number): Promise<ProspectFileRequest | undefined>;
+  getProspectFileRequestForProspect(frId: number, prospectId: number): Promise<ProspectFileRequest | undefined>;
+  createProspectFileRequest(data: InsertProspectFileRequest): Promise<ProspectFileRequest>;
+  updateProspectFileRequestUpload(frId: number, data: { fileName: string; mimeType: string; fileData: string; uploadedBy: string }): Promise<ProspectFileRequest | undefined>;
+  updateProspectFileRequestStatus(frId: number, status: string): Promise<ProspectFileRequest | undefined>;
+  deleteProspectFileRequest(frId: number): Promise<void>;
+
+  // Portal magic links
+  createPortalMagicLink(data: { prospectId: number; token: string; expiresAt: Date }): Promise<PortalMagicLink>;
+  getActivePortalMagicLinkByToken(token: string): Promise<PortalMagicLink | undefined>;
+  markPortalMagicLinkUsed(id: number): Promise<void>;
+
+  // Prospect application helpers (read-only views the portal needs)
+  getLatestProspectApplication(prospectId: number): Promise<ProspectApplication | undefined>;
+  getApplicationTemplateName(templateId: number): Promise<string | null>;
+
+  // Lightweight user lookup used by portal/CRM email senders
+  getUserDisplayInfo(userId: string): Promise<{ username: string | null; email: string | null } | undefined>;
+
+  // MCC codes
+  listMccCategories(): Promise<string[]>;
+  listMccCodes(filters?: { search?: string; category?: string }): Promise<MccCode[]>;
+  getMccCode(id: number): Promise<MccCode | undefined>;
+  createMccCode(data: InsertMccCode): Promise<MccCode>;
+  updateMccCode(id: number, data: Partial<InsertMccCode>): Promise<MccCode | undefined>;
+  deleteMccCode(id: number): Promise<void>;
+  searchActiveMccCodes(query: string, limit?: number): Promise<MccCode[]>;
+
+  // MCC policies
+  listMccPoliciesWithRefs(): Promise<Array<MccPolicy & { mccCode: { id: number; code: string; description: string | null; category: string | null } | null; acquirer: { id: number; name: string; code: string } | null }>>;
+  createMccPolicy(data: InsertMccPolicy): Promise<MccPolicy>;
+  updateMccPolicy(id: number, data: Partial<InsertMccPolicy>): Promise<MccPolicy | undefined>;
+  deleteMccPolicy(id: number): Promise<void>;
+
+  // Disclosures
+  listDisclosuresWithVersions(): Promise<Array<DisclosureDefinition & { versions: DisclosureVersion[]; currentVersion: DisclosureVersion | null }>>;
+  getDisclosureSignatureReport(definitionId: number): Promise<{ totalVersions: number; versions: DisclosureVersion[] }>;
+  getDisclosureWithVersions(id: number): Promise<(DisclosureDefinition & { versions: DisclosureVersion[]; currentVersion: DisclosureVersion | null }) | undefined>;
+  createDisclosure(data: InsertDisclosureDefinition): Promise<DisclosureDefinition>;
+  updateDisclosure(id: number, data: Partial<InsertDisclosureDefinition>): Promise<DisclosureDefinition | undefined>;
+  deleteDisclosure(id: number): Promise<void>;
+  createDisclosureVersion(definitionId: number, data: { version: string; title: string; content: string; requiresSignature?: boolean; effectiveDate?: Date | null; createdBy?: string | null; contentHash: string }): Promise<DisclosureVersion>;
+  updateDisclosureVersion(id: number, data: Partial<InsertDisclosureVersion>): Promise<DisclosureVersion | undefined>;
+  copyDisclosureVersion(id: number, overrides: { version?: string; title?: string }, createdBy: string | null): Promise<DisclosureVersion | undefined>;
 }
 
 // Extended user input type that accepts legacy `role` string alongside new `roles` array
@@ -2880,6 +2933,305 @@ export class DatabaseStorage implements IStorage {
       .limit(opts.limit).offset(opts.offset);
     const [{ value: total }] = await db.select({ value: count() }).from(merchantProspects).where(where);
     return { items, total: Number(total ?? 0) };
+  }
+
+  // ─── Prospect portal — messages ─────────────────────────────────────────
+  async getProspectMessages(prospectId: number): Promise<ProspectMessage[]> {
+    return await db.select().from(prospectMessages)
+      .where(eq(prospectMessages.prospectId, prospectId))
+      .orderBy(desc(prospectMessages.createdAt));
+  }
+  async markProspectMessagesReadForProspect(prospectId: number): Promise<void> {
+    await db.update(prospectMessages)
+      .set({ isRead: true, readAt: new Date() })
+      .where(eq(prospectMessages.prospectId, prospectId));
+  }
+  async markProspectMessageRead(messageId: number): Promise<void> {
+    await db.update(prospectMessages)
+      .set({ isRead: true, readAt: new Date() })
+      .where(eq(prospectMessages.id, messageId));
+  }
+  async createProspectMessage(data: InsertProspectMessage): Promise<ProspectMessage> {
+    const [row] = await db.insert(prospectMessages).values(data).returning();
+    return row;
+  }
+
+  // ─── Prospect portal — file requests ────────────────────────────────────
+  async getProspectFileRequestsSummary(prospectId: number): Promise<Omit<ProspectFileRequest, "fileData">[]> {
+    return await db.select({
+      id: prospectFileRequests.id,
+      prospectId: prospectFileRequests.prospectId,
+      label: prospectFileRequests.label,
+      description: prospectFileRequests.description,
+      required: prospectFileRequests.required,
+      status: prospectFileRequests.status,
+      fileName: prospectFileRequests.fileName,
+      mimeType: prospectFileRequests.mimeType,
+      uploadedBy: prospectFileRequests.uploadedBy,
+      createdAt: prospectFileRequests.createdAt,
+      fulfilledAt: prospectFileRequests.fulfilledAt,
+    }).from(prospectFileRequests)
+      .where(eq(prospectFileRequests.prospectId, prospectId))
+      .orderBy(desc(prospectFileRequests.createdAt));
+  }
+  async getProspectFileRequest(frId: number): Promise<ProspectFileRequest | undefined> {
+    const [row] = await db.select().from(prospectFileRequests).where(eq(prospectFileRequests.id, frId));
+    return row;
+  }
+  async getProspectFileRequestForProspect(frId: number, prospectId: number): Promise<ProspectFileRequest | undefined> {
+    const [row] = await db.select().from(prospectFileRequests)
+      .where(and(eq(prospectFileRequests.id, frId), eq(prospectFileRequests.prospectId, prospectId)));
+    return row;
+  }
+  async createProspectFileRequest(data: InsertProspectFileRequest): Promise<ProspectFileRequest> {
+    const [row] = await db.insert(prospectFileRequests).values(data).returning();
+    return row;
+  }
+  async updateProspectFileRequestUpload(frId: number, data: { fileName: string; mimeType: string; fileData: string; uploadedBy: string }): Promise<ProspectFileRequest | undefined> {
+    const [row] = await db.update(prospectFileRequests).set({
+      status: "uploaded",
+      fileName: data.fileName,
+      mimeType: data.mimeType,
+      fileData: data.fileData,
+      uploadedBy: data.uploadedBy,
+      fulfilledAt: new Date(),
+    }).where(eq(prospectFileRequests.id, frId)).returning();
+    return row;
+  }
+  async updateProspectFileRequestStatus(frId: number, status: string): Promise<ProspectFileRequest | undefined> {
+    const [row] = await db.update(prospectFileRequests).set({ status }).where(eq(prospectFileRequests.id, frId)).returning();
+    return row;
+  }
+  async deleteProspectFileRequest(frId: number): Promise<void> {
+    await db.delete(prospectFileRequests).where(eq(prospectFileRequests.id, frId));
+  }
+
+  // ─── Portal magic links ─────────────────────────────────────────────────
+  async createPortalMagicLink(data: { prospectId: number; token: string; expiresAt: Date }): Promise<PortalMagicLink> {
+    const [row] = await db.insert(portalMagicLinks).values(data).returning();
+    return row;
+  }
+  async getActivePortalMagicLinkByToken(token: string): Promise<PortalMagicLink | undefined> {
+    const { isNull } = await import("drizzle-orm");
+    const [row] = await db.select().from(portalMagicLinks)
+      .where(and(eq(portalMagicLinks.token, token), isNull(portalMagicLinks.usedAt)));
+    return row;
+  }
+  async markPortalMagicLinkUsed(id: number): Promise<void> {
+    await db.update(portalMagicLinks).set({ usedAt: new Date() }).where(eq(portalMagicLinks.id, id));
+  }
+
+  // ─── Prospect application read views ────────────────────────────────────
+  async getLatestProspectApplication(prospectId: number): Promise<ProspectApplication | undefined> {
+    const [row] = await db.select().from(prospectApplications)
+      .where(eq(prospectApplications.prospectId, prospectId))
+      .limit(1);
+    return row;
+  }
+  async getApplicationTemplateName(templateId: number): Promise<string | null> {
+    const [row] = await db.select({ templateName: acquirerApplicationTemplates.templateName })
+      .from(acquirerApplicationTemplates)
+      .where(eq(acquirerApplicationTemplates.id, templateId));
+    return row?.templateName ?? null;
+  }
+
+  // ─── User display info ──────────────────────────────────────────────────
+  async getUserDisplayInfo(userId: string): Promise<{ username: string | null; email: string | null } | undefined> {
+    const [row] = await db.select({ username: users.username, email: users.email })
+      .from(users).where(eq(users.id, userId));
+    return row ? { username: row.username ?? null, email: row.email ?? null } : undefined;
+  }
+
+  // ─── MCC codes ──────────────────────────────────────────────────────────
+  async listMccCategories(): Promise<string[]> {
+    const rows = await db.selectDistinct({ category: mccCodes.category })
+      .from(mccCodes)
+      .where(eq(mccCodes.isActive, true))
+      .orderBy(mccCodes.category);
+    return rows.map(r => r.category).filter((c): c is string => c != null);
+  }
+  async listMccCodes(filters: { search?: string; category?: string } = {}): Promise<MccCode[]> {
+    const conditions: SQL[] = [];
+    if (filters.search) {
+      const s = `%${filters.search}%`;
+      const c = or(ilike(mccCodes.code, s), ilike(mccCodes.description, s));
+      if (c) conditions.push(c);
+    } else if (filters.category) {
+      conditions.push(eq(mccCodes.category, filters.category));
+    }
+    const where = conditions.length ? and(...conditions) : undefined;
+    return await db.select().from(mccCodes).where(where).orderBy(mccCodes.code);
+  }
+  async getMccCode(id: number): Promise<MccCode | undefined> {
+    const [row] = await db.select().from(mccCodes).where(eq(mccCodes.id, id)).limit(1);
+    return row;
+  }
+  async createMccCode(data: InsertMccCode): Promise<MccCode> {
+    const [row] = await db.insert(mccCodes).values(data).returning();
+    return row;
+  }
+  async updateMccCode(id: number, data: Partial<InsertMccCode>): Promise<MccCode | undefined> {
+    const [row] = await db.update(mccCodes)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(mccCodes.id, id))
+      .returning();
+    return row;
+  }
+  async deleteMccCode(id: number): Promise<void> {
+    await db.delete(mccCodes).where(eq(mccCodes.id, id));
+  }
+  async searchActiveMccCodes(query: string, limit = 10): Promise<MccCode[]> {
+    const s = `%${query}%`;
+    const matchExpr = or(ilike(mccCodes.code, s), ilike(mccCodes.description, s), ilike(mccCodes.category, s));
+    const whereExpr = matchExpr ? and(matchExpr, eq(mccCodes.isActive, true)) : eq(mccCodes.isActive, true);
+    return await db.select().from(mccCodes).where(whereExpr).limit(limit);
+  }
+
+  // ─── MCC policies ───────────────────────────────────────────────────────
+  async listMccPoliciesWithRefs(): Promise<Array<MccPolicy & { mccCode: { id: number; code: string; description: string | null; category: string | null } | null; acquirer: { id: number; name: string; code: string } | null }>> {
+    const rows = await db.select({
+      id: mccPolicies.id,
+      mccCodeId: mccPolicies.mccCodeId,
+      acquirerId: mccPolicies.acquirerId,
+      policyType: mccPolicies.policyType,
+      riskLevelOverride: mccPolicies.riskLevelOverride,
+      notes: mccPolicies.notes,
+      isActive: mccPolicies.isActive,
+      createdAt: mccPolicies.createdAt,
+      updatedAt: mccPolicies.updatedAt,
+      createdBy: mccPolicies.createdBy,
+      mccCode_id: mccCodes.id,
+      mccCode_code: mccCodes.code,
+      mccCode_description: mccCodes.description,
+      mccCode_category: mccCodes.category,
+      acquirer_id: acquirers.id,
+      acquirer_name: acquirers.name,
+      acquirer_code: acquirers.code,
+    })
+    .from(mccPolicies)
+    .leftJoin(mccCodes, eq(mccPolicies.mccCodeId, mccCodes.id))
+    .leftJoin(acquirers, eq(mccPolicies.acquirerId, acquirers.id))
+    .orderBy(mccPolicies.id);
+    return rows.map((r) => ({
+      id: r.id,
+      mccCodeId: r.mccCodeId,
+      acquirerId: r.acquirerId,
+      policyType: r.policyType,
+      riskLevelOverride: r.riskLevelOverride,
+      notes: r.notes,
+      isActive: r.isActive,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      createdBy: r.createdBy,
+      mccCode: r.mccCode_id !== null ? {
+        id: r.mccCode_id,
+        code: r.mccCode_code as string,
+        description: r.mccCode_description,
+        category: r.mccCode_category,
+      } : null,
+      acquirer: r.acquirer_id !== null ? {
+        id: r.acquirer_id,
+        name: r.acquirer_name as string,
+        code: r.acquirer_code as string,
+      } : null,
+    }));
+  }
+  async createMccPolicy(data: InsertMccPolicy): Promise<MccPolicy> {
+    const [row] = await db.insert(mccPolicies).values(data).returning();
+    return row;
+  }
+  async updateMccPolicy(id: number, data: Partial<InsertMccPolicy>): Promise<MccPolicy | undefined> {
+    const [row] = await db.update(mccPolicies)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(mccPolicies.id, id))
+      .returning();
+    return row;
+  }
+  async deleteMccPolicy(id: number): Promise<void> {
+    await db.delete(mccPolicies).where(eq(mccPolicies.id, id));
+  }
+
+  // ─── Disclosures ────────────────────────────────────────────────────────
+  async listDisclosuresWithVersions() {
+    const defs = await db.select().from(disclosureDefinitions).orderBy(disclosureDefinitions.displayName);
+    return await Promise.all(defs.map(async (def) => {
+      const versions = await db.select().from(disclosureVersions)
+        .where(eq(disclosureVersions.definitionId, def.id))
+        .orderBy(disclosureVersions.version);
+      const currentVersion = versions.find(v => v.isCurrentVersion) || versions[versions.length - 1] || null;
+      return { ...def, versions, currentVersion };
+    }));
+  }
+  async getDisclosureSignatureReport(definitionId: number) {
+    const versions = await db.select().from(disclosureVersions)
+      .where(eq(disclosureVersions.definitionId, definitionId));
+    return { totalVersions: versions.length, versions };
+  }
+  async getDisclosureWithVersions(id: number) {
+    const [def] = await db.select().from(disclosureDefinitions)
+      .where(eq(disclosureDefinitions.id, id)).limit(1);
+    if (!def) return undefined;
+    const versions = await db.select().from(disclosureVersions)
+      .where(eq(disclosureVersions.definitionId, def.id))
+      .orderBy(disclosureVersions.version);
+    const currentVersion = versions.find(v => v.isCurrentVersion) || versions[versions.length - 1] || null;
+    return { ...def, versions, currentVersion };
+  }
+  async createDisclosure(data: InsertDisclosureDefinition): Promise<DisclosureDefinition> {
+    const [row] = await db.insert(disclosureDefinitions).values(data).returning();
+    return row;
+  }
+  async updateDisclosure(id: number, data: Partial<InsertDisclosureDefinition>): Promise<DisclosureDefinition | undefined> {
+    const [row] = await db.update(disclosureDefinitions)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(disclosureDefinitions.id, id))
+      .returning();
+    return row;
+  }
+  async deleteDisclosure(id: number): Promise<void> {
+    await db.delete(disclosureDefinitions).where(eq(disclosureDefinitions.id, id));
+  }
+  async createDisclosureVersion(definitionId: number, data: { version: string; title: string; content: string; requiresSignature?: boolean; effectiveDate?: Date | null; createdBy?: string | null; contentHash: string }): Promise<DisclosureVersion> {
+    // Demote existing current version flag in the same definition.
+    await db.update(disclosureVersions)
+      .set({ isCurrentVersion: false })
+      .where(eq(disclosureVersions.definitionId, definitionId));
+    const [row] = await db.insert(disclosureVersions).values({
+      definitionId,
+      version: data.version,
+      title: data.title,
+      content: data.content,
+      requiresSignature: data.requiresSignature ?? false,
+      effectiveDate: data.effectiveDate ?? new Date(),
+      isCurrentVersion: true,
+      createdBy: data.createdBy ?? null,
+      contentHash: data.contentHash,
+    }).returning();
+    return row;
+  }
+  async updateDisclosureVersion(id: number, data: Partial<InsertDisclosureVersion>): Promise<DisclosureVersion | undefined> {
+    const [row] = await db.update(disclosureVersions).set(data)
+      .where(eq(disclosureVersions.id, id)).returning();
+    return row;
+  }
+  async copyDisclosureVersion(id: number, overrides: { version?: string; title?: string }, createdBy: string | null): Promise<DisclosureVersion | undefined> {
+    const [original] = await db.select().from(disclosureVersions)
+      .where(eq(disclosureVersions.id, id)).limit(1);
+    if (!original) return undefined;
+    await db.update(disclosureVersions).set({ isCurrentVersion: false })
+      .where(eq(disclosureVersions.definitionId, original.definitionId));
+    const [copy] = await db.insert(disclosureVersions).values({
+      definitionId: original.definitionId,
+      version: overrides.version || `${original.version}-copy`,
+      title: overrides.title || `${original.title} (Copy)`,
+      content: original.content,
+      requiresSignature: original.requiresSignature,
+      effectiveDate: new Date(),
+      isCurrentVersion: true,
+      createdBy,
+      contentHash: original.contentHash,
+    }).returning();
+    return copy;
   }
 }
 

@@ -9601,15 +9601,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // MCC Codes API
   // ============================================================
 
-  app.get('/api/mcc-codes/categories', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/mcc-codes/categories', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (_req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
-      const { mccCodes } = await import("@shared/schema");
-      const { sql: sqlTag } = await import("drizzle-orm");
-      const result = await dbToUse.execute(sqlTag`SELECT DISTINCT category FROM mcc_codes WHERE is_active = true ORDER BY category`);
-      const rows = (result as { rows?: unknown[] }).rows ?? (result as unknown as unknown[]);
-      res.json(rows.map((r: any) => r.category));
+      const categories = await storage.listMccCategories();
+      res.json(categories);
     } catch (error) {
       console.error('Error fetching MCC categories:', error);
       res.status(500).json({ error: 'Failed to fetch MCC categories' });
@@ -9618,23 +9613,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/mcc-codes', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
-      const { mccCodes } = await import("@shared/schema");
-      const drizzleOrm = await import("drizzle-orm");
-      const { ilike, or, eq, and } = drizzleOrm;
       const { search, category } = req.query;
-      const conditions: import("drizzle-orm").SQL[] = [];
-      if (search) {
-        const searchStr = `%${search}%`;
-        const c = or(ilike(mccCodes.code, searchStr), ilike(mccCodes.description, searchStr));
-        if (c) conditions.push(c);
-      } else if (category) {
-        conditions.push(eq(mccCodes.category, String(category)));
-      }
-      const baseQuery = dbToUse.select().from(mccCodes);
-      const filtered = conditions.length > 0 ? baseQuery.where(and(...conditions)) : baseQuery;
-      const results = await filtered.orderBy(mccCodes.code);
+      const results = await storage.listMccCodes({
+        search: typeof search === "string" ? search : undefined,
+        category: typeof category === "string" ? category : undefined,
+      });
       res.json(results);
     } catch (error) {
       console.error('Error fetching MCC codes:', error);
@@ -9644,11 +9627,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/mcc-codes/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
-      const { mccCodes } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      const [code] = await dbToUse.select().from(mccCodes).where(eq(mccCodes.id, parseInt(req.params.id))).limit(1);
+      const code = await storage.getMccCode(parseInt(req.params.id));
       if (!code) return res.status(404).json({ error: 'MCC code not found' });
       res.json(code);
     } catch (error) {
@@ -9658,11 +9637,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/mcc-codes', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
-      const { mccCodes, insertMccCodeSchema } = await import("@shared/schema");
+      const { insertMccCodeSchema } = await import("@shared/schema");
       const validated = insertMccCodeSchema.parse(req.body);
-      const [newCode] = await dbToUse.insert(mccCodes).values(validated).returning();
+      const newCode = await storage.createMccCode(validated);
       res.status(201).json(newCode);
     } catch (error) {
       console.error('Error creating MCC code:', error);
@@ -9673,18 +9650,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch('/api/mcc-codes/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
-      const { mccCodes, insertMccCodeSchema } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
+      const { insertMccCodeSchema } = await import("@shared/schema");
       const parsed = insertMccCodeSchema.partial().safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid MCC code payload", details: parsed.error.flatten() });
       }
-      const [updated] = await dbToUse.update(mccCodes)
-        .set({ ...parsed.data, updatedAt: new Date() })
-        .where(eq(mccCodes.id, parseInt(req.params.id)))
-        .returning();
+      const updated = await storage.updateMccCode(parseInt(req.params.id), parsed.data);
       if (!updated) return res.status(404).json({ error: 'MCC code not found' });
       res.json(updated);
     } catch (error) {
@@ -9694,11 +9665,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete('/api/mcc-codes/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
-      const { mccCodes } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      await dbToUse.delete(mccCodes).where(eq(mccCodes.id, parseInt(req.params.id)));
+      await storage.deleteMccCode(parseInt(req.params.id));
       res.json({ message: 'MCC code deleted' });
     } catch (error) {
       res.status(500).json({ error: 'Failed to delete MCC code' });
@@ -9708,19 +9675,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Public MCC search (used by autocomplete in forms)
   app.get('/api/mcc/search', async (req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB || getRequestDB(req);
-      const { mccCodes } = await import("@shared/schema");
-      const { ilike, or, eq } = await import("drizzle-orm");
       const q = req.query.q as string || '';
       if (!q || q.length < 2) return res.json({ suggestions: [] });
-      const searchStr = `%${q}%`;
-      const { and } = await import("drizzle-orm");
-      const results = await dbToUse.select().from(mccCodes)
-        .where(and(
-          or(ilike(mccCodes.code, searchStr), ilike(mccCodes.description, searchStr), ilike(mccCodes.category, searchStr)),
-          eq(mccCodes.isActive, true)
-        ))
-        .limit(10);
+      const results = await storage.searchActiveMccCodes(q, 10);
       res.json({ suggestions: results.map((r) => ({ mcc: r.code, description: r.description, category: r.category, irs_description: r.description })) });
     } catch (error) {
       res.status(500).json({ suggestions: [] });
@@ -9731,29 +9688,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // MCC Policies API
   // ============================================================
 
-  app.get('/api/mcc-policies', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/mcc-policies', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (_req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
-      const { mccPolicies, mccCodes, acquirers } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      const policies = await dbToUse.select({
-        id: mccPolicies.id,
-        mccCodeId: mccPolicies.mccCodeId,
-        acquirerId: mccPolicies.acquirerId,
-        policyType: mccPolicies.policyType,
-        riskLevelOverride: mccPolicies.riskLevelOverride,
-        notes: mccPolicies.notes,
-        isActive: mccPolicies.isActive,
-        createdAt: mccPolicies.createdAt,
-        updatedAt: mccPolicies.updatedAt,
-        mccCode: { id: mccCodes.id, code: mccCodes.code, description: mccCodes.description, category: mccCodes.category },
-        acquirer: { id: acquirers.id, name: acquirers.name, code: acquirers.code }
-      })
-      .from(mccPolicies)
-      .leftJoin(mccCodes, eq(mccPolicies.mccCodeId, mccCodes.id))
-      .leftJoin(acquirers, eq(mccPolicies.acquirerId, acquirers.id))
-      .orderBy(mccPolicies.id);
+      const policies = await storage.listMccPoliciesWithRefs();
       res.json(policies);
     } catch (error) {
       console.error('Error fetching MCC policies:', error);
@@ -9763,12 +9700,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/mcc-policies', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
-      const { mccPolicies, insertMccPolicySchema } = await import("@shared/schema");
+      const { insertMccPolicySchema } = await import("@shared/schema");
       const session = req.session;
       const validated = insertMccPolicySchema.parse({ ...req.body, createdBy: session?.userId });
-      const [newPolicy] = await dbToUse.insert(mccPolicies).values(validated).returning();
+      const newPolicy = await storage.createMccPolicy(validated);
       res.status(201).json(newPolicy);
     } catch (error) {
       console.error('Error creating MCC policy:', error);
@@ -9779,18 +9714,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch('/api/mcc-policies/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
-      const { mccPolicies, insertMccPolicySchema } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
+      const { insertMccPolicySchema } = await import("@shared/schema");
       const parsed = insertMccPolicySchema.partial().safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid MCC policy payload", details: parsed.error.flatten() });
       }
-      const [updated] = await dbToUse.update(mccPolicies)
-        .set({ ...parsed.data, updatedAt: new Date() })
-        .where(eq(mccPolicies.id, parseInt(req.params.id)))
-        .returning();
+      const updated = await storage.updateMccPolicy(parseInt(req.params.id), parsed.data);
       if (!updated) return res.status(404).json({ error: 'MCC policy not found' });
       res.json(updated);
     } catch (error) {
@@ -9800,11 +9729,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete('/api/mcc-policies/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
-      const { mccPolicies } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      await dbToUse.delete(mccPolicies).where(eq(mccPolicies.id, parseInt(req.params.id)));
+      await storage.deleteMccPolicy(parseInt(req.params.id));
       res.json({ message: 'MCC policy deleted' });
     } catch (error) {
       res.status(500).json({ error: 'Failed to delete MCC policy' });
@@ -9815,33 +9740,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Disclosure Library API
   // ============================================================
 
-  app.get('/api/disclosures', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
+  app.get('/api/disclosures', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (_req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
-      const { disclosureDefinitions, disclosureVersions } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      const defs = await dbToUse.select().from(disclosureDefinitions).orderBy(disclosureDefinitions.displayName);
-      const defsWithVersions = await Promise.all(defs.map(async (def) => {
-        const versions = await dbToUse.select().from(disclosureVersions).where(eq(disclosureVersions.definitionId, def.id)).orderBy(disclosureVersions.version);
-        const currentVersion = versions.find((v) => v.isCurrentVersion) || versions[versions.length - 1] || null;
-        return { ...def, versions, currentVersion };
-      }));
-      res.json({ success: true, disclosures: defsWithVersions });
+      const disclosures = await storage.listDisclosuresWithVersions();
+      res.json({ success: true, disclosures });
     } catch (error) {
       console.error('Error fetching disclosures:', error);
       res.status(500).json({ success: false, message: 'Failed to retrieve disclosures' });
     }
   });
 
-  app.get('/api/disclosures/:id/signature-report', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: any, res: Response) => {
+  app.get('/api/disclosures/:id/signature-report', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
-      const { disclosureVersions } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      const versions = await dbToUse.select().from(disclosureVersions).where(eq(disclosureVersions.definitionId, parseInt(req.params.id)));
-      res.json({ success: true, report: { totalVersions: versions.length, versions } });
+      const report = await storage.getDisclosureSignatureReport(parseInt(req.params.id));
+      res.json({ success: true, report });
     } catch (error) {
       res.status(500).json({ success: false, message: 'Failed to get signature report' });
     }
@@ -9849,63 +9761,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/disclosures/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      let dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
-      const { disclosureDefinitions, disclosureVersions } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
       const disclosureId = parseInt(req.params.id);
-
-      let def: any = null;
+      let disclosure: Awaited<ReturnType<typeof storage.getDisclosureWithVersions>> | null = null;
       try {
-        [def] = await dbToUse.select().from(disclosureDefinitions).where(eq(disclosureDefinitions.id, disclosureId)).limit(1);
+        disclosure = await storage.getDisclosureWithVersions(disclosureId);
       } catch (tableErr: any) {
-        // Table may not exist in production DB — fall back to dev DB
-        if (tableErr?.message?.includes('does not exist')) {
-          const { getDynamicDatabase } = await import("./db");
-          dbToUse = getDynamicDatabase('dev');
-          [def] = await dbToUse.select().from(disclosureDefinitions).where(eq(disclosureDefinitions.id, disclosureId)).limit(1);
-        } else {
-          throw tableErr;
-        }
+        if (!tableErr?.message?.includes('does not exist')) throw tableErr;
       }
 
-      if (!def) {
-        // Also try dev DB if not found in session DB
+      if (!disclosure) {
+        // Cross-env fallback: try dev DB
         const sessionDbEnv: string = req.session?.dbEnv || 'production';
         const isAlreadyDevDB = sessionDbEnv === 'dev' || sessionDbEnv === 'development';
         if (!isAlreadyDevDB) {
-          const { getDynamicDatabase } = await import("./db");
-          const devDB = getDynamicDatabase('dev');
           try {
-            [def] = await devDB.select().from(disclosureDefinitions).where(eq(disclosureDefinitions.id, disclosureId)).limit(1);
-            if (def) dbToUse = devDB;
-          } catch { /* noop: cross-env disclosure lookup is best-effort, fall through to default DB */ }
+            const { getDynamicDatabase, runWithDb } = await import("./db");
+            const devDB = getDynamicDatabase('dev');
+            disclosure = await runWithDb(devDB, () => storage.getDisclosureWithVersions(disclosureId));
+          } catch { /* noop: cross-env disclosure lookup is best-effort */ }
         }
       }
 
-      if (!def) return res.status(404).json({ success: false, message: 'Disclosure not found' });
-      const versions = await dbToUse.select().from(disclosureVersions).where(eq(disclosureVersions.definitionId, def.id)).orderBy(disclosureVersions.version);
-      const currentVersion = versions.find((v) => v.isCurrentVersion) || versions[versions.length - 1] || null;
-      res.json({ success: true, disclosure: { ...def, versions, currentVersion } });
+      if (!disclosure) return res.status(404).json({ success: false, message: 'Disclosure not found' });
+      res.json({ success: true, disclosure });
     } catch (error: any) {
       console.error('Error retrieving disclosure:', error?.message || error);
       res.status(500).json({ success: false, message: 'Failed to retrieve disclosure' });
     }
   });
 
-  app.post('/api/disclosures', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: any, res: Response) => {
+  app.post('/api/disclosures', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
-      const { disclosureDefinitions } = await import("@shared/schema");
       const session = req.session;
       const { slug, displayName, description, category, requiresSignature, companyId } = req.body;
       if (!slug || !displayName) return res.status(400).json({ success: false, message: 'Slug and display name are required' });
-      const [newDef] = await dbToUse.insert(disclosureDefinitions).values({
+      const newDef = await storage.createDisclosure({
         slug, displayName, description: description || null, category: category || 'general',
         requiresSignature: requiresSignature || false, companyId: companyId || null,
-        createdBy: session?.userId || null, isActive: true
-      }).returning();
+        createdBy: session?.userId || null, isActive: true,
+      });
       res.status(201).json({ success: true, disclosure: { ...newDef, versions: [], currentVersion: null } });
     } catch (error) {
       console.error('Error creating disclosure:', error);
@@ -9913,20 +9807,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/disclosures/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: any, res: Response) => {
+  app.patch('/api/disclosures/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
-      const { disclosureDefinitions, insertDisclosureDefinitionSchema } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
+      const { insertDisclosureDefinitionSchema } = await import("@shared/schema");
       const parsed = insertDisclosureDefinitionSchema.partial().safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ success: false, message: "Invalid disclosure payload", errors: parsed.error.flatten() });
       }
-      const [updated] = await dbToUse.update(disclosureDefinitions)
-        .set({ ...parsed.data, updatedAt: new Date() })
-        .where(eq(disclosureDefinitions.id, parseInt(req.params.id)))
-        .returning();
+      const updated = await storage.updateDisclosure(parseInt(req.params.id), parsed.data);
       if (!updated) return res.status(404).json({ success: false, message: 'Disclosure not found' });
       res.json({ success: true, disclosure: updated });
     } catch (error) {
@@ -9934,38 +9822,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/disclosures/:id', dbEnvironmentMiddleware, requirePerm('system:superadmin'), async (req: any, res: Response) => {
+  app.delete('/api/disclosures/:id', dbEnvironmentMiddleware, requirePerm('system:superadmin'), async (req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
-      const { disclosureDefinitions } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      await dbToUse.delete(disclosureDefinitions).where(eq(disclosureDefinitions.id, parseInt(req.params.id)));
+      await storage.deleteDisclosure(parseInt(req.params.id));
       res.json({ success: true, message: 'Disclosure deleted' });
     } catch (error) {
       res.status(500).json({ success: false, message: 'Failed to delete disclosure' });
     }
   });
 
-  app.post('/api/disclosures/:definitionId/versions', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: any, res: Response) => {
+  app.post('/api/disclosures/:definitionId/versions', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
-      const { disclosureVersions } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
       const definitionId = parseInt(req.params.definitionId);
       const session = req.session;
       const { version, title, content, requiresSignature, effectiveDate } = req.body;
       if (!version || !title || !content) return res.status(400).json({ success: false, message: 'Version, title, and content are required' });
-      // Set all existing versions to not current
-      await dbToUse.update(disclosureVersions).set({ isCurrentVersion: false }).where(eq(disclosureVersions.definitionId, definitionId));
-      const [newVersion] = await dbToUse.insert(disclosureVersions).values({
-        definitionId, version, title, content,
+      const newVersion = await storage.createDisclosureVersion(definitionId, {
+        version, title, content,
         requiresSignature: requiresSignature || false,
         effectiveDate: effectiveDate ? new Date(effectiveDate) : new Date(),
-        isCurrentVersion: true, createdBy: session?.userId || null,
-        contentHash: Buffer.from(content).toString('base64').slice(0, 32)
-      }).returning();
+        createdBy: session?.userId || null,
+        contentHash: Buffer.from(content).toString('base64').slice(0, 32),
+      });
       res.status(201).json({ success: true, version: newVersion });
     } catch (error) {
       console.error('Error creating disclosure version:', error);
@@ -9973,20 +9851,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/disclosure-versions/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: any, res: Response) => {
+  app.patch('/api/disclosure-versions/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
-      const { disclosureVersions, insertDisclosureVersionSchema } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
+      const { insertDisclosureVersionSchema } = await import("@shared/schema");
       const parsed = insertDisclosureVersionSchema.partial().safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ success: false, message: "Invalid disclosure version payload", errors: parsed.error.flatten() });
       }
-      const [updated] = await dbToUse.update(disclosureVersions)
-        .set(parsed.data)
-        .where(eq(disclosureVersions.id, parseInt(req.params.id)))
-        .returning();
+      const updated = await storage.updateDisclosureVersion(parseInt(req.params.id), parsed.data);
       if (!updated) return res.status(404).json({ success: false, message: 'Version not found' });
       res.json({ success: true, version: updated });
     } catch (error) {
@@ -9994,25 +9866,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/disclosure-versions/:id/copy', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: any, res: Response) => {
+  app.post('/api/disclosure-versions/:id/copy', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      const dbToUse = req.dynamicDB;
-      if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
-      const { disclosureVersions } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
       const session = req.session;
-      const [original] = await dbToUse.select().from(disclosureVersions).where(eq(disclosureVersions.id, parseInt(req.params.id))).limit(1);
-      if (!original) return res.status(404).json({ success: false, message: 'Version not found' });
-      const newVersionLabel = req.body.version || `${original.version}-copy`;
-      // Unset current version flag on all versions in this definition
-      await dbToUse.update(disclosureVersions).set({ isCurrentVersion: false }).where(eq(disclosureVersions.definitionId, original.definitionId));
-      const [copy] = await dbToUse.insert(disclosureVersions).values({
-        definitionId: original.definitionId, version: newVersionLabel,
-        title: req.body.title || `${original.title} (Copy)`, content: original.content,
-        requiresSignature: original.requiresSignature, effectiveDate: new Date(),
-        isCurrentVersion: true, createdBy: session?.userId || null,
-        contentHash: original.contentHash
-      }).returning();
+      const copy = await storage.copyDisclosureVersion(parseInt(req.params.id), {
+        version: req.body.version,
+        title: req.body.title,
+      }, session?.userId || null);
+      if (!copy) return res.status(404).json({ success: false, message: 'Version not found' });
       res.status(201).json({ success: true, version: copy });
     } catch (error) {
       res.status(500).json({ success: false, message: 'Failed to copy version' });
@@ -10657,14 +10518,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Token and password (min 8 chars) required" });
       }
       const bcrypt = await import("bcrypt");
-      const { merchantProspects } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const [prospect] = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.validationToken, token));
+      const prospect = await storage.getMerchantProspectByToken(token);
       if (!prospect) return res.status(404).json({ message: "Invalid token" });
       if (prospect.portalPasswordHash) return res.status(409).json({ message: "Portal account already set up. Please log in." });
       const hash = await bcrypt.hash(password, 10);
-      await dynamicDB.update(merchantProspects).set({ portalPasswordHash: hash, portalSetupAt: new Date() }).where(eq(merchantProspects.id, prospect.id));
+      await storage.updateMerchantProspect(prospect.id, { portalPasswordHash: hash, portalSetupAt: new Date() });
       req.session.portalProspectId = prospect.id;
       req.session.portalProspectEmail = prospect.email;
       req.session.portalDbEnv = req.dbEnv;
@@ -10681,10 +10539,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { email, password } = req.body;
       if (!email || !password) return res.status(400).json({ message: "Email and password required" });
       const bcrypt = await import("bcrypt");
-      const { merchantProspects } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const [prospect] = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.email, email.toLowerCase().trim()));
+      const prospect = await storage.getMerchantProspectByEmail(email.toLowerCase().trim());
       if (!prospect || !prospect.portalPasswordHash) return res.status(401).json({ message: "Invalid email or password" });
       const valid = await bcrypt.compare(password, prospect.portalPasswordHash);
       if (!valid) return res.status(401).json({ message: "Invalid email or password" });
@@ -10711,17 +10566,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { email } = req.body;
       if (!email?.trim()) return res.status(400).json({ message: "Email required" });
-      const { merchantProspects, portalMagicLinks } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const [prospect] = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.email, email.trim().toLowerCase()));
+      const prospect = await storage.getMerchantProspectByEmail(email.trim().toLowerCase());
       // Always respond 200 to avoid email enumeration
       if (!prospect) return res.json({ message: "If that email matches an application, a sign-in link has been sent." });
       // Generate a secure random token
       const crypto = await import("crypto");
       const token = crypto.randomBytes(32).toString("hex");
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
-      await dynamicDB.insert(portalMagicLinks).values({ prospectId: prospect.id, token, expiresAt });
+      await storage.createPortalMagicLink({ prospectId: prospect.id, token, expiresAt });
       // Determine the portal URL for the email
       const dbParam = req.dbEnv === "dev" ? "?db=dev" : "";
       const baseUrl = process.env.BASE_URL || `https://${req.hostname}`;
@@ -10739,16 +10591,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { token } = req.body;
       if (!token) return res.status(400).json({ message: "Token required" });
-      const { portalMagicLinks, merchantProspects } = await import("@shared/schema");
-      const { eq, and, isNull } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const [link] = await dynamicDB.select().from(portalMagicLinks).where(and(eq(portalMagicLinks.token, token), isNull(portalMagicLinks.usedAt)));
+      const link = await storage.getActivePortalMagicLinkByToken(token);
       if (!link) return res.status(401).json({ message: "Invalid or already-used sign-in link" });
       if (new Date() > link.expiresAt) return res.status(401).json({ message: "This sign-in link has expired. Please request a new one." });
       // Mark as used
-      await dynamicDB.update(portalMagicLinks).set({ usedAt: new Date() }).where(eq(portalMagicLinks.id, link.id));
+      await storage.markPortalMagicLinkUsed(link.id);
       // Look up prospect
-      const [prospect] = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.id, link.prospectId));
+      const prospect = await storage.getMerchantProspect(link.prospectId);
       if (!prospect) return res.status(404).json({ message: "Account not found" });
       // Create portal session
       req.session.portalProspectId = prospect.id;
@@ -10765,18 +10614,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/portal/me", dbEnvironmentMiddleware, requireProspectPortalAuth, async (req: RequestWithDB, res) => {
     try {
       const prospectId = req.session.portalProspectId!;
-      const { merchantProspects, prospectApplications, acquirerApplicationTemplates } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const [prospect] = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.id, prospectId));
+      const prospect = await storage.getMerchantProspect(prospectId);
       if (!prospect) return res.status(404).json({ message: "Prospect not found" });
       // Fetch latest application
-      const apps = await dynamicDB.select().from(prospectApplications).where(eq(prospectApplications.prospectId, prospectId)).limit(1);
-      const app = apps[0] || null;
-      let templateName = null;
+      const app = await storage.getLatestProspectApplication(prospectId) ?? null;
+      let templateName: string | null = null;
       if (app?.templateId) {
-        const [tpl] = await dynamicDB.select({ templateName: acquirerApplicationTemplates.templateName }).from(acquirerApplicationTemplates).where(eq(acquirerApplicationTemplates.id, app.templateId));
-        templateName = tpl?.templateName || null;
+        templateName = await storage.getApplicationTemplateName(app.templateId);
       }
       res.json({
         id: prospect.id, firstName: prospect.firstName, lastName: prospect.lastName,
@@ -10795,12 +10639,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/portal/messages", dbEnvironmentMiddleware, requireProspectPortalAuth, async (req: RequestWithDB, res) => {
     try {
       const prospectId = req.session.portalProspectId!;
-      const { prospectMessages } = await import("@shared/schema");
-      const { eq, desc } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const msgs = await dynamicDB.select().from(prospectMessages).where(eq(prospectMessages.prospectId, prospectId)).orderBy(desc(prospectMessages.createdAt));
+      const msgs = await storage.getProspectMessages(prospectId);
       // Mark all agent messages as read
-      await dynamicDB.update(prospectMessages).set({ isRead: true, readAt: new Date() }).where(eq(prospectMessages.prospectId, prospectId));
+      await storage.markProspectMessagesReadForProspect(prospectId);
       res.json({ messages: msgs });
     } catch (error) {
       console.error("Error fetching portal messages:", error);
@@ -10815,14 +10656,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const email = req.session.portalProspectEmail ?? "";
       const { subject = "", message } = req.body;
       if (!message?.trim()) return res.status(400).json({ message: "Message body required" });
-      const { prospectMessages, merchantProspects } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const [prospect] = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.id, prospectId));
-      const [msg] = await dynamicDB.insert(prospectMessages).values({
+      const msg = await storage.createProspectMessage({
         prospectId, senderId: email, senderType: "prospect", subject: subject.trim(),
         message: message.trim(), isRead: false,
-      }).returning();
+      });
       res.json(msg);
     } catch (error) {
       console.error("Error sending portal message:", error);
@@ -10834,18 +10671,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/portal/file-requests", dbEnvironmentMiddleware, requireProspectPortalAuth, async (req: RequestWithDB, res) => {
     try {
       const prospectId = req.session.portalProspectId!;
-      const { prospectFileRequests } = await import("@shared/schema");
-      const { eq, desc } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const requests = await dynamicDB.select({
-        id: prospectFileRequests.id, prospectId: prospectFileRequests.prospectId,
-        label: prospectFileRequests.label, description: prospectFileRequests.description,
-        required: prospectFileRequests.required, status: prospectFileRequests.status,
-        fileName: prospectFileRequests.fileName, mimeType: prospectFileRequests.mimeType,
-        uploadedBy: prospectFileRequests.uploadedBy, createdAt: prospectFileRequests.createdAt,
-        fulfilledAt: prospectFileRequests.fulfilledAt,
-        // Omit fileData (base64 blob) from list view
-      }).from(prospectFileRequests).where(eq(prospectFileRequests.prospectId, prospectId)).orderBy(desc(prospectFileRequests.createdAt));
+      const requests = await storage.getProspectFileRequestsSummary(prospectId);
       res.json({ fileRequests: requests });
     } catch (error) {
       console.error("Error fetching portal file requests:", error);
@@ -10861,14 +10687,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const frId = parseInt(req.params.id);
       const { fileName, mimeType, fileData } = req.body; // base64 fileData from client
       if (!fileName || !mimeType || !fileData) return res.status(400).json({ message: "fileName, mimeType, fileData required" });
-      const { prospectFileRequests } = await import("@shared/schema");
-      const { and, eq } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const [fr] = await dynamicDB.select().from(prospectFileRequests).where(and(eq(prospectFileRequests.id, frId), eq(prospectFileRequests.prospectId, prospectId)));
+      const fr = await storage.getProspectFileRequestForProspect(frId, prospectId);
       if (!fr) return res.status(404).json({ message: "File request not found" });
-      const [updated] = await dynamicDB.update(prospectFileRequests).set({
-        status: "uploaded", fileName, mimeType, fileData, uploadedBy: email, fulfilledAt: new Date(),
-      }).where(eq(prospectFileRequests.id, frId)).returning();
+      const updated = await storage.updateProspectFileRequestUpload(frId, { fileName, mimeType, fileData, uploadedBy: email });
       res.json(updated);
     } catch (error) {
       console.error("Error uploading file:", error);
@@ -10881,10 +10702,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/prospects/:id/messages", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
       const prospectId = parseInt(req.params.id);
-      const { prospectMessages } = await import("@shared/schema");
-      const { eq, desc } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const msgs = await dynamicDB.select().from(prospectMessages).where(eq(prospectMessages.prospectId, prospectId)).orderBy(desc(prospectMessages.createdAt));
+      const msgs = await storage.getProspectMessages(prospectId);
       res.json({ messages: msgs });
     } catch (error) {
       console.error("Error fetching prospect messages:", error);
@@ -10899,21 +10717,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { subject = "", message } = req.body;
       if (!message?.trim()) return res.status(400).json({ message: "Message body required" });
       const userId = req.session?.userId || req.user?.claims?.sub || "agent";
-      const { prospectMessages, users, merchantProspects } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      let senderName = "Agent";
-      const userRows = await dynamicDB.select({ username: users.username, email: users.email }).from(users).where(eq(users.id, userId));
-      if (userRows[0]) senderName = userRows[0].username || userRows[0].email || "Agent";
-      const [msg] = await dynamicDB.insert(prospectMessages).values({
+      const userInfo = await storage.getUserDisplayInfo(userId);
+      const senderName = userInfo ? (userInfo.username || userInfo.email || "Agent") : "Agent";
+      const msg = await storage.createProspectMessage({
         prospectId, senderId: userId, senderType: "agent", subject: subject.trim(),
         message: message.trim(), isRead: false,
-      }).returning();
+      });
       // Non-blocking: notify prospect by email
       (async () => {
         try {
-          const [prospect] = await dynamicDB.select({ firstName: merchantProspects.firstName, lastName: merchantProspects.lastName, email: merchantProspects.email, validationToken: merchantProspects.validationToken })
-            .from(merchantProspects).where(eq(merchantProspects.id, prospectId));
+          const prospect = await storage.getMerchantProspect(prospectId);
           if (prospect) {
             const dbParam = req.dbEnv === "dev" ? "?db=dev" : "";
             const baseUrl = process.env.BASE_URL || `https://${req.hostname}`;
@@ -10937,10 +10750,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid payload", errors: parsed.error.flatten() });
       }
       const mid = parseInt(req.params.mid);
-      const { prospectMessages } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      await dynamicDB.update(prospectMessages).set({ isRead: true, readAt: new Date() }).where(eq(prospectMessages.id, mid));
+      await storage.markProspectMessageRead(mid);
       res.json({ message: "Marked as read" });
     } catch (error) {
       res.status(500).json({ message: "Failed to mark as read" });
@@ -10951,17 +10761,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/prospects/:id/file-requests", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
       const prospectId = parseInt(req.params.id);
-      const { prospectFileRequests } = await import("@shared/schema");
-      const { eq, desc } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const rows = await dynamicDB.select({
-        id: prospectFileRequests.id, prospectId: prospectFileRequests.prospectId,
-        label: prospectFileRequests.label, description: prospectFileRequests.description,
-        required: prospectFileRequests.required, status: prospectFileRequests.status,
-        fileName: prospectFileRequests.fileName, mimeType: prospectFileRequests.mimeType,
-        uploadedBy: prospectFileRequests.uploadedBy, createdAt: prospectFileRequests.createdAt,
-        fulfilledAt: prospectFileRequests.fulfilledAt,
-      }).from(prospectFileRequests).where(eq(prospectFileRequests.prospectId, prospectId)).orderBy(desc(prospectFileRequests.createdAt));
+      const rows = await storage.getProspectFileRequestsSummary(prospectId);
       res.json({ fileRequests: rows });
     } catch (error) {
       console.error("Error fetching file requests:", error);
@@ -10975,18 +10775,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const prospectId = parseInt(req.params.id);
       const { label, description, required = true } = req.body;
       if (!label?.trim()) return res.status(400).json({ message: "Label required" });
-      const { prospectFileRequests, merchantProspects, users } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const [row] = await dynamicDB.insert(prospectFileRequests).values({ prospectId, label: label.trim(), description: description?.trim() || null, required }).returning();
+      const row = await storage.createProspectFileRequest({ prospectId, label: label.trim(), description: description?.trim() || null, required });
       // Non-blocking: notify prospect by email
       (async () => {
         try {
           const userId = req.session?.userId || req.user?.claims?.sub || "agent";
-          const [prospect] = await dynamicDB.select({ firstName: merchantProspects.firstName, lastName: merchantProspects.lastName, email: merchantProspects.email })
-            .from(merchantProspects).where(eq(merchantProspects.id, prospectId));
-          const userRows = await dynamicDB.select({ username: users.username }).from(users).where(eq(users.id, userId));
-          const agentName = userRows[0]?.username || "Your advisor";
+          const prospect = await storage.getMerchantProspect(prospectId);
+          const userInfo = await storage.getUserDisplayInfo(userId);
+          const agentName = userInfo?.username || "Your advisor";
           if (prospect) {
             const dbParam = req.dbEnv === "dev" ? "?db=dev" : "";
             const baseUrl = process.env.BASE_URL || `https://${req.hostname}`;
@@ -11014,10 +10810,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const frId = parseInt(req.params.frid);
       const { status } = parsed.data;
-      const { prospectFileRequests } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const [row] = await dynamicDB.update(prospectFileRequests).set({ status }).where(eq(prospectFileRequests.id, frId)).returning();
+      const row = await storage.updateProspectFileRequestStatus(frId, status);
       res.json(row);
     } catch (error) {
       res.status(500).json({ message: "Failed to update file request" });
@@ -11028,10 +10821,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/prospects/:id/file-requests/:frid", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
       const frId = parseInt(req.params.frid);
-      const { prospectFileRequests } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      await dynamicDB.delete(prospectFileRequests).where(eq(prospectFileRequests.id, frId));
+      await storage.deleteProspectFileRequest(frId);
       res.json({ message: "Deleted" });
     } catch (error) {
       res.status(500).json({ message: "Failed to delete file request" });
@@ -11042,10 +10832,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/prospects/:id/file-requests/:frid/download", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
       const frId = parseInt(req.params.frid);
-      const { prospectFileRequests } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const [fr] = await dynamicDB.select().from(prospectFileRequests).where(eq(prospectFileRequests.id, frId));
+      const fr = await storage.getProspectFileRequest(frId);
       if (!fr || !fr.fileData) return res.status(404).json({ message: "File not found" });
       const buffer = Buffer.from(fr.fileData, "base64");
       res.setHeader("Content-Type", fr.mimeType || "application/octet-stream");
@@ -11228,15 +11015,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/prospects/:id/send-portal-invite", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
       const prospectId = parseInt(req.params.id);
-      const { merchantProspects, users } = await import("@shared/schema");
-      const { eq } = await import("drizzle-orm");
-      const dynamicDB = getRequestDB(req);
-      const [prospect] = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.id, prospectId));
+      const prospect = await storage.getMerchantProspect(prospectId);
       if (!prospect) return res.status(404).json({ message: "Prospect not found" });
       if (!prospect.validationToken) return res.status(400).json({ message: "Prospect does not have a validation token" });
       const userId = req.session?.userId || req.user?.claims?.sub || "agent";
-      const userRows = await dynamicDB.select({ username: users.username }).from(users).where(eq(users.id, userId));
-      const agentName = userRows[0]?.username || "Your advisor";
+      const userInfo = await storage.getUserDisplayInfo(userId);
+      const agentName = userInfo?.username || "Your advisor";
       const baseUrl = process.env.BASE_URL || `https://${req.hostname}`;
       const statusUrl = `${baseUrl}/application-status/${prospect.validationToken}`;
       await emailService.sendPortalInviteEmail({ firstName: prospect.firstName, lastName: prospect.lastName, email: prospect.email, statusUrl, agentName });

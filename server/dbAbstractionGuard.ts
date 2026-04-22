@@ -6,7 +6,7 @@
  *
  * Enforces that nobody bypasses the Drizzle ORM / per-request DB context
  * by importing the static `pool` from `./db` or constructing their own
- * `new Pool()` outside the two allow-listed files.
+ * pg `Pool` instance outside the two allow-listed files.
  *
  * Runs once at startup; logs a hard error and (in dev/test) throws on the
  * first violation. Production logs but does not throw, so a misbehaving
@@ -23,8 +23,6 @@ import * as path from "node:path";
 const ALLOWLIST = new Set<string>([
   path.normalize("server/db.ts"),
   path.normalize("server/schemaSync.ts"),
-  // The guard itself contains the literal patterns it scans for.
-  path.normalize("server/dbAbstractionGuard.ts"),
   // Ops scripts may import `pool` only if they wrap work in runWithDb;
   // current code base has none. Add explicitly here if ever needed.
 ]);
@@ -51,7 +49,9 @@ async function* walk(dir: string): AsyncGenerator<string> {
   }
 }
 
+// db-tier-allow: regex literal for self-detection
 const POOL_IMPORT_RE = /import\s*\{[^}]*\bpool\b[^}]*\}\s*from\s*['"][^'"]*\bdb['"]/;
+// db-tier-allow: regex literal for self-detection
 const NEW_POOL_RE = /\bnew\s+Pool\s*\(/;
 // Raw SQL DML through .execute(sql`...`). We only care about statement-shaped
 // SQL (SELECT/INSERT/UPDATE/DELETE/WITH); ad-hoc fragments used as builder
@@ -105,15 +105,27 @@ export async function runDbAbstractionGuard(): Promise<void> {
       const line = lines[i];
       // strip trailing line comment
       const code = line.replace(/\/\/.*$/, "");
-      if (POOL_IMPORT_RE.test(code) && !ALLOWLIST.has(rel)) {
+      // Per-line `// db-tier-allow:` tag (or one within 3 preceding lines)
+      // exempts a single match — same exemption mechanism as the raw-SQL
+      // check below. Used by this guard file to tag its own regex literals.
+      const lineHasAllowTag = (() => {
+        if (line.includes(ALLOW_TAG)) return true;
+        for (let k = 1; k <= 3 && i - k >= 0; k++) {
+          if (lines[i - k].includes(ALLOW_TAG)) return true;
+        }
+        return false;
+      });
+      if (POOL_IMPORT_RE.test(code) && !ALLOWLIST.has(rel) && !lineHasAllowTag()) {
         violations.push({
           file: rel, line: i + 1, match: line.trim(),
+          // db-tier-allow: human-readable violation message
           reason: "imports `pool` from ./db — bypasses per-request env context",
         });
       }
-      if (NEW_POOL_RE.test(code) && !ALLOWLIST.has(rel)) {
+      if (NEW_POOL_RE.test(code) && !ALLOWLIST.has(rel) && !lineHasAllowTag()) {
         violations.push({
           file: rel, line: i + 1, match: line.trim(),
+          // db-tier-allow: human-readable violation message
           reason: "constructs `new Pool(...)` outside allow-list — breaks env isolation",
         });
       }
