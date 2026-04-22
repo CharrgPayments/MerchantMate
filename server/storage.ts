@@ -446,25 +446,33 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getFeeGroupWithItemGroups(id: number): Promise<FeeGroupWithItemGroups | undefined> {
-    // 3 fixed queries (the fee group, its item groups, and ALL fee items
-    // belonging to either the group or any of its item groups in one go),
-    // then bucket in memory — no per-item-group round trip.
+    // Step 1: load the fee group + its item groups in parallel.
     const [feeGroup] = await db.select().from(feeGroups).where(eq(feeGroups.id, id));
     if (!feeGroup) return undefined;
 
-    const [itemGroups, allItems] = await Promise.all([
-      db.select().from(feeItemGroups)
-        .where(eq(feeItemGroups.feeGroupId, id))
-        .orderBy(feeItemGroups.displayOrder),
-      db.select().from(feeItems)
-        .where(eq(feeItems.feeGroupId, id))
-        .orderBy(feeItems.displayOrder),
-    ]);
+    const itemGroups = await db.select().from(feeItemGroups)
+      .where(eq(feeItemGroups.feeGroupId, id))
+      .orderBy(feeItemGroups.displayOrder);
+
+    // Step 2: pull every fee item that belongs to either the fee group
+    // directly OR to one of its item groups, in a single query — preserves
+    // the prior behaviour where item-group items are matched purely by
+    // `fee_item_group_id` (independent of whether `fee_group_id` is set),
+    // while still capturing direct items via `fee_group_id = id`.
+    const itemGroupIds = itemGroups.map((g) => g.id);
+    const allItems = await db.select().from(feeItems)
+      .where(
+        itemGroupIds.length > 0
+          ? or(eq(feeItems.feeGroupId, id), inArray(feeItems.feeItemGroupId, itemGroupIds))
+          : eq(feeItems.feeGroupId, id),
+      )
+      .orderBy(feeItems.displayOrder);
 
     const itemsByItemGroup = new Map<number, typeof allItems>();
     const directItems: typeof allItems = [];
     for (const item of allItems) {
       if (item.feeItemGroupId == null) {
+        // Direct item on the fee group (no item-group association).
         directItems.push(item);
       } else {
         const bucket = itemsByItemGroup.get(item.feeItemGroupId);
