@@ -131,6 +131,12 @@ export default function MerchantApplicationPage() {
       
       return response.json();
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/prospects'] });
+      if (prospectToken) {
+        queryClient.invalidateQueries({ queryKey: ['/api/prospects/token', prospectToken] });
+      }
+    },
   });
 
   // Update form mutation

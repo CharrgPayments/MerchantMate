@@ -43,46 +43,45 @@ export default function ProspectValidation() {
     },
   });
 
-  // Auto-validate if token is present in URL
-  useEffect(() => {
-    if (prospectToken && validationState === 'initial') {
-      setValidationState('validating');
-      validateByToken(prospectToken);
-    }
-  }, [prospectToken]);
-
-  const validateByToken = async (token: string) => {
-    try {
+  // Token-based auto-validation as a proper mutation (POST semantics)
+  const validateByTokenMutation = useMutation({
+    mutationFn: async (token: string) => {
       const response = await fetch("/api/prospects/validate-token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
       });
-      
       if (!response.ok) {
-        const error = await response.json();
+        const error = await response.json().catch(() => ({}));
         throw new Error(error.message || 'Token validation failed');
       }
-      
-      const data = await response.json();
+      return response.json();
+    },
+    onSuccess: (data) => {
       setValidationState('success');
       setProspectData(data.prospect);
-      
       toast({
         title: "Email Validated",
         description: "Redirecting to merchant application...",
       });
-      
-      // Automatically redirect to merchant application
       setTimeout(() => {
         setLocation(`/merchant-application?token=${data.prospect.validationToken}`);
       }, 1500);
-      
-    } catch (error: any) {
+    },
+    onError: (error: Error) => {
       setValidationState('error');
       setErrorMessage(error.message);
+    },
+  });
+
+  // Auto-validate if token is present in URL (fires once on mount when token exists)
+  useEffect(() => {
+    if (prospectToken && validationState === 'initial') {
+      setValidationState('validating');
+      validateByTokenMutation.mutate(prospectToken);
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prospectToken]);
 
   const validateMutation = useMutation({
     mutationFn: async (data: ValidationData) => {

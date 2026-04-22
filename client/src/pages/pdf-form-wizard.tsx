@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ArrowRight, Save, FileText, CheckCircle, Building, Clock, Users, Edit2, Check, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/useAuth";
 
 interface FormField {
   id: number;
@@ -55,12 +56,8 @@ export default function PdfFormWizard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Fetch current user to check admin role
-  const { data: currentUser, isLoading: isUserLoading } = useQuery({
-    queryKey: ['/api/auth/user'],
-    retry: 3,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-  });
+  // Current user (shared cache via useAuth)
+  const { user: currentUser, isLoading: isUserLoading } = useAuth();
 
   // Fetch PDF form with fields
   const { data: pdfForm, isLoading, error } = useQuery<PdfForm>({

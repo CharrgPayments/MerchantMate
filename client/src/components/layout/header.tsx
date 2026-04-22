@@ -98,10 +98,9 @@ export function Header({ title, onSearch }: HeaderProps) {
     },
     staleTime: 0,
     gcTime: 0,
-    // Polling fallback only — primary update path is the SSE stream below.
-    // Kept at 5 minutes so the badge eventually self-heals if the stream
-    // drops and never reconnects (e.g. proxy edge case).
-    refetchInterval: 5 * 60_000,
+    // Primary update path is the SSE stream below; on reconnect the stream
+    // also triggers an immediate cache invalidation, so periodic polling is
+    // unnecessary. Window-focus refetch covers tab-switch self-healing.
     refetchOnWindowFocus: true,
   });
 

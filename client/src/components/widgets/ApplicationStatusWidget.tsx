@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -41,41 +42,32 @@ export function ApplicationStatusWidget({
   onStatusChange,
   className = '' 
 }: ApplicationStatusWidgetProps) {
-  const [application, setApplication] = useState<ApplicationData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchApplicationStatus();
-  }, [token]);
-
-  const fetchApplicationStatus = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
+  const {
+    data: application,
+    isLoading: loading,
+    error: queryError,
+    refetch,
+  } = useQuery<ApplicationData, Error>({
+    queryKey: ['/api/application-status', token],
+    queryFn: async () => {
       const response = await fetch(`/api/application-status/${token}`);
       if (!response.ok) {
-        if (response.status === 404) {
-          setError('Application not found');
-        } else {
-          setError('Failed to load status');
-        }
-        return;
+        if (response.status === 404) throw new Error('Application not found');
+        throw new Error('Failed to load status');
       }
+      return response.json();
+    },
+    enabled: !!token,
+  });
 
-      const data = await response.json();
-      setApplication(data);
-      
-      if (onStatusChange) {
-        onStatusChange(data.status);
-      }
-    } catch (err) {
-      setError('Network error');
-    } finally {
-      setLoading(false);
+  const error = queryError ? queryError.message : null;
+  const fetchApplicationStatus = () => { refetch(); };
+
+  useEffect(() => {
+    if (application && onStatusChange) {
+      onStatusChange(application.status);
     }
-  };
+  }, [application, onStatusChange]);
 
   const getStatusInfo = (status: string) => {
     switch (status.toLowerCase()) {

@@ -9,60 +9,69 @@ import { ACTIONS } from "@shared/permissions";
 import { usePermissions } from "@/hooks/usePermissions";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
-import Dashboard from "@/pages/dashboard";
-import Merchants from "@/pages/merchants";
-import Locations from "@/pages/locations";
-import Agents from "@/pages/agents";
-import Transactions from "@/pages/transactions";
-import Users from "@/pages/users";
-import Reports from "@/pages/reports";
-import Security from "@/pages/security";
-import PdfForms from "@/pages/pdf-forms";
-import PdfFormWizard from "@/pages/pdf-form-wizard";
-import EnhancedPdfWizard from "@/pages/enhanced-pdf-wizard";
-import PublicForm from "@/pages/public-form";
-import MerchantApplication from "@/pages/merchant-application";
-import FormApplication from "@/pages/form-application";
-import Prospects from "@/pages/prospects";
-import ProspectValidation from "@/pages/prospect-validation";
-import SignatureRequest from "@/pages/signature-request";
-import ApplicationStatus from "@/pages/application-status";
-import ApplicationView from "@/pages/application-view";
-import ApplicationPrint from "@/pages/application-print";
-import AgentDashboard from "@/pages/agent-dashboard";
-import Campaigns from "@/pages/campaigns";
-import Equipment from "@/pages/equipment";
-import ApiDocumentation from "@/pages/api-documentation";
-import TestingUtilities from "@/pages/testing-utilities";
-import RolesPermissionsPage from "@/pages/roles-permissions";
-import AdminOperations from "@/pages/admin-operations";
-import UnderwritingQueue from "@/pages/underwriting-queue";
-import UnderwritingReview from "@/pages/underwriting-review";
-import Workflows from "@/pages/workflows";
-import ApplicationTemplates from "@/pages/application-templates";
-import CampaignView from "@/pages/campaign-view";
-import CampaignRulesPage from "@/pages/campaign-rules";
-import Acquirers from "@/pages/acquirers";
-import MccCodes from "@/pages/mcc-codes";
-import MccPolicies from "@/pages/mcc-policies";
-import DisclosureLibrary from "@/pages/disclosure-library";
-import PdfNamingGuide from "@/pages/pdf-naming-guide";
-import FormDemo from "@/pages/form-demo";
-import ActionTemplates from "@/pages/action-templates";
-import DataView from "@/pages/data-view";
-import CommunicationsManagement from "@/pages/communications-management";
-import AlertsPage from "@/pages/AlertsPage";
-import ProfilePage from "@/pages/profile";
-import CommissionsPage from "@/pages/commissions";
-import PortalLogin from "@/pages/portal-login";
-import ProspectPortal from "@/pages/portal";
-import PortalMagicLogin from "@/pages/portal-magic-login";
 import NotFound from "@/pages/not-found";
-import EntityDetail from "@/pages/entity-detail";
-import Landing from "@/pages/landing";
-import Auth from "@/pages/auth";
-import { useState, useEffect, createContext, useContext } from "react";
+import { lazy, Suspense, useState, useEffect, createContext, useContext } from "react";
 import { useToast } from "@/hooks/use-toast";
+
+const Dashboard = lazy(() => import("@/pages/dashboard"));
+const Merchants = lazy(() => import("@/pages/merchants"));
+const Locations = lazy(() => import("@/pages/locations"));
+const Agents = lazy(() => import("@/pages/agents"));
+const Transactions = lazy(() => import("@/pages/transactions"));
+const Users = lazy(() => import("@/pages/users"));
+const Reports = lazy(() => import("@/pages/reports"));
+const Security = lazy(() => import("@/pages/security"));
+const PdfForms = lazy(() => import("@/pages/pdf-forms"));
+const PdfFormWizard = lazy(() => import("@/pages/pdf-form-wizard"));
+const EnhancedPdfWizard = lazy(() => import("@/pages/enhanced-pdf-wizard"));
+const PublicForm = lazy(() => import("@/pages/public-form"));
+const MerchantApplication = lazy(() => import("@/pages/merchant-application"));
+const FormApplication = lazy(() => import("@/pages/form-application"));
+const Prospects = lazy(() => import("@/pages/prospects"));
+const ProspectValidation = lazy(() => import("@/pages/prospect-validation"));
+const SignatureRequest = lazy(() => import("@/pages/signature-request"));
+const ApplicationStatus = lazy(() => import("@/pages/application-status"));
+const ApplicationView = lazy(() => import("@/pages/application-view"));
+const ApplicationPrint = lazy(() => import("@/pages/application-print"));
+const AgentDashboard = lazy(() => import("@/pages/agent-dashboard"));
+const Campaigns = lazy(() => import("@/pages/campaigns"));
+const Equipment = lazy(() => import("@/pages/equipment"));
+const ApiDocumentation = lazy(() => import("@/pages/api-documentation"));
+const TestingUtilities = lazy(() => import("@/pages/testing-utilities"));
+const RolesPermissionsPage = lazy(() => import("@/pages/roles-permissions"));
+const AdminOperations = lazy(() => import("@/pages/admin-operations"));
+const UnderwritingQueue = lazy(() => import("@/pages/underwriting-queue"));
+const UnderwritingReview = lazy(() => import("@/pages/underwriting-review"));
+const Workflows = lazy(() => import("@/pages/workflows"));
+const ApplicationTemplates = lazy(() => import("@/pages/application-templates"));
+const CampaignView = lazy(() => import("@/pages/campaign-view"));
+const CampaignRulesPage = lazy(() => import("@/pages/campaign-rules"));
+const Acquirers = lazy(() => import("@/pages/acquirers"));
+const MccCodes = lazy(() => import("@/pages/mcc-codes"));
+const MccPolicies = lazy(() => import("@/pages/mcc-policies"));
+const DisclosureLibrary = lazy(() => import("@/pages/disclosure-library"));
+const PdfNamingGuide = lazy(() => import("@/pages/pdf-naming-guide"));
+const FormDemo = lazy(() => import("@/pages/form-demo"));
+const ActionTemplates = lazy(() => import("@/pages/action-templates"));
+const DataView = lazy(() => import("@/pages/data-view"));
+const CommunicationsManagement = lazy(() => import("@/pages/communications-management"));
+const AlertsPage = lazy(() => import("@/pages/AlertsPage"));
+const ProfilePage = lazy(() => import("@/pages/profile"));
+const CommissionsPage = lazy(() => import("@/pages/commissions"));
+const PortalLogin = lazy(() => import("@/pages/portal-login"));
+const ProspectPortal = lazy(() => import("@/pages/portal"));
+const PortalMagicLogin = lazy(() => import("@/pages/portal-magic-login"));
+const EntityDetail = lazy(() => import("@/pages/entity-detail"));
+const Landing = lazy(() => import("@/pages/landing"));
+const Auth = lazy(() => import("@/pages/auth"));
+
+function PageFallback() {
+  return (
+    <div className="flex-1 flex items-center justify-center p-8">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+    </div>
+  );
+}
 
 // Create auth context for immediate state updates
 const AuthContext = createContext<{
@@ -243,6 +252,7 @@ function AuthenticatedApp() {
     <div className="flex h-screen bg-gray-50">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
+        <Suspense fallback={<PageFallback />}>
         <Switch>
           <Route path="/">
             {() => {
@@ -923,6 +933,7 @@ function AuthenticatedApp() {
             </div>
           </Route>
         </Switch>
+        </Suspense>
       </div>
     </div>
   );
@@ -945,6 +956,7 @@ function AppContent() {
   return (
     <AuthContext.Provider value={{ user, setUser: () => {}, isLoading }}>
       <div className="min-h-screen bg-gray-50">
+        <Suspense fallback={<PageFallback />}>
         <Switch>
           <Route path="/form/:token">
             {(params) => <PublicForm />}
@@ -1000,6 +1012,7 @@ function AppContent() {
             {isAuthenticated ? <AuthenticatedApp /> : <Auth />}
           </Route>
         </Switch>
+        </Suspense>
       </div>
     </AuthContext.Provider>
   );

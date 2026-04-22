@@ -90,17 +90,13 @@ export default function PdfFormsPage() {
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Fetch current user to check admin role
-  const { data: currentUser } = useQuery({
-    queryKey: ['/api/auth/user'],
-    retry: 3,
-    staleTime: 5 * 60 * 1000,
-  });
+  // Reuse the user from useAuth() above (already destructured at the top of this component).
+  const currentUser = user as any;
 
   // Check if current user is admin
   const isAdmin = currentUser?.role === 'admin' || 
                   currentUser?.role === 'super_admin' ||
-                  (currentUser?.id && currentUser.id.includes('admin'));
+                  (currentUser?.id && String(currentUser.id).includes('admin'));
 
   // Fetch all PDF forms with proper error handling
   const { data: pdfForms, isLoading: formsLoading, error: formsError, refetch } = useQuery<PdfForm[]>({

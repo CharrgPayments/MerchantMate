@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Badge } from "@/components/ui/badge";
 import { FileText, CheckCircle, Edit2, Check, X, Settings, Navigation, Play, Calendar, User } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 
 interface PdfForm {
   id: number;
@@ -39,12 +40,8 @@ export default function FormApplicationPage() {
   // Get form ID from URL parameter
   const formId = id ? parseInt(id) : null;
 
-  // Fetch current user to check admin role
-  const { data: currentUser } = useQuery({
-    queryKey: ['/api/auth/user'],
-    retry: 3,
-    staleTime: 5 * 60 * 1000,
-  });
+  // Current user (shared cache via useAuth)
+  const { user: currentUser } = useAuth();
 
   // Check if current user is admin
   const isAdmin = (currentUser as any)?.role === 'admin' || 

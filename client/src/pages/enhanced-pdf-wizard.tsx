@@ -326,6 +326,12 @@ export default function EnhancedPdfWizard() {
       
       return response.json();
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/prospects'] });
+      if (prospectToken) {
+        queryClient.invalidateQueries({ queryKey: ['/api/prospects/token', prospectToken] });
+      }
+    },
   });
 
   // Auto-save mutation
@@ -345,6 +351,9 @@ export default function EnhancedPdfWizard() {
       }
       
       return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/pdf-forms', id, 'auto-save'] });
     },
   });
 
@@ -368,6 +377,11 @@ export default function EnhancedPdfWizard() {
       }
       
       return response.json();
+    },
+    onSuccess: () => {
+      if (prospectToken) {
+        queryClient.invalidateQueries({ queryKey: ['/api/prospects/token', prospectToken] });
+      }
     },
   });
 
