@@ -16,7 +16,7 @@ import { createAlert, createAlertForRoles } from "./alertService";
 import { v4 as uuidv4 } from "uuid";
 import { dbEnvironmentMiddleware, adminDbMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
 import { rateLimit } from "./rateLimits";
-import { parsePagination, makePage, wantsPaginatedEnvelope } from "./lib/pagination";
+import { parsePaginationOrSend, makePage, wantsPaginatedEnvelope } from "./lib/pagination";
 import { redactSensitive } from "./auditRedaction";
 import { registerUnderwritingRoutes } from "./underwriting/routes";
 import { registerCommissionsRoutes } from "./routes/commissions";
@@ -1026,7 +1026,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Always paginates SQL-side (cap = 500). Returns the `{items,total,…}`
       // envelope only when the caller opts in via `?page=`, `?pageSize=`, or
       // `?paginated=1`; otherwise returns the bare array for backwards compat.
-      const p = parsePagination(req);
+      const p = parsePaginationOrSend(req, res);
+      if (!p) return;
       const search = typeof req.query.search === "string" ? req.query.search : undefined;
       const result = await storage.getUsersPaged({ ...p, search });
       res.json(wantsPaginatedEnvelope(req) ? makePage(result.items, result.total, p) : result.items);
@@ -1332,7 +1333,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/merchants", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       const userId = req.user?.id || req.user?.claims?.sub;
-      const p = parsePagination(req);
+      const p = parsePaginationOrSend(req, res);
+      if (!p) return;
       const search = typeof req.query.search === "string" ? req.query.search : undefined;
       const status = typeof req.query.status === "string" ? req.query.status : undefined;
       const result = await storage.getMerchantsForUserPaged(userId, { ...p, search, status });
@@ -1588,7 +1590,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(userId);
       if (!user) return res.status(404).json({ message: "User not found" });
 
-      const p = parsePagination(req);
+      const p = parsePaginationOrSend(req, res);
+      if (!p) return;
       const search = typeof req.query.search === "string" ? req.query.search : undefined;
       const status = typeof req.query.status === "string" ? req.query.status : undefined;
       const result = await storage.getTransactionsForUserPaged(userId, { ...p, search, status });
@@ -1706,7 +1709,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(userId);
       if (!user) return res.status(401).json({ message: "User not found" });
 
-      const p = parsePagination(req);
+      const p = parsePaginationOrSend(req, res);
+      if (!p) return;
       const search = typeof req.query.search === "string" ? req.query.search : undefined;
       const status = typeof req.query.status === "string" ? req.query.status : undefined;
 
@@ -4144,7 +4148,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Agent routes (admin only)
   app.get("/api/agents", dbEnvironmentMiddleware, requirePerm('agent:read'), async (req: RequestWithDB, res) => {
     try {
-      const p = parsePagination(req);
+      const p = parsePaginationOrSend(req, res);
+      if (!p) return;
       const search = typeof req.query.search === "string" ? req.query.search : undefined;
       const status = typeof req.query.status === "string" ? req.query.status : undefined;
       const result = await storage.getAgentsPaged({ ...p, search, status });

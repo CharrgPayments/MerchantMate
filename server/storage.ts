@@ -1,7 +1,7 @@
 import { userPreferences, type UserPreference } from "@shared/schema";
 import { merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, campaignAssignmentRules, equipmentItems, campaignEquipment, apiKeys, apiRequestLogs, emailTemplates, emailActivity, emailTriggers, workflowDefinitions, workflowEnvironmentConfigs, externalEndpoints, type ExternalEndpoint, type InsertExternalEndpoint, type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type InsertProspectSignature, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type CampaignAssignmentRule, type InsertCampaignAssignmentRule, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowEnvironmentConfig, type InsertWorkflowEnvironmentConfig, type WorkflowDefinitionWithDetails } from "@shared/schema";
 import { db } from "./db";
-import { eq, or, and, gte, sql, desc, inArray, like, ilike, not, count } from "drizzle-orm";
+import { eq, or, and, gte, sql, desc, inArray, like, ilike, not, count, type SQL } from "drizzle-orm";
 import { auditLogs, securityEvents } from "@shared/schema";
 
 export interface IStorage {
@@ -2642,14 +2642,15 @@ export class DatabaseStorage implements IStorage {
   async getMerchantsPaged(opts: {
     offset: number; limit: number; search?: string; status?: string;
   }): Promise<{ items: MerchantWithAgent[]; total: number }> {
-    const conds = [] as any[];
+    const conds: SQL[] = [];
     if (opts.search) {
       const q = `%${opts.search}%`;
-      conds.push(or(
+      const searchExpr = or(
         ilike(merchants.businessName, q),
         ilike(merchants.email, q),
         ilike(merchants.businessType, q),
-      ));
+      );
+      if (searchExpr) conds.push(searchExpr);
     }
     if (opts.status && opts.status !== "all") conds.push(eq(merchants.status, opts.status));
     const where = conds.length ? and(...conds) : undefined;
@@ -2658,7 +2659,7 @@ export class DatabaseStorage implements IStorage {
       .select({ merchant: merchants, agent: agents })
       .from(merchants)
       .leftJoin(agents, eq(merchants.agentId, agents.id))
-      .where(where as any)
+      .where(where)
       .orderBy(desc(merchants.id))
       .limit(opts.limit)
       .offset(opts.offset);
@@ -2666,7 +2667,7 @@ export class DatabaseStorage implements IStorage {
     const [{ value: total }] = await db
       .select({ value: count() })
       .from(merchants)
-      .where(where as any);
+      .where(where);
 
     return {
       items: rows.map(r => ({ ...r.merchant, agent: r.agent || undefined })),
@@ -2686,10 +2687,11 @@ export class DatabaseStorage implements IStorage {
     if (role === "agent") {
       const [agentRow] = await db.select().from(agents).where(eq(agents.userId, userId)).limit(1);
       if (!agentRow) return { items: [], total: 0 };
-      const conds: any[] = [eq(merchants.agentId, agentRow.id)];
+      const conds: SQL[] = [eq(merchants.agentId, agentRow.id)];
       if (opts.search) {
         const q = `%${opts.search}%`;
-        conds.push(or(ilike(merchants.businessName, q), ilike(merchants.email, q)));
+        const searchExpr = or(ilike(merchants.businessName, q), ilike(merchants.email, q));
+        if (searchExpr) conds.push(searchExpr);
       }
       if (opts.status && opts.status !== "all") conds.push(eq(merchants.status, opts.status));
       const where = and(...conds);
@@ -2716,23 +2718,24 @@ export class DatabaseStorage implements IStorage {
   async getAgentsPaged(opts: {
     offset: number; limit: number; search?: string; status?: string;
   }): Promise<{ items: Agent[]; total: number }> {
-    const conds: any[] = [];
+    const conds: SQL[] = [];
     if (opts.search) {
       const q = `%${opts.search}%`;
-      conds.push(or(
+      const searchExpr = or(
         ilike(agents.firstName, q),
         ilike(agents.lastName, q),
         ilike(agents.email, q),
-      ));
+      );
+      if (searchExpr) conds.push(searchExpr);
     }
     if (opts.status && opts.status !== "all") conds.push(eq(agents.status, opts.status));
     const where = conds.length ? and(...conds) : undefined;
 
     const items = await db.select().from(agents)
-      .where(where as any)
+      .where(where)
       .orderBy(desc(agents.id))
       .limit(opts.limit).offset(opts.offset);
-    const [{ value: total }] = await db.select({ value: count() }).from(agents).where(where as any);
+    const [{ value: total }] = await db.select({ value: count() }).from(agents).where(where);
     return { items, total: Number(total ?? 0) };
   }
 
@@ -2740,15 +2743,16 @@ export class DatabaseStorage implements IStorage {
     offset: number; limit: number; search?: string; status?: string;
     merchantIds?: number[];
   }): Promise<{ items: TransactionWithMerchant[]; total: number }> {
-    const conds: any[] = [];
+    const conds: SQL[] = [];
     if (opts.search) {
       const q = `%${opts.search}%`;
-      conds.push(or(
+      const searchExpr = or(
         ilike(transactions.transactionId, q),
         ilike(transactions.paymentMethod, q),
         ilike(transactions.mid, q),
         ilike(merchants.businessName, q),
-      ));
+      );
+      if (searchExpr) conds.push(searchExpr);
     }
     if (opts.status && opts.status !== "all") conds.push(eq(transactions.status, opts.status));
     if (opts.merchantIds) {
@@ -2761,14 +2765,14 @@ export class DatabaseStorage implements IStorage {
       .select({ transaction: transactions, merchant: merchants })
       .from(transactions)
       .leftJoin(merchants, eq(transactions.merchantId, merchants.id))
-      .where(where as any)
+      .where(where)
       .orderBy(desc(transactions.createdAt))
       .limit(opts.limit).offset(opts.offset);
     const [{ value: total }] = await db
       .select({ value: count() })
       .from(transactions)
       .leftJoin(merchants, eq(transactions.merchantId, merchants.id))
-      .where(where as any);
+      .where(where);
     return {
       items: rows.map(r => ({ ...r.transaction, merchant: r.merchant || undefined })),
       total: Number(total ?? 0),
@@ -2801,45 +2805,47 @@ export class DatabaseStorage implements IStorage {
   async getUsersPaged(opts: {
     offset: number; limit: number; search?: string;
   }): Promise<{ items: User[]; total: number }> {
-    const conds: any[] = [];
+    const conds: SQL[] = [];
     if (opts.search) {
       const q = `%${opts.search}%`;
-      conds.push(or(
+      const searchExpr = or(
         ilike(users.username, q),
         ilike(users.email, q),
         ilike(users.firstName, q),
         ilike(users.lastName, q),
-      ));
+      );
+      if (searchExpr) conds.push(searchExpr);
     }
     const where = conds.length ? and(...conds) : undefined;
     const items = await db.select().from(users)
-      .where(where as any)
+      .where(where)
       .orderBy(desc(users.createdAt))
       .limit(opts.limit).offset(opts.offset);
-    const [{ value: total }] = await db.select({ value: count() }).from(users).where(where as any);
+    const [{ value: total }] = await db.select({ value: count() }).from(users).where(where);
     return { items: this.withRoles(items), total: Number(total ?? 0) };
   }
 
   async getMerchantProspectsPaged(opts: {
     offset: number; limit: number; search?: string; status?: string; agentId?: number;
   }): Promise<{ items: MerchantProspect[]; total: number }> {
-    const conds: any[] = [];
+    const conds: SQL[] = [];
     if (opts.agentId !== undefined) conds.push(eq(merchantProspects.agentId, opts.agentId));
     if (opts.search) {
       const q = `%${opts.search}%`;
-      conds.push(or(
+      const searchExpr = or(
         ilike(merchantProspects.firstName, q),
         ilike(merchantProspects.lastName, q),
         ilike(merchantProspects.email, q),
-      ));
+      );
+      if (searchExpr) conds.push(searchExpr);
     }
     if (opts.status && opts.status !== "all") conds.push(eq(merchantProspects.status, opts.status));
     const where = conds.length ? and(...conds) : undefined;
     const items = await db.select().from(merchantProspects)
-      .where(where as any)
+      .where(where)
       .orderBy(desc(merchantProspects.createdAt))
       .limit(opts.limit).offset(opts.offset);
-    const [{ value: total }] = await db.select({ value: count() }).from(merchantProspects).where(where as any);
+    const [{ value: total }] = await db.select({ value: count() }).from(merchantProspects).where(where);
     return { items, total: Number(total ?? 0) };
   }
 }
