@@ -176,9 +176,6 @@ export interface IStorage {
   createApiKey(apiKey: InsertApiKey): Promise<ApiKey>;
   updateApiKey(id: number, updates: Partial<InsertApiKey>): Promise<ApiKey | undefined>;
   deleteApiKey(id: number): Promise<boolean>;
-  getApiUsageStats(): Promise<any>;
-  getApiRequestLogs(): Promise<ApiRequestLog[]>;
-  
   // Security & Audit operations
   getAuditLogs(limit?: number): Promise<any[]>;
   getAllAuditLogs(): Promise<any[]>;
@@ -1363,7 +1360,7 @@ export class DatabaseStorage implements IStorage {
     return Array.from(locationsMap.values());
   }
 
-  async getDashboardRevenue(timeRange: string = 'monthly') {
+  async getDashboardRevenue(_timeRange: string = 'monthly') {
     return {
       totalRevenue: "0.00",
       thisMonth: "0.00",
@@ -1371,7 +1368,7 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async getTopLocations() {
+  async getTopLocations(_limit: number = 5, _sortBy: string = 'revenue'): Promise<any[]> {
     return [];
   }
 
@@ -2373,12 +2370,25 @@ export class DatabaseStorage implements IStorage {
     return (result.rowCount ?? 0) > 0;
   }
 
-  async getApiUsageStats(): Promise<any> {
-    return { totalRequests: 0, successfulRequests: 0, failedRequests: 0 };
+  async getApiUsageStats(_apiKeyId: number, _timeRange: string): Promise<{
+    totalRequests: number;
+    successfulRequests: number;
+    errorRequests: number;
+    averageResponseTime: number;
+  }> {
+    return { totalRequests: 0, successfulRequests: 0, errorRequests: 0, averageResponseTime: 0 };
   }
 
-  async getApiRequestLogs(): Promise<ApiRequestLog[]> {
-    return await db.select().from(apiRequestLogs).orderBy(desc(apiRequestLogs.createdAt)).limit(100);
+  async getApiRequestLogs(apiKeyId?: number, limit: number = 100): Promise<ApiRequestLog[]> {
+    const query = db.select().from(apiRequestLogs).orderBy(desc(apiRequestLogs.createdAt)).limit(limit);
+    if (apiKeyId !== undefined) {
+      return await db.select().from(apiRequestLogs).where(eq(apiRequestLogs.apiKeyId, apiKeyId)).orderBy(desc(apiRequestLogs.createdAt)).limit(limit);
+    }
+    return await query;
+  }
+
+  async getAuditLogs(limit: number = 100): Promise<any[]> {
+    return await db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(limit);
   }
 
   async getAllMerchantProspects() {

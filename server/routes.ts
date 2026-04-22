@@ -1,4 +1,4 @@
-import type { Express, Request as ExpressRequest, Response } from "express";
+import type { Express, Request, Request as ExpressRequest, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuthRoutes } from "./authRoutes";
@@ -33,7 +33,7 @@ import { registerSchemaSyncRoutes } from "./routes/schemaSync";
 import { registerExternalEndpointsRoutes } from "./routes/externalEndpoints";
 import { calculateCommissionsForTransaction } from "./commissions";
 import { getDynamicDatabase } from "./db";
-import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity, agentHierarchy, merchantHierarchy, underwritingStatusHistory, prospectApplications as prospectAppsTable, roleDefinitions, transactions, locations as locationsTable, pdfFormFields } from "@shared/schema";
+import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity, agentHierarchy, merchantHierarchy, underwritingStatusHistory, prospectApplications as prospectAppsTable, roleDefinitions, transactions, locations as locationsTable, pdfFormFields, roleActionAudit, type CampaignWithDetails, type CampaignEquipment, type EquipmentItem, type InsertFeeGroup, type InsertFeeItemGroup } from "@shared/schema";
 import { runUnderwritingPipeline } from "./underwriting/orchestrator";
 import { notifyTransition } from "./underwriting/notifications";
 import { initAgentClosure, initMerchantClosure, setAgentParent, setMerchantParent, getAgentDescendantIds, getMerchantDescendantIds, isAgentDescendantOf, detachAgentForDelete, detachMerchantForDelete, HierarchyError, MAX_HIERARCHY_DEPTH } from "./hierarchyService";
@@ -285,15 +285,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
               {
                 userId,
                 ipAddress: req.ip || req.connection.remoteAddress || 'unknown',
-                userAgent: req.get('User-Agent') || null,
+                userAgent: req.get('User-Agent') || undefined,
                 method: req.method,
                 endpoint: req.path,
-                requestData: safeRequest,
-                responseData: safeResponse,
-                resourceId: parsedResponse?.id || 'unknown',
+                requestBody: safeRequest,
                 environment: req.dbEnv || 'production'
               },
               {
+                resourceId: parsedResponse?.id ? String(parsedResponse.id) : 'unknown',
+                newValues: safeResponse,
                 riskLevel: 'medium',
                 dataClassification: resource.includes('user') || resource.includes('agent') ? 'restricted' : 'internal',
                 notes: `Created ${resource} record${parsedResponse?.id ? ` (ID: ${parsedResponse.id})` : ''}`
@@ -307,15 +307,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
               {
                 userId,
                 ipAddress: req.ip || req.connection.remoteAddress || 'unknown',
-                userAgent: req.get('User-Agent') || null,
+                userAgent: req.get('User-Agent') || undefined,
                 method: req.method,
                 endpoint: req.path,
-                requestData: safeRequest,
-                responseData: safeResponse,
-                resourceId,
+                requestBody: safeRequest,
                 environment: req.dbEnv || 'production'
               },
               {
+                resourceId: resourceId ? String(resourceId) : undefined,
+                newValues: safeResponse,
                 riskLevel: 'medium',
                 dataClassification: resource.includes('user') || resource.includes('agent') ? 'restricted' : 'internal',
                 notes: `Updated ${resource} record${resourceId ? ` (ID: ${resourceId})` : ''}`
@@ -329,15 +329,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
               {
                 userId,
                 ipAddress: req.ip || req.connection.remoteAddress || 'unknown',
-                userAgent: req.get('User-Agent') || null,
+                userAgent: req.get('User-Agent') || undefined,
                 method: req.method,
                 endpoint: req.path,
-                requestData: safeRequest,
-                responseData: safeResponse,
-                resourceId,
+                requestBody: safeRequest,
                 environment: req.dbEnv || 'production'
               },
               {
+                resourceId: resourceId ? String(resourceId) : undefined,
+                newValues: safeResponse,
                 riskLevel: 'medium',
                 dataClassification: resource.includes('user') || resource.includes('agent') ? 'restricted' : 'internal',
                 notes: `Partially updated ${resource} record${resourceId ? ` (ID: ${resourceId})` : ''}`
@@ -351,13 +351,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
               {
                 userId,
                 ipAddress: req.ip || req.connection.remoteAddress || 'unknown',
-                userAgent: req.get('User-Agent') || null,
+                userAgent: req.get('User-Agent') || undefined,
                 method: req.method,
                 endpoint: req.path,
-                resourceId,
                 environment: req.dbEnv || 'production'
               },
               {
+                resourceId: resourceId ? String(resourceId) : undefined,
                 riskLevel: 'high',
                 dataClassification: resource.includes('user') || resource.includes('agent') ? 'restricted' : 'internal',
                 notes: `Deleted ${resource} record${resourceId ? ` (ID: ${resourceId})` : ''}`
@@ -991,7 +991,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/auth/user', isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ message: "Authentication required" });
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
@@ -1373,6 +1374,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/merchants", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       const userId = req.user?.id || req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ message: "Authentication required" });
       const p = parsePaginationOrSend(req, res);
       if (!p) return;
       const search = typeof req.query.search === "string" ? req.query.search : undefined;
@@ -1389,7 +1391,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/merchants/:merchantId/locations", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       const { merchantId } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ message: "Authentication required" });
       const user = await storage.getUser(userId);
       
       // For merchant users, only allow access to their own merchant data
@@ -1412,7 +1415,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/merchants/:merchantId/locations", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       const { merchantId } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ message: "Authentication required" });
       const user = await storage.getUser(userId);
       
       // For merchant users, only allow access to their own merchant data
@@ -1440,7 +1444,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/locations/:locationId", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       const { locationId } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ message: "Authentication required" });
       const user = await storage.getUser(userId);
       
       // Get location to check merchant ownership
@@ -1471,7 +1476,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/locations/:locationId", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       const { locationId } = req.params;
-      const userId = req.user.claims.sub;
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ message: "Authentication required" });
       const user = await storage.getUser(userId);
       
       // Get location to check merchant ownership
@@ -1794,7 +1800,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "User not found" });
       }
       
-      if (!['agent', 'admin', 'corporate', 'super_admin'].includes(user.role)) {
+      if (!['agent', 'admin', 'corporate', 'super_admin'].includes(user.role || '')) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       
@@ -1965,7 +1971,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "User not found" });
       }
       
-      if (!['agent', 'admin', 'corporate', 'super_admin'].includes(user.role)) {
+      if (!['agent', 'admin', 'corporate', 'super_admin'].includes(user.role || '')) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       
@@ -2038,7 +2044,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Look up the latest application for this prospect (Epic F: activity feed scoping)
       let applicationId: number | null = null;
       try {
-        const apps = await db.select({ id: prospectAppsTable.id })
+        const dynamicDB = getRequestDB(req);
+        const apps = await dynamicDB.select({ id: prospectAppsTable.id })
           .from(prospectAppsTable)
           .where(eq(prospectAppsTable.prospectId, prospect.id))
           .orderBy(desc(prospectAppsTable.id))
@@ -2053,9 +2060,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         assignedAgent,
         applicationId,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching prospect:", error);
-      res.status(500).json({ message: "Failed to fetch prospect", error: error.message });
+      res.status(500).json({ message: "Failed to fetch prospect", error: error?.message });
     }
   });
 
@@ -2181,8 +2188,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get campaign assignment for this prospect
       const campaignAssignment = await storage.getProspectCampaignAssignment(prospect.id);
-      let campaign = null;
-      let campaignEquipment = [];
+      let campaign: CampaignWithDetails | undefined = undefined;
+      let campaignEquipment: (CampaignEquipment & { equipmentItem: EquipmentItem })[] = [];
 
       if (campaignAssignment) {
         // Get campaign details
@@ -2468,7 +2475,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Compare schemas and find differences
       const findSchemaDifferences = (schema1: any, schema2: any) => {
-        const differences = {
+        const differences: {
+          missingTables: any[];
+          extraTables: any[];
+          columnDifferences: any[];
+          indexDifferences: any[];
+        } = {
           missingTables: [],
           extraTables: [],
           columnDifferences: [],
@@ -2480,20 +2492,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const schema2Tables = new Set(schema2.tables.map((t: any) => t.table_name));
         
         // Find missing and extra tables
-        for (const table of schema1Tables) {
+        for (const table of Array.from(schema1Tables)) {
           if (!schema2Tables.has(table)) {
             differences.missingTables.push(table);
           }
         }
         
-        for (const table of schema2Tables) {
+        for (const table of Array.from(schema2Tables)) {
           if (!schema1Tables.has(table)) {
             differences.extraTables.push(table);
           }
         }
         
         // Find column differences for common tables
-        for (const table of schema1Tables) {
+        for (const table of Array.from(schema1Tables)) {
           if (schema2Tables.has(table)) {
             const schema1Cols = schema1.tables.filter((t: any) => t.table_name === table);
             const schema2Cols = schema2.tables.filter((t: any) => t.table_name === table);
@@ -2501,7 +2513,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const schema1ColNames = new Set(schema1Cols.map((c: any) => c.column_name));
             const schema2ColNames = new Set(schema2Cols.map((c: any) => c.column_name));
             
-            for (const col of schema1ColNames) {
+            for (const col of Array.from(schema1ColNames)) {
               if (!schema2ColNames.has(col)) {
                 differences.columnDifferences.push({
                   table: table,
@@ -2512,7 +2524,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             }
             
-            for (const col of schema2ColNames) {
+            for (const col of Array.from(schema2ColNames)) {
               if (!schema1ColNames.has(col)) {
                 differences.columnDifferences.push({
                   table: table,
@@ -2785,7 +2797,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sourceDB = getDynamicDatabase(fromEnvironment);
       const targetDB = getDynamicDatabase(toEnvironment);
       
-      const results = {
+      const results: {
+        success: boolean;
+        fromEnvironment: any;
+        toEnvironment: any;
+        syncType: any;
+        operations: any[];
+        errors: any[];
+        checkpointCreated: boolean;
+        interactivePrompt: any;
+      } = {
         success: true,
         fromEnvironment,
         toEnvironment,
@@ -2865,10 +2886,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           console.log(`✅ Schema synchronized to ${toEnvironment}`);
           
-        } catch (error) {
+        } catch (error: any) {
           console.error(`❌ Failed to sync to ${toEnvironment}:`, error);
           
-          let errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          let errorMessage: string = error instanceof Error ? error.message : 'Unknown error';
           
           // Check for interactive prompts that need user input
           if (errorMessage.includes('Is') && errorMessage.includes('column') && errorMessage.includes('created or renamed')) {
@@ -2891,11 +2912,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
               };
               
               results.interactivePrompt = {
-                question: promptMatch[0],
-                column: promptMatch[1],
-                table: promptMatch[2],
+                question: promptMatch![0],
+                column: promptMatch![1],
+                table: promptMatch![2],
                 options: [
-                  { type: 'create', label: `+ ${promptMatch[1]} create column`, recommended: false },
+                  { type: 'create', label: `+ ${promptMatch![1]} create column`, recommended: false },
                   { type: 'rename', label: 'Rename from existing column', recommended: true }
                 ],
                 command: `DATABASE_URL="${getDatabaseUrl(toEnvironment)}" npx drizzle-kit push`
@@ -2919,9 +2940,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else if (syncType === 'selective' && tables && Array.isArray(tables)) {
         // Selective table sync (copy structure only, not data)
         for (const tableName of tables) {
+          // Allow-list: only permit safe identifier characters to prevent SQL injection
+          if (typeof tableName !== 'string' || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
+            results.errors.push({
+              table: String(tableName),
+              error: 'Invalid table name',
+              operation: 'table-sync'
+            });
+            continue;
+          }
           try {
-            // Get the CREATE TABLE statement from source
-            const createTableResult = await sourceDB.execute(`
+            // Get the CREATE TABLE statement from source (parameterized)
+            // db-tier-allow: schema-sync admin endpoint reads information_schema for cross-env DDL replication
+            const createTableResult = await sourceDB.execute(sql`
               SELECT 
                 'CREATE TABLE ' || quote_ident(table_name) || ' (' ||
                 array_to_string(
@@ -2939,16 +2970,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   ), ', '
                 ) || ');' as create_statement
               FROM information_schema.columns 
-              WHERE table_schema = 'public' AND table_name = $1
+              WHERE table_schema = 'public' AND table_name = ${tableName}
               GROUP BY table_name
-            `, [tableName]);
+            `);
             
-            if (createTableResult.rows && createTableResult.rows.length > 0) {
-              const createStatement = createTableResult.rows[0].create_statement;
+            const rows = (createTableResult as unknown as { rows?: Array<{ create_statement: string }> }).rows ?? [];
+            if (rows.length > 0) {
+              const createStatement = rows[0].create_statement;
               
-              // Drop table if exists and recreate
-              await targetDB.execute(`DROP TABLE IF EXISTS ${tableName} CASCADE`);
-              await targetDB.execute(createStatement);
+              // Drop table if exists and recreate. tableName is allow-list validated above.
+              // db-tier-allow: schema-sync admin endpoint replicates DDL across environments
+              await targetDB.execute(sql`DROP TABLE IF EXISTS ${sql.identifier(tableName)} CASCADE`);
+              // db-tier-allow: createStatement is generated by source DB from information_schema, not user input
+              await targetDB.execute(sql.raw(createStatement));
               
               results.operations.push({
                 type: 'table-sync',
@@ -2958,7 +2992,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               });
             }
             
-          } catch (error) {
+          } catch (error: any) {
             results.errors.push({
               table: tableName,
               error: error instanceof Error ? error.message : 'Unknown error',
@@ -2970,7 +3004,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(results);
       
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error syncing schemas:", error);
       res.status(500).json({ 
         success: false, 
@@ -3258,7 +3292,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (ruleMatch) resolved = ruleMatch;
           }
           if (resolved) {
-            await storage.swapCampaignForProspect(prospectId, resolved, sessionUserId);
+            await storage.swapCampaignForProspect(prospectId, resolved, sessionUserId || 'system');
           }
         }
       } catch (assignErr) {
@@ -3608,7 +3642,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Generated PDF file not found on disk" });
       }
 
-      const safeCompany = (prospect.companyName || `${prospect.firstName}_${prospect.lastName}`).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const safeCompany = (`${prospect.firstName}_${prospect.lastName}`).replace(/[^a-zA-Z0-9_-]/g, '_');
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${safeCompany}_Application.pdf"`);
       const fileStream = fs.createReadStream(fullPath);
@@ -4571,9 +4605,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         res.status(404).json({ message: "Agent not found" });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deleting agent:", error);
-      if (error.message?.includes('violates foreign key constraint')) {
+      if (error?.message?.includes('violates foreign key constraint')) {
         res.status(409).json({ 
           message: "Cannot delete agent: agent is still assigned to merchants or has related data" 
         });
@@ -4986,7 +5020,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/dashboard/initialize', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ message: "Authentication required" });
       const user = await storage.getUser(userId);
       
       if (!user) {
@@ -4994,15 +5029,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Create default widgets based on user role
-      const defaultWidgets = getDefaultWidgetsForRole(user.role);
+      const defaultWidgets = getDefaultWidgetsForRole(user.role || 'merchant');
       
       for (const widget of defaultWidgets) {
         await storage.createWidgetPreference({
-          userId,
-          widgetId: widget.id,
+          user_id: userId,
+          widget_id: widget.id,
           size: widget.size,
           position: widget.position,
-          isVisible: true,
+          is_visible: true,
           configuration: widget.configuration || {}
         });
       }
@@ -5782,11 +5817,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Fee group name is required" });
       }
 
-      const feeGroupData = {
-        name,
-        description: description || null,
-        displayOrder: displayOrder || 0,
-        author: req.user?.email || 'System'
+      const feeGroupData: InsertFeeGroup = {
+        name: String(name),
+        description: description ? String(description) : null,
+        displayOrder: Number(displayOrder) || 0,
+        author: String(req.user?.email || 'System')
       };
 
       console.log(`Creating fee group - Database environment: ${req.dbEnv}`);
@@ -5840,7 +5875,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         name,
         description: description || null,
         displayOrder: displayOrder || 0,
-        author: req.user?.email || 'System',
+        author: String(req.user?.email || 'System'),
         updatedAt: new Date()
       };
 
@@ -5928,7 +5963,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const feeGroupId = req.query.feeGroupId;
       
       if (feeGroupId) {
-        const feeItemGroups = await storage.getFeeItemGroupsByFeeGroup(parseInt(feeGroupId));
+        const feeItemGroups = await storage.getFeeItemGroupsByFeeGroup(parseInt(String(feeGroupId)));
         res.json(feeItemGroups);
       } else {
         const feeItemGroups = await storage.getAllFeeItemGroups();
@@ -5964,12 +5999,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Fee group ID and name are required" });
       }
 
-      const feeItemGroupData = {
-        feeGroupId,
-        name,
-        description: description || null,
-        displayOrder: displayOrder || 0,
-        author: req.user?.email || 'System'
+      const feeItemGroupData: InsertFeeItemGroup = {
+        feeGroupId: Number(feeGroupId),
+        name: String(name),
+        description: description ? String(description) : null,
+        displayOrder: Number(displayOrder) || 0,
+        author: String(req.user?.email || 'System')
       };
 
       const feeItemGroup = await storage.createFeeItemGroup(feeItemGroupData);
@@ -6358,7 +6393,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(eqOp(campaignAssignmentsTable.campaignId, id));
 
       const totalAssigned = assignmentRows.length;
-      const activeAssigned = assignmentRows.filter(r => r.isActive).length;
+      const activeAssigned = assignmentRows.filter(r => r.caIsActive).length;
 
       const prospectIds = assignmentRows
         .filter(r => r.caProspectId !== null)
@@ -7561,9 +7596,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         keySecret: undefined, // Don't include hashed secret
         fullKey, // Only returned on creation
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating API key:", error);
-      if (error.code === '23505') { // Unique constraint violation
+      if (error?.code === '23505') { // Unique constraint violation
         return res.status(400).json({ message: "API key name already exists" });
       }
       res.status(500).json({ message: "Failed to create API key" });
@@ -7857,9 +7892,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const template = await storage.createEmailTemplate(result.data);
       res.status(201).json(template);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating email template:", error);
-      if (error.code === '23505') { // Unique constraint violation
+      if (error?.code === '23505') { // Unique constraint violation
         return res.status(400).json({ message: "Email template name already exists" });
       }
       res.status(500).json({ message: "Failed to create email template" });
@@ -9685,11 +9720,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const q = req.query.q as string || '';
       if (!q || q.length < 2) return res.json({ suggestions: [] });
       const searchStr = `%${q}%`;
+      const { and } = await import("drizzle-orm");
       const results = await dbToUse.select().from(mccCodes)
-        .where(or(ilike(mccCodes.code, searchStr), ilike(mccCodes.description, searchStr), ilike(mccCodes.category, searchStr)))
-        .where(eq(mccCodes.isActive, true))
+        .where(and(
+          or(ilike(mccCodes.code, searchStr), ilike(mccCodes.description, searchStr), ilike(mccCodes.category, searchStr)),
+          eq(mccCodes.isActive, true)
+        ))
         .limit(10);
-      res.json({ suggestions: results.map(r => ({ mcc: r.code, description: r.description, category: r.category, irs_description: r.description })) });
+      res.json({ suggestions: results.map((r) => ({ mcc: r.code, description: r.description, category: r.category, irs_description: r.description })) });
     } catch (error) {
       res.status(500).json({ suggestions: [] });
     }
@@ -9783,7 +9821,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Disclosure Library API
   // ============================================================
 
-  app.get('/api/disclosures', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: any, res: Response) => {
+  app.get('/api/disclosures', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
@@ -9792,7 +9830,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const defs = await dbToUse.select().from(disclosureDefinitions).orderBy(disclosureDefinitions.displayName);
       const defsWithVersions = await Promise.all(defs.map(async (def) => {
         const versions = await dbToUse.select().from(disclosureVersions).where(eq(disclosureVersions.definitionId, def.id)).orderBy(disclosureVersions.version);
-        const currentVersion = versions.find(v => v.isCurrentVersion) || versions[versions.length - 1] || null;
+        const currentVersion = versions.find((v) => v.isCurrentVersion) || versions[versions.length - 1] || null;
         return { ...def, versions, currentVersion };
       }));
       res.json({ success: true, disclosures: defsWithVersions });
@@ -9815,7 +9853,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/disclosures/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: any, res: Response) => {
+  app.get('/api/disclosures/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       let dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
@@ -9853,7 +9891,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!def) return res.status(404).json({ success: false, message: 'Disclosure not found' });
       const versions = await dbToUse.select().from(disclosureVersions).where(eq(disclosureVersions.definitionId, def.id)).orderBy(disclosureVersions.version);
-      const currentVersion = versions.find(v => v.isCurrentVersion) || versions[versions.length - 1] || null;
+      const currentVersion = versions.find((v) => v.isCurrentVersion) || versions[versions.length - 1] || null;
       res.json({ success: true, disclosure: { ...def, versions, currentVersion } });
     } catch (error: any) {
       console.error('Error retrieving disclosure:', error?.message || error);
@@ -10169,10 +10207,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!template) return res.status(404).json({ message: "Template not found" });
         if (template.actionType === 'email' && recipientEmail) {
           const cfg = (template.config ?? {}) as Record<string, string | undefined>;
-          await emailService.sendEmail({
+          await emailService.sendGenericEmail({
             to: recipientEmail,
             subject: `[TEST] ${cfg.subject || template.name}`,
             html: cfg.body || cfg.html || `<p>Test send of template: ${template.name}</p>`,
+            text: cfg.text || `Test send of template: ${template.name}`,
           });
         }
       }
@@ -10741,9 +10780,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const apps = await dynamicDB.select().from(prospectApplications).where(eq(prospectApplications.prospectId, prospectId)).limit(1);
       const app = apps[0] || null;
       let templateName = null;
-      if (app?.acquirerTemplateId) {
-        const [tpl] = await dynamicDB.select({ name: acquirerApplicationTemplates.name }).from(acquirerApplicationTemplates).where(eq(acquirerApplicationTemplates.id, app.acquirerTemplateId));
-        templateName = tpl?.name || null;
+      if (app?.templateId) {
+        const [tpl] = await dynamicDB.select({ templateName: acquirerApplicationTemplates.templateName }).from(acquirerApplicationTemplates).where(eq(acquirerApplicationTemplates.id, app.templateId));
+        templateName = tpl?.templateName || null;
       }
       res.json({
         id: prospect.id, firstName: prospect.firstName, lastName: prospect.lastName,
