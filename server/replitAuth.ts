@@ -186,6 +186,7 @@ export const isAuthenticated: RequestHandler & {
         const { eq } = await import('drizzle-orm');
         
         const dynamicDB = getDynamicDatabase(sessionDbEnv);
+        // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
         const userResults = await dynamicDB.select().from(users).where(eq(users.id, sessionUserId));
         const rawUser = userResults[0] || null;
         dbUser = rawUser ? { ...rawUser, role: rawUser.roles?.[0] ?? (rawUser as any).role ?? "merchant" } : null;

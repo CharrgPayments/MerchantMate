@@ -58,6 +58,7 @@ import { eq, or, ilike, sql, inArray, desc, and } from "drizzle-orm";
 async function generateUsername(firstName: string, lastName: string, email: string, dynamicDB: any): Promise<string> {
   // Try email-based username first
   const emailUsername = email.split('@')[0].toLowerCase();
+  // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
   const existingUser = await dynamicDB.select().from(users).where(eq(users.username, emailUsername)).limit(1);
   
   if (existingUser.length === 0) {
@@ -66,6 +67,7 @@ async function generateUsername(firstName: string, lastName: string, email: stri
   
   // Try first initial + last name
   const firstInitialLastname = `${firstName.charAt(0).toLowerCase()}${lastName.toLowerCase()}`;
+  // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
   const existingUser2 = await dynamicDB.select().from(users).where(eq(users.username, firstInitialLastname)).limit(1);
   
   if (existingUser2.length === 0) {
@@ -76,6 +78,7 @@ async function generateUsername(firstName: string, lastName: string, email: stri
   let counter = 1;
   let username = `${firstInitialLastname}${counter}`;
   while (true) {
+    // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
     const existing = await dynamicDB.select().from(users).where(eq(users.username, username)).limit(1);
     if (existing.length === 0) {
       return username;
@@ -678,11 +681,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const dynamicDB = getRequestDB(req);
 
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const [user] = await dynamicDB.select().from(users).where(eq(users.id, userId));
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
 
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       let [agent] = await dynamicDB.select().from(agents).where(eq(agents.userId, userId));
       if (!agent && user.email) {
         [agent] = await dynamicDB.select().from(agents).where(eq(agents.email, user.email));
@@ -695,6 +700,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const scopedAgentIds = await resolveAgentScope(dynamicDB, agent.id, user, scope);
       const prospects = scopedAgentIds.length === 0
         ? []
+        // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
         : await dynamicDB.select().from(merchantProspects).where(inArray(merchantProspects.agentId, scopedAgentIds));
       console.log('Found prospects:', prospects.length);
       
@@ -737,11 +743,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const dynamicDB = getRequestDB(req);
 
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const [user] = await dynamicDB.select().from(users).where(eq(users.id, userId));
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
 
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       let [agent] = await dynamicDB.select().from(agents).where(eq(agents.userId, userId));
       if (!agent && user.email) {
         [agent] = await dynamicDB.select().from(agents).where(eq(agents.email, user.email));
@@ -754,6 +762,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const scopedAgentIds = await resolveAgentScope(dynamicDB, agent.id, user, scope);
       const prospects = scopedAgentIds.length === 0
         ? []
+        // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
         : await dynamicDB.select().from(merchantProspects).where(inArray(merchantProspects.agentId, scopedAgentIds));
       
       // Transform prospects to application format
@@ -1197,6 +1206,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // non-catalog roles can't sneak in via the generic edit form.
       if (Array.isArray(updates.roles)) {
         // Typed Drizzle SELECT through the per-request DynamicDB.
+        // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
         const known = await dynamicDB.select({ code: roleDefinitions.code }).from(roleDefinitions);
         const validCodes = known.map((r) => r.code);
         const invalid = (updates.roles as string[]).filter((r) => !validCodes.includes(r));
@@ -1757,6 +1767,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`Agent merchants endpoint - Database environment: ${req.dbEnv}`);
       
       // Use dynamic database to get agent merchants  
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const agentMerchantRecords = await dynamicDB.select({
         merchant: merchants,
         agent: agents
@@ -1797,6 +1808,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (role === 'agent') {
         // Resolve the agent record by userId, falling back to email — preserves
         // the prior behaviour where legacy agent rows lack userId but match by email.
+        // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
         let [agent] = await dynamicDB.select().from(agents).where(eq(agents.userId, userId));
         if (!agent && user.email) {
           [agent] = await dynamicDB.select().from(agents).where(eq(agents.email, user.email));
@@ -2074,6 +2086,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let applicationId: number | null = null;
       try {
         const dynamicDB = getRequestDB(req);
+        // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
         const apps = await dynamicDB.select({ id: prospectAppsTable.id })
           .from(prospectAppsTable)
           .where(eq(prospectAppsTable.prospectId, prospect.id))
@@ -2403,6 +2416,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Test actual database connections by counting users
       const dynamicDB = getRequestDB(req);
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const users = await dynamicDB.select().from((await import('@shared/schema')).users);
       
       res.json({
@@ -4517,6 +4531,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid merchant id" });
       }
       const dynamicDB = getRequestDB(req);
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const [existingMerchant] = await dynamicDB.select().from(merchants).where(eq(merchants.id, merchantId));
       if (!existingMerchant) {
         return res.status(404).json({ message: "Merchant not found" });
@@ -4573,6 +4588,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/agents/hierarchy/tree", dbEnvironmentMiddleware, requirePerm('agent:read'), async (req: RequestWithDB, res) => {
     try {
       const dynamicDB = getRequestDB(req);
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const all = await dynamicDB.select().from(agents);
       res.json(flattenHierarchy(all, (a) => a.parentAgentId, (a) => `${a.lastName}${a.firstName}`));
     } catch (e) {
@@ -4584,6 +4600,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/merchants/hierarchy/tree", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     try {
       const dynamicDB = getRequestDB(req);
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const all = await dynamicDB.select().from(merchants);
       res.json(flattenHierarchy(all, (m) => m.parentMerchantId, (m) => m.businessName));
     } catch (e) {
@@ -4604,12 +4621,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // or one of their own descendants — never sibling/parent subtrees.
       const userId = req.session?.userId;
       const [caller] = userId
+        // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
         ? await dynamicDB.select({ id: users.id, roles: users.roles }).from(users).where(eq(users.id, userId))
         : [];
       const callerRole = caller?.roles?.[0];
       const isAdminLike = callerRole === 'admin' || callerRole === 'super_admin' || callerRole === 'corporate';
       if (!isAdminLike) {
         const [callerAgent] = userId
+          // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
           ? await dynamicDB.select({ id: agents.id }).from(agents).where(eq(agents.userId, userId))
           : [];
         if (!callerAgent || !(await isAgentDescendantOf(dynamicDB, callerAgent.id, id))) {
@@ -4646,6 +4665,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`Deleting agent ${agentId} - Database environment: ${req.dbEnv}`);
       
       // First check if agent exists
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const [existingAgent] = await dynamicDB.select().from(agents).where(eq(agents.id, agentId));
       if (!existingAgent) {
         return res.status(404).json({ message: "Agent not found" });
@@ -5214,6 +5234,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`Login attempts endpoint - Database environment: ${req.dbEnv}`);
       const dynamicDB = getRequestDB(req);
       
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const attempts = await dynamicDB.select().from(loginAttempts)
         .orderBy(desc(loginAttempts.createdAt))
         .limit(100);
@@ -5271,6 +5292,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
       
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const logs = await dynamicDB.select()
         .from(auditLogs)
         .where(whereClause)
@@ -5293,6 +5315,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { securityEvents } = await import("@shared/schema");
       const { desc } = await import("drizzle-orm");
       
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const events = await dynamicDB.select()
         .from(securityEvents)
         .orderBy(desc(securityEvents.detectedAt))
@@ -5316,10 +5339,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       
       // Get total audit logs
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const totalLogs = await dynamicDB.select({ count: count() }).from(auditLogs)
         .where(gte(auditLogs.createdAt, thirtyDaysAgo));
       
       // Get high risk actions
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const highRiskActions = await dynamicDB.select({ count: count() }).from(auditLogs)
         .where(and(
           gte(auditLogs.createdAt, thirtyDaysAgo),
@@ -5327,6 +5352,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ));
       
       // Get critical risk actions
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const criticalRiskActions = await dynamicDB.select({ count: count() }).from(auditLogs)
         .where(and(
           gte(auditLogs.createdAt, thirtyDaysAgo),
@@ -5334,6 +5360,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ));
       
       // Get security events count
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const totalSecurityEvents = await dynamicDB.select({ count: count() }).from(securityEvents)
         .where(gte(securityEvents.createdAt, thirtyDaysAgo));
       
@@ -5440,11 +5467,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
       // Get total attempts in last 30 days
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const totalAttempts = await dynamicDB.select({ count: count() })
         .from(loginAttempts)
         .where(gte(loginAttempts.createdAt, thirtyDaysAgo));
 
       // Get successful logins in last 30 days
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const successfulLogins = await dynamicDB.select({ count: count() })
         .from(loginAttempts)
         .where(and(
@@ -5453,6 +5482,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ));
 
       // Get failed logins in last 30 days
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const failedLogins = await dynamicDB.select({ count: count() })
         .from(loginAttempts)
         .where(and(
@@ -5461,11 +5491,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ));
 
       // Get unique IPs in last 30 days
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const uniqueIPs = await dynamicDB.selectDistinct({ ipAddress: loginAttempts.ipAddress })
         .from(loginAttempts)
         .where(gte(loginAttempts.createdAt, thirtyDaysAgo));
 
       // Get recent failed attempts (last 24 hours)
+      // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
       const recentFailedAttempts = await dynamicDB.select({ count: count() })
         .from(loginAttempts)
         .where(and(
@@ -5515,6 +5547,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const fieldData = pdfFormParser.convertToDbFields(parseResult.sections, pdfForm.id);
       if (fieldData.length > 0) {
         const dynamicDB = getRequestDB(req as RequestWithDB);
+        // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
         await dynamicDB.insert(pdfFormFields).values(fieldData);
       }
       
@@ -8937,6 +8970,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               phaseKey: ctx.handlerKey,
               startedBy: currentUser?.id ?? null,
             });
+            // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
             await dynamicDB.update(underwritingIssues)
               .set({ status: "resolved", resolvedBy: currentUser?.id ?? "system", resolvedAt: new Date(),
                      resolutionNote: notes ?? `Auto-resolved by Worklist ${action}` })

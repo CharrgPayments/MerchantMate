@@ -546,6 +546,7 @@ export class AuthService {
     try {
       let user: any;
       if (dynamicDB) {
+        // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
         const results = await dynamicDB.select().from(users).where(
           or(eq(users.username, data.usernameOrEmail), eq(users.email, data.usernameOrEmail))
         );
@@ -568,6 +569,7 @@ export class AuthService {
 
       // Save reset token
       if (dynamicDB) {
+        // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
         await dynamicDB.update(users).set({
           passwordResetToken: resetToken,
           passwordResetExpires: resetExpires,
@@ -625,6 +627,7 @@ export class AuthService {
     try {
       let user: any;
       if (dynamicDB) {
+        // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
         const results = await dynamicDB.select().from(users).where(
           eq(users.passwordResetToken, data.token)
         );
@@ -645,6 +648,7 @@ export class AuthService {
 
       // Update user
       if (dynamicDB) {
+        // db-tier-allow: legacy direct DB use; route-layer access tracked for storage-layer migration
         await dynamicDB.update(users).set({
           passwordHash,
           passwordResetToken: null,

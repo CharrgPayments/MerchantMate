@@ -62,6 +62,15 @@ const RAW_SQL_RE = /\.execute\s*\(\s*sql\s*`[\s\S]*?(SELECT|INSERT|UPDATE|DELETE
 // lines for the keyword to handle the common formatter style.
 const RAW_SQL_OPEN_RE = /\.execute\s*\(\s*sql\s*`\s*$/;
 const RAW_SQL_KEYWORD_RE = /\b(SELECT|INSERT|UPDATE|DELETE|WITH)\b/i;
+// Direct DB-tier bypass via the per-request handle. Catches both
+// `dynamicDB.{select,selectDistinct,insert,update,delete}(...)` and the
+// inline form `getRequestDB(req).{...}(...)`. Code outside the storage
+// layer should call `storage.*` instead so swapping persistence stays
+// trivial and route handlers stay thin.
+// db-tier-allow: regex literals for self-detection
+const DYNAMIC_DB_RE = /\bdynamicDB\.(select|selectDistinct|insert|update|delete)\s*\(/;
+// db-tier-allow: regex literals for self-detection
+const GET_REQ_DB_CHAIN_RE = /\bgetRequestDB\s*\([^)]*\)\s*\.\s*(select|selectDistinct|insert|update|delete)\s*\(/;
 const ALLOW_TAG = "db-tier-allow:";
 // Files where Drizzle does not (yet) cover the use case and raw SQL is the
 // pragmatic choice. Each file MUST also carry a `// db-tier-allow:` header
@@ -78,6 +87,16 @@ const RAW_SQL_FILE_ALLOWLIST = new Set<string>([
   // schema introspection (information_schema queries).
   path.normalize("server/schemaSync.ts"),
   // The guard itself contains the literal patterns it scans for.
+  path.normalize("server/dbAbstractionGuard.ts"),
+]);
+
+// Files allowed to call `dynamicDB.{select,insert,update,delete}` /
+// `getRequestDB(req).{...}` directly. Storage is the legitimate owner of
+// the data tier; the guard file references the names in its own regexes.
+// Everything else must go through `storage.*` so route handlers stay thin
+// and the persistence layer can be swapped without touching call sites.
+const DYNAMIC_DB_FILE_ALLOWLIST = new Set<string>([
+  path.normalize("server/storage.ts"),
   path.normalize("server/dbAbstractionGuard.ts"),
 ]);
 
@@ -142,6 +161,21 @@ export async function runDbAbstractionGuard(): Promise<void> {
             isRawSqlDml = true; break;
           }
         }
+      }
+      // Direct DB-tier bypass detection. The original problem this guard
+      // was created for: server modules calling `dynamicDB.select/insert/
+      // update/delete` (or `getRequestDB(req).*` chained inline) instead
+      // of going through `storage.*`. Every new endpoint should use the
+      // storage layer so persistence stays swappable.
+      if (
+        !DYNAMIC_DB_FILE_ALLOWLIST.has(rel) &&
+        (DYNAMIC_DB_RE.test(code) || GET_REQ_DB_CHAIN_RE.test(code)) &&
+        !lineHasAllowTag()
+      ) {
+        violations.push({
+          file: rel, line: i + 1, match: line.trim().slice(0, 120),
+          reason: "direct DB-tier access (`dynamicDB.{select,insert,update,delete}` or `getRequestDB(req).{...}`) — route through `storage.*`, or annotate with `// db-tier-allow: <reason>`",
+        });
       }
       if (isRawSqlDml && !fileExempt && !fileHasAllowTag) {
         // Check the call line itself and the 3 lines preceding it so a
