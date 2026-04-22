@@ -408,6 +408,64 @@ function normalizeLegacyRole(input: UserInputWithLegacyRole): Partial<UpsertUser
   return rest as Partial<UpsertUser>;
 }
 
+// Row shapes returned by the raw `jsonb_agg` queries used in the fee-group
+// read paths below. Drizzle has no first-class builder for nested JSON
+// aggregation, so we type the resulting row shape explicitly here so the
+// mapper code stays type-checked end-to-end (no `as any`).
+type FeeGroupRow = {
+  id: number;
+  name: string;
+  description: string | null;
+  display_order: number;
+  is_active: boolean;
+  author: string;
+  created_at: string | Date;
+  updated_at: string | Date;
+};
+type FeeItemRow = {
+  id: number;
+  name: string;
+  description: string | null;
+  value_type: string;
+  default_value: string | null;
+  additional_info: string | null;
+  display_order: number;
+  is_active: boolean;
+  author: string;
+  created_at: string | Date;
+  updated_at: string | Date;
+  fee_group_id: number | null;
+  fee_item_group_id: number | null;
+};
+type FeeGroupRowWithItems = FeeGroupRow & { fee_items: FeeItemRow[] };
+type FeeItemGroupRowWithItems = {
+  id: number;
+  fee_group_id: number;
+  name: string;
+  description: string | null;
+  display_order: number;
+  is_active: boolean;
+  author: string;
+  created_at: string | Date;
+  updated_at: string | Date;
+  fee_items: FeeItemRow[];
+};
+type FeeGroupWithItemGroupsRow = FeeGroupRow & {
+  fee_item_groups: FeeItemGroupRowWithItems[];
+  direct_items: FeeItemRow[];
+};
+
+// db.execute() may return either `{ rows: T[] }` (pg) or a plain `T[]`
+// (neon-http). This helper narrows both shapes to a typed row array
+// without leaking `any` into call sites.
+function extractRows<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  if (result && typeof result === 'object' && Array.isArray((result as { rows?: unknown }).rows)) {
+    return (result as { rows: T[] }).rows;
+  }
+  return [];
+}
+
 export class DatabaseStorage implements IStorage {
   // Add backward-compat `role` field from `roles` array
   private withRole<T extends { roles?: string[] | null }>(user: T): T & { role?: string } {
@@ -425,7 +483,7 @@ export class DatabaseStorage implements IStorage {
     // come back with an empty array (COALESCE on the aggregate).
     // db-tier-allow: PostgreSQL `jsonb_agg` correlated subquery — Drizzle
     // has no first-class builder for nested JSON aggregation.
-    const rows = await db.execute(sql`
+    const result = await db.execute<FeeGroupRowWithItems>(sql`
       SELECT
         fg.*,
         COALESCE(
@@ -440,17 +498,17 @@ export class DatabaseStorage implements IStorage {
       ORDER BY fg.display_order
     `);
 
-    const list = (rows as any).rows ?? rows;
-    return (list as any[]).map((r) => {
+    const list = extractRows<FeeGroupRowWithItems>(result);
+    return list.map((r) => {
       const { fee_items, ...rest } = r;
       const group = this.snakeToCamelFeeGroup(rest);
-      const items = (fee_items as any[]).map((it) => this.snakeToCamelFeeItem(it));
-      return { ...group, feeItems: items } as FeeGroupWithItems;
+      const items = fee_items.map((it) => this.snakeToCamelFeeItem(it));
+      return { ...group, feeItems: items };
     });
   }
 
   // Map a snake_cased DB row into a camelCased FeeGroup-shaped object.
-  private snakeToCamelFeeGroup(row: any): FeeGroup {
+  private snakeToCamelFeeGroup(row: FeeGroupRow): FeeGroup {
     return {
       id: row.id,
       name: row.name,
@@ -458,13 +516,13 @@ export class DatabaseStorage implements IStorage {
       displayOrder: row.display_order,
       isActive: row.is_active,
       author: row.author,
-      createdAt: row.created_at ? new Date(row.created_at) : row.created_at,
-      updatedAt: row.updated_at ? new Date(row.updated_at) : row.updated_at,
-    } as FeeGroup;
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+    };
   }
 
   // Map a snake_cased DB row into a camelCased FeeItem-shaped object.
-  private snakeToCamelFeeItem(row: any): FeeItem {
+  private snakeToCamelFeeItem(row: FeeItemRow): FeeItem {
     return {
       id: row.id,
       name: row.name,
@@ -475,11 +533,11 @@ export class DatabaseStorage implements IStorage {
       displayOrder: row.display_order,
       isActive: row.is_active,
       author: row.author,
-      createdAt: row.created_at ? new Date(row.created_at) : row.created_at,
-      updatedAt: row.updated_at ? new Date(row.updated_at) : row.updated_at,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
       feeGroupId: row.fee_group_id ?? null,
       feeItemGroupId: row.fee_item_group_id ?? null,
-    } as FeeItem;
+    };
   }
 
   async getFeeGroup(id: number): Promise<FeeGroup | undefined> {
@@ -533,14 +591,14 @@ export class DatabaseStorage implements IStorage {
       LIMIT 1
     `);
 
-    const list = (rows as any).rows ?? rows;
-    const r = (list as any[])[0];
+    const list = extractRows<FeeGroupWithItemGroupsRow>(rows);
+    const r = list[0];
     if (!r) return undefined;
 
     const { fee_item_groups, direct_items, ...rest } = r;
     const group = this.snakeToCamelFeeGroup(rest);
-    const feeItemGroupsWithItems: FeeItemGroupWithItems[] = (fee_item_groups as any[]).map((g) => {
-      const items = (g.fee_items as any[]).map((it) => this.snakeToCamelFeeItem(it));
+    const feeItemGroupsWithItems: FeeItemGroupWithItems[] = fee_item_groups.map((g) => {
+      const items = g.fee_items.map((it) => this.snakeToCamelFeeItem(it));
       return {
         id: g.id,
         feeGroupId: g.fee_group_id,
@@ -549,12 +607,12 @@ export class DatabaseStorage implements IStorage {
         displayOrder: g.display_order,
         isActive: g.is_active,
         author: g.author,
-        createdAt: g.created_at ? new Date(g.created_at) : g.created_at,
-        updatedAt: g.updated_at ? new Date(g.updated_at) : g.updated_at,
+        createdAt: new Date(g.created_at),
+        updatedAt: new Date(g.updated_at),
         feeItems: items,
-      } as FeeItemGroupWithItems;
+      };
     });
-    const directItems = (direct_items as any[]).map((it) => this.snakeToCamelFeeItem(it));
+    const directItems = direct_items.map((it) => this.snakeToCamelFeeItem(it));
     return { ...group, feeItemGroups: feeItemGroupsWithItems, feeItems: directItems };
   }
 
