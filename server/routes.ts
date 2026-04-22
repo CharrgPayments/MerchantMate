@@ -7246,12 +7246,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         name: z.string().min(1),
         description: z.string().nullable().optional(),
         feeGroupIds: z.array(z.coerce.number()).optional(),
+        feeItemIds: z.array(z.coerce.number()).optional(),
       });
       const parsed = bodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid pricing type payload", details: parsed.error.flatten() });
       }
-      const { name, description, feeGroupIds = [] } = parsed.data;
+      const { name, description, feeGroupIds = [], feeItemIds } = parsed.data;
       
       // Use the dynamic database connection
       const dbToUse = req.dynamicDB;
@@ -7272,34 +7273,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log('Created pricing type:', pricingType);
       
-      // Add fee items to the pricing type via fee groups (pricing types can only associate fee items through fee groups)
-      if (feeGroupIds && Array.isArray(feeGroupIds) && feeGroupIds.length > 0) {
-        console.log('Adding fee items via fee groups to pricing type:', feeGroupIds);
-        
-        // Get all fee items that belong to the selected fee groups
+      // Determine the final fee item set: explicit feeItemIds takes precedence; otherwise expand fee groups
+      let finalFeeItemIds: number[] = [];
+      if (feeItemIds && Array.isArray(feeItemIds) && feeItemIds.length > 0) {
+        finalFeeItemIds = Array.from(new Set(feeItemIds));
+        console.log('Adding explicit fee items to pricing type:', finalFeeItemIds);
+      } else if (feeGroupIds && Array.isArray(feeGroupIds) && feeGroupIds.length > 0) {
+        console.log('Expanding fee groups for pricing type:', feeGroupIds);
         const feeItemsFromGroups = await dbToUse
-          .select({ 
-            feeItemId: feeGroupFeeItems.feeItemId,
-            displayOrder: feeGroupFeeItems.displayOrder
-          })
+          .select({ feeItemId: feeGroupFeeItems.feeItemId })
           .from(feeGroupFeeItems)
           .where(inArray(feeGroupFeeItems.feeGroupId, feeGroupIds));
-        
-        console.log(`Found ${feeItemsFromGroups.length} fee items from selected fee groups`);
-        
-        if (feeItemsFromGroups.length > 0) {
-          await dbToUse.insert(pricingTypeFeeItems).values(
-            feeItemsFromGroups.map((item, index) => ({
-              pricingTypeId: pricingType.id,
-              feeItemId: item.feeItemId,
-              isRequired: false,
-              displayOrder: item.displayOrder || index + 1
-            }))
-          );
-          console.log(`Added ${feeItemsFromGroups.length} fee items to pricing type via fee groups`);
-        }
+        finalFeeItemIds = Array.from(new Set(feeItemsFromGroups.map(r => r.feeItemId)));
       }
-      
+
+      if (finalFeeItemIds.length > 0) {
+        await dbToUse.insert(pricingTypeFeeItems).values(
+          finalFeeItemIds.map((feeItemId, index) => ({
+            pricingTypeId: pricingType.id,
+            feeItemId,
+            isRequired: false,
+            displayOrder: index + 1,
+          }))
+        );
+        console.log(`Added ${finalFeeItemIds.length} fee items to pricing type`);
+      }
+
       console.log(`Pricing type created successfully in ${req.dbEnv} database`);
       res.status(201).json(pricingType);
     } catch (error) {
@@ -7340,13 +7339,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pricingTypeBodySchema = z.object({
         name: z.string().optional(),
         description: z.string().nullable().optional(),
-        feeGroupIds: z.array(z.number()).optional(),
+        feeGroupIds: z.array(z.coerce.number()).optional(),
+        feeItemIds: z.array(z.coerce.number()).optional(),
       });
       const parsed = pricingTypeBodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: 'Invalid pricing type payload', details: parsed.error.flatten() });
       }
-      const { name, description, feeGroupIds } = parsed.data;
+      const { name, description, feeGroupIds, feeItemIds } = parsed.data;
       
       if (!name || !name.trim()) {
         return res.status(400).json({ error: 'Name is required' });
@@ -7395,36 +7395,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Pricing type not found' });
       }
 
-      // Update fee item associations
-      console.log('Deleting existing fee item associations...');
-      await dbToUse.delete(pricingTypeFeeItems)
-        .where(eq(pricingTypeFeeItems.pricingTypeId, id));
+      // Only rewrite fee item associations if the client sent feeItemIds or feeGroupIds
+      const willUpdateAssociations = Array.isArray(feeItemIds) || Array.isArray(feeGroupIds);
+      if (willUpdateAssociations) {
+        console.log('Deleting existing fee item associations...');
+        await dbToUse.delete(pricingTypeFeeItems)
+          .where(eq(pricingTypeFeeItems.pricingTypeId, id));
 
-      // Add new fee item associations via fee groups if provided
-      if (feeGroupIds && feeGroupIds.length > 0) {
-        console.log('Adding fee items via fee groups:', feeGroupIds);
-        
-        // Get all fee items that belong to the selected fee groups
-        const feeItemsFromGroups = await dbToUse
-          .select({ 
-            feeItemId: feeGroupFeeItems.feeItemId,
-            displayOrder: feeGroupFeeItems.displayOrder
-          })
-          .from(feeGroupFeeItems)
-          .where(inArray(feeGroupFeeItems.feeGroupId, feeGroupIds));
-        
-        console.log(`Found ${feeItemsFromGroups.length} fee items from selected fee groups`);
-        
-        if (feeItemsFromGroups.length > 0) {
+        let finalFeeItemIds: number[] = [];
+        if (feeItemIds && feeItemIds.length > 0) {
+          finalFeeItemIds = Array.from(new Set(feeItemIds));
+          console.log('Setting explicit fee items on pricing type:', finalFeeItemIds);
+        } else if (feeGroupIds && feeGroupIds.length > 0) {
+          console.log('Expanding fee groups for pricing type:', feeGroupIds);
+          const feeItemsFromGroups = await dbToUse
+            .select({ feeItemId: feeGroupFeeItems.feeItemId })
+            .from(feeGroupFeeItems)
+            .where(inArray(feeGroupFeeItems.feeGroupId, feeGroupIds));
+          finalFeeItemIds = Array.from(new Set(feeItemsFromGroups.map(r => r.feeItemId)));
+        }
+
+        if (finalFeeItemIds.length > 0) {
           await dbToUse.insert(pricingTypeFeeItems).values(
-            feeItemsFromGroups.map((item, index) => ({
+            finalFeeItemIds.map((feeItemId, index) => ({
               pricingTypeId: id,
-              feeItemId: item.feeItemId,
+              feeItemId,
               isRequired: false,
-              displayOrder: item.displayOrder || index + 1
+              displayOrder: index + 1,
             }))
           );
-          console.log(`Added ${feeItemsFromGroups.length} fee items to pricing type via fee groups`);
+          console.log(`Added ${finalFeeItemIds.length} fee items to pricing type`);
         }
       }
       
