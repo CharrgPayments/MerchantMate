@@ -66,6 +66,36 @@ describe('rateLimit middleware', () => {
     expect(blocked.headers['retry-after']).toBeDefined();
   });
 
+  it('mirrors /api/auth/login behavior: 11th attempt for same username returns 429 with Retry-After', () => {
+    // Same options the real login route uses.
+    const loginLimiter = rateLimit({
+      scope: 'auth:login',
+      windowMs: 15 * 60_000,
+      max: 10,
+      keyExtractor: (req) => (req.body as any)?.username,
+      message: 'Too many login attempts. Please wait a few minutes and try again.',
+    });
+
+    const ip = '203.0.113.7';
+    const username = 'attacker@example.com';
+    let nextCalls = 0;
+    let last: any;
+
+    for (let i = 0; i < 11; i++) {
+      const res = makeRes();
+      loginLimiter(makeReq({ ip, body: { username } } as any), res, () => {
+        nextCalls++;
+      });
+      last = res;
+    }
+
+    expect(nextCalls).toBe(10);
+    expect(last.statusCode).toBe(429);
+    expect(last.headers['retry-after']).toBeDefined();
+    expect(Number(last.headers['retry-after'])).toBeGreaterThan(0);
+    expect(last.payload.message).toMatch(/too many login attempts/i);
+  });
+
   it('does not bleed counters across separately-scoped limiters', () => {
     const a = rateLimit({ scope: 'login', windowMs: 60_000, max: 1 });
     const b = rateLimit({ scope: 'forgot-password', windowMs: 60_000, max: 1 });

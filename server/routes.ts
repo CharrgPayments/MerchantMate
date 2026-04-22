@@ -367,7 +367,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Address autocomplete endpoint using Google Places API
   // Allow either an authenticated session OR a valid prospect token (prospect portal)
   const requireAuthOrProspectToken = async (req: any, res: Response, next: any) => {
+    // Accept any of: session-based login, Passport `req.user`/isAuthenticated(),
+    // or a valid prospect token (header or body).
     if ((req.session as any)?.userId) return next();
+    if (typeof req.isAuthenticated === 'function' && req.isAuthenticated()) return next();
+    if (req.user) return next();
     const token =
       (req.headers['x-prospect-token'] as string | undefined) ||
       (req.body && typeof req.body === 'object' ? req.body.prospectToken : undefined);
