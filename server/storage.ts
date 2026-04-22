@@ -1313,7 +1313,6 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteUserPreference(userId: string, key: string): Promise<boolean> {
-    await this.ensureUserPreferencesTable();
     const result = await db
       .delete(userPreferences)
       .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, key)));
