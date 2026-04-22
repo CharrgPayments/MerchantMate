@@ -1495,8 +1495,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
       
-      const validatedData = insertLocationSchema.partial().parse(req.body);
-      const updatedLocation = await storage.updateLocation(parseInt(locationId), validatedData);
+      const parsed = insertLocationSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid location payload", errors: parsed.error.flatten() });
+      }
+      const updatedLocation = await storage.updateLocation(parseInt(locationId), parsed.data);
       
       if (!updatedLocation) {
         return res.status(404).json({ message: "Location not found" });
@@ -1620,8 +1623,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
       
-      const validatedData = insertAddressSchema.partial().parse(req.body);
-      const updatedAddress = await storage.updateAddress(parseInt(addressId), validatedData);
+      const parsed = insertAddressSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid address payload", errors: parsed.error.flatten() });
+      }
+      const updatedAddress = await storage.updateAddress(parseInt(addressId), parsed.data);
       
       if (!updatedAddress) {
         return res.status(404).json({ message: "Address not found" });
@@ -4463,6 +4469,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           (allowed as Record<string, unknown>).defaultCampaignId = Number.isFinite(n) ? n : null;
         }
       }
+      const agentUpdateSchema = insertAgentSchema
+        .pick(Object.fromEntries(ALLOWED_AGENT_FIELDS.map(k => [k, true])) as Record<typeof ALLOWED_AGENT_FIELDS[number], true>)
+        .partial();
+      const parsed = agentUpdateSchema.safeParse(allowed);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid agent payload", errors: parsed.error.flatten() });
+      }
+      Object.assign(allowed, parsed.data);
       const parentChange = parseParentChange(body, "parentAgentId");
       if (parentChange.error) return res.status(400).json(parentChange.error);
 
@@ -4499,6 +4513,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const k of ALLOWED_MERCHANT_FIELDS) {
         if (k in body) (allowed as Record<string, unknown>)[k] = body[k];
       }
+      const merchantUpdateSchema = insertMerchantSchema
+        .pick(Object.fromEntries(ALLOWED_MERCHANT_FIELDS.map(k => [k, true])) as Record<typeof ALLOWED_MERCHANT_FIELDS[number], true>)
+        .partial();
+      const parsed = merchantUpdateSchema.safeParse(allowed);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid merchant payload", errors: parsed.error.flatten() });
+      }
+      Object.assign(allowed, parsed.data);
       const parentChange = parseParentChange(body, "parentMerchantId");
       if (parentChange.error) return res.status(400).json(parentChange.error);
 
@@ -4919,16 +4941,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!PREFS_KEY_PATTERN.test(key)) {
         return res.status(400).json({ message: "Invalid preference key" });
       }
-      if (!req.body || typeof req.body !== "object" || !("value" in req.body)) {
-        return res.status(400).json({ message: "Body must include a 'value' field" });
+      const prefsBodySchema = z.object({ value: z.unknown() });
+      const parsed = prefsBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Body must include a 'value' field", errors: parsed.error.flatten() });
       }
       // Cap stored value to a reasonable size to avoid abuse.
-      const serialized = JSON.stringify(req.body.value);
+      const serialized = JSON.stringify(parsed.data.value);
       if (serialized.length > 32_000) {
         return res.status(413).json({ message: "Preference value too large" });
       }
-      await storage.setUserPreference(userId, key, req.body.value);
-      res.json({ key, value: req.body.value });
+      await storage.setUserPreference(userId, key, parsed.data.value);
+      res.json({ key, value: parsed.data.value });
     } catch (error) {
       console.error("Error saving user preference:", error);
       res.status(500).json({ message: "Failed to save preference" });
@@ -7717,8 +7741,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { insertEquipmentItemSchema } = await import("@shared/schema");
       const id = parseInt(req.params.id);
-      const validated = insertEquipmentItemSchema.partial().parse(req.body);
-      const equipmentItem = await storage.updateEquipmentItem(id, validated);
+      const parsed = insertEquipmentItemSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: 'Invalid equipment item payload', errors: parsed.error.flatten() });
+      }
+      const equipmentItem = await storage.updateEquipmentItem(id, parsed.data);
       
       if (!equipmentItem) {
         return res.status(404).json({ message: 'Equipment item not found' });
@@ -9287,7 +9314,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const acquirerId = parseInt(req.params.id);
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
-      const updateData = insertAcquirerSchema.parse(req.body);
+      const parsed = insertAcquirerSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid acquirer payload', details: parsed.error.flatten() });
+      }
+      const updateData = parsed.data;
       const { acquirers } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
       const [updatedAcquirer] = await dbToUse.update(acquirers)
