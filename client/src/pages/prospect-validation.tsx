@@ -63,10 +63,11 @@ export default function ProspectValidation() {
     },
     enabled: !!prospectToken,
     retry: false,
-    staleTime: Infinity,
-    gcTime: Infinity,
+    // Short stale window so a back-nav after an error can re-validate;
+    // gcTime kept modest so failed token results don't linger in cache.
+    staleTime: 30_000,
+    gcTime: 60_000,
     refetchOnWindowFocus: false,
-    refetchOnMount: false,
   });
 
   // Reflect the in-flight query into the local validationState UI flag.
