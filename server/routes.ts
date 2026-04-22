@@ -13,6 +13,19 @@ const updateWidgetPreferenceSchema = insertUserDashboardPreferenceSchema
   .omit({ created_at: true, updated_at: true })
   .partial();
 
+const widgetCreateBodySchema = z.object({
+  widgetId: z.string().min(1).optional(),
+  widget_id: z.string().min(1).optional(),
+  position: z.number().int().optional(),
+  size: z.string().optional(),
+  isVisible: z.boolean().optional(),
+  is_visible: z.boolean().optional(),
+  configuration: z.record(z.any()).optional(),
+}).refine((d) => !!(d.widgetId || d.widget_id), {
+  message: "widgetId is required",
+  path: ["widgetId"],
+});
+
 const updateSubmissionByTokenSchema = z.object({
   data: z.union([z.string(), z.record(z.any()), z.array(z.any())]),
   status: z.string().min(1).optional(),
@@ -895,9 +908,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/user/:userId/widgets", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       const { userId } = req.params;
+      const parsed = widgetCreateBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid widget payload", errors: parsed.error.flatten() });
+      }
+      const body = parsed.data;
       const widgetData = {
-        ...req.body,
-        userId
+        user_id: userId,
+        widget_id: (body.widgetId || body.widget_id)!,
+        position: body.position,
+        size: body.size,
+        is_visible: body.isVisible ?? body.is_visible,
+        configuration: body.configuration,
       };
       const widget = await storage.createWidgetPreference(widgetData);
       res.json(widget);
@@ -1426,12 +1448,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      const validatedData = insertLocationSchema.parse({
+      const parsed = insertLocationSchema.safeParse({
         ...req.body,
         merchantId: parseInt(merchantId)
       });
-      
-      const location = await storage.createLocation(validatedData);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid location payload", errors: parsed.error.flatten() });
+      }
+
+      const location = await storage.createLocation(parsed.data);
       res.json(location);
     } catch (error) {
       console.error("Error creating location:", error);
@@ -1546,12 +1571,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
       
-      const validatedData = insertAddressSchema.parse({
+      const parsed = insertAddressSchema.safeParse({
         ...req.body,
         locationId: parseInt(locationId)
       });
-      
-      const address = await storage.createAddress(validatedData);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid address payload", errors: parsed.error.flatten() });
+      }
+
+      const address = await storage.createAddress(parsed.data);
       res.json(address);
     } catch (error) {
       console.error("Error creating address:", error);
@@ -3118,7 +3146,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/prospects/:id/save-form-data", async (req, res) => {
     try {
       const { id } = req.params;
-      const { formData, currentStep } = req.body;
+      const bodySchema = z.object({
+        formData: z.record(z.any()),
+        currentStep: z.union([z.number().int(), z.string()]).optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid form data payload", errors: parsed.error.flatten() });
+      }
+      const { formData, currentStep } = parsed.data;
       const prospectId = parseInt(id);
 
       const prospect = await storage.getMerchantProspect(prospectId);
@@ -3230,7 +3266,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/prospects/:id/submit-application", async (req, res) => {
     try {
       const { id } = req.params;
-      const { formData, status, deepLinkCampaignId, deepLinkAgentId } = req.body;
+      const bodySchema = z.object({
+        formData: z.record(z.any()),
+        status: z.string().optional(),
+        deepLinkCampaignId: z.union([z.number(), z.string()]).nullable().optional(),
+        deepLinkAgentId: z.union([z.number(), z.string()]).nullable().optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid submit-application payload", errors: parsed.error.flatten() });
+      }
+      const { formData, status, deepLinkCampaignId, deepLinkAgentId } = parsed.data;
       const prospectId = parseInt(id);
 
       const prospect = await storage.getMerchantProspect(prospectId);
@@ -3456,7 +3502,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         if (!filledFromTemplate) {
-          pdfBuffer = await pdfGenerator.generateApplicationPDF(updatedProspect, formData);
+          pdfBuffer = await pdfGenerator.generateApplicationPDF(updatedProspect, formData as Parameters<typeof pdfGenerator.generateApplicationPDF>[1]);
         }
       } catch (pdfError) {
         console.error('PDF generation failed:', pdfError);
@@ -3656,22 +3702,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Send signature request email
   app.post("/api/signature-request", async (req, res) => {
     try {
-      const { 
-        ownerName, 
-        ownerEmail, 
-        companyName, 
-        ownershipPercentage, 
-        requesterName, 
-        agentName,
-        prospectId
-      } = req.body;
-
-      if (!ownerName || !ownerEmail || !companyName || !ownershipPercentage || !prospectId) {
-        return res.status(400).json({ 
-          success: false, 
-          message: "Missing required fields" 
+      const bodySchema = z.object({
+        ownerName: z.string().min(1),
+        ownerEmail: z.string().email(),
+        companyName: z.string().min(1),
+        ownershipPercentage: z.union([z.string(), z.number()]),
+        requesterName: z.string().optional(),
+        agentName: z.string().optional(),
+        prospectId: z.union([z.number(), z.string()]).transform((v) => Number(v)),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid signature request payload",
+          errors: parsed.error.flatten(),
         });
       }
+      const {
+        ownerName,
+        ownerEmail,
+        companyName,
+        ownershipPercentage,
+        requesterName,
+        agentName,
+        prospectId,
+      } = parsed.data;
 
       // Generate unique signature token
       const signatureToken = `sig_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -3704,10 +3760,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ownerName,
         ownerEmail,
         companyName,
-        ownershipPercentage,
+        ownershipPercentage: String(ownershipPercentage),
         signatureToken,
-        requesterName,
-        agentName
+        requesterName: requesterName || "",
+        agentName: agentName || ""
       });
 
       if (success) {
@@ -3748,14 +3804,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Submit signature (public endpoint)
   app.post("/api/signature-submit", async (req, res) => {
     try {
-      const { signatureToken, signature, signatureType } = req.body;
-
-      if (!signatureToken || !signature) {
-        return res.status(400).json({ 
-          success: false, 
-          message: "Missing signature token or signature data" 
+      const bodySchema = z.object({
+        signatureToken: z.string().min(1),
+        signature: z.string().min(1),
+        signatureType: z.string().optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid signature payload",
+          errors: parsed.error.flatten(),
         });
       }
+      const { signatureToken, signature, signatureType } = parsed.data;
 
       // Find the prospect owner by signature token
       const owner = await storage.getProspectOwnerBySignatureToken(signatureToken);
@@ -3818,15 +3880,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/prospects/:id/save-inline-signature", async (req, res) => {
     try {
       const { id } = req.params;
-      const { ownerEmail, ownerName, signature, signatureType, ownershipPercentage } = req.body;
-      const prospectId = parseInt(id);
-
-      if (!ownerEmail || !ownerName || !signature || !signatureType) {
-        return res.status(400).json({ 
-          success: false, 
-          message: "Missing required signature data" 
+      const bodySchema = z.object({
+        ownerEmail: z.string().email(),
+        ownerName: z.string().min(1),
+        signature: z.string().min(1),
+        signatureType: z.string().min(1),
+        ownershipPercentage: z.union([z.string(), z.number()]).optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid inline signature payload",
+          errors: parsed.error.flatten(),
         });
       }
+      const { ownerEmail, ownerName, signature, signatureType, ownershipPercentage } = parsed.data;
+      const prospectId = parseInt(id);
 
       // First, ensure the prospect owner exists in the database
       let owner = await storage.getProspectOwnerByEmailAndProspectId(ownerEmail, prospectId);
@@ -3837,7 +3907,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           prospectId,
           name: ownerName,
           email: ownerEmail,
-          ownershipPercentage: ownershipPercentage || '0'
+          ownershipPercentage: String(ownershipPercentage || '0')
         };
         
         owner = await storage.createProspectOwner(ownerData);
@@ -4874,8 +4944,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/user/widgets", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const widgetData = { ...req.body, userId };
-      
+      const parsed = widgetCreateBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid widget payload", errors: parsed.error.flatten() });
+      }
+      const body = parsed.data;
+      const widgetData = {
+        user_id: userId,
+        widget_id: (body.widgetId || body.widget_id)!,
+        position: body.position,
+        size: body.size,
+        is_visible: body.isVisible ?? body.is_visible,
+        configuration: body.configuration,
+      };
+
       const preference = await storage.createWidgetPreference(widgetData);
       res.status(201).json(preference);
     } catch (error) {
@@ -4947,34 +5029,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`Main routes - Creating widget for userId: ${userId}, full req properties:`, Object.keys(req));
       console.log(`Main routes - req.user:`, req.user);
       console.log(`Main routes - req.session:`, req.session);
-      
+
+      const parsed = widgetCreateBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid widget payload", errors: parsed.error.flatten() });
+      }
+      const body = parsed.data;
+      const widgetIdValue = body.widgetId || body.widget_id!;
+      const isVisibleValue = body.isVisible ?? body.is_visible ?? true;
+
       if (!userId) {
         // Try fallback from session or dev auth
         const fallbackUserId = req.session?.userId || 'admin-prod-001';
         console.log(`Main routes - Using fallback userId: ${fallbackUserId}`);
         const finalUserId = fallbackUserId;
         
-        const widgetData = { 
+        const widgetData = {
           user_id: finalUserId,
-          widget_id: req.body.widgetId,
-          position: req.body.position || 0,
-          size: req.body.size || 'medium',
-          is_visible: req.body.isVisible !== false,
-          configuration: req.body.configuration || {}
+          widget_id: widgetIdValue,
+          position: body.position ?? 0,
+          size: body.size ?? 'medium',
+          is_visible: isVisibleValue,
+          configuration: body.configuration ?? {}
         };
-        
+
         console.log(`Main routes - Widget data with fallback:`, widgetData);
         const widget = await storage.createWidgetPreference(widgetData);
         return res.json(widget);
       }
-      
-      const widgetData = { 
+
+      const widgetData = {
         user_id: userId,
-        widget_id: req.body.widgetId,
-        position: req.body.position || 0,
-        size: req.body.size || 'medium',
-        is_visible: req.body.isVisible !== false,
-        configuration: req.body.configuration || {}
+        widget_id: widgetIdValue,
+        position: body.position ?? 0,
+        size: body.size ?? 'medium',
+        is_visible: isVisibleValue,
+        configuration: body.configuration ?? {}
       };
       
       console.log(`Main routes - Widget data:`, widgetData);
@@ -5522,12 +5612,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/pdf-forms/:id/submissions", isAuthenticated, async (req: any, res) => {
     try {
       const formId = parseInt(req.params.id);
-      const { data, status = 'draft' } = req.body;
-      
+      const bodySchema = z.object({
+        data: z.union([z.string(), z.record(z.any())]).optional(),
+        status: z.string().optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid form submission payload", errors: parsed.error.flatten() });
+      }
+      const { data, status = 'draft' } = parsed.data;
+
       const submissionData = {
         formId,
         submittedBy: req.user?.id || null,
-        data: typeof data === 'string' ? data : JSON.stringify(data),
+        data: typeof data === 'string' ? data : JSON.stringify(data ?? {}),
         status,
         submissionToken: storage.generateSubmissionToken(),
         isPublic: false
@@ -5545,12 +5643,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/pdf-forms/:id/submit", isAuthenticated, async (req: any, res) => {
     try {
       const formId = parseInt(req.params.id);
-      const { formData } = req.body;
-      
+      const bodySchema = z.object({
+        formData: z.union([z.string(), z.record(z.any())]).optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid form submission payload", errors: parsed.error.flatten() });
+      }
+      const { formData } = parsed.data;
+
       const submissionData = {
         formId,
         submittedBy: req.user?.id || null,
-        data: JSON.stringify(formData),
+        data: typeof formData === 'string' ? formData : JSON.stringify(formData ?? {}),
         submissionToken: storage.generateSubmissionToken(),
         status: 'submitted',
         isPublic: false
@@ -5580,8 +5685,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/pdf-forms/:id/create-submission", async (req: any, res) => {
     try {
       const formId = parseInt(req.params.id);
-      const { applicantEmail } = req.body;
-      
+      const bodySchema = z.object({
+        applicantEmail: z.string().email().optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid submission payload", errors: parsed.error.flatten() });
+      }
+      const { applicantEmail } = parsed.data;
+
       // Create a new submission with unique token for public access
       const submissionData = {
         formId,
@@ -5663,11 +5775,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/pdf-forms/:id/send-submission-link", isAuthenticated, async (req: any, res) => {
     try {
       const formId = parseInt(req.params.id);
-      const { applicantEmail } = req.body;
-      
-      if (!applicantEmail) {
-        return res.status(400).json({ message: "Applicant email is required" });
+      const bodySchema = z.object({
+        applicantEmail: z.string().email(),
+      });
+      const parsed = bodySchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid submission link payload", errors: parsed.error.flatten() });
       }
+      const { applicantEmail } = parsed.data;
       
       // Get form details
       const form = await storage.getPdfForm(formId);
@@ -5811,11 +5926,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/fee-groups', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
-      const { name, description, displayOrder } = req.body;
-      
-      if (!name) {
-        return res.status(400).json({ message: "Fee group name is required" });
+      const bodySchema = z.object({
+        name: z.string().min(1, "Fee group name is required"),
+        description: z.string().nullable().optional(),
+        displayOrder: z.union([z.number(), z.string()]).optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid fee group payload", errors: parsed.error.flatten() });
       }
+      const { name, description, displayOrder } = parsed.data;
 
       const feeGroupData: InsertFeeGroup = {
         name: String(name),
@@ -5993,11 +6113,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/fee-item-groups', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
-      const { feeGroupId, name, description, displayOrder } = req.body;
-      
-      if (!feeGroupId || !name) {
-        return res.status(400).json({ message: "Fee group ID and name are required" });
+      const bodySchema = z.object({
+        feeGroupId: z.union([z.number(), z.string()]),
+        name: z.string().min(1),
+        description: z.string().nullable().optional(),
+        displayOrder: z.union([z.number(), z.string()]).optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid fee item group payload", errors: parsed.error.flatten() });
       }
+      const { feeGroupId, name, description, displayOrder } = parsed.data;
 
       const feeItemGroupData: InsertFeeItemGroup = {
         feeGroupId: Number(feeGroupId),
@@ -6109,17 +6235,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/campaigns', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      const { feeValues, equipmentIds, templateId, ...campaignData } = req.body;
+      const { insertCampaignSchema } = await import('@shared/schema');
+      const campaignBodySchema = insertCampaignSchema.extend({
+        feeValues: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+        equipmentIds: z.array(z.number()).optional(),
+        templateId: z.union([z.number(), z.string()]).nullable().optional(),
+      });
+      const parsed = campaignBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid campaign payload", details: parsed.error.flatten() });
+      }
+      const { feeValues, equipmentIds, templateId, ...campaignDataRaw } = parsed.data;
       const dbToUse = getRequestDB(req);
       const session = req.session;
       const userId = session?.userId;
+
+      // Strip caller-supplied createdBy; server is the source of truth for actor identity.
+      const { createdBy: _ignoredCreatedBy, ...campaignData } = campaignDataRaw;
 
       const { campaigns: campaignsTable, campaignApplicationTemplates: catTable } = await import('@shared/schema');
 
       // Insert the campaign row
       const [created] = await dbToUse
         .insert(campaignsTable)
-        .values({ ...campaignData, createdBy: userId || undefined })
+        .values({ ...campaignData, createdBy: userId ?? null })
         .returning();
 
       // Insert fee values
@@ -6150,7 +6289,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (templateId) {
         await dbToUse
           .insert(catTable)
-          .values({ campaignId: created.id, templateId: parseInt(templateId), isPrimary: true, displayOrder: 0 })
+          .values({ campaignId: created.id, templateId: parseInt(String(templateId)), isPrimary: true, displayOrder: 0 })
           .onConflictDoNothing();
       }
 
@@ -6789,8 +6928,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/prospects/:id/set-campaign', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const prospectId = parseInt(req.params.id);
-      const { campaignId, regenerate } = req.body as { campaignId: number; regenerate?: boolean };
-      if (!campaignId) return res.status(400).json({ message: 'campaignId is required' });
+      const setCampaignSchema = z.object({
+        campaignId: z.coerce.number().int().positive(),
+        regenerate: z.boolean().optional(),
+      });
+      const parsed = setCampaignSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: 'Invalid set-campaign payload', errors: parsed.error.flatten() });
+      }
+      const { campaignId, regenerate } = parsed.data;
 
       const prospect = await storage.getMerchantProspect(prospectId);
       if (!prospect) return res.status(404).json({ message: 'Prospect not found' });
@@ -7031,8 +7177,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/pricing-types', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       console.log(`Creating pricing type - Database environment: ${req.dbEnv}`);
-      
-      const { name, description, feeGroupIds = [] } = req.body;
+
+      const bodySchema = z.object({
+        name: z.string().min(1),
+        description: z.string().nullable().optional(),
+        feeGroupIds: z.array(z.coerce.number()).optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid pricing type payload", details: parsed.error.flatten() });
+      }
+      const { name, description, feeGroupIds = [] } = parsed.data;
       
       // Use the dynamic database connection
       const dbToUse = req.dynamicDB;
@@ -7252,13 +7407,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ error: "Database connection not available" });
       }
       
-      const { feeItems } = await import("@shared/schema");
-      const feeItemData = {
+      const { feeItems, insertFeeItemSchema } = await import("@shared/schema");
+      const parsed = insertFeeItemSchema.safeParse({
         ...req.body,
-        author: req.user?.email || 'System'
-      };
-      
-      const [feeItem] = await dbToUse.insert(feeItems).values(feeItemData).returning();
+        author: req.user?.email || 'System',
+      });
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid fee item payload", details: parsed.error.flatten() });
+      }
+
+      const [feeItem] = await dbToUse.insert(feeItems).values(parsed.data).returning();
       res.status(201).json(feeItem);
     } catch (error: any) {
       console.error("Error creating fee item:", error);
@@ -7444,8 +7602,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/campaigns", requirePerm('admin:manage'), async (req: Request, res: Response) => {
     try {
-      const { equipmentIds = [], feeValues = [], ...campaignData } = req.body;
-      const campaign = await storage.createCampaign(campaignData, feeValues, equipmentIds);
+      const { insertCampaignSchema } = await import('@shared/schema');
+      const campaignBodySchema = insertCampaignSchema.extend({
+        equipmentIds: z.array(z.number()).optional(),
+        feeValues: z.any().optional(),
+      });
+      const parsed = campaignBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid campaign payload", details: parsed.error.flatten() });
+      }
+      const { equipmentIds = [], feeValues = [], createdBy: _ignoredCreatedBy, ...campaignData } = parsed.data;
+      const sessionUserId = (req as any).session?.userId ?? null;
+      const campaign = await storage.createCampaign({ ...campaignData, createdBy: sessionUserId }, feeValues, equipmentIds);
       res.status(201).json(campaign);
     } catch (error) {
       console.error("Error creating campaign:", error);
@@ -7499,8 +7667,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/equipment-items", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { insertEquipmentItemSchema } = await import("@shared/schema");
-      const validated = insertEquipmentItemSchema.parse(req.body);
-      const equipmentItem = await storage.createEquipmentItem(validated);
+      const parsed = insertEquipmentItemSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid equipment item payload", errors: parsed.error.flatten() });
+      }
+      const equipmentItem = await storage.createEquipmentItem(parsed.data);
       res.json(equipmentItem);
     } catch (error) {
       console.error('Error creating equipment item:', error);
@@ -8155,12 +8326,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
       const currentUser = req.currentUser;
+      const workflowDefSchema = z.object({
+        code: z.string().min(1),
+        name: z.string().min(1),
+        description: z.string().nullable().optional(),
+        version: z.union([z.string(), z.number()]).optional(),
+        category: z.string().min(1),
+        entity_type: z.string().min(1),
+        initial_status: z.string().optional(),
+        final_statuses: z.array(z.string()).optional(),
+        configuration: z.record(z.any()).optional(),
+        is_active: z.boolean().optional(),
+      });
+      const parsed = workflowDefSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid workflow payload", errors: parsed.error.flatten() });
+      }
       const { code, name, description, version = "1.0", category, entity_type,
               initial_status = "submitted", final_statuses = ["approved","rejected"],
-              configuration = {}, is_active = true } = req.body;
-      if (!code || !name || !category || !entity_type) {
-        return res.status(400).json({ message: "code, name, category, and entity_type are required" });
-      }
+              configuration = {}, is_active = true } = parsed.data;
       const result = await dynamicDB.execute(sqlTag`
         INSERT INTO workflow_definitions
           (code, name, description, version, category, entity_type, initial_status,
@@ -8492,10 +8676,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
       const workflowId = parseInt(req.params.id);
+      const stageSchema = z.object({
+        code: z.string().min(1),
+        name: z.string().min(1),
+        description: z.string().nullable().optional(),
+        stage_type: z.string().optional(),
+        handler_key: z.string().nullable().optional(),
+        is_required: z.boolean().optional(),
+        requires_review: z.boolean().optional(),
+        auto_advance: z.boolean().optional(),
+        issue_blocks_severity: z.string().nullable().optional(),
+        timeout_minutes: z.number().int().nullable().optional(),
+        configuration: z.record(z.any()).optional(),
+        is_active: z.boolean().optional(),
+      });
+      const parsed = stageSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid stage payload", errors: parsed.error.flatten() });
+      }
       const { code, name, description, stage_type = "manual", handler_key,
               is_required = true, requires_review = false, auto_advance = false,
-              issue_blocks_severity, timeout_minutes, configuration = {}, is_active = true } = req.body;
-      if (!code || !name) return res.status(400).json({ message: "code and name are required" });
+              issue_blocks_severity, timeout_minutes, configuration = {}, is_active = true } = parsed.data;
       // Auto-assign order_index as max + 1
       const maxResult = await dynamicDB.execute(sqlTag`
         SELECT COALESCE(MAX(order_index), -1) + 1 AS next_index
@@ -9013,13 +9214,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
-      const validated = insertAcquirerSchema.parse(req.body);
+      const parsed = insertAcquirerSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid acquirer payload", details: parsed.error.flatten() });
+      }
       const { acquirers } = await import("@shared/schema");
-      const [newAcquirer] = await dbToUse.insert(acquirers).values(validated).returning();
+      const [newAcquirer] = await dbToUse.insert(acquirers).values(parsed.data).returning();
       res.status(201).json(newAcquirer);
     } catch (error) {
       console.error('Error creating acquirer:', error);
-      if (error instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input data', details: error.errors });
       res.status(500).json({ error: 'Failed to create acquirer' });
     }
   });
@@ -9371,12 +9574,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
       const { acquirerApplicationTemplates } = await import("@shared/schema");
-      const validated = insertAcquirerApplicationTemplateSchema.parse(req.body);
-      const [newTemplate] = await dbToUse.insert(acquirerApplicationTemplates).values(validated).returning();
+      const parsed = insertAcquirerApplicationTemplateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid template payload", details: parsed.error.flatten() });
+      }
+      const [newTemplate] = await dbToUse.insert(acquirerApplicationTemplates).values(parsed.data).returning();
       res.status(201).json(newTemplate);
     } catch (error) {
       console.error('Error creating acquirer application template:', error);
-      if (error instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input data', details: error.errors });
       res.status(500).json({ error: 'Failed to create acquirer application template' });
     }
   });
@@ -9702,12 +9907,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { insertMccPolicySchema } = await import("@shared/schema");
       const session = req.session;
-      const validated = insertMccPolicySchema.parse({ ...req.body, createdBy: session?.userId });
-      const newPolicy = await storage.createMccPolicy(validated);
+      const parsed = insertMccPolicySchema.safeParse({ ...req.body, createdBy: session?.userId });
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+      }
+      const newPolicy = await storage.createMccPolicy(parsed.data);
       res.status(201).json(newPolicy);
     } catch (error) {
       console.error('Error creating MCC policy:', error);
-      if (error instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input', details: error.errors });
       res.status(500).json({ error: 'Failed to create MCC policy' });
     }
   });
@@ -9793,8 +10000,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/disclosures', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const session = req.session;
-      const { slug, displayName, description, category, requiresSignature, companyId } = req.body;
-      if (!slug || !displayName) return res.status(400).json({ success: false, message: 'Slug and display name are required' });
+      const bodySchema = z.object({
+        slug: z.string().min(1),
+        displayName: z.string().min(1),
+        description: z.string().nullable().optional(),
+        category: z.string().optional(),
+        requiresSignature: z.boolean().optional(),
+        companyId: z.coerce.number().nullable().optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ success: false, message: 'Invalid disclosure payload', errors: parsed.error.flatten() });
+      }
+      const { slug, displayName, description, category, requiresSignature, companyId } = parsed.data;
       const newDef = await storage.createDisclosure({
         slug, displayName, description: description || null, category: category || 'general',
         requiresSignature: requiresSignature || false, companyId: companyId || null,
@@ -9835,8 +10053,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const definitionId = parseInt(req.params.definitionId);
       const session = req.session;
-      const { version, title, content, requiresSignature, effectiveDate } = req.body;
-      if (!version || !title || !content) return res.status(400).json({ success: false, message: 'Version, title, and content are required' });
+      const bodySchema = z.object({
+        version: z.string().min(1),
+        title: z.string().min(1),
+        content: z.string().min(1),
+        requiresSignature: z.boolean().optional(),
+        effectiveDate: z.union([z.string(), z.date()]).optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ success: false, message: "Invalid disclosure version payload", errors: parsed.error.flatten() });
+      }
+      const { version, title, content, requiresSignature, effectiveDate } = parsed.data;
       const newVersion = await storage.createDisclosureVersion(definitionId, {
         version, title, content,
         requiresSignature: requiresSignature || false,
@@ -9869,9 +10097,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/disclosure-versions/:id/copy', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const session = req.session;
+      const bodySchema = z.object({
+        version: z.string().min(1),
+        title: z.string().min(1),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ success: false, message: "Invalid copy payload", errors: parsed.error.flatten() });
+      }
       const copy = await storage.copyDisclosureVersion(parseInt(req.params.id), {
-        version: req.body.version,
-        title: req.body.title,
+        version: parsed.data.version,
+        title: parsed.data.title,
       }, session?.userId || null);
       if (!copy) return res.status(404).json({ success: false, message: 'Version not found' });
       res.status(201).json({ success: true, version: copy });
@@ -9925,8 +10161,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/action-templates — create template
   app.post("/api/action-templates", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
+      const { insertActionTemplateSchema } = await import("@shared/schema");
+      const parsed = insertActionTemplateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid action template payload", errors: parsed.error.flatten() });
+      }
       const db = req.db!;
-      const [template] = await db.insert(actionTemplates).values(req.body).returning();
+      const [template] = await db.insert(actionTemplates).values(parsed.data).returning();
       res.status(201).json(template);
     } catch (error: any) {
       res.status(500).json({ message: "Failed to create action template", error: error.message });
@@ -10221,8 +10462,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/admin/trigger-catalog — create trigger
   app.post("/api/admin/trigger-catalog", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
+      const { insertTriggerCatalogSchema } = await import("@shared/schema");
+      const parsed = insertTriggerCatalogSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid trigger payload", errors: parsed.error.flatten() });
+      }
       const db = req.db!;
-      const [trigger] = await db.insert(triggerCatalog).values(req.body).returning();
+      const [trigger] = await db.insert(triggerCatalog).values(parsed.data).returning();
       res.status(201).json(trigger);
     } catch (error: any) {
       res.status(500).json({ message: "Failed to create trigger", error: error.message });
@@ -10277,8 +10523,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/admin/trigger-actions — add action to trigger
   app.post("/api/admin/trigger-actions", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
+      const { insertTriggerActionSchema } = await import("@shared/schema");
+      const parsed = insertTriggerActionSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid trigger action payload", errors: parsed.error.flatten() });
+      }
       const db = req.db!;
-      const [action] = await db.insert(triggerActions).values(req.body).returning();
+      const [action] = await db.insert(triggerActions).values(parsed.data).returning();
       res.status(201).json(action);
     } catch (error: any) {
       res.status(500).json({ message: "Failed to create trigger action", error: error.message });
@@ -10359,8 +10610,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
-      const { code, label, description, color, permissions, capabilities } = req.body;
-      if (!code || !label) return res.status(400).json({ message: "code and label are required" });
+      const roleCreateSchema = z.object({
+        code: z.string().min(1),
+        label: z.string().min(1),
+        description: z.string().nullable().optional(),
+        color: z.string().optional(),
+        permissions: z.array(z.string()).optional(),
+        capabilities: z.array(z.string()).optional(),
+      });
+      const parsedRole = roleCreateSchema.safeParse(req.body);
+      if (!parsedRole.success) {
+        return res.status(400).json({ message: "Invalid role definition payload", errors: parsedRole.error.flatten() });
+      }
+      const { code, label, description, color, permissions, capabilities } = parsedRole.data;
       const result = await dynamicDB.execute(sqlTag`
         INSERT INTO role_definitions (code, label, description, color, is_system, permissions, capabilities, created_at, updated_at)
         VALUES (${code}, ${label}, ${description ?? ''}, ${color ?? 'secondary'}, false,
@@ -10654,8 +10916,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const prospectId = req.session.portalProspectId!;
       const email = req.session.portalProspectEmail ?? "";
-      const { subject = "", message } = req.body;
-      if (!message?.trim()) return res.status(400).json({ message: "Message body required" });
+      const bodySchema = z.object({
+        subject: z.string().optional(),
+        message: z.string().min(1, "Message body required"),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid message payload", errors: parsed.error.flatten() });
+      }
+      const { subject = "", message } = parsed.data;
+      if (!message.trim()) return res.status(400).json({ message: "Message body required" });
       const msg = await storage.createProspectMessage({
         prospectId, senderId: email, senderType: "prospect", subject: subject.trim(),
         message: message.trim(), isRead: false,
@@ -10685,8 +10955,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const prospectId = req.session.portalProspectId!;
       const email = req.session.portalProspectEmail ?? "";
       const frId = parseInt(req.params.id);
-      const { fileName, mimeType, fileData } = req.body; // base64 fileData from client
-      if (!fileName || !mimeType || !fileData) return res.status(400).json({ message: "fileName, mimeType, fileData required" });
+      const bodySchema = z.object({
+        fileName: z.string().min(1),
+        mimeType: z.string().min(1),
+        fileData: z.string().min(1), // base64 fileData from client
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid upload payload", errors: parsed.error.flatten() });
+      }
+      const { fileName, mimeType, fileData } = parsed.data;
       const fr = await storage.getProspectFileRequestForProspect(frId, prospectId);
       if (!fr) return res.status(404).json({ message: "File request not found" });
       const updated = await storage.updateProspectFileRequestUpload(frId, { fileName, mimeType, fileData, uploadedBy: email });
@@ -10714,8 +10992,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/prospects/:id/messages", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
       const prospectId = parseInt(req.params.id);
-      const { subject = "", message } = req.body;
-      if (!message?.trim()) return res.status(400).json({ message: "Message body required" });
+      const bodySchema = z.object({
+        subject: z.string().optional(),
+        message: z.string().min(1, "Message body required"),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid message payload", errors: parsed.error.flatten() });
+      }
+      const { subject = "", message } = parsed.data;
+      if (!message.trim()) return res.status(400).json({ message: "Message body required" });
       const userId = req.session?.userId || req.user?.claims?.sub || "agent";
       const userInfo = await storage.getUserDisplayInfo(userId);
       const senderName = userInfo ? (userInfo.username || userInfo.email || "Agent") : "Agent";
@@ -10773,8 +11059,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/prospects/:id/file-requests", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
       const prospectId = parseInt(req.params.id);
-      const { label, description, required = true } = req.body;
-      if (!label?.trim()) return res.status(400).json({ message: "Label required" });
+      const bodySchema = z.object({
+        label: z.string().min(1, "Label required"),
+        description: z.string().optional(),
+        required: z.boolean().optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid file request payload", errors: parsed.error.flatten() });
+      }
+      const { label, description, required = true } = parsed.data;
+      if (!label.trim()) return res.status(400).json({ message: "Label required" });
       const row = await storage.createProspectFileRequest({ prospectId, label: label.trim(), description: description?.trim() || null, required });
       // Non-blocking: notify prospect by email
       (async () => {
