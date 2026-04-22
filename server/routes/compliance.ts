@@ -24,6 +24,7 @@ import {
 } from "@shared/schema";
 import { and, eq, desc, lt, isNotNull, sql, count, inArray } from "drizzle-orm";
 import { isAuthenticated, requirePerm } from "../replitAuth";
+import { markSchema } from "../routeCatalogue";
 import {
   detectSlaBreaches,
   detectSchemaDrift,
@@ -193,7 +194,7 @@ router.get("/admin/scheduled-reports", isAuthenticated, requirePerm("admin:read"
   res.json(rows);
 });
 
-router.post("/admin/scheduled-reports", isAuthenticated, requirePerm("admin:manage"), async (req: AuthedRequest, res) => {
+router.post("/admin/scheduled-reports", isAuthenticated, requirePerm("admin:manage"), markSchema('createReportSchema'), async (req: AuthedRequest, res) => {
   try {
     const parsed = createReportSchema.parse(req.body);
     const userId = req.user?.claims?.sub ?? req.user?.id ?? null;

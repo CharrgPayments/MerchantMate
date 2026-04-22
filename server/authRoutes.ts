@@ -11,6 +11,7 @@ import {
 import { dbEnvironmentMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
 import { getDynamicDatabase } from "./db";
 import { rateLimit } from "./rateLimits";
+import { markInternal, markSchema } from "./routeCatalogue";
 
 // Rate limiters for auth-sensitive endpoints. Per-IP and per-account
 // (username/email) sliding windows; bursts get a 429 with Retry-After.
@@ -79,7 +80,7 @@ export function setupAuthRoutes(app: Express) {
   };
 
   // User registration with database environment support
-  app.post('/api/auth/register', dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
+  app.post('/api/auth/register', dbEnvironmentMiddleware, markSchema('registerUserSchema'), async (req: RequestWithDB, res) => {
     try {
       console.log("Registration request body:", req.body);
       const validatedData = registerUserSchema.parse(req.body);
@@ -111,7 +112,7 @@ export function setupAuthRoutes(app: Express) {
   });
 
   // User login with database environment support
-  app.post('/api/auth/login', loginLimiter, async (req: RequestWithDB, res) => {
+  app.post('/api/auth/login', loginLimiter, markSchema('loginUserSchema'), async (req: RequestWithDB, res) => {
     try {
       const validatedData = loginUserSchema.parse(req.body);
 
@@ -172,7 +173,7 @@ export function setupAuthRoutes(app: Express) {
   });
 
   // Forgot password — uses dbEnvironmentMiddleware so dev/test users can reset their passwords
-  app.post('/api/auth/forgot-password', forgotPasswordLimiter, async (req: RequestWithDB, res) => {
+  app.post('/api/auth/forgot-password', forgotPasswordLimiter, markSchema('passwordResetRequestSchema'), async (req: RequestWithDB, res) => {
     try {
       const validatedData = passwordResetRequestSchema.parse(req.body);
       // Always read ?db from query directly — the production-domain override in
@@ -193,7 +194,7 @@ export function setupAuthRoutes(app: Express) {
   });
 
   // Reset password — always reads ?db directly so token is validated in the right DB
-  app.post('/api/auth/reset-password', resetPasswordLimiter, async (req: RequestWithDB, res) => {
+  app.post('/api/auth/reset-password', resetPasswordLimiter, markSchema('passwordResetSchema'), async (req: RequestWithDB, res) => {
     try {
       const validatedData = passwordResetSchema.parse(req.body);
       const dbParam = req.query.db as string | undefined;
@@ -217,7 +218,7 @@ export function setupAuthRoutes(app: Express) {
   });
 
   // Verify email
-  app.get('/api/auth/verify-email', async (req, res) => {
+  app.get('/api/auth/verify-email', markInternal(), async (req, res) => {
     try {
       const { token } = req.query;
       if (!token || typeof token !== 'string') {
@@ -241,7 +242,7 @@ export function setupAuthRoutes(app: Express) {
   });
 
   // Verify 2FA code
-  app.post('/api/auth/verify-2fa', async (req, res) => {
+  app.post('/api/auth/verify-2fa', markSchema('twoFactorVerifySchema'), async (req, res) => {
     try {
       const validatedData = twoFactorVerifySchema.parse(req.body);
       res.json({ success: true, message: "2FA verification endpoint ready" });
@@ -282,7 +283,7 @@ export function setupAuthRoutes(app: Express) {
   });
 
   // Username availability check
-  app.post('/api/auth/check-username', async (req, res) => {
+  app.post('/api/auth/check-username', markInternal(), async (req, res) => {
     try {
       const { username } = req.body;
       if (!username) {
@@ -301,7 +302,7 @@ export function setupAuthRoutes(app: Express) {
   });
 
   // Email availability check
-  app.post('/api/auth/check-email', async (req, res) => {
+  app.post('/api/auth/check-email', markInternal(), async (req, res) => {
     try {
       const { email } = req.body;
       if (!email) {

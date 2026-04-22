@@ -121,7 +121,10 @@ export const authenticateApiKey = async (
  * Middleware to check if API key has specific permissions
  */
 export const requireApiPermission = (permission: string) => {
-  return (req: ApiRequest, res: Response, next: NextFunction): void => {
+  const handler: ((req: ApiRequest, res: Response, next: NextFunction) => void) & {
+    __docPermission?: string;
+    __docPermissionType?: string;
+  } = (req: ApiRequest, res: Response, next: NextFunction): void => {
     if (!req.apiKey) {
       res.status(401).json({
         error: 'Unauthorized',
@@ -144,6 +147,9 @@ export const requireApiPermission = (permission: string) => {
 
     next();
   };
+  handler.__docPermission = permission;
+  handler.__docPermissionType = "permission";
+  return handler;
 };
 
 /**

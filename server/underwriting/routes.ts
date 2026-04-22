@@ -20,6 +20,7 @@ import { ACTIONS, getActionScope } from "@shared/permissions";
 import { getOverrides } from "../permissionRegistry";
 import { dbEnvironmentMiddleware, getRequestDB, type RequestWithDB } from "../dbMiddleware";
 import { isAuthenticated, requirePerm } from "../replitAuth";
+import { markSchema } from "../routeCatalogue";
 import { auditService } from "../auditService";
 import { assertNotArchived, ArchivedApplicationError } from "../lib/archiveGuard";
 import { runUnderwritingPipeline, runManualPhase } from "./orchestrator";
@@ -160,7 +161,7 @@ export function registerUnderwritingRoutes(app: Express) {
     phaseKey: z.enum(["derogatory_check", "g2_check"]),
   });
   app.post("/api/applications/:id/underwriting/manual-phase",
-    dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_REVIEW),
+    dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_REVIEW), markSchema('manualPhaseSchema'),
     async (req: RequestWithDB, res) => {
       try {
         const applicationId = parseInt(req.params.id);
@@ -268,7 +269,7 @@ export function registerUnderwritingRoutes(app: Express) {
     rejectionReason: z.string().optional(),
   });
   app.post("/api/applications/:id/underwriting/transition",
-    dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_REVIEW),
+    dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_REVIEW), markSchema('transitionSchema'),
     async (req: RequestWithDB, res) => {
       try {
         const applicationId = parseInt(req.params.id);
@@ -603,7 +604,7 @@ export function registerUnderwritingRoutes(app: Express) {
     subStatus: z.enum(SUB_STATUS_VALUES).nullable(),
     reason: z.string().trim().min(1, "Reason is required for sub-status changes").max(2000),
   });
-  app.patch("/api/applications/:id/underwriting/sub-status",
+  app.patch("/api/applications/:id/underwriting/sub-status", markSchema('subStatusPatchSchema'),
     dbEnvironmentMiddleware, isAuthenticated, requirePerm(ACTIONS.UNDERWRITING_REVIEW),
     async (req: RequestWithDB, res) => {
       try {

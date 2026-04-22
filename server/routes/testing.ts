@@ -1,10 +1,16 @@
 import express from 'express';
 import { spawn } from 'child_process';
 import { requirePerm } from '../replitAuth';
+import { markInternal } from '../routeCatalogue';
 import fs from 'fs/promises';
 import path from 'path';
 
 const router = express.Router();
+
+// All /api/testing/* routes are dev-only fixtures — exclude them from the
+// public API catalogue. router-level use() gets inherited by every route
+// registered after it, so individual route handlers don't need to opt out.
+router.use(markInternal());
 
 // Get list of all test files and their descriptions
 router.get('/test-files', requirePerm('system:superadmin'), async (req, res) => {

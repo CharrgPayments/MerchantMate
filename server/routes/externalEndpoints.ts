@@ -3,6 +3,7 @@ import { z } from "zod";
 import { storage } from "../storage";
 import { dbEnvironmentMiddleware, type RequestWithDB } from "../dbMiddleware";
 import { isAuthenticated, requirePerm } from "../replitAuth";
+import { markSchema } from "../routeCatalogue";
 import { ACTIONS } from "@shared/permissions";
 import { insertExternalEndpointSchema } from "@shared/schema";
 import { resolveSecrets, resolveSecretsDeep } from "../lib/resolveSecrets";
@@ -83,6 +84,7 @@ export function registerExternalEndpointsRoutes(app: Express) {
     isAuthenticated,
     dbEnvironmentMiddleware,
     requirePerm(ACTIONS.EXTERNAL_ENDPOINTS_MANAGE),
+    markSchema('insertExternalEndpointSchema'),
     async (req: RequestWithDB, res) => {
       try {
         const parsed = baseEndpointSchema.safeParse(req.body);

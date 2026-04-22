@@ -5,6 +5,7 @@ import { setupAuthRoutes } from "./authRoutes";
 import { insertMerchantSchema, insertAgentSchema, insertTransactionSchema, insertLocationSchema, insertAddressSchema, insertPdfFormSchema, insertApiKeySchema, insertAcquirerSchema, insertAcquirerApplicationTemplateSchema, insertUserSchema, insertMerchantProspectSchema, insertUserDashboardPreferenceSchema } from "@shared/schema";
 import { authenticateApiKey, requireApiPermission, logApiRequest, generateApiKey } from "./apiAuth";
 import { setupAuth, isAuthenticated, requireRole, requirePermission, requirePerm } from "./replitAuth";
+import { markSchema } from "./routeCatalogue";
 import { auditService } from "./auditService";
 import { z } from "zod";
 import session from "express-session";
@@ -1814,7 +1815,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/prospects", isAuthenticated, async (req, res) => {
+  app.post("/api/prospects", isAuthenticated, markSchema('insertMerchantProspectSchema'), async (req, res) => {
     try {
       const { insertMerchantProspectSchema } = await import("@shared/schema");
       const { emailService } = await import("./emailService");
@@ -4814,7 +4815,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/transactions", requirePerm('admin:read'), async (req, res) => {
+  app.post("/api/transactions", requirePerm('admin:read'), markSchema('insertTransactionSchema'), async (req, res) => {
     try {
       const result = insertTransactionSchema.safeParse(req.body);
       if (!result.success) {
@@ -7664,7 +7665,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/equipment-items", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
+  app.post("/api/equipment-items", dbEnvironmentMiddleware, requirePerm('admin:manage'), markSchema('insertEquipmentItemSchema'), async (req: RequestWithDB, res) => {
     try {
       const { insertEquipmentItemSchema } = await import("@shared/schema");
       const parsed = insertEquipmentItemSchema.safeParse(req.body);
@@ -7734,7 +7735,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create new API key
-  app.post("/api/admin/api-keys", requirePerm('admin:manage'), async (req: any, res) => {
+  app.post("/api/admin/api-keys", requirePerm('admin:manage'), markSchema('insertApiKeySchema'), async (req: any, res) => {
     try {
       const result = insertApiKeySchema.safeParse(req.body);
       if (!result.success) {
@@ -7911,7 +7912,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/v1/merchants', requireApiPermission('merchants:write'), async (req: any, res) => {
+  app.post('/api/v1/merchants', requireApiPermission('merchants:write'), markSchema('insertMerchantSchema'), async (req: any, res) => {
     try {
       const result = insertMerchantSchema.safeParse(req.body);
       if (!result.success) {
@@ -7983,7 +7984,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/v1/transactions', requireApiPermission('transactions:write'), async (req: any, res) => {
+  app.post('/api/v1/transactions', requireApiPermission('transactions:write'), markSchema('insertTransactionSchema'), async (req: any, res) => {
     try {
       const result = insertTransactionSchema.safeParse(req.body);
       if (!result.success) {
@@ -8049,7 +8050,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create email template
-  app.post("/api/admin/email-templates", requirePerm('admin:manage'), async (req, res) => {
+  app.post("/api/admin/email-templates", requirePerm('admin:manage'), markSchema('insertEmailTemplateSchema'), async (req, res) => {
     try {
       const { insertEmailTemplateSchema } = await import("@shared/schema");
       const result = insertEmailTemplateSchema.safeParse(req.body);
@@ -8128,7 +8129,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create email trigger
-  app.post("/api/admin/email-triggers", requirePerm('admin:manage'), async (req, res) => {
+  app.post("/api/admin/email-triggers", requirePerm('admin:manage'), markSchema('insertEmailTriggerSchema'), async (req, res) => {
     try {
       const { insertEmailTriggerSchema } = await import("@shared/schema");
       const result = insertEmailTriggerSchema.safeParse(req.body);
@@ -9210,7 +9211,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/acquirers', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
+  app.post('/api/acquirers', dbEnvironmentMiddleware, requirePerm('admin:manage'), markSchema('insertAcquirerSchema'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
@@ -9247,7 +9248,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/acquirers/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
+  app.put('/api/acquirers/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), markSchema('insertAcquirerSchema'), async (req: RequestWithDB, res: Response) => {
     try {
       const acquirerId = parseInt(req.params.id);
       const dbToUse = req.dynamicDB;
@@ -9569,7 +9570,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/acquirer-application-templates', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
+  app.post('/api/acquirer-application-templates', dbEnvironmentMiddleware, requirePerm('admin:manage'), markSchema('insertAcquirerApplicationTemplateSchema'), async (req: RequestWithDB, res: Response) => {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
@@ -9840,7 +9841,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/mcc-codes', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
+  app.post('/api/mcc-codes', dbEnvironmentMiddleware, requirePerm('admin:manage'), markSchema('insertMccCodeSchema'), async (req: RequestWithDB, res: Response) => {
     try {
       const { insertMccCodeSchema } = await import("@shared/schema");
       const validated = insertMccCodeSchema.parse(req.body);
@@ -10159,7 +10160,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/action-templates — create template
-  app.post("/api/action-templates", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
+  app.post("/api/action-templates", dbEnvironmentMiddleware, requirePerm('admin:manage'), markSchema('insertActionTemplateSchema'), async (req: RequestWithDB, res) => {
     try {
       const { insertActionTemplateSchema } = await import("@shared/schema");
       const parsed = insertActionTemplateSchema.safeParse(req.body);
@@ -10460,7 +10461,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/admin/trigger-catalog — create trigger
-  app.post("/api/admin/trigger-catalog", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
+  app.post("/api/admin/trigger-catalog", dbEnvironmentMiddleware, requirePerm('admin:manage'), markSchema('insertTriggerCatalogSchema'), async (req: RequestWithDB, res) => {
     try {
       const { insertTriggerCatalogSchema } = await import("@shared/schema");
       const parsed = insertTriggerCatalogSchema.safeParse(req.body);
@@ -10521,7 +10522,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/admin/trigger-actions — add action to trigger
-  app.post("/api/admin/trigger-actions", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
+  app.post("/api/admin/trigger-actions", dbEnvironmentMiddleware, requirePerm('admin:manage'), markSchema('insertTriggerActionSchema'), async (req: RequestWithDB, res) => {
     try {
       const { insertTriggerActionSchema } = await import("@shared/schema");
       const parsed = insertTriggerActionSchema.safeParse(req.body);
@@ -11331,6 +11332,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerCommissionsRoutes(app);
   registerSchemaSyncRoutes(app, requirePerm);
   registerExternalEndpointsRoutes(app);
+
+  // ─── Auto-generated route catalogue (Task #73) ────────────────────────────
+  // Walks the Express router stack at request time and returns every public
+  // route with its method, path, and the permission middleware applied. Used
+  // by /api-documentation so the Endpoints tab stays in sync with the code.
+  const { publicRouteCatalogue, groupCatalogue } = await import("./routeCatalogue");
+  app.get(
+    "/api/admin/route-catalogue",
+    isAuthenticated,
+    requirePerm("admin:manage"),
+    (req, res) => {
+      const entries = publicRouteCatalogue(app);
+      const sections = groupCatalogue(entries);
+      res.json({
+        generatedAt: new Date().toISOString(),
+        total: entries.length,
+        sections,
+        entries,
+      });
+    },
+  );
 
   const httpServer = createServer(app);
   return httpServer;

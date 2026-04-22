@@ -82,8 +82,9 @@ export async function setupAuth(app: Express) {
     console.log("Local dev mode: skipping Replit OAuth setup, using dev auth bypass.");
     passport.serializeUser((user: Express.User, cb) => cb(null, user));
     passport.deserializeUser((user: Express.User, cb) => cb(null, user));
-    app.get("/api/login", (req, res) => res.redirect("/"));
-    app.get("/api/logout", (req, res) => { req.logout(() => res.redirect("/")); });
+    const { markInternal } = await import("./routeCatalogue");
+    app.get("/api/login", markInternal(), (req, res) => res.redirect("/"));
+    app.get("/api/logout", markInternal(), (req, res) => { req.logout(() => res.redirect("/")); });
     return;
   }
 
@@ -135,14 +136,15 @@ export async function setupAuth(app: Express) {
   passport.serializeUser((user: Express.User, cb) => cb(null, user));
   passport.deserializeUser((user: Express.User, cb) => cb(null, user));
 
-  app.get("/api/login", (req, res, next) => {
+  const { markInternal } = await import("./routeCatalogue");
+  app.get("/api/login", markInternal(), (req, res, next) => {
     passport.authenticate(`replitauth:${req.hostname}`, {
       prompt: "login consent",
       scope: ["openid", "email", "profile", "offline_access"],
     })(req, res, next);
   });
 
-  app.get("/api/callback", (req, res, next) => {
+  app.get("/api/callback", markInternal(), (req, res, next) => {
     console.log("Callback route hit");
     passport.authenticate(`replitauth:${req.hostname}`, {
       successRedirect: "/",
@@ -150,7 +152,7 @@ export async function setupAuth(app: Express) {
     })(req, res, next);
   });
 
-  app.get("/api/logout", (req, res) => {
+  app.get("/api/logout", markInternal(), (req, res) => {
     req.logout(() => {
       res.redirect(
         client.buildEndSessionUrl(config, {
@@ -162,7 +164,10 @@ export async function setupAuth(app: Express) {
   });
 }
 
-export const isAuthenticated: RequestHandler = async (req, res, next) => {
+export const isAuthenticated: RequestHandler & {
+  __docPermission?: string;
+  __docPermissionType?: string;
+} = async (req, res, next) => {
   // Check for session-based authentication first (works in both dev and production)
   const sessionUserId = req.session?.userId;
   const sessionDbEnv = req.session?.dbEnv;
@@ -281,6 +286,8 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     return;
   }
 };
+isAuthenticated.__docPermission = "session";
+isAuthenticated.__docPermissionType = "session";
 
 // Role-based access control middleware
 export const requireRole = (allowedRoles: string[]): RequestHandler => {
@@ -391,7 +398,7 @@ import { getOverrides } from "./permissionRegistry";
 import { getDynamicDatabase, runWithDb } from "./db";
 
 export const requirePerm = (action: string): RequestHandler => {
-  return async (req, res, next) => {
+  const handler: RequestHandler & { __docPermission?: string; __docPermissionType?: string } = async (req, res, next) => {
     const reqWithCtx = req as RequestWithDB;
     // Order-tolerant env resolution. If dbEnvironmentMiddleware did not run,
     // derive env from session and take a direct DB handle (no ALS reliance).
@@ -466,11 +473,14 @@ export const requirePerm = (action: string): RequestHandler => {
     }
     await finishWith(passportUser.claims.sub);
   };
+  handler.__docPermission = action;
+  handler.__docPermissionType = "action";
+  return handler;
 };
 
 // Permission-based access control
 export const requirePermission = (permission: string): RequestHandler => {
-  return async (req, res, next) => {
+  const handler: RequestHandler & { __docPermission?: string; __docPermissionType?: string } = async (req, res, next) => {
     const user = req.user;
     
     if (!req.isAuthenticated() || !user?.claims?.sub) {
@@ -506,4 +516,7 @@ export const requirePermission = (permission: string): RequestHandler => {
       res.status(500).json({ message: "Internal server error" });
     }
   };
+  handler.__docPermission = permission;
+  handler.__docPermissionType = "permission";
+  return handler;
 };

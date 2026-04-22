@@ -6,6 +6,7 @@ import { insertUserDashboardPreferenceSchema } from "@shared/schema";
 import { z } from "zod";
 import { dbEnvironmentMiddleware, type RequestWithDB } from "../dbMiddleware";
 import { isAuthenticated } from "../replitAuth";
+import { markSchema } from "../routeCatalogue";
 
 const router = Router();
 
@@ -77,7 +78,7 @@ router.get("/widgets", async (req: RequestWithDB, res) => {
 });
 
 // Add a new widget to user's dashboard
-router.post("/widgets", async (req: RequestWithDB, res) => {
+router.post("/widgets", markSchema('addWidgetSchema'), async (req: RequestWithDB, res) => {
   try {
     const userId = req.userId || req.user?.id;
     const user = req.user!;
@@ -163,7 +164,7 @@ router.post("/widgets", async (req: RequestWithDB, res) => {
 });
 
 // Update widget preferences (position, size, visibility, configuration)
-router.patch("/widgets/:id", async (req: RequestWithDB, res) => {
+router.patch("/widgets/:id", markSchema('updateWidgetSchema'), async (req: RequestWithDB, res) => {
   try {
     const userId = req.userId || req.user?.id;
     const widgetId = parseInt(req.params.id);
