@@ -2,12 +2,21 @@ import type { Express, Request as ExpressRequest, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuthRoutes } from "./authRoutes";
-import { insertMerchantSchema, insertAgentSchema, insertTransactionSchema, insertLocationSchema, insertAddressSchema, insertPdfFormSchema, insertApiKeySchema, insertAcquirerSchema, insertAcquirerApplicationTemplateSchema, insertUserSchema, insertMerchantProspectSchema } from "@shared/schema";
+import { insertMerchantSchema, insertAgentSchema, insertTransactionSchema, insertLocationSchema, insertAddressSchema, insertPdfFormSchema, insertApiKeySchema, insertAcquirerSchema, insertAcquirerApplicationTemplateSchema, insertUserSchema, insertMerchantProspectSchema, insertUserDashboardPreferenceSchema } from "@shared/schema";
 import { authenticateApiKey, requireApiPermission, logApiRequest, generateApiKey } from "./apiAuth";
 import { setupAuth, isAuthenticated, requireRole, requirePermission, requirePerm } from "./replitAuth";
 import { auditService } from "./auditService";
 import { z } from "zod";
 import session from "express-session";
+
+const updateWidgetPreferenceSchema = insertUserDashboardPreferenceSchema
+  .omit({ created_at: true, updated_at: true })
+  .partial();
+
+const updateSubmissionByTokenSchema = z.object({
+  data: z.union([z.string(), z.record(z.any()), z.array(z.any())]),
+  status: z.string().min(1).optional(),
+});
 import connectPg from "connect-pg-simple";
 import multer from "multer";
 import { pdfFormParser } from "./pdfParser";
@@ -901,7 +910,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/widgets/:widgetId", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       const { widgetId } = req.params;
-      const widget = await storage.updateWidgetPreference(parseInt(widgetId), req.body);
+      const parsed = updateWidgetPreferenceSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid widget payload", errors: parsed.error.flatten() });
+      }
+      const widget = await storage.updateWidgetPreference(parseInt(widgetId), parsed.data);
       if (!widget) {
         return res.status(404).json({ message: "Widget not found" });
       }
@@ -4840,9 +4853,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/user/widgets/:id", isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      const updates = req.body;
-
-      const preference = await storage.updateWidgetPreference(id, updates);
+      const parsed = updateWidgetPreferenceSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid widget payload", errors: parsed.error.flatten() });
+      }
+      const preference = await storage.updateWidgetPreference(id, parsed.data);
       if (!preference) {
         return res.status(404).json({ message: "Widget preference not found" });
       }
@@ -4940,7 +4955,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put('/api/dashboard/widgets/:id', isAuthenticated, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      const widget = await storage.updateWidgetPreference(id, req.body);
+      const parsed = updateWidgetPreferenceSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid widget payload", errors: parsed.error.flatten() });
+      }
+      const widget = await storage.updateWidgetPreference(id, parsed.data);
       if (!widget) {
         return res.status(404).json({ message: "Widget not found" });
       }
@@ -5580,8 +5599,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/submissions/:token", async (req: any, res) => {
     try {
       const { token } = req.params;
-      const { data, status = 'draft' } = req.body;
-      
+      const parsed = updateSubmissionByTokenSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid submission payload", errors: parsed.error.flatten() });
+      }
+      const { data, status = 'draft' } = parsed.data;
+
       const updateData = {
         data: typeof data === 'string' ? data : JSON.stringify(data),
         status,
