@@ -46,14 +46,15 @@ export default function Merchants() {
   // the search changes.
   const MERCHANTS_PAGE_SIZE = 50;
   const [merchantsPage, setMerchantsPage] = useState(1);
-  React.useEffect(() => { setMerchantsPage(1); }, [searchQuery]);
+  React.useEffect(() => { setMerchantsPage(1); }, [searchQuery, statusFilter]);
 
   const { data: merchantsPageData, isLoading } = useQuery({
-    queryKey: ["/api/merchants", "paged", merchantsPage, MERCHANTS_PAGE_SIZE, searchQuery],
+    queryKey: ["/api/merchants", "paged", merchantsPage, MERCHANTS_PAGE_SIZE, searchQuery, statusFilter],
     queryFn: () => merchantsApi.getPaged({
       page: merchantsPage,
       pageSize: MERCHANTS_PAGE_SIZE,
       search: searchQuery || undefined,
+      status: statusFilter,
     }),
   });
   const merchants = merchantsPageData?.items ?? [];

@@ -1529,11 +1529,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async searchMerchantProspectsByAgent(agentId: number, query: string) {
-    const prospects = await db.select().from(merchantProspects).where(eq(merchantProspects.agentId, agentId));
-    return prospects.filter(p => 
-      `${p.firstName} ${p.lastName}`.toLowerCase().includes(query.toLowerCase()) ||
-      p.email.toLowerCase().includes(query.toLowerCase())
+    // SQL-side filter via ilike. Previously read the full agent's prospect
+    // list and filtered in JS — replaced to keep memory bounded.
+    const q = `%${query}%`;
+    const searchExpr = or(
+      ilike(merchantProspects.firstName, q),
+      ilike(merchantProspects.lastName, q),
+      ilike(merchantProspects.email, q),
     );
+    const where = searchExpr
+      ? and(eq(merchantProspects.agentId, agentId), searchExpr)
+      : eq(merchantProspects.agentId, agentId);
+    return await db.select().from(merchantProspects).where(where);
   }
 
   async getMerchantProspectsByAgent(agentId: number) {
@@ -1541,11 +1548,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async searchMerchantProspects(query: string) {
-    const prospects = await db.select().from(merchantProspects);
-    return prospects.filter(p => 
-      `${p.firstName} ${p.lastName}`.toLowerCase().includes(query.toLowerCase()) ||
-      p.email.toLowerCase().includes(query.toLowerCase())
+    // SQL-side filter via ilike. Previously read the full prospects table and
+    // filtered in JS — replaced to keep memory bounded and to push selectivity
+    // to the database. For paginated callers, prefer getMerchantProspectsPaged.
+    const q = `%${query}%`;
+    const where = or(
+      ilike(merchantProspects.firstName, q),
+      ilike(merchantProspects.lastName, q),
+      ilike(merchantProspects.email, q),
     );
+    return await db.select().from(merchantProspects).where(where);
   }
 
   async clearAllProspectData(): Promise<void> {
@@ -2639,6 +2651,17 @@ export class DatabaseStorage implements IStorage {
   // never load entire tables into memory. Filters (search/status) are pushed
   // into SQL via Drizzle (`ilike` / `eq`) instead of being applied in JS.
 
+  // ──────────────────────────────────────────────────────────────────────
+  // Per-request DB ENVIRONMENT ISOLATION:
+  // The `db` import (server/db.ts) is an AsyncLocalStorage-backed proxy.
+  // When a request is wrapped by `dbEnvironmentMiddleware` (which calls
+  // `runWithDb(req.dynamicDB, next)` on every request), every `db.*` call
+  // inside the request handler (and any awaited descendants — including
+  // these storage methods) resolves to that request's environment-scoped
+  // Drizzle client. This is the same pattern used by the other 191 `db.*`
+  // call sites in this file. Do NOT replace `db` here with a global import
+  // outside of `runWithDb`; doing so would silently bypass env isolation.
+  // ──────────────────────────────────────────────────────────────────────
   async getMerchantsPaged(opts: {
     offset: number; limit: number; search?: string; status?: string;
   }): Promise<{ items: MerchantWithAgent[]; total: number }> {

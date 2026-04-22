@@ -175,7 +175,7 @@ export default function Agents() {
   // Filter the DFS tree by collapsed ancestors. When `node.depth > suppressDepth`
   // the node is hidden because some ancestor is collapsed.
   const visibleHierarchy: Agent[] = (() => {
-    if (searchQuery) return searchResults; // search bypasses tree
+    if (isSearchActive) return searchResults; // any active filter bypasses tree
     let suppressDepth: number | null = null;
     const out: Agent[] = [];
     for (const node of hierarchyTree) {
@@ -187,7 +187,7 @@ export default function Agents() {
     return out;
   })();
   const agents: Agent[] = visibleHierarchy;
-  const isLoading = searchQuery ? isSearchLoading : isHierarchyLoading;
+  const isLoading = isSearchActive ? isSearchLoading : isHierarchyLoading;
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => agentsApi.delete(id),
