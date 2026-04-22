@@ -9323,39 +9323,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const { pdfFieldId, templateFieldId, action } = fmParsed.data;
 
-      // fieldConfiguration is jsonb with a free-form per-template shape
-      const fieldConfig: any = { ...(template.fieldConfiguration as any) };
-      const rawFields: any[] = Array.isArray(template.pdfMappingConfiguration) ? [...(template.pdfMappingConfiguration as unknown[])] : [];
+      const existingConfig = (template.fieldConfiguration ?? {}) as import("@shared/schema").PdfTemplateFieldConfiguration;
+      const fieldConfig: import("@shared/schema").PdfTemplateFieldConfiguration = { ...existingConfig };
+      const rawFields: import("@shared/schema").PdfMappingEntry[] = Array.isArray(template.pdfMappingConfiguration)
+        ? [...(template.pdfMappingConfiguration as import("@shared/schema").PdfMappingEntry[])]
+        : [];
+
+      const findTemplateField = (id: string) => {
+        for (const section of fieldConfig.sections ?? []) {
+          const field = section.fields?.find((f) => f.id === id);
+          if (field) return field;
+        }
+        return undefined;
+      };
 
       if (action === 'map') {
-        if (Array.isArray(fieldConfig.sections)) {
-          for (const section of fieldConfig.sections) {
-            if (Array.isArray(section.fields)) {
-              const field = section.fields.find((f: any) => f.id === templateFieldId);
-              if (field) {
-                field.pdfFieldId = pdfFieldId;
-                break;
-              }
-            }
-          }
-        }
-        const rawIdx = rawFields.findIndex((rf: any) => rf.pdfFieldId === pdfFieldId);
+        const field = findTemplateField(templateFieldId);
+        if (field) field.pdfFieldId = pdfFieldId;
+        const rawIdx = rawFields.findIndex((rf) => rf.pdfFieldId === pdfFieldId);
         if (rawIdx >= 0) {
           rawFields[rawIdx] = { ...rawFields[rawIdx], mappedToTemplateField: templateFieldId, mappingStatus: 'manual' };
         }
       } else if (action === 'unmap') {
-        if (Array.isArray(fieldConfig.sections)) {
-          for (const section of fieldConfig.sections) {
-            if (Array.isArray(section.fields)) {
-              const field = section.fields.find((f: any) => f.id === templateFieldId);
-              if (field) {
-                delete field.pdfFieldId;
-                break;
-              }
-            }
-          }
-        }
-        const rawIdx = rawFields.findIndex((rf: any) => rf.pdfFieldId === pdfFieldId);
+        const field = findTemplateField(templateFieldId);
+        if (field) delete field.pdfFieldId;
+        const rawIdx = rawFields.findIndex((rf) => rf.pdfFieldId === pdfFieldId);
         if (rawIdx >= 0) {
           rawFields[rawIdx] = { ...rawFields[rawIdx], mappedToTemplateField: null, mappingStatus: 'unmapped' };
         }
@@ -9629,18 +9621,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
       const { mccCodes } = await import("@shared/schema");
-      const { ilike, or, eq } = await import("drizzle-orm");
+      const drizzleOrm = await import("drizzle-orm");
+      const { ilike, or, eq, and } = drizzleOrm;
       const { search, category } = req.query;
-      // Drizzle's chained builder narrows the return type after `.where`,
-      // so reassigning to the same `let` requires an `as any` round-trip.
-      let query = dbToUse.select().from(mccCodes);
+      const conditions: import("drizzle-orm").SQL[] = [];
       if (search) {
         const searchStr = `%${search}%`;
-        query = query.where(or(ilike(mccCodes.code, searchStr), ilike(mccCodes.description, searchStr))) as any;
+        const c = or(ilike(mccCodes.code, searchStr), ilike(mccCodes.description, searchStr));
+        if (c) conditions.push(c);
       } else if (category) {
-        query = query.where(eq(mccCodes.category, category as string)) as any;
+        conditions.push(eq(mccCodes.category, String(category)));
       }
-      const results = await (query as any).orderBy(mccCodes.code);
+      const baseQuery = dbToUse.select().from(mccCodes);
+      const filtered = conditions.length > 0 ? baseQuery.where(and(...conditions)) : baseQuery;
+      const results = await filtered.orderBy(mccCodes.code);
       res.json(results);
     } catch (error) {
       console.error('Error fetching MCC codes:', error);

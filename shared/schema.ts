@@ -1040,12 +1040,54 @@ export const acquirers = pgTable("acquirers", {
 });
 
 // Acquirer Application Templates - store dynamic form configurations for each acquirer
+// JSON shapes for acquirer application template configuration columns.
+// These describe the well-known keys for the persisted JSON; templates may
+// also carry extension metadata which is preserved as additional optional
+// properties via Partial<Record<string, unknown>> intersections at use sites.
+export interface PdfTemplateField {
+  id: string;
+  pdfFieldId?: string;
+  pdfFieldIds?: string[];
+  type?: string;
+  label?: string;
+  required?: boolean;
+  placeholder?: string;
+  description?: string;
+  options?: unknown;
+  pattern?: string;
+  min?: number;
+  max?: number;
+  sensitive?: boolean;
+}
+
+export interface PdfTemplateSection {
+  id?: string;
+  title?: string;
+  description?: string;
+  fields?: PdfTemplateField[];
+}
+
+export interface PdfTemplateFieldConfiguration {
+  sections?: PdfTemplateSection[];
+}
+
+export interface PdfMappingEntry {
+  pdfFieldId: string;
+  fieldName?: string;
+  mappedToTemplateField?: string | null;
+  mappingStatus?: 'manual' | 'auto' | 'unmapped' | string;
+}
+
 export const acquirerApplicationTemplates = pgTable("acquirer_application_templates", {
   id: serial("id").primaryKey(),
   acquirerId: integer("acquirer_id").notNull().references(() => acquirers.id, { onDelete: "cascade" }),
   templateName: text("template_name").notNull(),
   version: text("version").notNull().default("1.0"),
   isActive: boolean("is_active").notNull().default(true),
+  // jsonb columns; the runtime shapes are described by PdfTemplateFieldConfiguration
+  // and PdfMappingEntry above. We deliberately do not use Drizzle's `.$type<>()`
+  // here because drizzle-zod can't faithfully derive a Zod schema for nested
+  // optional shapes — handlers cast the values via the exported types instead.
   fieldConfiguration: jsonb("field_configuration").notNull(),
   pdfMappingConfiguration: jsonb("pdf_mapping_configuration"),
   originalPdfBase64: text("original_pdf_base64"),

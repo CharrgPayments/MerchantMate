@@ -83,7 +83,7 @@ export function registerSchemaSyncRoutes(app: Express, requirePerm: any) {
       };
 
       try {
-        const userId = (req.session as any)?.userId;
+        const userId = ((req.session as { userId?: string } | undefined)?.userId);
         const result = await applyPlan(
           plan,
           { confirmProd: !!confirmProd, userId },
@@ -95,7 +95,7 @@ export function registerSchemaSyncRoutes(app: Express, requirePerm: any) {
           await auditService.logAction(
             "schema_sync_apply",
             "schema-sync",
-            { userId: (req.session as any)?.userId },
+            { userId: ((req.session as { userId?: string } | undefined)?.userId) },
             {
               resourceId: plan.planId,
               riskLevel: plan.targetEnv === "production" ? "critical" : "high",
@@ -138,7 +138,7 @@ export function registerSchemaSyncRoutes(app: Express, requirePerm: any) {
           await auditService.logAction(
             "schema_sync_rollback",
             "schema-sync",
-            { userId: (req.session as any)?.userId },
+            { userId: ((req.session as { userId?: string } | undefined)?.userId) },
             {
               resourceId: snapshotFile ?? "latest",
               riskLevel: targetEnv === "production" ? "critical" : "high",

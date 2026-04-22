@@ -193,7 +193,7 @@ export async function introspectSchema(env: Env): Promise<SchemaSnapshot["tables
     );
 
     const tables: SchemaSnapshot["tables"] = {};
-    for (const r of cols.rows as any[]) {
+    for (const r of cols.rows as Array<Record<string, any>>) {
       const t = r.table_name as string;
       tables[t] = tables[t] || { columns: [], indexes: [] };
       tables[t].columns.push({
@@ -203,7 +203,7 @@ export async function introspectSchema(env: Env): Promise<SchemaSnapshot["tables
         default: r.column_default,
       });
     }
-    for (const r of idx.rows as any[]) {
+    for (const r of idx.rows as Array<Record<string, any>>) {
       const t = r.table_name as string;
       if (!tables[t]) tables[t] = { columns: [], indexes: [] };
       tables[t].indexes.push({

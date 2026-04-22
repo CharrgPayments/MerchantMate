@@ -271,7 +271,7 @@ export async function buildReport(template: ReportTemplate): Promise<{ subject: 
     // sql expression for to_char + date_trunc — Drizzle has no first-class
     // builder for those formatters.
     const period = sql<string>`to_char(date_trunc('month', ${commissionEvents.createdAt}), 'YYYY-MM')`;
-    const sixMonthsAgo = sql`now() - interval '6 months'`;
+    const sixMonthsAgo = sql<Date>`now() - interval '6 months'`;
     const data = await db
       .select({
         period,
@@ -279,7 +279,7 @@ export async function buildReport(template: ReportTemplate): Promise<{ subject: 
         total: sql<string>`coalesce(sum(${commissionEvents.amount}),0)::numeric`,
       })
       .from(commissionEvents)
-      .where(gte(commissionEvents.createdAt, sixMonthsAgo as any))
+      .where(gte(commissionEvents.createdAt, sixMonthsAgo))
       .groupBy(period)
       .orderBy(desc(period))
       .catch(() => [] as Array<{ period: string; count: number; total: string }>);
@@ -316,7 +316,7 @@ export async function buildReport(template: ReportTemplate): Promise<{ subject: 
     };
   }
   // commission_payouts — last 30 days of commission_events grouped by status.
-  const thirtyDaysAgo = sql`now() - interval '30 days'`;
+  const thirtyDaysAgo = sql<Date>`now() - interval '30 days'`;
   const commissionData = await db
     .select({
       status: commissionEvents.status,
@@ -324,7 +324,7 @@ export async function buildReport(template: ReportTemplate): Promise<{ subject: 
       total: sql<string>`coalesce(sum(${commissionEvents.amount}),0)::numeric`,
     })
     .from(commissionEvents)
-    .where(gte(commissionEvents.createdAt, thirtyDaysAgo as any))
+    .where(gte(commissionEvents.createdAt, thirtyDaysAgo))
     .groupBy(commissionEvents.status)
     .orderBy(commissionEvents.status)
     .catch(() => [] as Array<{ status: string; count: number; total: string }>);

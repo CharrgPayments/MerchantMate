@@ -183,7 +183,7 @@ export class AuditService {
         res.on('finish', async () => {
           try {
             const responseTime = Date.now() - startTime;
-            const userId = (req.session as any)?.userId || null;
+            const userId = ((req.session as { userId?: string } | undefined)?.userId) || undefined;
             const sessionId = req.sessionID || null;
             
             // Only log API endpoints to reduce noise
@@ -201,7 +201,7 @@ export class AuditService {
                 {
                   userId,
                   sessionId: sessionId || undefined,
-                  ipAddress: req.ip || req.connection.remoteAddress || 'unknown',
+                  ipAddress: req.ip || req.socket.remoteAddress || 'unknown',
                   userAgent: req.get('User-Agent') || undefined,
                   method: req.method,
                   endpoint: req.path,
@@ -364,22 +364,28 @@ export class AuditService {
     const sensitiveFields = ['password', 'token', 'secret', 'key', 'credit_card', 'ssn'];
     const sanitized = { ...body };
     
-    const sanitizeObject = (obj: any): any => {
+    const sanitizeObject = (obj: unknown): unknown => {
       if (typeof obj !== 'object' || obj === null) return obj;
-      
-      const result = Array.isArray(obj) ? [] : {};
-      
-      for (const [key, value] of Object.entries(obj)) {
+
+      const result: Record<string, unknown> | unknown[] = Array.isArray(obj) ? [] : {};
+
+      for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
         const keyLower = key.toLowerCase();
+        let next: unknown;
         if (sensitiveFields.some(field => keyLower.includes(field))) {
-          (result as any)[key] = '[REDACTED]';
+          next = '[REDACTED]';
         } else if (typeof value === 'object' && value !== null) {
-          (result as any)[key] = sanitizeObject(value);
+          next = sanitizeObject(value);
         } else {
-          (result as any)[key] = value;
+          next = value;
+        }
+        if (Array.isArray(result)) {
+          result[Number(key)] = next;
+        } else {
+          result[key] = next;
         }
       }
-      
+
       return result;
     };
     
@@ -392,8 +398,7 @@ export class AuditService {
   private getClientIP(req: Request): string {
     return (
       (req.headers["x-forwarded-for"] as string)?.split(",")[0] ||
-      (req as any).connection?.remoteAddress ||
-      (req as any).socket?.remoteAddress ||
+      req.socket?.remoteAddress ||
       req.ip ||
       "unknown"
     );
