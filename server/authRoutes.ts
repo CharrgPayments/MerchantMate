@@ -10,6 +10,35 @@ import {
 } from "@shared/schema";
 import { dbEnvironmentMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
 import { getDynamicDatabase } from "./db";
+import { rateLimit } from "./rateLimits";
+
+// Rate limiters for auth-sensitive endpoints. Per-IP and per-account
+// (username/email) sliding windows; bursts get a 429 with Retry-After.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 10,
+  keyExtractor: (req) =>
+    (req.body && typeof req.body === 'object'
+      ? (req.body.username || req.body.email)
+      : undefined),
+  message: 'Too many login attempts. Please wait a few minutes and try again.',
+});
+
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 60 * 60_000,
+  max: 5,
+  keyExtractor: (req) =>
+    (req.body && typeof req.body === 'object' ? req.body.email : undefined),
+  message: 'Too many password reset requests. Please try again later.',
+});
+
+const resetPasswordLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 10,
+  keyExtractor: (req) =>
+    (req.body && typeof req.body === 'object' ? req.body.token : undefined),
+  message: 'Too many password reset attempts. Please try again later.',
+});
 
 declare module "express-session" {
   interface SessionData {
@@ -85,7 +114,7 @@ export function setupAuthRoutes(app: Express) {
   });
 
   // User login with database environment support
-  app.post('/api/auth/login', async (req: RequestWithDB, res) => {
+  app.post('/api/auth/login', loginLimiter, async (req: RequestWithDB, res) => {
     try {
       const validatedData = loginUserSchema.parse(req.body);
 
@@ -146,7 +175,7 @@ export function setupAuthRoutes(app: Express) {
   });
 
   // Forgot password — uses dbEnvironmentMiddleware so dev/test users can reset their passwords
-  app.post('/api/auth/forgot-password', async (req: RequestWithDB, res) => {
+  app.post('/api/auth/forgot-password', forgotPasswordLimiter, async (req: RequestWithDB, res) => {
     try {
       const validatedData = passwordResetRequestSchema.parse(req.body);
       // Always read ?db from query directly — the production-domain override in
@@ -167,7 +196,7 @@ export function setupAuthRoutes(app: Express) {
   });
 
   // Reset password — always reads ?db directly so token is validated in the right DB
-  app.post('/api/auth/reset-password', async (req: RequestWithDB, res) => {
+  app.post('/api/auth/reset-password', resetPasswordLimiter, async (req: RequestWithDB, res) => {
     try {
       const validatedData = passwordResetSchema.parse(req.body);
       const dbParam = req.query.db as string | undefined;

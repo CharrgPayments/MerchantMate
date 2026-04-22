@@ -15,6 +15,8 @@ import { emailService } from "./emailService";
 import { createAlert, createAlertForRoles } from "./alertService";
 import { v4 as uuidv4 } from "uuid";
 import { dbEnvironmentMiddleware, adminDbMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
+import { rateLimit } from "./rateLimits";
+import { redactSensitive } from "./auditRedaction";
 import { registerUnderwritingRoutes } from "./underwriting/routes";
 import { registerCommissionsRoutes } from "./routes/commissions";
 import { registerSchemaSyncRoutes } from "./routes/schemaSync";
@@ -259,6 +261,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             parsedResponse = responseBody;
           }
 
+          // Redact sensitive fields (passwords, tokens, 2FA secrets, API keys)
+          // before any audit row is persisted.
+          const safeRequest = redactSensitive(requestBody);
+          const safeResponse = redactSensitive(parsedResponse);
+
           // Log CRUD operations with detailed data
           if (req.method === 'POST' && res.statusCode >= 200 && res.statusCode < 300) {
             // CREATE operation
@@ -271,8 +278,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 userAgent: req.get('User-Agent') || null,
                 method: req.method,
                 endpoint: req.path,
-                requestData: requestBody,
-                responseData: parsedResponse,
+                requestData: safeRequest,
+                responseData: safeResponse,
                 resourceId: parsedResponse?.id || 'unknown',
                 environment: req.dbEnv || 'production'
               },
@@ -293,8 +300,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 userAgent: req.get('User-Agent') || null,
                 method: req.method,
                 endpoint: req.path,
-                requestData: requestBody,
-                responseData: parsedResponse,
+                requestData: safeRequest,
+                responseData: safeResponse,
                 resourceId,
                 environment: req.dbEnv || 'production'
               },
@@ -315,8 +322,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 userAgent: req.get('User-Agent') || null,
                 method: req.method,
                 endpoint: req.path,
-                requestData: requestBody,
-                responseData: parsedResponse,
+                requestData: safeRequest,
+                responseData: safeResponse,
                 resourceId,
                 environment: req.dbEnv || 'production'
               },
@@ -358,7 +365,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use(auditService.auditMiddleware());
 
   // Address autocomplete endpoint using Google Places API
-  app.post('/api/address-autocomplete', async (req, res) => {
+  // Allow either an authenticated session OR a valid prospect token (prospect portal)
+  const requireAuthOrProspectToken = async (req: any, res: Response, next: any) => {
+    if ((req.session as any)?.userId) return next();
+    const token =
+      (req.headers['x-prospect-token'] as string | undefined) ||
+      (req.body && typeof req.body === 'object' ? req.body.prospectToken : undefined);
+    if (token && typeof token === 'string') {
+      try {
+        const prospect = await storage.getMerchantProspectByToken(token);
+        if (prospect) return next();
+      } catch (e) {
+        // fall through to 401
+      }
+    }
+    return res.status(401).json({ message: 'Authentication required' });
+  };
+
+  const googleApiLimiter = rateLimit({
+    windowMs: 60_000,
+    max: 30,
+    message: 'Too many address lookups. Please slow down.',
+  });
+
+  app.post('/api/address-autocomplete', googleApiLimiter, requireAuthOrProspectToken, async (req, res) => {
     try {
       const { input } = req.body;
       
@@ -395,7 +425,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Address validation endpoint using Google Maps API
-  app.post('/api/validate-address', async (req, res) => {
+  app.post('/api/validate-address', googleApiLimiter, requireAuthOrProspectToken, async (req, res) => {
     try {
       const { address, placeId } = req.body;
       
@@ -990,7 +1020,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/users/:id/role", dbEnvironmentMiddleware, requirePerm('system:superadmin'), async (req: RequestWithDB, res) => {
+  app.patch("/api/users/:id/role", isAuthenticated, dbEnvironmentMiddleware, requirePerm('system:superadmin'), async (req: RequestWithDB, res) => {
     try {
       const { id } = req.params;
       const body = req.body as { role?: string; roles?: string[] };
@@ -1025,7 +1055,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/users/:id/status", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
+  app.patch("/api/users/:id/status", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     try {
       const { id } = req.params;
       const { status } = req.body;
@@ -1046,7 +1076,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete user account
-  app.delete("/api/users/:id", requirePerm('system:superadmin'), async (req, res) => {
+  app.delete("/api/users/:id", isAuthenticated, dbEnvironmentMiddleware, requirePerm('system:superadmin'), async (req, res) => {
     try {
       const { id } = req.params;
       
@@ -1063,7 +1093,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update user account information
-  app.patch("/api/users/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
+  app.patch("/api/users/:id", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const userId = req.params.id;
       const updates = req.body;
@@ -1121,7 +1151,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Reset user password (admin only)
-  app.post("/api/users/:id/reset-password", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
+  app.post("/api/users/:id/reset-password", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const userId = req.params.id;
       
@@ -1213,7 +1243,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Agent password reset
-  app.post("/api/agents/:id/reset-password", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
+  app.post("/api/agents/:id/reset-password", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { id } = req.params;
       const agent = await storage.getAgent(parseInt(id));
@@ -1248,7 +1278,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Merchant password reset
-  app.post("/api/merchants/:id/reset-password", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
+  app.post("/api/merchants/:id/reset-password", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const { id } = req.params;
       const merchant = await storage.getMerchant(parseInt(id));
@@ -1648,7 +1678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Agent-merchant assignment routes (admin only)
-  app.post("/api/agents/:agentId/merchants/:merchantId", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
+  app.post("/api/agents/:agentId/merchants/:merchantId", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     try {
       const { agentId, merchantId } = req.params;
       const userId = (req as any).user.claims.sub;
@@ -1668,7 +1698,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/agents/:agentId/merchants/:merchantId", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
+  app.delete("/api/agents/:agentId/merchants/:merchantId", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     try {
       const { agentId, merchantId } = req.params;
       const dynamicDB = getRequestDB(req);
@@ -2109,8 +2139,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Validate prospect by token (public, no auth required)
-  app.post("/api/prospects/validate-token", async (req, res) => {
+  // Validate prospect by token (public, no auth required) — rate-limited to
+  // discourage token-guessing.
+  const prospectTokenLimiter = rateLimit({
+    windowMs: 60_000,
+    max: 10,
+    keyExtractor: (req) => (req.body && typeof req.body === 'object' ? req.body.token : undefined),
+    message: 'Too many token validation attempts. Please try again later.',
+  });
+  app.post("/api/prospects/validate-token", prospectTokenLimiter, async (req, res) => {
     try {
       const { token } = req.body;
       
@@ -2545,10 +2582,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Migration management endpoint (NEW - BULLETPROOF APPROACH)
-  app.post("/api/admin/migration", requirePerm('system:superadmin'), async (req, res) => {
+  app.post("/api/admin/migration", isAuthenticated, requirePerm('system:superadmin'), async (req, res) => {
     try {
       const { action, environment } = req.body;
-      
+      const actingUserId = (req.session as any)?.userId || (req as any).user?.claims?.sub || null;
+
       console.log(`🔧 Migration action: ${action} ${environment || ''}`);
       
       // Import migration manager functionality
@@ -2599,7 +2637,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         warnings: stderr || null,
         message: `Migration ${action} completed successfully`
       };
-      
+
+      // Explicit, high-severity audit entry for cross-environment data/schema syncs.
+      // This is independent of the generic CRUD audit middleware.
+      if (action === 'apply' && environment) {
+        try {
+          const { AuditService } = await import('./auditService');
+          const dbModule = await import('./db');
+          const auditDB = (req as any).dynamicDB || dbModule.db;
+          const explicitAudit = new AuditService(auditDB);
+          await explicitAudit.logAction(
+            'cross_env_sync',
+            'database',
+            {
+              userId: actingUserId,
+              ipAddress: req.ip || (req as any).connection?.remoteAddress || 'unknown',
+              userAgent: req.get('User-Agent') || null,
+              method: req.method,
+              endpoint: req.path,
+              environment,
+            },
+            {
+              riskLevel: 'high',
+              dataClassification: 'restricted',
+              tags: { sourceEnvironment: 'current_schema', targetEnvironment: environment, action },
+              notes: `Migration apply executed against ${environment}`,
+            }
+          );
+        } catch (auditErr) {
+          console.error('Failed to record cross-env sync audit entry:', auditErr);
+        }
+      }
+
       res.json(result);
       
     } catch (error: any) {
@@ -3971,7 +4040,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/merchants", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
+  app.post("/api/merchants", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     const dynamicDB = getRequestDB(req);
     try {
       // Remove userId from validation since it's auto-generated
@@ -4097,7 +4166,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/agents", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
+  app.post("/api/agents", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     const dynamicDB = getRequestDB(req);
     console.log(`Creating agent - Database environment: ${req.dbEnv}`);
     
@@ -4209,7 +4278,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // Update agent (general fields + optional parentAgentId change) — atomic
-  app.put("/api/agents/:id", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
+  app.put("/api/agents/:id", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     const ALLOWED_AGENT_FIELDS = ["firstName", "lastName", "email", "phone", "territory", "commissionRate", "status", "defaultCampaignId"] as const;
     type AgentUpdate = Partial<Pick<typeof agents.$inferInsert, typeof ALLOWED_AGENT_FIELDS[number]>>;
     try {
@@ -4255,7 +4324,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update merchant (general fields + optional parentMerchantId change) — atomic
-  app.put("/api/merchants/:id", dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
+  app.put("/api/merchants/:id", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     const ALLOWED_MERCHANT_FIELDS = ["businessName", "businessType", "email", "phone", "agentId", "processingFee", "status", "monthlyVolume"] as const;
     type MerchantUpdate = Partial<Pick<typeof merchants.$inferInsert, typeof ALLOWED_MERCHANT_FIELDS[number]>>;
     try {
@@ -4292,7 +4361,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Delete merchant — keeps closure tables consistent (reattach children
   // to the deleted merchant's parent, drop closure rows for this node).
-  app.delete("/api/merchants/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
+  app.delete("/api/merchants/:id", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const merchantId = parseInt(req.params.id);
       if (!Number.isInteger(merchantId)) {
@@ -4420,7 +4489,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete agent
-  app.delete("/api/agents/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
+  app.delete("/api/agents/:id", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const agentId = parseInt(req.params.id);
       const dynamicDB = getRequestDB(req);
@@ -4511,7 +4580,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Reset password for agent/merchant user accounts
-  app.post("/api/agents/:id/reset-password", requirePerm('admin:read'), async (req, res) => {
+  app.post("/api/agents/:id/reset-password", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:read'), async (req, res) => {
     try {
       const agentId = parseInt(req.params.id);
       const user = await storage.getAgentUser(agentId);
@@ -4545,7 +4614,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/merchants/:id/reset-password", requirePerm('admin:read'), async (req, res) => {
+  app.post("/api/merchants/:id/reset-password", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:read'), async (req, res) => {
     try {
       const merchantId = parseInt(req.params.id);
       const user = await storage.getMerchantUser(merchantId);

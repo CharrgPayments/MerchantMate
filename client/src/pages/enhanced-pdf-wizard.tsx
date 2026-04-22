@@ -991,8 +991,9 @@ export default function EnhancedPdfWizard() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(prospectToken ? { 'X-Prospect-Token': prospectToken } : {}),
         },
-        body: JSON.stringify({ input }),
+        body: JSON.stringify({ input, ...(prospectToken ? { prospectToken } : {}) }),
       });
       
       if (response.ok) {
@@ -1027,8 +1028,9 @@ export default function EnhancedPdfWizard() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(prospectToken ? { 'X-Prospect-Token': prospectToken } : {}),
         },
-        body: JSON.stringify({ address: suggestion.description }),
+        body: JSON.stringify({ address: suggestion.description, ...(prospectToken ? { prospectToken } : {}) }),
       });
       
       if (response.ok) {
