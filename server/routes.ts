@@ -1125,23 +1125,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.params.id;
 
-      // Validate the partial-user payload via Zod and strip any sensitive
-      // fields the caller may have included in the body (passwordHash,
-      // reset tokens, id, createdAt) before persisting.
-      const updateUserSchema = insertUserSchema
-        .partial()
-        .omit({
-          passwordHash: true,
-          passwordResetToken: true,
-          passwordResetExpires: true,
-          id: true,
-          createdAt: true,
-        } as any);
+      // Validate the partial-user payload via Zod. Sensitive fields
+      // (passwordHash, reset tokens, id, createdAt) are deliberately omitted
+      // from the schema so callers cannot set them via this endpoint.
+      const updateUserSchema = z.object({
+        email: z.string().email(),
+        username: z.string().min(1),
+        firstName: z.string().nullable(),
+        lastName: z.string().nullable(),
+        profileImageUrl: z.string().nullable(),
+        roles: z.array(z.string()),
+        status: z.enum(['active', 'suspended', 'inactive']),
+        permissions: z.unknown(),
+        timezone: z.string().nullable(),
+        twoFactorEnabled: z.boolean(),
+        emailVerified: z.boolean(),
+        phone: z.string().nullable(),
+        communicationPreference: z.enum(['email', 'sms', 'both']).nullable(),
+        mustChangePassword: z.boolean(),
+      }).partial();
       const parsed = updateUserSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid user payload", errors: parsed.error.flatten() });
       }
-      const updates: Record<string, any> = { ...parsed.data };
+      const updates: Record<string, unknown> = { ...parsed.data };
 
       console.log('Update user endpoint - User ID:', userId);
       console.log('Update user endpoint - Database environment:', req.dbEnv);
@@ -5422,7 +5429,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update PDF form metadata (admin only)
-  app.patch("/api/pdf-forms/:id", isAuthenticated, requirePerm('admin:manage'), async (req: any, res) => {
+  app.patch("/api/pdf-forms/:id", isAuthenticated, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
       const formId = parseInt(req.params.id);
       const parsed = z.object({
