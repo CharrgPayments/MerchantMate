@@ -1,10 +1,10 @@
 import { apiRequest } from "./queryClient";
 import type { Merchant, Agent, Transaction, InsertMerchant, InsertAgent, InsertTransaction, MerchantWithAgent, TransactionWithMerchant } from "@shared/schema";
 
-// Server hard-caps page size at 500 (see server/lib/pagination.ts). We use that
-// as the default for legacy `getAll()` callers so they keep receiving the full
-// list without manual pagination plumbing, while still benefiting from the
-// server-side safety cap.
+// Server hard-caps page size at 500 (see server/lib/pagination.ts).
+// `getAll()` callers request that cap so they receive the full list (up to
+// 500 rows) instead of the default-50 first page. New paginated UIs should
+// use `*.getPaged(...)` instead.
 const MAX_PAGE_SIZE = 500;
 
 export interface PageResponse<T> {
@@ -38,9 +38,9 @@ async function fetchPage<T>(path: string, opts: PageQuery & { defaultPageSize?: 
 
 // Merchants API
 export const merchantsApi = {
-  // Legacy unwrapped list — still used by hierarchy hydration and modal lookups.
-  // Requests up to MAX_PAGE_SIZE so the server cap (not unbounded SQL) protects
-  // the response.
+  // Legacy unwrapped list — used by hierarchy hydration and modal lookups.
+  // Requests up to MAX_PAGE_SIZE so the response is the full set (capped),
+  // not just the default first page of 50.
   getAll: async (search?: string): Promise<MerchantWithAgent[]> => {
     const page = await fetchPage<MerchantWithAgent>('/api/merchants', { search, pageSize: MAX_PAGE_SIZE });
     return page.items;

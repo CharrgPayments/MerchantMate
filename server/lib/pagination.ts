@@ -16,13 +16,6 @@ export interface Page<T> {
 
 export const DEFAULT_PAGE_SIZE = 50;
 export const MAX_PAGE_SIZE = 500;
-/**
- * Default pageSize used for callers that DON'T pass a pagination param. Set
- * to MAX_PAGE_SIZE so the legacy unbounded behaviour is preserved up to the
- * cap and existing array-shaped consumers keep receiving the full result set.
- * Callers that pass `?pageSize=` get true paging at that size.
- */
-const LEGACY_DEFAULT_PAGE_SIZE = MAX_PAGE_SIZE;
 
 export class PaginationError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -46,9 +39,8 @@ function toPositiveInt(raw: unknown, fieldName: string): number {
  *   - page or pageSize is non-numeric / non-positive
  *   - pageSize exceeds MAX_PAGE_SIZE (hard reject, not silent clamp)
  *
- * If the caller did not pass `?pageSize=`, we default to LEGACY_DEFAULT_PAGE_SIZE
- * (= MAX_PAGE_SIZE) so legacy callers that previously received the full list
- * keep working — capped, but not silently truncated to 50.
+ * If the caller does not pass `?pageSize=`, we default to DEFAULT_PAGE_SIZE
+ * (= 50). Pass `?pageSize=500` to fetch up to the cap.
  */
 export function parsePagination(req: Request): PageParams {
   const page = req.query.page === undefined || req.query.page === ""
@@ -57,7 +49,7 @@ export function parsePagination(req: Request): PageParams {
 
   let pageSize: number;
   if (req.query.pageSize === undefined || req.query.pageSize === "") {
-    pageSize = LEGACY_DEFAULT_PAGE_SIZE;
+    pageSize = DEFAULT_PAGE_SIZE;
   } else {
     pageSize = toPositiveInt(req.query.pageSize, "pageSize");
     if (pageSize > MAX_PAGE_SIZE) {

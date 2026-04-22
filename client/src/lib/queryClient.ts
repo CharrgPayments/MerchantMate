@@ -39,7 +39,21 @@ export const getQueryFn: <T>(options: {
     }
 
     await throwIfResNotOk(res);
-    return await res.json();
+    const body = await res.json();
+    // Transparent unwrap of paginated envelopes for legacy consumers that
+    // expect arrays. New paginated UIs should call the typed `*.getPaged()`
+    // helpers in `lib/api.ts` and read `total`/`page`/`pageSize` directly.
+    if (
+      body &&
+      typeof body === "object" &&
+      Array.isArray((body as any).items) &&
+      typeof (body as any).total === "number" &&
+      typeof (body as any).page === "number" &&
+      typeof (body as any).pageSize === "number"
+    ) {
+      return (body as any).items;
+    }
+    return body;
   };
 
 export const queryClient = new QueryClient({

@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
+import { PaginationControls } from "@/components/pagination-controls";
 import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,14 +58,24 @@ export default function Prospects() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  const { data: prospects = [], isLoading } = useQuery({
-    queryKey: ["/api/prospects", searchQuery],
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(1);
+  // Reset to page 1 whenever the user changes filters
+  React.useEffect(() => { setPage(1); }, [searchQuery, statusFilter]);
+
+  const { data: prospectsPage, isLoading } = useQuery({
+    queryKey: ["/api/prospects", "paged", page, PAGE_SIZE, searchQuery, statusFilter],
     queryFn: async () => {
-      const response = await fetch(`/api/prospects${searchQuery ? `?search=${searchQuery}` : ''}`);
+      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+      if (searchQuery) params.set("search", searchQuery);
+      if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
+      const response = await fetch(`/api/prospects?${params.toString()}`, { credentials: "include" });
       if (!response.ok) throw new Error('Failed to fetch prospects');
-      return response.json() as Promise<MerchantProspectWithAgent[]>;
+      return response.json() as Promise<{ items: MerchantProspectWithAgent[]; total: number; page: number; pageSize: number }>;
     },
   });
+  const prospects: MerchantProspectWithAgent[] = prospectsPage?.items ?? [];
+  const prospectsTotal = prospectsPage?.total ?? 0;
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -141,12 +152,9 @@ export default function Prospects() {
     }
   };
 
-  const filteredProspects = prospects.filter((prospect) => {
-    if (statusFilter !== "all" && prospect.status !== statusFilter) {
-      return false;
-    }
-    return true;
-  });
+  // Server-side filters apply both `search` and `status`, so the page rows
+  // are already filtered. Keep this alias for the existing render code.
+  const filteredProspects = prospects;
 
   // Group prospects by agent for admin users
   const agentProspectSummaries: AgentProspectSummary[] = (() => {
@@ -619,6 +627,13 @@ export default function Prospects() {
               </Table>
             </div>
           )}
+          <PaginationControls
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={prospectsTotal}
+            onPageChange={setPage}
+            isLoading={isLoading}
+          />
         </CardContent>
       </Card>
 

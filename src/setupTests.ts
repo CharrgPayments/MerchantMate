@@ -6,6 +6,12 @@ process.env.NODE_ENV = 'test';
 // Mock fetch globally
 global.fetch = jest.fn();
 
+// The browser-only mocks below are guarded so that node-environment test
+// files (e.g. server-side integration tests using `@jest-environment node`)
+// can share this setup without crashing on `window` references.
+if (typeof window === 'undefined') {
+  // Skip browser-only globals for node-env tests.
+} else {
 // Mock window.matchMedia for Radix UI components
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
@@ -34,6 +40,7 @@ global.IntersectionObserver = jest.fn().mockImplementation(() => ({
   unobserve: jest.fn(),
   disconnect: jest.fn(),
 }));
+} // end browser-only guard
 
 // Setup cleanup for React Query tests
 afterEach(() => {

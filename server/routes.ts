@@ -16,7 +16,7 @@ import { createAlert, createAlertForRoles } from "./alertService";
 import { v4 as uuidv4 } from "uuid";
 import { dbEnvironmentMiddleware, adminDbMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
 import { rateLimit } from "./rateLimits";
-import { parsePaginationOrSend, makePage, wantsPaginatedEnvelope } from "./lib/pagination";
+import { parsePaginationOrSend, makePage } from "./lib/pagination";
 import { redactSensitive } from "./auditRedaction";
 import { registerUnderwritingRoutes } from "./underwriting/routes";
 import { registerCommissionsRoutes } from "./routes/commissions";
@@ -1030,7 +1030,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!p) return;
       const search = typeof req.query.search === "string" ? req.query.search : undefined;
       const result = await storage.getUsersPaged({ ...p, search });
-      res.json(wantsPaginatedEnvelope(req) ? makePage(result.items, result.total, p) : result.items);
+      res.json(makePage(result.items, result.total, p));
     } catch (error) {
       console.error("Error fetching users:", error);
       res.status(500).json({ message: "Failed to fetch users" });
@@ -1338,7 +1338,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const search = typeof req.query.search === "string" ? req.query.search : undefined;
       const status = typeof req.query.status === "string" ? req.query.status : undefined;
       const result = await storage.getMerchantsForUserPaged(userId, { ...p, search, status });
-      res.json(wantsPaginatedEnvelope(req) ? makePage(result.items, result.total, p) : result.items);
+      res.json(makePage(result.items, result.total, p));
     } catch (error) {
       console.error("Error fetching merchants:", error);
       res.status(500).json({ message: "Failed to fetch merchants" });
@@ -1595,7 +1595,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const search = typeof req.query.search === "string" ? req.query.search : undefined;
       const status = typeof req.query.status === "string" ? req.query.status : undefined;
       const result = await storage.getTransactionsForUserPaged(userId, { ...p, search, status });
-      res.json(wantsPaginatedEnvelope(req) ? makePage(result.items, result.total, p) : result.items);
+      res.json(makePage(result.items, result.total, p));
     } catch (error) {
       console.error("Error fetching transactions:", error);
       res.status(500).json({ message: "Failed to fetch transactions" });
@@ -1731,7 +1731,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const result = await storage.getMerchantProspectsPaged({ ...p, search, status, agentId });
-      res.json(wantsPaginatedEnvelope(req) ? makePage(result.items, result.total, p) : result.items);
+      res.json(makePage(result.items, result.total, p));
     } catch (error) {
       console.error("Error fetching prospects:", error);
       res.status(500).json({ message: "Failed to fetch prospects" });
@@ -4153,7 +4153,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const search = typeof req.query.search === "string" ? req.query.search : undefined;
       const status = typeof req.query.status === "string" ? req.query.status : undefined;
       const result = await storage.getAgentsPaged({ ...p, search, status });
-      res.json(wantsPaginatedEnvelope(req) ? makePage(result.items, result.total, p) : result.items);
+      res.json(makePage(result.items, result.total, p));
     } catch (error) {
       console.error("Error fetching agents:", error);
       res.status(500).json({ message: "Failed to fetch agents" });

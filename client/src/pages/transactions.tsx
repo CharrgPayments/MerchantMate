@@ -22,52 +22,27 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Filter, Download, Eye, RotateCcw } from "lucide-react";
 import { transactionsApi } from "@/lib/api";
+import { PaginationControls } from "@/components/pagination-controls";
 
 export default function Transactions() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const itemsPerPage = 25;
 
-  const { data: transactions = [], isLoading } = useQuery({
-    queryKey: ["/api/transactions", searchQuery],
-    queryFn: () => transactionsApi.getAll(searchQuery || undefined),
+  // Server-side paged + filtered. Resets to page 1 whenever the filters change.
+  const { data: pageData, isLoading } = useQuery({
+    queryKey: ["/api/transactions", "paged", currentPage, itemsPerPage, searchQuery, statusFilter],
+    queryFn: () => transactionsApi.getPaged({
+      page: currentPage,
+      pageSize: itemsPerPage,
+      search: searchQuery || undefined,
+      status: statusFilter,
+    }),
   });
-
-  const filteredTransactions = transactions.filter((transaction) => {
-    const matchesSearch = !searchQuery || 
-      transaction.transactionId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      transaction.merchant?.businessName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      transaction.amount.toString().includes(searchQuery) ||
-      (transaction.mid && transaction.mid.toLowerCase().includes(searchQuery.toLowerCase()));
-    
-    const matchesStatus = statusFilter === "all" || transaction.status === statusFilter;
-    
-    return matchesSearch && matchesStatus;
-  });
-
-  // Pagination calculations
-  const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedTransactions = filteredTransactions.slice(startIndex, endIndex);
-
-  // Pagination handlers
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page);
-  };
-
-  const handlePrevious = () => {
-    if (currentPage > 1) {
-      setCurrentPage(currentPage - 1);
-    }
-  };
-
-  const handleNext = () => {
-    if (currentPage < totalPages) {
-      setCurrentPage(currentPage + 1);
-    }
-  };
+  const paginatedTransactions = pageData?.items ?? [];
+  const totalCount = pageData?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / itemsPerPage));
 
   // Reset to page 1 when filters change
   React.useEffect(() => {
@@ -194,7 +169,7 @@ export default function Transactions() {
                       <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                     </TableRow>
                   ))
-                ) : filteredTransactions.length === 0 ? (
+                ) : paginatedTransactions.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-8 text-gray-500">
                       {searchQuery || statusFilter !== "all" ? "No transactions found matching your filters" : "No transactions found"}
@@ -250,53 +225,15 @@ export default function Transactions() {
             </Table>
           </div>
 
-          {/* Functional Pagination */}
-          {filteredTransactions.length > 0 && (
-            <div className="flex items-center justify-between mt-6">
-              <div className="text-sm text-gray-500">
-                Showing {startIndex + 1}-{Math.min(endIndex, filteredTransactions.length)} of {filteredTransactions.length} transactions
-              </div>
-              <div className="flex items-center space-x-2">
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={handlePrevious}
-                  disabled={currentPage === 1}
-                >
-                  Previous
-                </Button>
-                
-                {/* Page numbers */}
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  const startPage = Math.max(1, currentPage - 2);
-                  const pageNumber = startPage + i;
-                  
-                  if (pageNumber > totalPages) return null;
-                  
-                  return (
-                    <Button
-                      key={pageNumber}
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handlePageChange(pageNumber)}
-                      className={currentPage === pageNumber ? "bg-primary text-white" : ""}
-                    >
-                      {pageNumber}
-                    </Button>
-                  );
-                })}
-                
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={handleNext}
-                  disabled={currentPage === totalPages}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          )}
+          {/* Server-side pagination */}
+          <PaginationControls
+            page={currentPage}
+            pageSize={itemsPerPage}
+            total={totalCount}
+            onPageChange={setCurrentPage}
+            isLoading={isLoading}
+          />
+          <span className="hidden" aria-hidden="true" data-total-pages={totalPages} />
         </CardContent>
       </Card>
     </div>

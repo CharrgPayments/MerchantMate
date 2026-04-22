@@ -21,12 +21,12 @@ function mkRes(): Response & { _status?: number; _json?: unknown } {
 }
 
 describe('parsePagination', () => {
-  it('defaults to page=1 and pageSize=MAX when no params provided', () => {
+  it('defaults to page=1 and pageSize=DEFAULT (50) when no params provided', () => {
     const p = parsePagination(mkReq({}));
     expect(p.page).toBe(1);
-    expect(p.pageSize).toBe(MAX_PAGE_SIZE);
+    expect(p.pageSize).toBe(50);
     expect(p.offset).toBe(0);
-    expect(p.limit).toBe(MAX_PAGE_SIZE);
+    expect(p.limit).toBe(50);
   });
 
   it('respects explicit page and pageSize', () => {
@@ -61,10 +61,10 @@ describe('parsePagination', () => {
     expect(() => parsePagination(mkReq(q))).toThrow(PaginationError);
   });
 
-  it('treats empty-string params as not provided', () => {
+  it('treats empty-string params as not provided (falls back to defaults)', () => {
     const p = parsePagination(mkReq({ page: '', pageSize: '' }));
     expect(p.page).toBe(1);
-    expect(p.pageSize).toBe(MAX_PAGE_SIZE);
+    expect(p.pageSize).toBe(50);
   });
 });
 

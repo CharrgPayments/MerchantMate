@@ -4,6 +4,7 @@ import {
   Search, Trash2, Users, Edit2, Key, Shield, CheckCircle, XCircle, Plus, Lock, RotateCcw
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { PaginationControls } from "@/components/pagination-controls";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -132,16 +133,20 @@ export default function UsersPage() {
     defaultValues: { code: "", label: "", description: "", color: "secondary", permissions: [], capabilities: "" },
   });
 
-  // ── Queries
-  const { data: users = [], isLoading: usersLoading, refetch } = useQuery({
-    queryKey: ["/api/users"],
+  // ── Queries (paginated)
+  const PAGE_SIZE = 50;
+  const [usersPage, setUsersPage] = useState(1);
+  const { data: usersPageData, isLoading: usersLoading, refetch } = useQuery({
+    queryKey: ["/api/users", "paged", usersPage, PAGE_SIZE],
     queryFn: async () => {
-      const r = await fetch('/api/users', { credentials: 'include', headers: { 'Content-Type': 'application/json' } });
+      const r = await fetch(`/api/users?page=${usersPage}&pageSize=${PAGE_SIZE}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
+      return r.json() as Promise<{ items: any[]; total: number; page: number; pageSize: number }>;
     },
     staleTime: 0, gcTime: 0, refetchOnMount: true,
   });
+  const users = usersPageData?.items ?? [];
+  const usersTotal = usersPageData?.total ?? 0;
 
   const { data: roleDefs = [], isLoading: rolesLoading } = useQuery<RoleDefinition[]>({
     queryKey: ["/api/admin/role-definitions"],
@@ -472,6 +477,13 @@ export default function UsersPage() {
                   {searchTerm ? "No users found matching your search." : "No users found."}
                 </div>
               )}
+              <PaginationControls
+                page={usersPage}
+                pageSize={PAGE_SIZE}
+                total={usersTotal}
+                onPageChange={setUsersPage}
+                isLoading={usersLoading}
+              />
             </CardContent>
           </Card>
         </TabsContent>
