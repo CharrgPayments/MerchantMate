@@ -5790,10 +5790,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update fee group
   app.put('/api/fee-groups/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
+      const { insertFeeGroupSchema } = await import("@shared/schema");
+      const parsed = insertFeeGroupSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid fee group payload", errors: parsed.error.flatten() });
+      }
       const id = parseInt(req.params.id);
-      const { name, description, displayOrder } = req.body;
+      const { name, description, displayOrder } = parsed.data;
       console.log(`Updating fee group ${id} - Database environment: ${req.dbEnv}`);
-      
+
       if (!name) {
         return res.status(400).json({ message: "Fee group name is required" });
       }
@@ -5950,9 +5955,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put('/api/fee-item-groups/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
+      const { insertFeeItemGroupSchema } = await import("@shared/schema");
+      const parsed = insertFeeItemGroupSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid fee item group payload", errors: parsed.error.flatten() });
+      }
       const id = parseInt(req.params.id);
-      const { name, description, displayOrder } = req.body;
-      
+      const { name, description, displayOrder } = parsed.data;
+
       const updateData: any = {};
       if (name !== undefined) updateData.name = name;
       if (description !== undefined) updateData.description = description;
@@ -6423,8 +6433,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put('/api/campaigns/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
+      const { insertCampaignSchema } = await import("@shared/schema");
+      const campaignBodySchema = insertCampaignSchema.partial().extend({
+        feeValues: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+        equipmentIds: z.array(z.number()).optional(),
+        pricingTypeIds: z.array(z.number()).optional(),
+        templateId: z.union([z.number(), z.string()]).nullable().optional(),
+        selectedEquipment: z.array(z.number()).optional(),
+      });
+      const parsed = campaignBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid campaign payload", details: parsed.error.flatten() });
+      }
       const id = parseInt(req.params.id);
-      const { feeValues, equipmentIds, pricingTypeIds, templateId, selectedEquipment, ...campaignData } = req.body;
+      const { feeValues, equipmentIds, pricingTypeIds, templateId, selectedEquipment, ...campaignData } = parsed.data;
       const dbToUse = getRequestDB(req);
       const session = req.session as any;
       const userId = session?.userId;
@@ -6479,7 +6501,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (templateId) {
           await dbToUse
             .insert(catTable)
-            .values({ campaignId: id, templateId: parseInt(templateId), isPrimary: true, displayOrder: 0 })
+            .values({ campaignId: id, templateId: parseInt(String(templateId)), isPrimary: true, displayOrder: 0 })
             .onConflictDoNothing();
         }
       }
@@ -7028,12 +7050,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put('/api/pricing-types/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
       const id = parseInt(req.params.id);
-      
+
       if (isNaN(id)) {
         return res.status(400).json({ error: 'Invalid pricing type ID' });
       }
-      
-      const { name, description, feeGroupIds } = req.body;
+
+      const pricingTypeBodySchema = z.object({
+        name: z.string().optional(),
+        description: z.string().nullable().optional(),
+        feeGroupIds: z.array(z.number()).optional(),
+      });
+      const parsed = pricingTypeBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid pricing type payload', details: parsed.error.flatten() });
+      }
+      const { name, description, feeGroupIds } = parsed.data;
       
       if (!name || !name.trim()) {
         return res.status(400).json({ error: 'Name is required' });
@@ -7182,20 +7213,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put('/api/fee-items/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
+      const { feeItems, insertFeeItemSchema } = await import("@shared/schema");
+      const parsed = insertFeeItemSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid fee item payload", details: parsed.error.flatten() });
+      }
       const id = parseInt(req.params.id);
       console.log(`Updating fee item ${id} - Database environment: ${req.dbEnv}`);
-      
+
       // Use the dynamic database connection
       const dbToUse = req.dynamicDB;
       if (!dbToUse) {
         return res.status(500).json({ error: "Database connection not available" });
       }
-      
-      const { feeItems } = await import("@shared/schema");
+
       const { eq } = await import("drizzle-orm");
-      
+
       const updateData = {
-        ...req.body,
+        ...parsed.data,
         updatedAt: new Date(),
       };
       
@@ -8087,8 +8122,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
       const id = parseInt(req.params.id);
+      const workflowDefSchema = z.object({
+        code: z.string().optional(),
+        name: z.string().optional(),
+        description: z.string().nullable().optional(),
+        version: z.union([z.string(), z.number()]).optional(),
+        category: z.string().nullable().optional(),
+        entity_type: z.string().nullable().optional(),
+        initial_status: z.string().nullable().optional(),
+        final_statuses: z.array(z.string()).optional(),
+        configuration: z.record(z.any()).optional(),
+        is_active: z.boolean().optional(),
+      });
+      const parsed = workflowDefSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid workflow payload", errors: parsed.error.flatten() });
+      }
       const { code, name, description, version, category, entity_type,
-              initial_status, final_statuses, configuration, is_active } = req.body;
+              initial_status, final_statuses, configuration, is_active } = parsed.data;
       const result = await dynamicDB.execute(sqlTag`
         UPDATE workflow_definitions SET
           code = COALESCE(${code ?? null}, code),
@@ -8134,6 +8185,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Toggle workflow active/inactive
   app.patch("/api/admin/workflows/:id/toggle", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
+      const parsed = z.object({}).strict().safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid toggle payload", errors: parsed.error.flatten() });
+      }
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
       const id = parseInt(req.params.id);
@@ -8167,12 +8222,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/admin/workflows/:id/env-configs/:env", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
+      const envConfigBodySchema = z.object({
+        config: z.record(z.any()),
+        is_active: z.boolean().optional(),
+      }).strict();
+      const parsed = envConfigBodySchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid env config payload", errors: parsed.error.flatten() });
+      }
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
       const workflowId = parseInt(req.params.id);
       const environment = req.params.env;
-      const { config, is_active = true } = req.body;
-      const configJson = JSON.stringify(config ?? req.body);
+      const { config, is_active = true } = parsed.data;
+      const configJson = JSON.stringify(config);
       // Check if exists first
       const existing = await dynamicDB.execute(sqlTag`
         SELECT id FROM workflow_environment_configs WHERE workflow_id = ${workflowId} AND environment = ${environment}
@@ -8270,6 +8333,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Upsert stage API config (link endpoint to stage)
   app.put("/api/admin/workflows/:id/stages/:stageId/api-config", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
+      const stageApiCfgSchema = z.object({
+        integration_id: z.union([z.string(), z.number()]).nullable().optional(),
+        endpoint_id: z.union([z.string(), z.number()]).nullable().optional(),
+        request_mapping: z.record(z.any()).nullable().optional(),
+        response_mapping: z.record(z.any()).nullable().optional(),
+        timeout_seconds: z.number().nullable().optional(),
+        max_retries: z.number().optional(),
+        retry_delay_seconds: z.number().optional(),
+        fallback_on_error: z.any().nullable().optional(),
+        fallback_on_timeout: z.any().nullable().optional(),
+        test_mode: z.boolean().optional(),
+        mock_response: z.record(z.any()).nullable().optional(),
+        is_active: z.boolean().optional(),
+      });
+      const parsed = stageApiCfgSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid stage API config payload", errors: parsed.error.flatten() });
+      }
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
       const stageId = parseInt(req.params.stageId);
@@ -8280,7 +8361,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         timeout_seconds, max_retries = 3, retry_delay_seconds = 5,
         fallback_on_error, fallback_on_timeout,
         test_mode = false, mock_response, is_active = true,
-      } = req.body;
+      } = parsed.data;
       // Check if exists
       const existing = await dynamicDB.execute(sqlTag`SELECT id FROM stage_api_configs WHERE stage_id = ${stageId} LIMIT 1`);
       const existingRows = existing.rows ?? existing;
@@ -8381,12 +8462,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update a stage
   app.put("/api/admin/workflows/:id/stages/:stageId", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
+      const stageUpdateSchema = z.object({
+        code: z.string().optional(),
+        name: z.string().optional(),
+        description: z.string().nullable().optional(),
+        stage_type: z.string().optional(),
+        handler_key: z.string().nullable().optional(),
+        is_required: z.boolean().optional(),
+        requires_review: z.boolean().optional(),
+        auto_advance: z.boolean().optional(),
+        issue_blocks_severity: z.string().nullable().optional(),
+        timeout_minutes: z.number().nullable().optional(),
+        order_index: z.number().optional(),
+        configuration: z.record(z.any()).optional(),
+        is_active: z.boolean().optional(),
+      });
+      const parsed = stageUpdateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid stage payload", errors: parsed.error.flatten() });
+      }
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
       const stageId = parseInt(req.params.stageId);
       const { code, name, description, stage_type, handler_key, is_required,
               requires_review, auto_advance, issue_blocks_severity, timeout_minutes,
-              order_index, configuration, is_active } = req.body;
+              order_index, configuration, is_active } = parsed.data;
       const result = await dynamicDB.execute(sqlTag`
         UPDATE workflow_stages SET
           code = COALESCE(${code ?? null}, code),
@@ -8516,16 +8616,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Stage action: approve / reject / unblock
   app.patch("/api/admin/workflow-tickets/:ticketId/stages/:ticketStageId", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
+      const stageActionSchema = z.object({
+        action: z.enum(["approve", "reject", "unblock"]),
+        notes: z.string().optional(),
+      });
+      const parsed = stageActionSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid stage action payload", errors: parsed.error.flatten() });
+      }
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
       const ticketId = parseInt(req.params.ticketId);
       const ticketStageId = parseInt(req.params.ticketStageId);
       const currentUser = (req as any).currentUser;
-      const { action, notes } = req.body; // action: "approve" | "reject" | "unblock"
-
-      if (!["approve", "reject", "unblock"].includes(action)) {
-        return res.status(400).json({ message: "Invalid action. Must be approve, reject, or unblock." });
-      }
+      const { action, notes } = parsed.data;
 
       // Get the current ticket stage record with stage info
       const tsResult = await dynamicDB.execute(sqlTag`
@@ -8685,11 +8789,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Assign / unassign a ticket
   app.patch("/api/admin/workflow-tickets/:id/assign", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
+      const assignSchema = z.object({
+        assigned_to_id: z.union([z.number(), z.string()]).nullable().optional(),
+      });
+      const parsed = assignSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid assignment payload", errors: parsed.error.flatten() });
+      }
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
       const ticketId = parseInt(req.params.id);
       const currentUser = (req as any).currentUser;
-      const { assigned_to_id } = req.body; // null = unassign
+      const { assigned_to_id } = parsed.data;
 
       if (assigned_to_id !== null && assigned_to_id !== undefined) {
         // Verify user exists
@@ -8801,6 +8912,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/admin/application-templates/:id/toggle", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
+      const parsed = z.object({}).strict().safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid toggle payload", errors: parsed.error.flatten() });
+      }
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
       await dynamicDB.execute(sqlTag`
@@ -9134,8 +9249,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [template] = await dbToUse.select().from(acquirerApplicationTemplates).where(eq(acquirerApplicationTemplates.id, templateId)).limit(1);
       if (!template) return res.status(404).json({ error: "Template not found" });
 
-      const { pdfFieldId, templateFieldId, action } = req.body;
-      if (!pdfFieldId || !templateFieldId) return res.status(400).json({ error: "pdfFieldId and templateFieldId are required" });
+      const fieldMappingSchema = z.object({
+        pdfFieldId: z.string(),
+        templateFieldId: z.string(),
+        action: z.enum(['map', 'unmap']).optional(),
+      });
+      const fmParsed = fieldMappingSchema.safeParse(req.body);
+      if (!fmParsed.success) {
+        return res.status(400).json({ error: "Invalid field mapping payload", details: fmParsed.error.flatten() });
+      }
+      const { pdfFieldId, templateFieldId, action } = fmParsed.data;
 
       const fieldConfig: any = { ...(template.fieldConfiguration as any) };
       const rawFields: any[] = Array.isArray(template.pdfMappingConfiguration) ? [...(template.pdfMappingConfiguration as any[])] : [];
@@ -9313,8 +9436,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
       const { acquirerApplicationTemplates } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
+      const parsed = insertAcquirerApplicationTemplateSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid template payload", details: parsed.error.flatten() });
+      }
       const [updatedTemplate] = await dbToUse.update(acquirerApplicationTemplates)
-        .set({ ...req.body, updatedAt: new Date() })
+        .set({ ...parsed.data, updatedAt: new Date() })
         .where(eq(acquirerApplicationTemplates.id, templateId))
         .returning();
       if (!updatedTemplate) return res.status(404).json({ error: "Template not found" });
@@ -9488,10 +9615,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
-      const { mccCodes } = await import("@shared/schema");
+      const { mccCodes, insertMccCodeSchema } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
+      const parsed = insertMccCodeSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid MCC code payload", details: parsed.error.flatten() });
+      }
       const [updated] = await dbToUse.update(mccCodes)
-        .set({ ...req.body, updatedAt: new Date() })
+        .set({ ...parsed.data, updatedAt: new Date() })
         .where(eq(mccCodes.id, parseInt(req.params.id)))
         .returning();
       if (!updated) return res.status(404).json({ error: 'MCC code not found' });
@@ -9587,10 +9718,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ error: "Database connection not available" });
-      const { mccPolicies } = await import("@shared/schema");
+      const { mccPolicies, insertMccPolicySchema } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
+      const parsed = insertMccPolicySchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid MCC policy payload", details: parsed.error.flatten() });
+      }
       const [updated] = await dbToUse.update(mccPolicies)
-        .set({ ...req.body, updatedAt: new Date() })
+        .set({ ...parsed.data, updatedAt: new Date() })
         .where(eq(mccPolicies.id, parseInt(req.params.id)))
         .returning();
       if (!updated) return res.status(404).json({ error: 'MCC policy not found' });
@@ -9719,10 +9854,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
-      const { disclosureDefinitions } = await import("@shared/schema");
+      const { disclosureDefinitions, insertDisclosureDefinitionSchema } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
+      const parsed = insertDisclosureDefinitionSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ success: false, message: "Invalid disclosure payload", errors: parsed.error.flatten() });
+      }
       const [updated] = await dbToUse.update(disclosureDefinitions)
-        .set({ ...req.body, updatedAt: new Date() })
+        .set({ ...parsed.data, updatedAt: new Date() })
         .where(eq(disclosureDefinitions.id, parseInt(req.params.id)))
         .returning();
       if (!updated) return res.status(404).json({ success: false, message: 'Disclosure not found' });
@@ -9775,10 +9914,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const dbToUse = req.dynamicDB;
       if (!dbToUse) return res.status(500).json({ success: false, message: "Database connection not available" });
-      const { disclosureVersions } = await import("@shared/schema");
+      const { disclosureVersions, insertDisclosureVersionSchema } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
+      const parsed = insertDisclosureVersionSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ success: false, message: "Invalid disclosure version payload", errors: parsed.error.flatten() });
+      }
       const [updated] = await dbToUse.update(disclosureVersions)
-        .set(req.body)
+        .set(parsed.data)
         .where(eq(disclosureVersions.id, parseInt(req.params.id)))
         .returning();
       if (!updated) return res.status(404).json({ success: false, message: 'Version not found' });
@@ -9869,8 +10012,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // PATCH /api/action-templates/:id — update template
   app.patch("/api/action-templates/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
+      const { insertActionTemplateSchema } = await import("@shared/schema");
+      const parsed = insertActionTemplateSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid action template payload", errors: parsed.error.flatten() });
+      }
       const db = req.db!;
-      const [template] = await db.update(actionTemplates).set({ ...req.body, updatedAt: new Date() }).where(eq(actionTemplates.id, parseInt(req.params.id))).returning();
+      const [template] = await db.update(actionTemplates).set({ ...parsed.data, updatedAt: new Date() }).where(eq(actionTemplates.id, parseInt(req.params.id))).returning();
       if (!template) return res.status(404).json({ message: "Template not found" });
       res.json(template);
     } catch (error: any) {
@@ -10159,8 +10307,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // PUT /api/admin/trigger-catalog/:id — update trigger
   app.put("/api/admin/trigger-catalog/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
+      const { insertTriggerCatalogSchema } = await import("@shared/schema");
+      const parsed = insertTriggerCatalogSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid trigger payload", errors: parsed.error.flatten() });
+      }
       const db = req.db!;
-      const [trigger] = await db.update(triggerCatalog).set({ ...req.body, updatedAt: new Date() }).where(eq(triggerCatalog.id, parseInt(req.params.id))).returning();
+      const [trigger] = await db.update(triggerCatalog).set({ ...parsed.data, updatedAt: new Date() }).where(eq(triggerCatalog.id, parseInt(req.params.id))).returning();
       if (!trigger) return res.status(404).json({ message: "Trigger not found" });
       res.json(trigger);
     } catch (error: any) {
@@ -10210,8 +10363,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // PUT /api/admin/trigger-actions/:id — update trigger action
   app.put("/api/admin/trigger-actions/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
+      const { insertTriggerActionSchema } = await import("@shared/schema");
+      const parsed = insertTriggerActionSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid trigger action payload", errors: parsed.error.flatten() });
+      }
       const db = req.db!;
-      const [action] = await db.update(triggerActions).set({ ...req.body, updatedAt: new Date() }).where(eq(triggerActions.id, parseInt(req.params.id))).returning();
+      const [action] = await db.update(triggerActions).set({ ...parsed.data, updatedAt: new Date() }).where(eq(triggerActions.id, parseInt(req.params.id))).returning();
       if (!action) return res.status(404).json({ message: "Trigger action not found" });
       res.json(action);
     } catch (error: any) {
@@ -10295,10 +10453,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/admin/role-definitions/:id", dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res) => {
     try {
+      const roleDefSchema = z.object({
+        label: z.string(),
+        description: z.string().optional(),
+        color: z.string().optional(),
+        permissions: z.array(z.string()).optional(),
+        capabilities: z.array(z.string()).optional(),
+      });
+      const parsed = roleDefSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid role definition payload", errors: parsed.error.flatten() });
+      }
       const { sql: sqlTag } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
       const id = parseInt(req.params.id);
-      const { label, description, color, permissions, capabilities } = req.body;
+      const { label, description, color, permissions, capabilities } = parsed.data;
       const result = await dynamicDB.execute(sqlTag`
         UPDATE role_definitions
         SET label = ${label}, description = ${description ?? ''}, color = ${color ?? 'secondary'},
@@ -10357,9 +10526,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/admin/role-action-grants", dbEnvironmentMiddleware, requirePerm('system:superadmin'), async (req: RequestWithDB, res) => {
     try {
-      const { roleCode, action, scope } = req.body as { roleCode: string; action: string; scope: string };
-      if (!roleCode || !action || !scope) return res.status(400).json({ message: "roleCode, action, scope required" });
-      if (!['own', 'downline', 'all', 'none'].includes(scope)) return res.status(400).json({ message: "Invalid scope" });
+      const grantSchema = z.object({
+        roleCode: z.string().min(1),
+        action: z.string().min(1),
+        scope: z.enum(['own', 'downline', 'all', 'none']),
+      });
+      const parsed = grantSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid grant payload", errors: parsed.error.flatten() });
+      }
+      const { roleCode, action, scope } = parsed.data;
 
       // Block edits to the implicit super_admin grant — it's hard-coded to 'all'.
       if (roleCode === 'super_admin') return res.status(400).json({ message: "super_admin grants cannot be modified" });
@@ -10692,6 +10868,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // PATCH /api/prospects/:id/messages/:mid/read
   app.patch("/api/prospects/:id/messages/:mid/read", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const parsed = z.object({}).strict().safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid payload", errors: parsed.error.flatten() });
+      }
       const mid = parseInt(req.params.mid);
       const { prospectMessages } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
@@ -10761,8 +10941,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // PATCH /api/prospects/:id/file-requests/:frid — update status (approve/reject)
   app.patch("/api/prospects/:id/file-requests/:frid", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
+      const frPatchSchema = z.object({
+        status: z.string().min(1),
+      });
+      const parsed = frPatchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid file request payload", errors: parsed.error.flatten() });
+      }
       const frId = parseInt(req.params.frid);
-      const { status } = req.body;
+      const { status } = parsed.data;
       const { prospectFileRequests } = await import("@shared/schema");
       const { eq } = await import("drizzle-orm");
       const dynamicDB = getRequestDB(req);
@@ -10895,6 +11082,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/alerts/:id/read", dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
+      const parsed = z.object({}).strict().safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid payload", errors: parsed.error.flatten() });
+      }
       const userId = (req.session as any)?.userId;
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const { sql: sqlTag, eq, and } = await import("drizzle-orm");
