@@ -5431,7 +5431,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // one round trip per field (typical PDFs have 100+ fields).
       const fieldData = pdfFormParser.convertToDbFields(parseResult.sections, pdfForm.id);
       if (fieldData.length > 0) {
-        const dynamicDB = getRequestDB(req as any);
+        const dynamicDB = getRequestDB(req as RequestWithDB);
         await dynamicDB.insert(pdfFormFields).values(fieldData);
       }
       
