@@ -2633,6 +2633,215 @@ export class DatabaseStorage implements IStorage {
     const result = await db.delete(externalEndpoints).where(eq(externalEndpoints.id, id));
     return (result.rowCount ?? 0) > 0;
   }
+
+  // ─── Paginated list helpers ────────────────────────────────────────────────
+  // These return { items, total } using SQL-side LIMIT/OFFSET + COUNT(*) so we
+  // never load entire tables into memory. Filters (search/status) are pushed
+  // into SQL via Drizzle (`ilike` / `eq`) instead of being applied in JS.
+
+  async getMerchantsPaged(opts: {
+    offset: number; limit: number; search?: string; status?: string;
+  }): Promise<{ items: MerchantWithAgent[]; total: number }> {
+    const conds = [] as any[];
+    if (opts.search) {
+      const q = `%${opts.search}%`;
+      conds.push(or(
+        ilike(merchants.businessName, q),
+        ilike(merchants.email, q),
+        ilike(merchants.businessType, q),
+      ));
+    }
+    if (opts.status && opts.status !== "all") conds.push(eq(merchants.status, opts.status));
+    const where = conds.length ? and(...conds) : undefined;
+
+    const rows = await db
+      .select({ merchant: merchants, agent: agents })
+      .from(merchants)
+      .leftJoin(agents, eq(merchants.agentId, agents.id))
+      .where(where as any)
+      .orderBy(desc(merchants.id))
+      .limit(opts.limit)
+      .offset(opts.offset);
+
+    const [{ value: total }] = await db
+      .select({ value: count() })
+      .from(merchants)
+      .where(where as any);
+
+    return {
+      items: rows.map(r => ({ ...r.merchant, agent: r.agent || undefined })),
+      total: Number(total ?? 0),
+    };
+  }
+
+  async getMerchantsForUserPaged(userId: string, opts: {
+    offset: number; limit: number; search?: string; status?: string;
+  }): Promise<{ items: MerchantWithAgent[]; total: number }> {
+    const user = await this.getUser(userId);
+    if (!user) return { items: [], total: 0 };
+    const role = user.role ?? "";
+    if (["super_admin", "admin", "corporate"].includes(role)) {
+      return this.getMerchantsPaged(opts);
+    }
+    if (role === "agent") {
+      const [agentRow] = await db.select().from(agents).where(eq(agents.userId, userId)).limit(1);
+      if (!agentRow) return { items: [], total: 0 };
+      const conds: any[] = [eq(merchants.agentId, agentRow.id)];
+      if (opts.search) {
+        const q = `%${opts.search}%`;
+        conds.push(or(ilike(merchants.businessName, q), ilike(merchants.email, q)));
+      }
+      if (opts.status && opts.status !== "all") conds.push(eq(merchants.status, opts.status));
+      const where = and(...conds);
+      const rows = await db
+        .select({ merchant: merchants, agent: agents })
+        .from(merchants)
+        .leftJoin(agents, eq(merchants.agentId, agents.id))
+        .where(where)
+        .orderBy(desc(merchants.id))
+        .limit(opts.limit).offset(opts.offset);
+      const [{ value: total }] = await db.select({ value: count() }).from(merchants).where(where);
+      return {
+        items: rows.map(r => ({ ...r.merchant, agent: r.agent || undefined })),
+        total: Number(total ?? 0),
+      };
+    }
+    if (role === "merchant") {
+      const [m] = await db.select().from(merchants).where(eq(merchants.userId, userId)).limit(1);
+      return m ? { items: [{ ...m }], total: 1 } : { items: [], total: 0 };
+    }
+    return { items: [], total: 0 };
+  }
+
+  async getAgentsPaged(opts: {
+    offset: number; limit: number; search?: string; status?: string;
+  }): Promise<{ items: Agent[]; total: number }> {
+    const conds: any[] = [];
+    if (opts.search) {
+      const q = `%${opts.search}%`;
+      conds.push(or(
+        ilike(agents.firstName, q),
+        ilike(agents.lastName, q),
+        ilike(agents.email, q),
+      ));
+    }
+    if (opts.status && opts.status !== "all") conds.push(eq(agents.status, opts.status));
+    const where = conds.length ? and(...conds) : undefined;
+
+    const items = await db.select().from(agents)
+      .where(where as any)
+      .orderBy(desc(agents.id))
+      .limit(opts.limit).offset(opts.offset);
+    const [{ value: total }] = await db.select({ value: count() }).from(agents).where(where as any);
+    return { items, total: Number(total ?? 0) };
+  }
+
+  async getTransactionsPaged(opts: {
+    offset: number; limit: number; search?: string; status?: string;
+    merchantIds?: number[];
+  }): Promise<{ items: TransactionWithMerchant[]; total: number }> {
+    const conds: any[] = [];
+    if (opts.search) {
+      const q = `%${opts.search}%`;
+      conds.push(or(
+        ilike(transactions.transactionId, q),
+        ilike(transactions.paymentMethod, q),
+        ilike(transactions.mid, q),
+        ilike(merchants.businessName, q),
+      ));
+    }
+    if (opts.status && opts.status !== "all") conds.push(eq(transactions.status, opts.status));
+    if (opts.merchantIds) {
+      if (opts.merchantIds.length === 0) return { items: [], total: 0 };
+      conds.push(inArray(transactions.merchantId, opts.merchantIds));
+    }
+    const where = conds.length ? and(...conds) : undefined;
+
+    const rows = await db
+      .select({ transaction: transactions, merchant: merchants })
+      .from(transactions)
+      .leftJoin(merchants, eq(transactions.merchantId, merchants.id))
+      .where(where as any)
+      .orderBy(desc(transactions.createdAt))
+      .limit(opts.limit).offset(opts.offset);
+    const [{ value: total }] = await db
+      .select({ value: count() })
+      .from(transactions)
+      .leftJoin(merchants, eq(transactions.merchantId, merchants.id))
+      .where(where as any);
+    return {
+      items: rows.map(r => ({ ...r.transaction, merchant: r.merchant || undefined })),
+      total: Number(total ?? 0),
+    };
+  }
+
+  async getTransactionsForUserPaged(userId: string, opts: {
+    offset: number; limit: number; search?: string; status?: string;
+  }): Promise<{ items: TransactionWithMerchant[]; total: number }> {
+    const user = await this.getUser(userId);
+    if (!user) return { items: [], total: 0 };
+    const role = user.role ?? "";
+    if (["super_admin", "admin", "corporate"].includes(role)) {
+      return this.getTransactionsPaged(opts);
+    }
+    if (role === "agent") {
+      const [agentRow] = await db.select().from(agents).where(eq(agents.userId, userId)).limit(1);
+      if (!agentRow) return { items: [], total: 0 };
+      const merchantRows = await db.select({ id: merchants.id }).from(merchants).where(eq(merchants.agentId, agentRow.id));
+      return this.getTransactionsPaged({ ...opts, merchantIds: merchantRows.map(m => m.id) });
+    }
+    if (role === "merchant") {
+      const [m] = await db.select({ id: merchants.id }).from(merchants).where(eq(merchants.userId, userId)).limit(1);
+      if (!m) return { items: [], total: 0 };
+      return this.getTransactionsPaged({ ...opts, merchantIds: [m.id] });
+    }
+    return { items: [], total: 0 };
+  }
+
+  async getUsersPaged(opts: {
+    offset: number; limit: number; search?: string;
+  }): Promise<{ items: User[]; total: number }> {
+    const conds: any[] = [];
+    if (opts.search) {
+      const q = `%${opts.search}%`;
+      conds.push(or(
+        ilike(users.username, q),
+        ilike(users.email, q),
+        ilike(users.firstName, q),
+        ilike(users.lastName, q),
+      ));
+    }
+    const where = conds.length ? and(...conds) : undefined;
+    const items = await db.select().from(users)
+      .where(where as any)
+      .orderBy(desc(users.createdAt))
+      .limit(opts.limit).offset(opts.offset);
+    const [{ value: total }] = await db.select({ value: count() }).from(users).where(where as any);
+    return { items: this.withRoles(items), total: Number(total ?? 0) };
+  }
+
+  async getMerchantProspectsPaged(opts: {
+    offset: number; limit: number; search?: string; status?: string; agentId?: number;
+  }): Promise<{ items: MerchantProspect[]; total: number }> {
+    const conds: any[] = [];
+    if (opts.agentId !== undefined) conds.push(eq(merchantProspects.agentId, opts.agentId));
+    if (opts.search) {
+      const q = `%${opts.search}%`;
+      conds.push(or(
+        ilike(merchantProspects.firstName, q),
+        ilike(merchantProspects.lastName, q),
+        ilike(merchantProspects.email, q),
+      ));
+    }
+    if (opts.status && opts.status !== "all") conds.push(eq(merchantProspects.status, opts.status));
+    const where = conds.length ? and(...conds) : undefined;
+    const items = await db.select().from(merchantProspects)
+      .where(where as any)
+      .orderBy(desc(merchantProspects.createdAt))
+      .limit(opts.limit).offset(opts.offset);
+    const [{ value: total }] = await db.select({ value: count() }).from(merchantProspects).where(where as any);
+    return { items, total: Number(total ?? 0) };
+  }
 }
 
 export const storage = new DatabaseStorage();

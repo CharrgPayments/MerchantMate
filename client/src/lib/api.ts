@@ -1,13 +1,53 @@
 import { apiRequest } from "./queryClient";
 import type { Merchant, Agent, Transaction, InsertMerchant, InsertAgent, InsertTransaction, MerchantWithAgent, TransactionWithMerchant } from "@shared/schema";
 
+// Server hard-caps page size at 500 (see server/lib/pagination.ts). We use that
+// as the default for legacy `getAll()` callers so they keep receiving the full
+// list without manual pagination plumbing, while still benefiting from the
+// server-side safety cap.
+const MAX_PAGE_SIZE = 500;
+
+export interface PageResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface PageQuery {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  status?: string;
+}
+
+function buildPageQuery(opts: PageQuery & { defaultPageSize?: number }): string {
+  const params = new URLSearchParams();
+  if (opts.page) params.set("page", String(opts.page));
+  params.set("pageSize", String(opts.pageSize ?? opts.defaultPageSize ?? 50));
+  if (opts.search) params.set("search", opts.search);
+  if (opts.status && opts.status !== "all") params.set("status", opts.status);
+  return params.toString();
+}
+
+async function fetchPage<T>(path: string, opts: PageQuery & { defaultPageSize?: number }): Promise<PageResponse<T>> {
+  const qs = buildPageQuery(opts);
+  const response = await apiRequest("GET", `${path}?${qs}`);
+  return response.json();
+}
+
 // Merchants API
 export const merchantsApi = {
+  // Legacy unwrapped list — still used by hierarchy hydration and modal lookups.
+  // Requests up to MAX_PAGE_SIZE so the server cap (not unbounded SQL) protects
+  // the response.
   getAll: async (search?: string): Promise<MerchantWithAgent[]> => {
-    const url = search ? `/api/merchants?search=${encodeURIComponent(search)}` : '/api/merchants';
-    const response = await apiRequest('GET', url);
-    return response.json();
+    const page = await fetchPage<MerchantWithAgent>('/api/merchants', { search, pageSize: MAX_PAGE_SIZE });
+    return page.items;
   },
+
+  getPaged: (opts: PageQuery): Promise<PageResponse<MerchantWithAgent>> =>
+    fetchPage<MerchantWithAgent>('/api/merchants', opts),
 
   getById: async (id: number): Promise<Merchant> => {
     const response = await apiRequest('GET', `/api/merchants/${id}`);
@@ -32,10 +72,12 @@ export const merchantsApi = {
 // Agents API
 export const agentsApi = {
   getAll: async (search?: string): Promise<Agent[]> => {
-    const url = search ? `/api/agents?search=${encodeURIComponent(search)}` : '/api/agents';
-    const response = await apiRequest('GET', url);
-    return response.json();
+    const page = await fetchPage<Agent>('/api/agents', { search, pageSize: MAX_PAGE_SIZE });
+    return page.items;
   },
+
+  getPaged: (opts: PageQuery): Promise<PageResponse<Agent>> =>
+    fetchPage<Agent>('/api/agents', opts),
 
   getById: async (id: number): Promise<Agent> => {
     const response = await apiRequest('GET', `/api/agents/${id}`);
@@ -60,15 +102,18 @@ export const agentsApi = {
 // Transactions API
 export const transactionsApi = {
   getAll: async (search?: string, merchantId?: number): Promise<TransactionWithMerchant[]> => {
-    let url = '/api/transactions';
     const params = new URLSearchParams();
     if (search) params.append('search', search);
     if (merchantId) params.append('merchantId', merchantId.toString());
-    if (params.toString()) url += `?${params.toString()}`;
-    
-    const response = await apiRequest('GET', url);
-    return response.json();
+    params.set('pageSize', String(MAX_PAGE_SIZE));
+    const response = await apiRequest('GET', `/api/transactions?${params.toString()}`);
+    const page = await response.json();
+    // Backwards compat: server now returns { items, total, ... }
+    return Array.isArray(page) ? page : page.items;
   },
+
+  getPaged: (opts: PageQuery): Promise<PageResponse<TransactionWithMerchant>> =>
+    fetchPage<TransactionWithMerchant>('/api/transactions', opts),
 
   getById: async (id: number): Promise<Transaction> => {
     const response = await apiRequest('GET', `/api/transactions/${id}`);

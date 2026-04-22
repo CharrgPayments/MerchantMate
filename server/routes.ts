@@ -16,6 +16,7 @@ import { createAlert, createAlertForRoles } from "./alertService";
 import { v4 as uuidv4 } from "uuid";
 import { dbEnvironmentMiddleware, adminDbMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
 import { rateLimit } from "./rateLimits";
+import { parsePagination, makePage, wantsPaginatedEnvelope } from "./lib/pagination";
 import { redactSensitive } from "./auditRedaction";
 import { registerUnderwritingRoutes } from "./underwriting/routes";
 import { registerCommissionsRoutes } from "./routes/commissions";
@@ -1022,11 +1023,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // User management routes (admin and super admin only) - Development bypass
   app.get("/api/users", isAuthenticated, dbEnvironmentMiddleware, requirePerm('admin:read'), async (req: RequestWithDB, res) => {
     try {
-      // Auth: only admin/super_admin/corporate per default grants on admin:read.
-      // Do NOT log full user list — PII leak risk in production logs.
-      const dynamicDB = getRequestDB(req);
-      const users = await dynamicDB.select().from((await import('@shared/schema')).users);
-      res.json(users);
+      // Always paginates SQL-side (cap = 500). Returns the `{items,total,…}`
+      // envelope only when the caller opts in via `?page=`, `?pageSize=`, or
+      // `?paginated=1`; otherwise returns the bare array for backwards compat.
+      const p = parsePagination(req);
+      const search = typeof req.query.search === "string" ? req.query.search : undefined;
+      const result = await storage.getUsersPaged({ ...p, search });
+      res.json(wantsPaginatedEnvelope(req) ? makePage(result.items, result.total, p) : result.items);
     } catch (error) {
       console.error("Error fetching users:", error);
       res.status(500).json({ message: "Failed to fetch users" });
@@ -1329,20 +1332,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/merchants", isAuthenticated, dbEnvironmentMiddleware, async (req: RequestWithDB, res) => {
     try {
       const userId = req.user?.id || req.user?.claims?.sub;
-      const { search } = req.query;
-
-      // Use role-based filtering from storage layer
-      const merchants = await storage.getMerchantsForUser(userId);
-
-      if (search) {
-        const filteredMerchants = merchants.filter(merchant =>
-          merchant.businessName.toLowerCase().includes(search.toLowerCase()) ||
-          merchant.email.toLowerCase().includes(search.toLowerCase())
-        );
-        res.json(filteredMerchants);
-      } else {
-        res.json(merchants);
-      }
+      const p = parsePagination(req);
+      const search = typeof req.query.search === "string" ? req.query.search : undefined;
+      const status = typeof req.query.status === "string" ? req.query.status : undefined;
+      const result = await storage.getMerchantsForUserPaged(userId, { ...p, search, status });
+      res.json(wantsPaginatedEnvelope(req) ? makePage(result.items, result.total, p) : result.items);
     } catch (error) {
       console.error("Error fetching merchants:", error);
       res.status(500).json({ message: "Failed to fetch merchants" });
@@ -1592,70 +1586,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.claims.sub;
       const user = await storage.getUser(userId);
-      const { search } = req.query;
+      if (!user) return res.status(404).json({ message: "User not found" });
 
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      // For agents, only show transactions for their assigned merchants
-      if (user.role === 'agent') {
-        const transactions = await storage.getTransactionsForUser(userId);
-        
-        if (search) {
-          const filteredTransactions = transactions.filter(t => 
-            t.transactionId.toLowerCase().includes(search.toString().toLowerCase()) ||
-            t.merchant?.businessName?.toLowerCase().includes(search.toString().toLowerCase()) ||
-            t.amount.toString().includes(search.toString()) ||
-            t.paymentMethod.toLowerCase().includes(search.toString().toLowerCase())
-          );
-          return res.json(filteredTransactions);
-        }
-        
-        return res.json(transactions);
-      }
-
-      // For merchants, only show their own transactions
-      if (user.role === 'merchant') {
-        const transactions = await storage.getTransactionsForUser(userId);
-        
-        if (search) {
-          const filteredTransactions = transactions.filter(t => 
-            t.transactionId.toLowerCase().includes(search.toString().toLowerCase()) ||
-            t.amount.toString().includes(search.toString()) ||
-            t.paymentMethod.toLowerCase().includes(search.toString().toLowerCase())
-          );
-          return res.json(filteredTransactions);
-        }
-        
-        return res.json(transactions);
-      }
-
-      // For admin/corporate/super_admin, show all transactions
-      if (['admin', 'corporate', 'super_admin'].includes(user.role)) {
-        if (search) {
-          const transactions = await storage.searchTransactions(search as string);
-          return res.json(transactions);
-        } else {
-          const transactions = await storage.getAllTransactions();
-          return res.json(transactions);
-        }
-      }
-
-      // Default fallback - use role-based filtering from storage layer
-      const transactions = await storage.getTransactionsForUser(userId);
-
-      if (search) {
-        const filteredTransactions = transactions.filter(transaction =>
-          transaction.transactionId.toLowerCase().includes(search.toString().toLowerCase()) ||
-          transaction.merchant?.businessName?.toLowerCase().includes(search.toString().toLowerCase()) ||
-          transaction.amount.toString().includes(search.toString()) ||
-          transaction.paymentMethod.toLowerCase().includes(search.toString().toLowerCase())
-        );
-        return res.json(filteredTransactions);
-      }
-
-      res.json(transactions);
+      const p = parsePagination(req);
+      const search = typeof req.query.search === "string" ? req.query.search : undefined;
+      const status = typeof req.query.status === "string" ? req.query.status : undefined;
+      const result = await storage.getTransactionsForUserPaged(userId, { ...p, search, status });
+      res.json(wantsPaginatedEnvelope(req) ? makePage(result.items, result.total, p) : result.items);
     } catch (error) {
       console.error("Error fetching transactions:", error);
       res.status(500).json({ message: "Failed to fetch transactions" });
@@ -1765,57 +1702,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Merchant Prospect routes
   app.get("/api/prospects", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
-      const { search } = req.query;
       const userId = (req.session as any).userId;
-      const dynamicDB = getRequestDB(req);
       const user = await storage.getUser(userId);
-      
-      if (!user) {
-        return res.status(401).json({ message: "User not found" });
-      }
+      if (!user) return res.status(401).json({ message: "User not found" });
 
-      console.log(`Prospects endpoint - Database environment: ${req.dbEnv}`);
+      const p = parsePagination(req);
+      const search = typeof req.query.search === "string" ? req.query.search : undefined;
+      const status = typeof req.query.status === "string" ? req.query.status : undefined;
 
-      let prospects;
-      
-      if (user.role === 'agent') {
-        // Agents can only see their assigned prospects
+      const dynamicDB = getRequestDB(req);
+      const role = user.role ?? "";
+      let agentId: number | undefined;
+      if (role === 'agent') {
+        // Resolve the agent record by userId, falling back to email — preserves
+        // the prior behaviour where legacy agent rows lack userId but match by email.
         let [agent] = await dynamicDB.select().from(agents).where(eq(agents.userId, userId));
         if (!agent && user.email) {
           [agent] = await dynamicDB.select().from(agents).where(eq(agents.email, user.email));
         }
-        if (!agent) {
-          return res.status(403).json({ message: "Agent not found" });
-        }
-        
-        const allAgentProspects = await dynamicDB.select().from(merchantProspects).where(eq(merchantProspects.agentId, agent.id));
-        if (search) {
-          const q = (search as string).toLowerCase();
-          prospects = allAgentProspects.filter(p =>
-            `${p.firstName} ${p.lastName}`.toLowerCase().includes(q) ||
-            p.email.toLowerCase().includes(q)
-          );
-        } else {
-          prospects = allAgentProspects;
-        }
-      } else if (['admin', 'corporate', 'super_admin'].includes(user.role)) {
-        // Admins can see all prospects
-        const allProspects = await dynamicDB.select().from(merchantProspects);
-        if (search) {
-          const q = (search as string).toLowerCase();
-          prospects = allProspects.filter(p =>
-            `${p.firstName} ${p.lastName}`.toLowerCase().includes(q) ||
-            p.email.toLowerCase().includes(q)
-          );
-        } else {
-          prospects = allProspects;
-        }
-      } else {
+        if (!agent) return res.status(403).json({ message: "Agent not found" });
+        agentId = agent.id;
+      } else if (!['admin', 'corporate', 'super_admin'].includes(role)) {
         return res.status(403).json({ message: "Access denied" });
       }
 
-      console.log(`Found ${prospects.length} prospects in ${req.dbEnv} database`);
-      res.json(prospects);
+      const result = await storage.getMerchantProspectsPaged({ ...p, search, status, agentId });
+      res.json(wantsPaginatedEnvelope(req) ? makePage(result.items, result.total, p) : result.items);
     } catch (error) {
       console.error("Error fetching prospects:", error);
       res.status(500).json({ message: "Failed to fetch prospects" });
@@ -4232,27 +4144,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Agent routes (admin only)
   app.get("/api/agents", dbEnvironmentMiddleware, requirePerm('agent:read'), async (req: RequestWithDB, res) => {
     try {
-      const { search } = req.query;
-      const dynamicDB = getRequestDB(req);
-      
-      console.log(`Agents endpoint - Database environment: ${req.dbEnv}`);
-      
-      // Use dynamic database connection directly
-      if (search) {
-        const searchResults = await dynamicDB.select().from(agents).where(
-          or(
-            ilike(agents.firstName, `%${search}%`),
-            ilike(agents.lastName, `%${search}%`),
-            ilike(agents.email, `%${search}%`)
-          )
-        );
-        console.log(`Found ${searchResults.length} agents matching "${search}" in ${req.dbEnv} database`);
-        res.json(searchResults);
-      } else {
-        const allAgents = await dynamicDB.select().from(agents);
-        console.log(`Found ${allAgents.length} agents in ${req.dbEnv} database`);
-        res.json(allAgents);
-      }
+      const p = parsePagination(req);
+      const search = typeof req.query.search === "string" ? req.query.search : undefined;
+      const status = typeof req.query.status === "string" ? req.query.status : undefined;
+      const result = await storage.getAgentsPaged({ ...p, search, status });
+      res.json(wantsPaginatedEnvelope(req) ? makePage(result.items, result.total, p) : result.items);
     } catch (error) {
       console.error("Error fetching agents:", error);
       res.status(500).json({ message: "Failed to fetch agents" });
