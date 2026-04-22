@@ -199,6 +199,16 @@ function getDefaultWidgetsForRole(role: string) {
 // Shared placeholder resolver — see server/lib/resolveSecrets.ts
 import { resolveSecrets } from "./lib/resolveSecrets";
 import { resolveTemplateTransport, finalizeTransport } from "./lib/endpointTransport";
+import {
+  messageBodySchema as sharedMessageBodySchema,
+  fileRequestBodySchema as sharedFileRequestBodySchema,
+  portalUploadBodySchema as sharedPortalUploadBodySchema,
+  signatureRequestBodySchema as sharedSignatureRequestBodySchema,
+  signatureSubmitBodySchema as sharedSignatureSubmitBodySchema,
+  inlineSignatureBodySchema as sharedInlineSignatureBodySchema,
+  campaignCreateBodySchema as sharedCampaignCreateBodySchema,
+  campaignUpdateBodySchema as sharedCampaignUpdateBodySchema,
+} from "./lib/validators";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Multer configuration for PDF uploads
@@ -3723,16 +3733,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Send signature request email
   app.post("/api/signature-request", async (req, res) => {
     try {
-      const bodySchema = z.object({
-        ownerName: z.string().min(1),
-        ownerEmail: z.string().email(),
-        companyName: z.string().min(1),
-        ownershipPercentage: z.union([z.string(), z.number()]),
-        requesterName: z.string().optional(),
-        agentName: z.string().optional(),
-        prospectId: z.union([z.number(), z.string()]).transform((v) => Number(v)),
-      });
-      const parsed = bodySchema.safeParse(req.body);
+      const parsed = sharedSignatureRequestBodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({
           success: false,
@@ -3825,12 +3826,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Submit signature (public endpoint)
   app.post("/api/signature-submit", async (req, res) => {
     try {
-      const bodySchema = z.object({
-        signatureToken: z.string().min(1),
-        signature: z.string().min(1),
-        signatureType: z.string().optional(),
-      });
-      const parsed = bodySchema.safeParse(req.body);
+      const parsed = sharedSignatureSubmitBodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({
           success: false,
@@ -3901,14 +3897,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/prospects/:id/save-inline-signature", async (req, res) => {
     try {
       const { id } = req.params;
-      const bodySchema = z.object({
-        ownerEmail: z.string().email(),
-        ownerName: z.string().min(1),
-        signature: z.string().min(1),
-        signatureType: z.string().min(1),
-        ownershipPercentage: z.union([z.string(), z.number()]).optional(),
-      });
-      const parsed = bodySchema.safeParse(req.body);
+      const parsed = sharedInlineSignatureBodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({
           success: false,
@@ -6293,13 +6282,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/campaigns', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      const { insertCampaignSchema } = await import('@shared/schema');
-      const campaignBodySchema = insertCampaignSchema.extend({
-        feeValues: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
-        equipmentIds: z.array(z.number()).optional(),
-        templateId: z.union([z.number(), z.string()]).nullable().optional(),
-      });
-      const parsed = campaignBodySchema.safeParse(req.body);
+      const parsed = sharedCampaignCreateBodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid campaign payload", details: parsed.error.flatten() });
       }
@@ -6692,15 +6675,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put('/api/campaigns/:id', dbEnvironmentMiddleware, requirePerm('admin:manage'), async (req: RequestWithDB, res: Response) => {
     try {
-      const { insertCampaignSchema } = await import("@shared/schema");
-      const campaignBodySchema = insertCampaignSchema.partial().extend({
-        feeValues: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
-        equipmentIds: z.array(z.number()).optional(),
-        pricingTypeIds: z.array(z.number()).optional(),
-        templateId: z.union([z.number(), z.string()]).nullable().optional(),
-        selectedEquipment: z.array(z.number()).optional(),
-      });
-      const parsed = campaignBodySchema.safeParse(req.body);
+      const parsed = sharedCampaignUpdateBodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid campaign payload", details: parsed.error.flatten() });
       }
@@ -10982,11 +10957,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const prospectId = req.session.portalProspectId!;
       const email = req.session.portalProspectEmail ?? "";
-      const bodySchema = z.object({
-        subject: z.string().optional(),
-        message: z.string().min(1, "Message body required"),
-      });
-      const parsed = bodySchema.safeParse(req.body);
+      const parsed = sharedMessageBodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid message payload", errors: parsed.error.flatten() });
       }
@@ -11021,12 +10992,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const prospectId = req.session.portalProspectId!;
       const email = req.session.portalProspectEmail ?? "";
       const frId = parseInt(req.params.id);
-      const bodySchema = z.object({
-        fileName: z.string().min(1),
-        mimeType: z.string().min(1),
-        fileData: z.string().min(1), // base64 fileData from client
-      });
-      const parsed = bodySchema.safeParse(req.body);
+      const parsed = sharedPortalUploadBodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid upload payload", errors: parsed.error.flatten() });
       }
@@ -11058,11 +11024,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/prospects/:id/messages", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
       const prospectId = parseInt(req.params.id);
-      const bodySchema = z.object({
-        subject: z.string().optional(),
-        message: z.string().min(1, "Message body required"),
-      });
-      const parsed = bodySchema.safeParse(req.body);
+      const parsed = sharedMessageBodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid message payload", errors: parsed.error.flatten() });
       }
@@ -11125,12 +11087,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/prospects/:id/file-requests", dbEnvironmentMiddleware, isAuthenticated, async (req: RequestWithDB, res) => {
     try {
       const prospectId = parseInt(req.params.id);
-      const bodySchema = z.object({
-        label: z.string().min(1, "Label required"),
-        description: z.string().optional(),
-        required: z.boolean().optional(),
-      });
-      const parsed = bodySchema.safeParse(req.body);
+      const parsed = sharedFileRequestBodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid file request payload", errors: parsed.error.flatten() });
       }
