@@ -23,12 +23,12 @@ import { registerSchemaSyncRoutes } from "./routes/schemaSync";
 import { registerExternalEndpointsRoutes } from "./routes/externalEndpoints";
 import { calculateCommissionsForTransaction } from "./commissions";
 import { getDynamicDatabase } from "./db";
-import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity, agentHierarchy, merchantHierarchy, underwritingStatusHistory, prospectApplications as prospectAppsTable, roleDefinitions } from "@shared/schema";
+import { users, agents, merchants, agentMerchants, merchantProspects, actionTemplates, triggerCatalog, triggerActions, actionActivity, agentHierarchy, merchantHierarchy, underwritingStatusHistory, prospectApplications as prospectAppsTable, roleDefinitions, transactions, locations as locationsTable, pdfFormFields } from "@shared/schema";
 import { runUnderwritingPipeline } from "./underwriting/orchestrator";
 import { notifyTransition } from "./underwriting/notifications";
 import { initAgentClosure, initMerchantClosure, setAgentParent, setMerchantParent, getAgentDescendantIds, getMerchantDescendantIds, isAgentDescendantOf, detachAgentForDelete, detachMerchantForDelete, HierarchyError, MAX_HIERARCHY_DEPTH } from "./hierarchyService";
 import crypto from "crypto";
-import { eq, or, ilike, sql, inArray, desc } from "drizzle-orm";
+import { eq, or, ilike, sql, inArray, desc, and } from "drizzle-orm";
 
 // Helper functions for user account creation
 async function generateUsername(firstName: string, lastName: string, email: string, dynamicDB: any): Promise<string> {
@@ -528,16 +528,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('MTD Revenue endpoint - fetching MTD revenue for merchant:', merchantId);
       
       const dynamicDB = getRequestDB(req);
-      // Get all locations for this merchant
-      const locations = await storage.getLocationsByMerchant(parseInt(merchantId));
-      
-      // Calculate total MTD revenue across all locations
-      let totalMTD = 0;
-      for (const location of locations) {
-        const revenue = await storage.getLocationRevenue(location.id);
-        totalMTD += parseFloat(revenue.monthToDate || '0');
-      }
-      
+      const merchantIdNum = parseInt(merchantId);
+      // Single aggregate over month-to-date transactions for this merchant.
+      // Replaces the previous N-locations × per-location-revenue stub loop.
+      const monthStart = new Date();
+      monthStart.setUTCDate(1);
+      monthStart.setUTCHours(0, 0, 0, 0);
+
+      const [agg] = await dynamicDB
+        .select({ total: sql<string>`COALESCE(SUM(${transactions.amount}), 0)::text` })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.merchantId, merchantIdNum),
+            sql`${transactions.transactionDate} >= ${monthStart.toISOString()}`,
+          ),
+        );
+
+      const totalMTD = parseFloat(agg?.total ?? "0");
       res.json({ mtdRevenue: totalMTD.toFixed(2) });
     } catch (error) {
       console.error("Error fetching merchant MTD revenue:", error);
@@ -2431,7 +2439,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           const db = getDynamicDatabase(environment);
           
-          // Query to get table and column information
+          // db-tier-allow: information_schema introspection for the
+          // Schema Compare diagnostic UI — Drizzle has no first-class
+          // builder for system catalogue reads.
           const tablesResult = await db.execute(`
             SELECT 
               table_name,
@@ -2445,7 +2455,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ORDER BY table_name, ordinal_position
           `);
           
-          // Query to get indexes
+          // db-tier-allow: pg_catalog index introspection for the
+          // Schema Compare diagnostic UI — system catalogue read only.
           const indexesResult = await db.execute(`
             SELECT 
               t.relname as table_name,
@@ -5416,11 +5427,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const pdfForm = await storage.createPdfForm(formData);
       
-      // Create form fields from parsed data
+      // Create form fields from parsed data — single batch insert instead of
+      // one round trip per field (typical PDFs have 100+ fields).
       const fieldData = pdfFormParser.convertToDbFields(parseResult.sections, pdfForm.id);
-      
-      for (const field of fieldData) {
-        await storage.createPdfFormField(field);
+      if (fieldData.length > 0) {
+        const dynamicDB = getRequestDB(req as any);
+        await dynamicDB.insert(pdfFormFields).values(fieldData);
       }
       
       // Return the complete form with fields

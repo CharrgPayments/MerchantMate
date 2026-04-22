@@ -40,7 +40,9 @@ export const locations = pgTable("locations", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 
   companyId: integer("company_id"),
-});
+}, (t) => ({
+  merchantIdIdx: index("locations_merchant_id_idx").on(t.merchantId),
+}));
 
 export const addresses = pgTable("addresses", {
   id: serial("id").primaryKey(),
@@ -59,7 +61,9 @@ export const addresses = pgTable("addresses", {
   geocodedAt: timestamp("geocoded_at"), // When geolocation was last updated
   timezone: text("timezone"), // e.g., "America/New_York"
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => ({
+  locationIdIdx: index("addresses_location_id_idx").on(t.locationId),
+}));
 
 export const agents = pgTable("agents", {
   id: serial("id").primaryKey(),
@@ -128,7 +132,9 @@ export const merchantProspects = pgTable("merchant_prospects", {
   agentSignedAt: timestamp("agent_signed_at"),
   userId: varchar("user_id"),
   databaseEnv: text("database_env").default("development"),
-});
+}, (t) => ({
+  agentIdIdx: index("merchant_prospects_agent_id_idx").on(t.agentId),
+}));
 
 // Prospect portal messaging (matches existing prospect_messages table)
 export const prospectMessages = pgTable("prospect_messages", {
@@ -199,7 +205,10 @@ export const transactions = pgTable("transactions", {
   locationId: integer("location_id"),
   transactionType: text("transaction_type").notNull().default("payment"),
   processedAt: timestamp("processed_at", { withTimezone: true }),
-});
+}, (t) => ({
+  merchantIdIdx: index("transactions_merchant_id_idx").on(t.merchantId),
+  txnDateIdx: index("transactions_transaction_date_idx").on(t.transactionDate),
+}));
 
 // Junction table for agent-merchant associations
 export const agentMerchants = pgTable("agent_merchants", {
@@ -753,8 +762,14 @@ export const feeItems = pgTable("fee_items", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 
+  // Legacy direct association (predates the fee_group_fee_items junction).
+  // Storage code still filters by this for the standard fee-group/item read.
+  feeGroupId: integer("fee_group_id"),
   feeItemGroupId: integer("fee_item_group_id"),
-});
+}, (t) => ({
+  feeGroupIdIdx: index("fee_items_fee_group_id_idx").on(t.feeGroupId),
+  feeItemGroupIdIdx: index("fee_items_fee_item_group_id_idx").on(t.feeItemGroupId),
+}));
 
 // Fee Group Fee Items junction table - many-to-many relationship between fee groups and fee items
 export const feeGroupFeeItems = pgTable("fee_group_fee_items", {

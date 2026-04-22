@@ -419,21 +419,25 @@ export class DatabaseStorage implements IStorage {
 
   // Fee Groups implementation
   async getAllFeeGroups(): Promise<FeeGroupWithItems[]> {
-    const groups = await db.select().from(feeGroups).orderBy(feeGroups.displayOrder);
-    const result: FeeGroupWithItems[] = [];
-    
-    for (const group of groups) {
-      const groupItems = await db.select().from(feeItems)
-        .where(eq(feeItems.feeGroupId, group.id))
-        .orderBy(feeItems.displayOrder);
-      
-      result.push({
-        ...group,
-        feeItems: groupItems
-      });
+    // Two queries instead of N+1: pull all fee groups and all fee items
+    // in parallel, then bucket items in memory by feeGroupId.
+    const [groups, allItems] = await Promise.all([
+      db.select().from(feeGroups).orderBy(feeGroups.displayOrder),
+      db.select().from(feeItems).orderBy(feeItems.displayOrder),
+    ]);
+
+    const itemsByGroup = new Map<number, typeof allItems>();
+    for (const item of allItems) {
+      if (item.feeGroupId == null) continue;
+      const bucket = itemsByGroup.get(item.feeGroupId);
+      if (bucket) bucket.push(item);
+      else itemsByGroup.set(item.feeGroupId, [item]);
     }
-    
-    return result;
+
+    return groups.map((group) => ({
+      ...group,
+      feeItems: itemsByGroup.get(group.id) ?? [],
+    }));
   }
 
   async getFeeGroup(id: number): Promise<FeeGroup | undefined> {
@@ -442,33 +446,42 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getFeeGroupWithItemGroups(id: number): Promise<FeeGroupWithItemGroups | undefined> {
+    // 3 fixed queries (the fee group, its item groups, and ALL fee items
+    // belonging to either the group or any of its item groups in one go),
+    // then bucket in memory — no per-item-group round trip.
     const [feeGroup] = await db.select().from(feeGroups).where(eq(feeGroups.id, id));
     if (!feeGroup) return undefined;
 
-    const itemGroups = await db.select().from(feeItemGroups)
-      .where(eq(feeItemGroups.feeGroupId, id))
-      .orderBy(feeItemGroups.displayOrder);
+    const [itemGroups, allItems] = await Promise.all([
+      db.select().from(feeItemGroups)
+        .where(eq(feeItemGroups.feeGroupId, id))
+        .orderBy(feeItemGroups.displayOrder),
+      db.select().from(feeItems)
+        .where(eq(feeItems.feeGroupId, id))
+        .orderBy(feeItems.displayOrder),
+    ]);
 
-    const feeItemGroupsWithItems: FeeItemGroupWithItems[] = [];
-    for (const itemGroup of itemGroups) {
-      const items = await db.select().from(feeItems)
-        .where(eq(feeItems.feeItemGroupId, itemGroup.id))
-        .orderBy(feeItems.displayOrder);
-      
-      feeItemGroupsWithItems.push({
-        ...itemGroup,
-        feeItems: items
-      });
+    const itemsByItemGroup = new Map<number, typeof allItems>();
+    const directItems: typeof allItems = [];
+    for (const item of allItems) {
+      if (item.feeItemGroupId == null) {
+        directItems.push(item);
+      } else {
+        const bucket = itemsByItemGroup.get(item.feeItemGroupId);
+        if (bucket) bucket.push(item);
+        else itemsByItemGroup.set(item.feeItemGroupId, [item]);
+      }
     }
 
-    const directItems = await db.select().from(feeItems)
-      .where(and(eq(feeItems.feeGroupId, id), sql`${feeItems.feeItemGroupId} IS NULL`))
-      .orderBy(feeItems.displayOrder);
+    const feeItemGroupsWithItems: FeeItemGroupWithItems[] = itemGroups.map((itemGroup) => ({
+      ...itemGroup,
+      feeItems: itemsByItemGroup.get(itemGroup.id) ?? [],
+    }));
 
     return {
       ...feeGroup,
       feeItemGroups: feeItemGroupsWithItems,
-      feeItems: directItems
+      feeItems: directItems,
     };
   }
 
@@ -1279,25 +1292,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Generic per-user key/value preferences (e.g. underwriting queue filters/sort).
-  // The table is created lazily on first use so the feature works even on databases
-  // that have not yet had the schemaSync run.
-  private userPreferencesTableEnsured = false;
-  private async ensureUserPreferencesTable(): Promise<void> {
-    if (this.userPreferencesTableEnsured) return;
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS "user_preferences" (
-        "user_id" varchar NOT NULL,
-        "key" varchar NOT NULL,
-        "value" jsonb NOT NULL,
-        "updated_at" timestamp NOT NULL DEFAULT now(),
-        PRIMARY KEY ("user_id", "key")
-      )
-    `);
-    this.userPreferencesTableEnsured = true;
-  }
-
+  // The `user_preferences` table is declared in shared/schema.ts and provisioned
+  // by the standard schema push — no runtime DDL shim required.
   async getUserPreference(userId: string, key: string): Promise<unknown | undefined> {
-    await this.ensureUserPreferencesTable();
     const [row] = await db
       .select()
       .from(userPreferences)
@@ -1306,7 +1303,6 @@ export class DatabaseStorage implements IStorage {
   }
 
   async setUserPreference(userId: string, key: string, value: unknown): Promise<void> {
-    await this.ensureUserPreferencesTable();
     await db
       .insert(userPreferences)
       .values({ userId, key, value })

@@ -9,6 +9,7 @@ import {
   underwritingRuns, underwritingPhaseResults, underwritingIssues,
   underwritingTasks, underwritingNotes, underwritingStatusHistory,
   underwritingFiles,
+  workflowTickets, workflowStages,
   insertUnderwritingTaskSchema, insertUnderwritingNoteSchema,
 } from "@shared/schema";
 import {
@@ -225,30 +226,29 @@ export function registerUnderwritingRoutes(app: Express) {
           assignedToId: string | null;
         } | null = null;
         try {
-          const tRes = await db.execute(sqlTag`
-            SELECT wt.id AS ticket_id,
-                   wt.ticket_number,
-                   wt.status,
-                   wt.due_at,
-                   wt.assigned_to_id,
-                   ws.code AS current_stage_code,
-                   ws.name AS current_stage_name
-            FROM workflow_tickets wt
-            LEFT JOIN workflow_stages ws ON ws.id = wt.current_stage_id
-            WHERE wt.entity_type = 'prospect_application' AND wt.entity_id = ${applicationId}
-            LIMIT 1
-          `) as { rows?: Array<{
-            ticket_id: number; ticket_number: string; status: string;
-            due_at: Date | null; assigned_to_id: string | null;
-            current_stage_code: string | null; current_stage_name: string | null;
-          }> };
-          const t = tRes.rows?.[0];
+          const [t] = await db
+            .select({
+              ticketId: workflowTickets.id,
+              ticketNumber: workflowTickets.ticketNumber,
+              status: workflowTickets.status,
+              dueAt: workflowTickets.dueAt,
+              assignedToId: workflowTickets.assignedToId,
+              currentStageCode: workflowStages.code,
+              currentStageName: workflowStages.name,
+            })
+            .from(workflowTickets)
+            .leftJoin(workflowStages, eq(workflowStages.id, workflowTickets.currentStageId))
+            .where(and(
+              eq(workflowTickets.entityType, 'prospect_application'),
+              eq(workflowTickets.entityId, applicationId),
+            ))
+            .limit(1);
           if (t) {
             ticketInfo = {
-              ticketId: t.ticket_id, ticketNumber: t.ticket_number,
-              status: t.status, dueAt: t.due_at, assignedToId: t.assigned_to_id,
-              currentStageCode: t.current_stage_code,
-              currentStageName: t.current_stage_name,
+              ticketId: t.ticketId, ticketNumber: t.ticketNumber,
+              status: t.status, dueAt: t.dueAt, assignedToId: t.assignedToId,
+              currentStageCode: t.currentStageCode,
+              currentStageName: t.currentStageName,
             };
           }
         } catch (e) {
@@ -396,13 +396,15 @@ export function registerUnderwritingRoutes(app: Express) {
         // Task #29: keep workflow_tickets.assigned_to_id in sync so the
         // unified Worklist shows the same assignee.
         try {
-          await db.execute(sqlTag`
-            UPDATE workflow_tickets SET
-              assigned_to_id = ${reviewerId},
-              assigned_at = NOW(),
-              updated_at = NOW()
-            WHERE entity_type = 'prospect_application' AND entity_id = ${applicationId}
-          `);
+          const now = new Date();
+          await db.update(workflowTickets).set({
+            assignedToId: reviewerId,
+            assignedAt: now,
+            updatedAt: now,
+          }).where(and(
+            eq(workflowTickets.entityType, 'prospect_application'),
+            eq(workflowTickets.entityId, applicationId),
+          ));
         } catch (e) {
           console.error(`[underwriting] mirror assignee to workflow ticket failed for app=${applicationId}:`, e);
         }
@@ -743,21 +745,23 @@ export function registerUnderwritingRoutes(app: Express) {
         const ticketsByApp = new Map<number, TicketRow>();
         const ids = rows.map(r => r.id);
         if (ids.length > 0) {
-          const inList = sqlTag.join(ids.map(i => sqlTag`${i}`), sqlTag`,`);
-          const ticketRes = await db.execute(sqlTag`
-            SELECT wt.entity_id AS application_id,
-                   wt.id AS ticket_id,
-                   wt.status AS ticket_status,
-                   wt.due_at AS ticket_due_at,
-                   ws.code AS current_stage_code,
-                   ws.name AS current_stage_name,
-                   wt.assigned_to_id AS ticket_assigned_to_id
-            FROM workflow_tickets wt
-            LEFT JOIN workflow_stages ws ON ws.id = wt.current_stage_id
-            WHERE wt.entity_type = 'prospect_application'
-              AND wt.entity_id IN (${inList})
-          `) as { rows?: TicketRow[] };
-          for (const t of ticketRes.rows ?? []) ticketsByApp.set(t.application_id, t);
+          const ticketRows = await db
+            .select({
+              application_id: workflowTickets.entityId,
+              ticket_id: workflowTickets.id,
+              ticket_status: workflowTickets.status,
+              ticket_due_at: workflowTickets.dueAt,
+              current_stage_code: workflowStages.code,
+              current_stage_name: workflowStages.name,
+              ticket_assigned_to_id: workflowTickets.assignedToId,
+            })
+            .from(workflowTickets)
+            .leftJoin(workflowStages, eq(workflowStages.id, workflowTickets.currentStageId))
+            .where(and(
+              eq(workflowTickets.entityType, 'prospect_application'),
+              inArray(workflowTickets.entityId, ids),
+            ));
+          for (const t of ticketRows) ticketsByApp.set(t.application_id, t as TicketRow);
         }
         const enriched = rows.map(r => {
           const t = ticketsByApp.get(r.id);
