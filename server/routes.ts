@@ -6275,10 +6275,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ error: "Database connection not available" });
       }
       
-      const { campaigns, pricingTypes } = await import("@shared/schema");
+      const {
+        campaigns,
+        pricingTypes,
+        campaignApplicationTemplates,
+        acquirerApplicationTemplates,
+        acquirers,
+      } = await import("@shared/schema");
       const { eq: eqOp } = await import("drizzle-orm");
 
-      // Fetch campaigns with pricingType joined
+      // Fetch campaigns with pricingType joined, plus the acquirer derived from
+      // any linked application template association.
       const rows = await dbToUse.select({
         id: campaigns.id,
         name: campaigns.name,
@@ -6292,12 +6299,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdAt: campaigns.createdAt,
         updatedAt: campaigns.updatedAt,
         pricingTypeName: pricingTypes.name,
+        templateAcquirerId: acquirers.id,
+        templateAcquirerName: acquirers.name,
+        templateAcquirerDisplayName: acquirers.displayName,
       })
       .from(campaigns)
-      .leftJoin(pricingTypes, eqOp(campaigns.pricingTypeId, pricingTypes.id));
+      .leftJoin(pricingTypes, eqOp(campaigns.pricingTypeId, pricingTypes.id))
+      .leftJoin(campaignApplicationTemplates, eqOp(campaignApplicationTemplates.campaignId, campaigns.id))
+      .leftJoin(acquirerApplicationTemplates, eqOp(campaignApplicationTemplates.templateId, acquirerApplicationTemplates.id))
+      .leftJoin(acquirers, eqOp(acquirerApplicationTemplates.acquirerId, acquirers.id));
 
-      const result = rows.map(row => ({
-        ...row,
+      // Dedupe (a campaign may have multiple template associations) — keep the first
+      // template-derived acquirer per campaign.
+      const byId = new Map<number, any>();
+      for (const row of rows) {
+        const existing = byId.get(row.id);
+        if (!existing) {
+          byId.set(row.id, row);
+        } else if (!existing.templateAcquirerName && row.templateAcquirerName) {
+          byId.set(row.id, row);
+        }
+      }
+
+      const result = Array.from(byId.values()).map(row => ({
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        // Prefer the acquirer derived from the linked application template;
+        // fall back to the legacy text column on the campaign row.
+        acquirer: row.templateAcquirerDisplayName || row.templateAcquirerName || row.acquirer,
+        acquirerId: row.templateAcquirerId ?? null,
+        pricingTypeId: row.pricingTypeId,
+        currency: row.currency,
+        isActive: row.isActive,
+        isDefault: row.isDefault,
+        createdBy: row.createdBy,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        pricingTypeName: row.pricingTypeName,
         pricingType: row.pricingTypeId
           ? { id: row.pricingTypeId, name: row.pricingTypeName || 'Unknown' }
           : null,
