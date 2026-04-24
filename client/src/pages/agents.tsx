@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { PaginationControls } from "@/components/pagination-controls";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Search, Edit, Trash2, ChevronDown, ChevronRight, Building2, Mail, Phone, MapPin, Key, User, UserX, Percent } from "lucide-react";
+import { Plus, Search, Edit, Trash2, ChevronDown, ChevronRight, Building2, Mail, Phone, MapPin, Key, User, UserX, UserPlus, Percent } from "lucide-react";
 import { agentsApi } from "@/lib/api";
 import { AgentModal } from "@/components/modals/agent-modal";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -214,9 +214,15 @@ export default function Agents() {
     return agent.status === statusFilter;
   });
 
+  const [, setLocation] = useLocation();
+
   const handleEdit = (agent: Agent) => {
     setEditingAgent(agent);
     setIsModalOpen(true);
+  };
+
+  const handleCreateProspect = (agent: Agent) => {
+    setLocation(`/prospects?newForAgent=${agent.id}`);
   };
 
   const handleDelete = (agent: Agent) => {
@@ -427,6 +433,7 @@ export default function Agents() {
                       onDelete={() => handleDelete(agent)}
                       onResetPassword={() => handleResetPassword(agent)}
                       onDeleteUserAccount={() => handleDeleteUserAccount(agent)}
+                      onCreateProspect={() => handleCreateProspect(agent)}
                       getStatusBadge={getStatusBadge}
                       useAgentMerchants={useAgentMerchants}
                       isDeleting={deleteMutation.isPending}
@@ -476,6 +483,7 @@ interface AgentRowWithMerchantsProps {
   onDelete: () => void;
   onResetPassword: () => void;
   onDeleteUserAccount: () => void;
+  onCreateProspect: () => void;
   getStatusBadge: (status: string) => string;
   useAgentMerchants: (agentId: number, enabled: boolean) => any;
   isDeleting: boolean;
@@ -495,6 +503,7 @@ function AgentRowWithMerchants({
   onDelete,
   onResetPassword,
   onDeleteUserAccount,
+  onCreateProspect,
   getStatusBadge,
   useAgentMerchants,
   isDeleting,
@@ -590,6 +599,15 @@ function AgentRowWithMerchants({
               title="Edit agent"
             >
               <Edit className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onCreateProspect}
+              title="Create prospect for this agent"
+              data-testid={`button-create-prospect-${agent.id}`}
+            >
+              <UserPlus className="w-4 h-4" />
             </Button>
             <Button
               variant="ghost"

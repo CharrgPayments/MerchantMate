@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { PaginationControls } from "@/components/pagination-controls";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -51,8 +51,28 @@ export default function Prospects() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProspect, setEditingProspect] = useState<MerchantProspectWithAgent | undefined>();
+  const [prefillAgentId, setPrefillAgentId] = useState<number | undefined>();
   const [resendingEmail, setResendingEmail] = useState<number | null>(null);
   const [expandedAgents, setExpandedAgents] = useState<Set<number>>(new Set());
+  const [location, setLocation] = useLocation();
+
+  // If navigated here from the Agents grid via /prospects?newForAgent=<id>,
+  // open the create-prospect modal with that agent prefilled, then strip
+  // the query param so a refresh doesn't re-open the modal.
+  useEffect(() => {
+    const search = typeof window !== 'undefined' ? window.location.search : '';
+    if (!search) return;
+    const params = new URLSearchParams(search);
+    const raw = params.get('newForAgent');
+    if (!raw) return;
+    const id = Number(raw);
+    if (Number.isFinite(id) && id > 0) {
+      setEditingProspect(undefined);
+      setPrefillAgentId(id);
+      setIsModalOpen(true);
+    }
+    setLocation('/prospects', { replace: true });
+  }, [location, setLocation]);
 
   const { toast } = useToast();
   const { user } = useAuth();
@@ -234,6 +254,7 @@ export default function Prospects() {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setEditingProspect(undefined);
+    setPrefillAgentId(undefined);
   };
 
   const handleResendInvitation = (prospect: MerchantProspectWithAgent) => {
@@ -641,6 +662,7 @@ export default function Prospects() {
         isOpen={isModalOpen}
         onClose={handleCloseModal}
         prospect={editingProspect}
+        defaultAgentId={prefillAgentId}
       />
     </div>
   );
@@ -658,9 +680,10 @@ interface ProspectModalProps {
   isOpen: boolean;
   onClose: () => void;
   prospect?: MerchantProspectWithAgent;
+  defaultAgentId?: number;
 }
 
-function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
+function ProspectModal({ isOpen, onClose, prospect, defaultAgentId }: ProspectModalProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -668,7 +691,8 @@ function ProspectModal({ isOpen, onClose, prospect }: ProspectModalProps) {
 
   // Agent role detection and display logic
   const isAgent = user?.role === 'agent';
-  const agentDefaultId = isAgent ? 2 : 1; // Use agent ID 2 for Mike Chen
+  const fallbackAgentId = isAgent ? 2 : 1; // Use agent ID 2 for Mike Chen
+  const agentDefaultId = defaultAgentId ?? fallbackAgentId;
   const agentDisplayValue = isAgent && user ? `${user.firstName} ${user.lastName} (${user.email})` : '';
 
 
