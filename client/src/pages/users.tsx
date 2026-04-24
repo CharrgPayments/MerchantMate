@@ -1,4 +1,4 @@
-import { useState, Fragment } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Search, Trash2, Users, Edit2, Key, Shield, CheckCircle, XCircle, Plus, Lock, RotateCcw
@@ -138,7 +138,7 @@ export default function UsersPage() {
   const [usersPage, setUsersPage] = useState(1);
   // Reset to page 1 whenever the search term changes, so the user never lands
   // on a now-empty page after narrowing the result set.
-  React.useEffect(() => { setUsersPage(1); }, [searchTerm]);
+  useEffect(() => { setUsersPage(1); }, [searchTerm]);
 
   interface UsersPage { items: User[]; total: number; page: number; pageSize: number; }
   const { data: usersPageData, isLoading: usersLoading, refetch } = useQuery<UsersPage>({
