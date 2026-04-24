@@ -8,6 +8,7 @@ import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
@@ -47,6 +48,8 @@ interface AcquirerApplicationTemplate {
   pdfMappingConfiguration?: any;
   requiredFields: string[];
   conditionalFields?: any;
+  originalPdfFilename?: string | null;
+  hasOriginalPdf?: boolean;
   createdAt: string;
   updatedAt: string;
   acquirer: {
@@ -1139,6 +1142,25 @@ function EditTemplateDialog({
                     </FormControl>
                   </FormItem>
                 )}
+              />
+            </div>
+
+            <Separator />
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-sm font-medium">Original PDF</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {template.originalPdfFilename
+                      ? `Currently uploaded: ${template.originalPdfFilename}`
+                      : 'No PDF uploaded for this template yet.'}
+                  </p>
+                </div>
+              </div>
+              <UploadOriginalPdf
+                templateId={template.id}
+                hasOriginalPdf={!!template.hasOriginalPdf || !!template.originalPdfFilename}
               />
             </div>
 
