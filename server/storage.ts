@@ -2913,7 +2913,7 @@ export class DatabaseStorage implements IStorage {
 
   async getMerchantProspectsPaged(opts: {
     offset: number; limit: number; search?: string; status?: string; agentId?: number;
-  }): Promise<{ items: MerchantProspect[]; total: number }> {
+  }): Promise<{ items: MerchantProspectWithAgent[]; total: number }> {
     const conds: SQL[] = [];
     if (opts.agentId !== undefined) conds.push(eq(merchantProspects.agentId, opts.agentId));
     if (opts.search) {
@@ -2927,10 +2927,20 @@ export class DatabaseStorage implements IStorage {
     }
     if (opts.status && opts.status !== "all") conds.push(eq(merchantProspects.status, opts.status));
     const where = conds.length ? and(...conds) : undefined;
-    const items = await db.select().from(merchantProspects)
+    // Join the owning agent so the admin / corporate UI can group prospects
+    // by agent. Without this join `prospect.agent` is undefined and the
+    // grouping logic in the Prospects page renders an empty table even when
+    // the API reports a non-zero total.
+    const rows = await db.select({ prospect: merchantProspects, agent: agents })
+      .from(merchantProspects)
+      .leftJoin(agents, eq(merchantProspects.agentId, agents.id))
       .where(where)
       .orderBy(desc(merchantProspects.createdAt))
       .limit(opts.limit).offset(opts.offset);
+    const items: MerchantProspectWithAgent[] = rows.map(r => ({
+      ...r.prospect,
+      agent: r.agent ?? undefined,
+    }));
     const [{ value: total }] = await db.select({ value: count() }).from(merchantProspects).where(where);
     return { items, total: Number(total ?? 0) };
   }
