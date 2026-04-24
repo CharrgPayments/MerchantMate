@@ -1990,24 +1990,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Agent not found" });
       }
 
+      // Backfill a validation token if this prospect was created before tokens were auto-generated
+      let validationToken = prospect.validationToken;
+      if (!validationToken) {
+        validationToken = crypto.randomBytes(32).toString("hex");
+        await storage.updateMerchantProspect(prospect.id, { validationToken });
+      }
+
       // Send validation email
-      if (prospect.validationToken) {
-        const emailSent = await emailService.sendProspectValidationEmail({
-          firstName: prospect.firstName,
-          lastName: prospect.lastName,
-          email: prospect.email,
-          validationToken: prospect.validationToken,
-          agentName: `${agent.firstName} ${agent.lastName}`,
-        });
-        
-        if (emailSent) {
-          console.log(`Validation email resent to prospect: ${prospect.email}`);
-          res.json({ success: true, message: "Invitation email sent successfully" });
-        } else {
-          res.status(500).json({ message: "Failed to send invitation email" });
-        }
+      const emailSent = await emailService.sendProspectValidationEmail({
+        firstName: prospect.firstName,
+        lastName: prospect.lastName,
+        email: prospect.email,
+        validationToken,
+        agentName: `${agent.firstName} ${agent.lastName}`,
+      });
+
+      if (emailSent) {
+        console.log(`Validation email resent to prospect: ${prospect.email}`);
+        res.json({ success: true, message: "Invitation email sent successfully" });
       } else {
-        res.status(400).json({ message: "No validation token found for this prospect" });
+        res.status(500).json({ message: "Failed to send invitation email" });
       }
     } catch (error) {
       console.error("Error resending invitation:", error);

@@ -1,6 +1,7 @@
 import { userPreferences, type UserPreference } from "@shared/schema";
 import { merchants, agents, transactions, users, loginAttempts, twoFactorCodes, userDashboardPreferences, agentMerchants, locations, addresses, pdfForms, pdfFormFields, pdfFormSubmissions, merchantProspects, prospectOwners, prospectSignatures, feeGroups, feeItemGroups, feeItems, pricingTypes, pricingTypeFeeItems, campaigns, campaignFeeValues, campaignAssignments, campaignAssignmentRules, equipmentItems, campaignEquipment, apiKeys, apiRequestLogs, emailTemplates, emailActivity, emailTriggers, workflowDefinitions, workflowEnvironmentConfigs, externalEndpoints, prospectMessages, prospectFileRequests, portalMagicLinks, prospectApplications, acquirerApplicationTemplates, mccCodes, mccPolicies, acquirers, disclosureDefinitions, disclosureVersions, type ProspectMessage, type InsertProspectMessage, type ProspectFileRequest, type InsertProspectFileRequest, type PortalMagicLink, type ProspectApplication, type MccCode, type InsertMccCode, type MccPolicy, type InsertMccPolicy, type DisclosureDefinition, type InsertDisclosureDefinition, type DisclosureVersion, type InsertDisclosureVersion, type ExternalEndpoint, type InsertExternalEndpoint, type Merchant, type Agent, type Transaction, type User, type InsertMerchant, type InsertAgent, type InsertTransaction, type UpsertUser, type MerchantWithAgent, type TransactionWithMerchant, type LoginAttempt, type TwoFactorCode, type UserDashboardPreference, type InsertUserDashboardPreference, type AgentMerchant, type InsertAgentMerchant, type Location, type InsertLocation, type Address, type InsertAddress, type LocationWithAddresses, type MerchantWithLocations, type PdfForm, type InsertPdfForm, type PdfFormField, type InsertPdfFormField, type PdfFormSubmission, type InsertPdfFormSubmission, type PdfFormWithFields, type MerchantProspect, type InsertMerchantProspect, type MerchantProspectWithAgent, type ProspectOwner, type InsertProspectOwner, type ProspectSignature, type InsertProspectSignature, type FeeGroup, type InsertFeeGroup, type FeeItemGroup, type InsertFeeItemGroup, type FeeItem, type InsertFeeItem, type PricingType, type InsertPricingType, type PricingTypeFeeItem, type InsertPricingTypeFeeItem, type Campaign, type InsertCampaign, type CampaignFeeValue, type InsertCampaignFeeValue, type CampaignAssignment, type InsertCampaignAssignment, type CampaignAssignmentRule, type InsertCampaignAssignmentRule, type EquipmentItem, type InsertEquipmentItem, type CampaignEquipment, type InsertCampaignEquipment, type FeeGroupWithItems, type FeeItemGroupWithItems, type FeeGroupWithItemGroups, type PricingTypeWithFeeItems, type CampaignWithDetails, type ApiKey, type InsertApiKey, type ApiRequestLog, type InsertApiRequestLog, type EmailTemplate, type InsertEmailTemplate, type EmailActivity, type InsertEmailActivity, type EmailTrigger, type InsertEmailTrigger, type WorkflowDefinition, type InsertWorkflowDefinition, type WorkflowEnvironmentConfig, type InsertWorkflowEnvironmentConfig, type WorkflowDefinitionWithDetails } from "@shared/schema";
 import { db } from "./db";
+import crypto from "crypto";
 import { eq, or, and, gte, sql, desc, inArray, like, ilike, not, count, type SQL } from "drizzle-orm";
 import { auditLogs, securityEvents } from "@shared/schema";
 
@@ -2464,7 +2465,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createMerchantProspect(prospect: any) {
-    const [newProspect] = await db.insert(merchantProspects).values(prospect).returning();
+    const valuesToInsert = {
+      ...prospect,
+      validationToken: prospect.validationToken ?? crypto.randomBytes(32).toString("hex"),
+    };
+    const [newProspect] = await db.insert(merchantProspects).values(valuesToInsert).returning();
     return newProspect;
   }
 
