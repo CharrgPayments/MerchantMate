@@ -4,6 +4,7 @@ import { ROLE_CODES } from "@shared/permissions";
 import { APP_STATUS, STATUS_FAMILY, STATUS_LABEL, type AppStatus } from "@shared/underwriting";
 import { emailService } from "../emailService";
 import { auditService } from "../auditService";
+import { dbQueryParam } from "../dbMiddleware";
 import type { getDynamicDatabase } from "../db";
 
 type DB = ReturnType<typeof getDynamicDatabase>;
@@ -124,7 +125,10 @@ export async function notifyTransition(db: DB, applicationId: number, toStatus: 
   const status = toStatus as AppStatus;
   const family = STATUS_FAMILY[status];
   const label = STATUS_LABEL[status] || toStatus;
-  const url = `/underwriting-review/${applicationId}`;
+  // Append the active DB env so the recipient (who may be unauthenticated
+  // until they sign in) lands on the right database after clicking through.
+  const dbParam = dbQueryParam(auditCtx.environment);
+  const url = `/underwriting-review/${applicationId}${dbParam}`;
   const fullUrl = APP_BASE_URL ? `${APP_BASE_URL.replace(/\/$/, "")}${url}` : url;
 
   const [app] = await db.select().from(prospectApplications).where(eq(prospectApplications.id, applicationId)).limit(1);

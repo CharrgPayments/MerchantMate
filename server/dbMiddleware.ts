@@ -97,6 +97,20 @@ export const getRequestDB = (req: RequestWithDB) => {
 };
 
 /**
+ * Build a `?db=<env>` (or `&db=<env>`) query-string fragment for outbound
+ * URLs sent over email. The applicant has no session when they click the
+ * link, so without this round-trip the server falls back to production and
+ * misses tokens/records created in dev or test.
+ *
+ * Returns an empty string for production or any unknown env so production
+ * URLs stay clean.
+ */
+export function dbQueryParam(dbEnv: string | undefined | null, separator: '?' | '&' = '?'): string {
+  if (!dbEnv || !['dev', 'development', 'test'].includes(dbEnv)) return '';
+  return `${separator}db=${dbEnv}`;
+}
+
+/**
  * Middleware specifically for admin routes.
  * Same priority rules as dbEnvironmentMiddleware — always delegates to it.
  * crm.charrg.com is still locked to production; all other domains respect session.

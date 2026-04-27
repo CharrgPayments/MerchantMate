@@ -1,4 +1,5 @@
 import { MailService } from '@sendgrid/mail';
+import { dbQueryParam } from './dbMiddleware';
 
 const SENDGRID_ENABLED = !!(process.env.SENDGRID_API_KEY && process.env.SENDGRID_FROM_EMAIL);
 
@@ -31,6 +32,9 @@ interface SignatureRequestData {
   signatureToken: string;
   requesterName: string;
   agentName: string;
+  // See ProspectEmailData.dbEnv — needed so the unauthenticated signer
+  // lands on the right database when they click the email link.
+  dbEnv?: string;
 }
 
 interface ApplicationSubmissionData {
@@ -41,6 +45,8 @@ interface ApplicationSubmissionData {
   agentEmail: string;
   submissionDate: string;
   applicationToken: string;
+  // See ProspectEmailData.dbEnv.
+  dbEnv?: string;
 }
 
 export class EmailService {
@@ -63,11 +69,7 @@ export class EmailService {
 
   async sendProspectValidationEmail(data: ProspectEmailData): Promise<boolean> {
     try {
-      const dbParam =
-        data.dbEnv && ['dev', 'development', 'test'].includes(data.dbEnv)
-          ? `&db=${data.dbEnv}`
-          : '';
-      const validationUrl = `${this.getBaseUrl()}/prospect-validation?token=${data.validationToken}${dbParam}`;
+      const validationUrl = `${this.getBaseUrl()}/prospect-validation?token=${data.validationToken}${dbQueryParam(data.dbEnv, '&')}`;
       
       const htmlContent = `
         <!DOCTYPE html>
@@ -178,7 +180,7 @@ This is an automated message. Please do not reply to this email.
 
   async sendSignatureRequestEmail(data: SignatureRequestData): Promise<boolean> {
     try {
-      const signatureUrl = `${this.getBaseUrl()}/signature-request?token=${data.signatureToken}`;
+      const signatureUrl = `${this.getBaseUrl()}/signature-request?token=${data.signatureToken}${dbQueryParam(data.dbEnv, '&')}`;
       
       const htmlContent = `
         <!DOCTYPE html>
@@ -294,7 +296,9 @@ This email was sent to ${data.ownerEmail}
   async sendApplicationSubmissionNotification(data: ApplicationSubmissionData, pdfAttachment?: Buffer): Promise<boolean> {
     try {
       const baseUrl = this.getBaseUrl();
-      const statusUrl = `${baseUrl}/application-status/${data.applicationToken}`;
+      const dbParam = dbQueryParam(data.dbEnv);
+      const statusUrl = `${baseUrl}/application-status/${data.applicationToken}${dbParam}`;
+      const agentDashboardUrl = `${baseUrl}/agent-dashboard${dbParam}`;
       
       // Email to merchant with PDF attachment
       const merchantMsg = {
@@ -389,7 +393,7 @@ This email was sent to ${data.ownerEmail}
               </div>
               
               <div style="text-align: center; margin: 30px 0;">
-                <a href="${baseUrl}/agent-dashboard" 
+                <a href="${agentDashboardUrl}" 
                    style="background: #7c3aed; color: white; padding: 15px 30px; text-decoration: none; 
                           border-radius: 8px; font-weight: bold; display: inline-block;">
                   Review Application

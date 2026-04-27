@@ -37,7 +37,7 @@ import { pdfFormParser } from "./pdfParser";
 import { emailService } from "./emailService";
 import { createAlert, createAlertForRoles } from "./alertService";
 import { v4 as uuidv4 } from "uuid";
-import { dbEnvironmentMiddleware, adminDbMiddleware, getRequestDB, type RequestWithDB } from "./dbMiddleware";
+import { dbEnvironmentMiddleware, adminDbMiddleware, getRequestDB, dbQueryParam, type RequestWithDB } from "./dbMiddleware";
 import { rateLimit } from "./rateLimits";
 import { parsePaginationOrSend, makePage } from "./lib/pagination";
 import { redactSensitive } from "./auditRedaction";
@@ -3583,6 +3583,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
           await notifyTransition(submitDb, appRow.id, 'CUW', {
             fromStatus: 'SUB', reason: 'Auto-advanced on submission',
+            auditContext: { environment: submitEnv },
           }).catch(e => console.error('underwriting notif:', e));
           const appId = appRow.id;
           setImmediate(() => {
@@ -3609,7 +3610,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           agentName: `${agent.firstName} ${agent.lastName}`,
           agentEmail: agent.email,
           submissionDate,
-          applicationToken: prospect.validationToken || 'unknown'
+          applicationToken: prospect.validationToken || 'unknown',
+          dbEnv: (req as RequestWithDB).dbEnv,
         }, pdfBuffer);
       } catch (emailError) {
         console.error('Email notification failed:', emailError);
@@ -3790,7 +3792,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ownershipPercentage: String(ownershipPercentage),
         signatureToken,
         requesterName: requesterName || "",
-        agentName: agentName || ""
+        agentName: agentName || "",
+        dbEnv: (req as RequestWithDB).dbEnv,
       });
 
       if (success) {
@@ -10950,7 +10953,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
       await storage.createPortalMagicLink({ prospectId: prospect.id, token, expiresAt });
       // Determine the portal URL for the email
-      const dbParam = req.dbEnv === "dev" ? "?db=dev" : "";
+      const dbParam = dbQueryParam(req.dbEnv);
       const baseUrl = process.env.BASE_URL || `https://${req.hostname}`;
       const magicUrl = `${baseUrl}/portal/magic-login${dbParam}#token=${token}`;
       emailService.sendMagicLinkEmail({ firstName: prospect.firstName, email: prospect.email, magicUrl }).catch(() => {});
@@ -11114,7 +11117,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           const prospect = await storage.getMerchantProspect(prospectId);
           if (prospect) {
-            const dbParam = req.dbEnv === "dev" ? "?db=dev" : "";
+            const dbParam = dbQueryParam(req.dbEnv);
             const baseUrl = process.env.BASE_URL || `https://${req.hostname}`;
             const portalUrl = `${baseUrl}/portal/login${dbParam}`;
             await emailService.sendNewMessageNotification({ firstName: prospect.firstName, lastName: prospect.lastName, email: prospect.email, portalUrl, agentName: senderName, subject: subject.trim() || undefined });
@@ -11174,7 +11177,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const userInfo = await storage.getUserDisplayInfo(userId);
           const agentName = userInfo?.username || "Your advisor";
           if (prospect) {
-            const dbParam = req.dbEnv === "dev" ? "?db=dev" : "";
+            const dbParam = dbQueryParam(req.dbEnv);
             const baseUrl = process.env.BASE_URL || `https://${req.hostname}`;
             const portalUrl = `${baseUrl}/portal/login${dbParam}`;
             await emailService.sendFileRequestNotification({ firstName: prospect.firstName, lastName: prospect.lastName, email: prospect.email, portalUrl, agentName, label: label.trim() });
@@ -11412,7 +11415,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userInfo = await storage.getUserDisplayInfo(userId);
       const agentName = userInfo?.username || "Your advisor";
       const baseUrl = process.env.BASE_URL || `https://${req.hostname}`;
-      const statusUrl = `${baseUrl}/application-status/${prospect.validationToken}`;
+      const statusUrl = `${baseUrl}/application-status/${prospect.validationToken}${dbQueryParam(req.dbEnv)}`;
       await emailService.sendPortalInviteEmail({ firstName: prospect.firstName, lastName: prospect.lastName, email: prospect.email, statusUrl, agentName });
       res.json({ message: "Portal invitation sent", email: prospect.email });
     } catch (error) {

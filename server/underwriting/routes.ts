@@ -421,7 +421,8 @@ export function registerUnderwritingRoutes(app: Express) {
               const assignerId = userId(req);
               const [assigner] = assignerId ? await db.select().from(users).where(eq(users.id, assignerId)).limit(1) : [undefined];
               const assignerName = assigner ? [assigner.firstName, assigner.lastName].filter(Boolean).join(" ") || assigner.email || undefined : undefined;
-              const reviewUrl = `${(process.env.APP_BASE_URL || process.env.PUBLIC_APP_URL || "").replace(/\/$/, "")}${path}`;
+              const { dbQueryParam } = await import("../dbMiddleware");
+              const reviewUrl = `${(process.env.APP_BASE_URL || process.env.PUBLIC_APP_URL || "").replace(/\/$/, "")}${path}${dbQueryParam((req as { dbEnv?: string }).dbEnv)}`;
               await emailService.sendReviewerAssignmentEmail({
                 to: reviewer.email,
                 firstName: reviewer.firstName ?? undefined,
