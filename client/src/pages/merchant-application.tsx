@@ -66,15 +66,6 @@ export default function MerchantApplicationPage() {
     enabled: !!campaignIdParam,
   });
 
-  // Preserve campaignId/agentId across navigation to the wizard so prefill data flows downstream
-  const deepLinkQS = (() => {
-    const p = new URLSearchParams();
-    if (campaignIdParam) p.set('campaignId', campaignIdParam);
-    if (agentIdParam) p.set('agentId', agentIdParam);
-    const s = p.toString();
-    return s ? `?${s}` : '';
-  })();
-
   // The prospect-validation page forwards ?db=<env> when the prospect was
   // created in a non-production environment. The applicant has no session at
   // this point, so we must forward it as a header on API calls or the server
@@ -82,12 +73,26 @@ export default function MerchantApplicationPage() {
   const dbParam = urlParams.get('db');
   const dbHeaders: Record<string, string> = dbParam ? { 'x-database-env': dbParam } : {};
 
-  // Fetch prospect data if token is present
+  // Preserve campaignId/agentId AND ?db= across navigation to the wizard so
+  // prefill data flows downstream and the wizard's API calls still hit the
+  // correct database.
+  const deepLinkQS = (() => {
+    const p = new URLSearchParams();
+    if (campaignIdParam) p.set('campaignId', campaignIdParam);
+    if (agentIdParam) p.set('agentId', agentIdParam);
+    if (dbParam) p.set('db', dbParam);
+    const s = p.toString();
+    return s ? `?${s}` : '';
+  })();
+
+  // Fetch prospect data if token is present. The x-database-env header is
+  // forwarded automatically on every fetch by the queryClient bootstrap
+  // (see client/src/lib/queryClient.ts) when ?db= is present in the URL.
   const { data: prospectData } = useQuery({
     queryKey: ['/api/prospects/token', prospectToken, dbParam],
     queryFn: async () => {
       if (!prospectToken) return null;
-      const response = await fetch(`/api/prospects/token/${prospectToken}`, { headers: dbHeaders });
+      const response = await fetch(`/api/prospects/token/${prospectToken}`);
       if (!response.ok) throw new Error('Invalid prospect token');
       return response.json();
     },
@@ -282,8 +287,9 @@ export default function MerchantApplicationPage() {
             <CardContent className="p-6">
               <Button 
                 onClick={() => {
-                  const extra = deepLinkQS ? `&${deepLinkQS.slice(1)}` : '';
-                  setLocation(`/enhanced-pdf-wizard/1?token=${prospectToken}${extra}`);
+                  const p = new URLSearchParams(deepLinkQS);
+                  p.set('token', prospectToken!);
+                  setLocation(`/enhanced-pdf-wizard/1?${p.toString()}`);
                 }}
                 className="w-full"
                 size="lg"

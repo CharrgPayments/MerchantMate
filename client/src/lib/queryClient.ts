@@ -1,5 +1,34 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+// Auto-forward the URL's ?db=<env> query param as an x-database-env header on
+// every same-origin fetch. Unauthenticated flows that arrive via emailed
+// links (prospect validation, signature request, application status, magic
+// link, etc.) carry the env in the URL because the recipient has no session
+// to derive it from. Without this, deep nested API calls (raw fetch, queries,
+// mutations) all fall back to production on the server. Production users
+// (no ?db) are unaffected — the helper is a no-op then.
+if (typeof window !== "undefined" && !(window as { __dbFetchPatched?: boolean }).__dbFetchPatched) {
+  (window as { __dbFetchPatched?: boolean }).__dbFetchPatched = true;
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
+    try {
+      const dbParam = new URLSearchParams(window.location.search).get("db");
+      if (dbParam && ["dev", "development", "test"].includes(dbParam)) {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        const isSameOrigin = url.startsWith("/") || url.startsWith(window.location.origin);
+        if (isSameOrigin) {
+          const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+          if (!headers.has("x-database-env")) headers.set("x-database-env", dbParam);
+          init = { ...init, headers };
+        }
+      }
+    } catch {
+      /* ignore — never let header injection break the actual request */
+    }
+    return originalFetch(input, init);
+  };
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
