@@ -159,8 +159,11 @@ This is an automated message. Please do not reply to this email.
 
       console.log(`Prospect validation email sent successfully to ${data.email}`);
       return true;
-    } catch (error) {
-      console.error('Failed to send prospect validation email:', error);
+    } catch (error: any) {
+      console.error('Failed to send prospect validation email:', error?.message || error);
+      if (error?.response?.body?.errors) {
+        console.error('SendGrid error details:', JSON.stringify(error.response.body.errors, null, 2));
+      }
       return false;
     }
   }
@@ -433,8 +436,11 @@ This email was sent to ${data.ownerEmail}
         text: data.text,
       });
       return true;
-    } catch (err) {
-      console.error('Generic email send error:', err);
+    } catch (err: any) {
+      console.error('Generic email send error:', err?.message || err);
+      if (err?.response?.body?.errors) {
+        console.error('SendGrid error details:', JSON.stringify(err.response.body.errors, null, 2));
+      }
       return false;
     }
   }
