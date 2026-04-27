@@ -686,6 +686,24 @@ export default function EnhancedPdfWizard() {
     gcTime: 0
   });
 
+  // Prospect-mode template loader: fetch the acquirer-specific application
+  // template tied to the prospect's campaign. When this resolves, the wizard
+  // renders the template's own sections (e.g. the full Wells Fargo MPA) instead
+  // of the built-in generic prospect sections. A 404 (no template configured
+  // for the campaign) means we silently fall back to the generic sections.
+  const { data: prospectTemplate } = useQuery<PdfForm | null>({
+    queryKey: ['/api/public/prospects', prospectToken, 'application-template'],
+    queryFn: async () => {
+      if (!prospectToken) return null;
+      const res = await fetch(`/api/public/prospects/${prospectToken}/application-template`);
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error('Failed to load application template');
+      return res.json();
+    },
+    enabled: isProspectMode,
+    staleTime: 5 * 60 * 1000,
+  });
+
   const activeForm = isTemplatePreviewMode ? templateAsForm : pdfForm;
   const activeIsLoading = isTemplatePreviewMode ? isTemplateLoading : isLoading;
   const activeError = isTemplatePreviewMode ? templateError : error;
@@ -963,7 +981,26 @@ export default function EnhancedPdfWizard() {
   let sections: FormSection[] = [];
   
   if (isProspectMode) {
-    sections = createProspectFormSections();
+    // If the prospect's campaign has an acquirer application template, render
+    // its sections directly (matches the actual MPA the acquirer expects).
+    // Otherwise fall back to the generic built-in sections so prospects on
+    // campaigns without a template still get a usable form.
+    if (prospectTemplate?.fields && prospectTemplate.fields.length > 0) {
+      const sectionMap = new Map<string, FormField[]>();
+      [...prospectTemplate.fields].sort((a, b) => a.position - b.position).forEach(field => {
+        const sectionName = field.section || 'General';
+        if (!sectionMap.has(sectionName)) sectionMap.set(sectionName, []);
+        sectionMap.get(sectionName)!.push(field);
+      });
+      sections = Array.from(sectionMap.entries()).map(([name, fields]) => ({
+        name,
+        description: '',
+        icon: FileText,
+        fields,
+      }));
+    } else {
+      sections = createProspectFormSections();
+    }
   } else if (isTemplatePreviewMode && activeForm?.fields) {
     // Group fields by section name for template preview
     const sectionMap = new Map<string, FormField[]>();

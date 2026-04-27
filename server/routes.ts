@@ -2274,6 +2274,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Public endpoint: load the prospect's campaign's primary acquirer
+  // application template, normalised into the same {fields[]} shape that
+  // /api/acquirer-application-templates/:id/as-form returns. This is what the
+  // prospect-mode wizard renders, so the form they fill out matches the
+  // acquirer-specific MPA tied to their campaign instead of a generic stub.
+  // Returns 404 when the prospect/campaign has no template configured; the
+  // wizard then falls back to its built-in generic sections.
+  app.get("/api/public/prospects/:token/application-template", async (req: any, res) => {
+    try {
+      const { token } = req.params;
+      if (!token) return res.status(400).json({ error: "Token is required" });
+
+      const prospect = await storage.getMerchantProspectByToken(token);
+      if (!prospect) return res.status(404).json({ error: "Invalid or expired token" });
+
+      const campaignAssignment = await storage.getProspectCampaignAssignment(prospect.id);
+      if (!campaignAssignment) return res.status(404).json({ error: "No campaign assigned to this prospect" });
+
+      const dbToUse = getRequestDB(req);
+      const {
+        campaignApplicationTemplates: catTable,
+        acquirerApplicationTemplates: aatTable,
+      } = await import("@shared/schema");
+      const { eq, and, desc } = await import("drizzle-orm");
+
+      // Pick the primary template; fall back to lowest displayOrder.
+      const links = await dbToUse
+        .select({
+          templateId: catTable.templateId,
+          isPrimary: catTable.isPrimary,
+          displayOrder: catTable.displayOrder,
+        })
+        .from(catTable)
+        .where(eq(catTable.campaignId, campaignAssignment.campaignId));
+
+      if (links.length === 0) return res.status(404).json({ error: "No application template configured for this campaign" });
+
+      const chosen = links.find(l => l.isPrimary) ?? links.slice().sort((a, b) => a.displayOrder - b.displayOrder)[0];
+
+      const [template] = await dbToUse.select()
+        .from(aatTable)
+        .where(and(eq(aatTable.id, chosen.templateId), eq(aatTable.isActive, true)))
+        .limit(1);
+
+      if (!template) return res.status(404).json({ error: "Application template not found or inactive" });
+
+      // Same normalisation as /api/acquirer-application-templates/:id/as-form
+      const fieldConfig: { sections?: Array<{ title?: string; id?: string; fields?: unknown[] }> } =
+        (template.fieldConfiguration as { sections?: Array<{ title?: string; id?: string; fields?: unknown[] }> }) || {};
+      const templateSections = Array.isArray(fieldConfig.sections) ? fieldConfig.sections : [];
+      const requiredFieldIds = new Set<string>(Array.isArray(template.requiredFields) ? template.requiredFields : []);
+      const normalizeFieldType = (type: string): string => {
+        switch (type) {
+          case "tel": return "phone";
+          case "radio": return "select";
+          default: return type || "text";
+        }
+      };
+
+      let position = 0;
+      const fields: Array<Record<string, unknown>> = [];
+      templateSections.forEach((section) => {
+        const sectionTitle: string = section.title || section.id || "General";
+        const sectionFields: Array<Record<string, unknown>> = Array.isArray(section.fields) ? (section.fields as Array<Record<string, unknown>>) : [];
+        sectionFields.forEach((f) => {
+          const fieldId = (f.id as string) || (f.pdfFieldId as string) || `field_${position + 1}`;
+          fields.push({
+            id: ++position,
+            fieldName: fieldId,
+            fieldType: normalizeFieldType(f.type as string),
+            fieldLabel: (f.label as string) || (f.id as string) || `Field ${position}`,
+            isRequired: requiredFieldIds.has(fieldId) || !!f.required || !!f.isRequired,
+            options: Array.isArray(f.options) ? f.options : null,
+            defaultValue: f.defaultValue ?? null,
+            validation: f.validation ?? null,
+            description: f.description ?? null,
+            position,
+            section: sectionTitle,
+            disclosureDefinitionId: f.disclosureDefinitionId ?? null,
+            disclosureTitle: f.disclosureTitle ?? null,
+            requiresSignature: !!f.requiresSignature,
+            maxSigners: f.maxSigners ?? null,
+            signerLabel: f.signerLabel ?? null,
+            ownerGroupConfig: f.ownerGroupConfig ?? null,
+            conditional: f.conditional ?? null,
+            displayOrientation: f.displayOrientation ?? null,
+          });
+        });
+      });
+
+      // Suppress unused-import warning for desc when not used at runtime
+      void desc;
+
+      res.json({
+        id: template.id,
+        name: template.templateName,
+        description: `${template.templateName} v${template.version}`,
+        fileName: template.originalPdfFilename || "",
+        fields,
+      });
+    } catch (error) {
+      console.error("Error loading prospect application template:", error);
+      res.status(500).json({ error: "Failed to load application template" });
+    }
+  });
+
   // Public API endpoint for application status lookup by token (no auth required)
   app.get("/api/prospects/status/:token", async (req: any, res) => {
     try {
