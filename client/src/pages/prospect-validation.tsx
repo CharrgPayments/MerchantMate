@@ -35,6 +35,13 @@ export default function ProspectValidation() {
   // Check for prospect validation token in URL parameters
   const urlParams = new URLSearchParams(window.location.search);
   const prospectToken = urlParams.get('token');
+  // The email link round-trips ?db=<env> when the prospect was created in a
+  // non-production environment. We must forward it on every API call (the user
+  // has no session at this point), and preserve it when redirecting to the
+  // merchant application page so its API calls hit the right database too.
+  const dbParam = urlParams.get('db');
+  const dbHeaders: Record<string, string> = dbParam ? { 'x-database-env': dbParam } : {};
+  const dbQS = dbParam ? `&db=${dbParam}` : '';
 
   const form = useForm<ValidationData>({
     resolver: zodResolver(validationSchema),
@@ -52,7 +59,7 @@ export default function ProspectValidation() {
     queryFn: async () => {
       const response = await fetch("/api/prospects/validate-token", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...dbHeaders },
         body: JSON.stringify({ token: prospectToken }),
       });
       if (!response.ok) {
@@ -88,10 +95,10 @@ export default function ProspectValidation() {
       description: "Redirecting to merchant application...",
     });
     const t = setTimeout(() => {
-      setLocation(`/merchant-application?token=${tokenQuery.data.prospect.validationToken}`);
+      setLocation(`/merchant-application?token=${tokenQuery.data.prospect.validationToken}${dbQS}`);
     }, 1500);
     return () => clearTimeout(t);
-  }, [tokenQuery.isSuccess, tokenQuery.data, setLocation, toast]);
+  }, [tokenQuery.isSuccess, tokenQuery.data, setLocation, toast, dbQS]);
 
   // Error side effect.
   useEffect(() => {
@@ -104,7 +111,7 @@ export default function ProspectValidation() {
     mutationFn: async (data: ValidationData) => {
       const response = await fetch("/api/prospects/validate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...dbHeaders },
         body: JSON.stringify(data),
       });
       
@@ -126,7 +133,7 @@ export default function ProspectValidation() {
       // Automatically redirect to merchant application
       if (data.prospect?.validationToken) {
         setTimeout(() => {
-          setLocation(`/merchant-application?token=${data.prospect.validationToken}`);
+          setLocation(`/merchant-application?token=${data.prospect.validationToken}${dbQS}`);
         }, 1500);
       }
     },
@@ -145,7 +152,7 @@ export default function ProspectValidation() {
   const startApplication = () => {
     if (prospectData?.validationToken) {
       // Navigate to merchant application with the validation token
-      setLocation(`/merchant-application?token=${prospectData.validationToken}`);
+      setLocation(`/merchant-application?token=${prospectData.validationToken}${dbQS}`);
     }
   };
 

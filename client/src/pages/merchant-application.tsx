@@ -75,12 +75,19 @@ export default function MerchantApplicationPage() {
     return s ? `?${s}` : '';
   })();
 
+  // The prospect-validation page forwards ?db=<env> when the prospect was
+  // created in a non-production environment. The applicant has no session at
+  // this point, so we must forward it as a header on API calls or the server
+  // will default to the production database and lose the prospect.
+  const dbParam = urlParams.get('db');
+  const dbHeaders: Record<string, string> = dbParam ? { 'x-database-env': dbParam } : {};
+
   // Fetch prospect data if token is present
   const { data: prospectData } = useQuery({
-    queryKey: ['/api/prospects/token', prospectToken],
+    queryKey: ['/api/prospects/token', prospectToken, dbParam],
     queryFn: async () => {
       if (!prospectToken) return null;
-      const response = await fetch(`/api/prospects/token/${prospectToken}`);
+      const response = await fetch(`/api/prospects/token/${prospectToken}`, { headers: dbHeaders });
       if (!response.ok) throw new Error('Invalid prospect token');
       return response.json();
     },

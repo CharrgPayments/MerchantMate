@@ -1913,6 +1913,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           email: prospect.email,
           validationToken: prospect.validationToken,
           agentName: `${agent.firstName} ${agent.lastName}`,
+          dbEnv: (req as RequestWithDB).dbEnv,
         });
         
         if (emailSent) {
@@ -2004,6 +2005,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         email: prospect.email,
         validationToken,
         agentName: `${agent.firstName} ${agent.lastName}`,
+        dbEnv: (req as RequestWithDB).dbEnv,
       });
 
       if (emailSent) {

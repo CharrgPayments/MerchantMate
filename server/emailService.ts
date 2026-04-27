@@ -17,6 +17,10 @@ interface ProspectEmailData {
   email: string;
   validationToken: string;
   agentName: string;
+  // Database environment to round-trip through the link. When the user clicks
+  // the email link they have no session, so without this the validate-token
+  // API would default to production and fail to find a token created in dev.
+  dbEnv?: string;
 }
 
 interface SignatureRequestData {
@@ -59,7 +63,11 @@ export class EmailService {
 
   async sendProspectValidationEmail(data: ProspectEmailData): Promise<boolean> {
     try {
-      const validationUrl = `${this.getBaseUrl()}/prospect-validation?token=${data.validationToken}`;
+      const dbParam =
+        data.dbEnv && ['dev', 'development', 'test'].includes(data.dbEnv)
+          ? `&db=${data.dbEnv}`
+          : '';
+      const validationUrl = `${this.getBaseUrl()}/prospect-validation?token=${data.validationToken}${dbParam}`;
       
       const htmlContent = `
         <!DOCTYPE html>
