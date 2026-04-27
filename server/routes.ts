@@ -1322,7 +1322,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         <p><strong>Important:</strong> You will be required to change this password immediately upon your next login for security purposes.</p>
         
-        <p><a href="${process.env.APP_URL || "http://localhost:5000"}/login" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Login to Change Password</a></p>
+        <p><a href="${emailService.getBaseUrl()}/login" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Login to Change Password</a></p>
         
         <p>If you have any questions, please contact your administrator.</p>
         
@@ -5854,10 +5854,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const submission = await storage.createPdfFormSubmission(submissionData);
       
       // Generate the submission URL
-      const baseUrl = process.env.NODE_ENV === 'production' 
-        ? `https://${process.env.REPLIT_DOMAIN || 'localhost:5000'}` 
-        : 'http://localhost:5000';
-      const submissionUrl = `${baseUrl}/form/${submission.submissionToken}`;
+      const submissionUrl = `${emailService.getBaseUrl()}/form/${submission.submissionToken}`;
       
       // Send email (using placeholder for now - will implement with SendGrid)
       console.log(`Email would be sent to: ${applicantEmail}`);

@@ -40,9 +40,21 @@ interface ApplicationSubmissionData {
 }
 
 export class EmailService {
-  private getBaseUrl(): string {
-    // Use the current domain or localhost for development
-    return process.env.BASE_URL || 'http://localhost:5000';
+  // Public so other modules can build email URLs against the same base.
+  // Resolution order:
+  //   1. BASE_URL (explicit override for custom domains / staging)
+  //   2. First entry of REPLIT_DOMAINS (set in published Replit deployments)
+  //   3. REPLIT_DEV_DOMAIN (set in the dev workspace)
+  //   4. http://localhost:5000 (last-resort local fallback)
+  getBaseUrl(): string {
+    if (process.env.BASE_URL) return process.env.BASE_URL.replace(/\/$/, '');
+    const replitDomains = process.env.REPLIT_DOMAINS;
+    if (replitDomains) {
+      const first = replitDomains.split(',')[0].trim();
+      if (first) return `https://${first}`;
+    }
+    if (process.env.REPLIT_DEV_DOMAIN) return `https://${process.env.REPLIT_DEV_DOMAIN}`;
+    return 'http://localhost:5000';
   }
 
   async sendProspectValidationEmail(data: ProspectEmailData): Promise<boolean> {
