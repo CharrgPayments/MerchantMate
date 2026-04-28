@@ -2281,6 +2281,225 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // acquirer-specific MPA tied to their campaign instead of a generic stub.
   // Returns 404 when the prospect/campaign has no template configured; the
   // wizard then falls back to its built-in generic sections.
+  // ---------------------------------------------------------------------------
+  // URL preview (Open Graph thumbnail) — used by the prospect MPA wizard so
+  // that website fields show a small iMessage-style preview card on blur.
+  // SSRF-protected: only http(s), no localhost / private IPs / link-local.
+  // Cached in-memory for 1 hour per URL to keep things snappy and polite.
+  // ---------------------------------------------------------------------------
+  {
+    const PREVIEW_CACHE = new Map<string, { at: number; data: any }>();
+    const PREVIEW_TTL_MS = 60 * 60 * 1000;
+    const PREVIEW_MAX_BYTES = 512 * 1024; // 512 KB of HTML is plenty for <head>
+    const PREVIEW_TIMEOUT_MS = 5000;
+
+    const isPrivateIp = (ip: string): boolean => {
+      if (!ip) return true;
+      if (ip === "::1" || ip === "0:0:0:0:0:0:0:1") return true;
+      if (ip.startsWith("fc") || ip.startsWith("fd")) return true; // ULA
+      if (ip.startsWith("fe80")) return true; // link-local v6
+      const m = ip.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+      if (!m) return false;
+      const [a, b] = [parseInt(m[1], 10), parseInt(m[2], 10)];
+      if (a === 10) return true;
+      if (a === 127) return true;
+      if (a === 0) return true;
+      if (a === 169 && b === 254) return true; // link-local
+      if (a === 172 && b >= 16 && b <= 31) return true;
+      if (a === 192 && b === 168) return true;
+      if (a >= 224) return true; // multicast / reserved
+      return false;
+    };
+
+    const decodeHtmlEntities = (s: string): string =>
+      s
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&#x2F;/g, "/")
+        .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(parseInt(d, 10)));
+
+    const matchMeta = (
+      html: string,
+      attr: "property" | "name",
+      value: string,
+    ): string | null => {
+      // Match either order of attributes in the meta tag.
+      const re1 = new RegExp(
+        `<meta[^>]+${attr}=["']${value}["'][^>]*content=["']([^"']*)["']`,
+        "i",
+      );
+      const re2 = new RegExp(
+        `<meta[^>]+content=["']([^"']*)["'][^>]*${attr}=["']${value}["']`,
+        "i",
+      );
+      const m = html.match(re1) || html.match(re2);
+      return m ? decodeHtmlEntities(m[1]).trim() : null;
+    };
+
+    app.get("/api/url-preview", async (req: any, res) => {
+      try {
+        const raw = String(req.query.url || "").trim();
+        if (!raw) return res.status(400).json({ error: "url query is required" });
+
+        // Allow user to type "example.com" without a scheme.
+        const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+
+        let parsed: URL;
+        try {
+          parsed = new URL(withScheme);
+        } catch {
+          return res.status(400).json({ error: "Invalid URL" });
+        }
+
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          return res.status(400).json({ error: "Only http(s) URLs are allowed" });
+        }
+        const host = parsed.hostname.toLowerCase();
+        if (
+          host === "localhost" ||
+          host.endsWith(".local") ||
+          host.endsWith(".internal")
+        ) {
+          return res.status(400).json({ error: "Host not allowed" });
+        }
+
+        const cacheKey = parsed.toString();
+        const cached = PREVIEW_CACHE.get(cacheKey);
+        if (cached && Date.now() - cached.at < PREVIEW_TTL_MS) {
+          return res.json(cached.data);
+        }
+
+        // Resolve DNS and reject private IP ranges (SSRF guard).
+        const dns = await import("dns/promises");
+        try {
+          const records = await dns.lookup(host, { all: true });
+          if (!records.length || records.every((r) => isPrivateIp(r.address))) {
+            return res.status(400).json({ error: "Host resolves to a private network" });
+          }
+        } catch {
+          return res.status(400).json({ error: "Host could not be resolved" });
+        }
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), PREVIEW_TIMEOUT_MS);
+
+        let response: Response;
+        try {
+          response = await fetch(parsed.toString(), {
+            method: "GET",
+            redirect: "follow",
+            signal: controller.signal,
+            headers: {
+              "User-Agent":
+                "Mozilla/5.0 (compatible; CoreCRM-LinkPreview/1.0; +https://corecrm.app)",
+              Accept: "text/html,application/xhtml+xml",
+            },
+          });
+        } catch (err: any) {
+          clearTimeout(timer);
+          return res.status(502).json({ error: "Failed to fetch URL", reason: err?.name || "fetch_error" });
+        }
+        clearTimeout(timer);
+
+        if (!response.ok) {
+          return res.status(502).json({ error: `Upstream returned ${response.status}` });
+        }
+        const ct = response.headers.get("content-type") || "";
+        if (!/text\/html|application\/xhtml/i.test(ct)) {
+          // Not HTML — still return a minimal preview so the user gets feedback.
+          const minimal = {
+            url: parsed.toString(),
+            domain: parsed.hostname.replace(/^www\./, ""),
+            title: parsed.hostname.replace(/^www\./, ""),
+            description: null,
+            image: null,
+            siteName: null,
+            favicon: `${parsed.origin}/favicon.ico`,
+          };
+          PREVIEW_CACHE.set(cacheKey, { at: Date.now(), data: minimal });
+          return res.json(minimal);
+        }
+
+        // Read up to PREVIEW_MAX_BYTES, then stop — we only need <head>.
+        const reader = response.body?.getReader();
+        let html = "";
+        let bytes = 0;
+        const decoder = new TextDecoder("utf-8", { fatal: false });
+        if (reader) {
+          while (bytes < PREVIEW_MAX_BYTES) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            bytes += value.byteLength;
+            html += decoder.decode(value, { stream: true });
+            if (/<\/head>/i.test(html)) break;
+          }
+          html += decoder.decode();
+          try {
+            await reader.cancel();
+          } catch {
+            // ignore
+          }
+        }
+
+        const headMatch = html.match(/<head[^>]*>([\s\S]*?)<\/head>/i);
+        const headHtml = headMatch ? headMatch[1] : html;
+
+        const titleTag = headHtml.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+        const title =
+          matchMeta(headHtml, "property", "og:title") ||
+          matchMeta(headHtml, "name", "twitter:title") ||
+          (titleTag ? decodeHtmlEntities(titleTag[1].trim()) : null);
+
+        const description =
+          matchMeta(headHtml, "property", "og:description") ||
+          matchMeta(headHtml, "name", "twitter:description") ||
+          matchMeta(headHtml, "name", "description");
+
+        const ogImage =
+          matchMeta(headHtml, "property", "og:image:secure_url") ||
+          matchMeta(headHtml, "property", "og:image") ||
+          matchMeta(headHtml, "name", "twitter:image") ||
+          matchMeta(headHtml, "name", "twitter:image:src");
+
+        const siteName = matchMeta(headHtml, "property", "og:site_name");
+
+        const iconMatch = headHtml.match(
+          /<link[^>]+rel=["'](?:shortcut icon|icon|apple-touch-icon)["'][^>]*href=["']([^"']+)["']/i,
+        );
+        const favHref = iconMatch
+          ? iconMatch[1]
+          : `${parsed.origin}/favicon.ico`;
+
+        const resolveAbs = (u: string | null): string | null => {
+          if (!u) return null;
+          try {
+            return new URL(u, parsed.toString()).toString();
+          } catch {
+            return null;
+          }
+        };
+
+        const data = {
+          url: parsed.toString(),
+          domain: parsed.hostname.replace(/^www\./, ""),
+          title: title || parsed.hostname.replace(/^www\./, ""),
+          description: description || null,
+          image: resolveAbs(ogImage),
+          siteName: siteName || null,
+          favicon: resolveAbs(favHref),
+        };
+        PREVIEW_CACHE.set(cacheKey, { at: Date.now(), data });
+        return res.json(data);
+      } catch (err: any) {
+        console.error("[url-preview] error", err);
+        return res.status(500).json({ error: "URL preview failed" });
+      }
+    });
+  }
+
   app.get("/api/public/prospects/:token/application-template", async (req: any, res) => {
     try {
       const { token } = req.params;

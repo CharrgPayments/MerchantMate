@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Building, FileText, CheckCircle, ArrowLeft, ArrowRight, Users, Upload, Signature, PenTool, Type, RotateCcw, Check, X, AlertTriangle, Monitor, ChevronDown, Lock } from 'lucide-react';
 import { MCCSelect } from '@/components/ui/mcc-select';
 import { AddressAutocompleteInput } from '@/components/forms/AddressAutocompleteInput';
+import { UrlPreviewCard } from '@/components/UrlPreviewCard';
 
 interface FormField {
   id: number;
@@ -2181,6 +2182,12 @@ export default function EnhancedPdfWizard() {
                   Edit Address
                 </button>
               </p>
+            )}
+            {(field.fieldType === 'url' || /url|website/i.test(field.fieldName)) && value && focusedField !== field.fieldName && (
+              <UrlPreviewCard
+                rawValue={String(value)}
+                testId={`url-preview-${field.fieldName}`}
+              />
             )}
             {hasError && <p className="text-xs text-red-500">{hasError}</p>}
           </div>
