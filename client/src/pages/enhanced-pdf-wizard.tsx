@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from '@/hooks/use-toast';
 import { Building, FileText, CheckCircle, ArrowLeft, ArrowRight, Users, Upload, Signature, PenTool, Type, RotateCcw, Check, X, AlertTriangle, Monitor, ChevronDown, Lock } from 'lucide-react';
 import { MCCSelect } from '@/components/ui/mcc-select';
+import { AddressAutocompleteInput } from '@/components/forms/AddressAutocompleteInput';
 
 interface FormField {
   id: number;
@@ -1775,6 +1776,58 @@ export default function EnhancedPdfWizard() {
   const renderField = (field: FormField) => {
     const value = formData[field.fieldName] || '';
     const hasError = validationErrors[field.fieldName];
+
+    // Template-driven address fields (e.g. merchant.location.address,
+    // merchant.mailing.address) — render with the dedicated Google Places
+    // autocomplete component. Each field gets its own city/state/zip/street2
+    // stored under derived keys so multiple address fields on one form (site,
+    // mailing, vendor, etc.) stay independent. Locking is handled internally
+    // by the component once a suggestion is selected.
+    // The legacy literal `address` field used by the built-in prospect form
+    // keeps its original inline implementation below.
+    if (field.fieldType === 'address' && field.fieldName !== 'address') {
+      const cityKey = `${field.fieldName}.city`;
+      const stateKey = `${field.fieldName}.state`;
+      const zipKey = `${field.fieldName}.zipCode`;
+      const street2Key = `${field.fieldName}.street2`;
+      return (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium text-gray-700">
+            {field.fieldLabel}
+            {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+          </Label>
+          <AddressAutocompleteInput
+            value={value}
+            streetLabel={field.fieldLabel}
+            prospectToken={prospectToken || undefined}
+            dataTestId={`address-${field.fieldName}`}
+            initialValues={{
+              city: formData[cityKey] || '',
+              state: formData[stateKey] || '',
+              zipCode: formData[zipKey] || '',
+              street2: formData[street2Key] || '',
+            }}
+            onChange={(v) => handleFieldChange(field.fieldName, v)}
+            onAddressSelect={(addr) => {
+              setFormData(prev => ({
+                ...prev,
+                [field.fieldName]: addr.street,
+                [cityKey]: addr.city,
+                [stateKey]: addr.state,
+                [zipKey]: addr.zipCode,
+                [street2Key]: addr.street2 || prev[street2Key] || '',
+              }));
+              handleFieldInteraction(field.fieldName, addr.street);
+            }}
+            onCityChange={(v) => handleFieldChange(cityKey, v)}
+            onStateChange={(v) => handleFieldChange(stateKey, v)}
+            onZipCodeChange={(v) => handleFieldChange(zipKey, v)}
+            onStreet2Change={(v) => handleFieldChange(street2Key, v)}
+          />
+          {hasError && <p className="text-xs text-red-500">{hasError}</p>}
+        </div>
+      );
+    }
 
     switch (field.fieldType) {
       case 'address':

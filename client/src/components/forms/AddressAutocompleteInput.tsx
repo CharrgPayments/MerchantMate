@@ -40,6 +40,12 @@ interface AddressAutocompleteInputProps {
   onCityChange?: (value: string) => void;
   onStateChange?: (value: string) => void;
   onZipCodeChange?: (value: string) => void;
+  // Optional prospect validation token. When provided, it is forwarded on the
+  // /api/address-autocomplete and /api/validate-address calls so unauthenticated
+  // prospects (magic-link sessions) can still use Google Places lookups.
+  prospectToken?: string;
+  // Optional label override for the street address field (defaults to "Street Address").
+  streetLabel?: string;
 }
 
 export function AddressAutocompleteInput({
@@ -56,7 +62,9 @@ export function AddressAutocompleteInput({
   onStreet2Change,
   onCityChange,
   onStateChange,
-  onZipCodeChange
+  onZipCodeChange,
+  prospectToken,
+  streetLabel = 'Street Address'
 }: AddressAutocompleteInputProps) {
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -76,38 +84,18 @@ export function AddressAutocompleteInput({
   
   // Update addressDetails when initialValues change
   useEffect(() => {
-    console.log('🔄 AddressAutocompleteInput useEffect:', {
-      value: value,
-      'initialValues.city': initialValues.city,
-      'initialValues.state': initialValues.state,
-      'initialValues.zipCode': initialValues.zipCode,
-      'initialValues.street2': initialValues.street2,
-      currentAddressDetails: addressDetails
-    });
-    
-    const newDetails = {
-      ...addressDetails,
-      city: initialValues.city || addressDetails.city,
-      state: initialValues.state || addressDetails.state,
-      zipCode: initialValues.zipCode || addressDetails.zipCode,
-      street2: initialValues.street2 || street2Value || addressDetails.street2
-    };
-    
-    console.log('📝 Setting addressDetails to:', newDetails);
-    setAddressDetails(newDetails);
-    
+    setAddressDetails(prev => ({
+      ...prev,
+      city: initialValues.city || prev.city,
+      state: initialValues.state || prev.state,
+      zipCode: initialValues.zipCode || prev.zipCode,
+      street2: initialValues.street2 || street2Value || prev.street2
+    }));
+
     // Auto-lock if we have complete address data from initialValues
     if (value && initialValues.city && initialValues.state && initialValues.zipCode) {
-      console.log('✅ Auto-locking address field - complete data detected');
       setIsLocked(true);
       setValidationStatus('valid');
-    } else {
-      console.log('❌ NOT auto-locking:', {
-        hasValue: !!value,
-        hasCity: !!initialValues.city,
-        hasState: !!initialValues.state,
-        hasZipCode: !!initialValues.zipCode
-      });
     }
   }, [initialValues.city, initialValues.state, initialValues.zipCode, initialValues.street2, street2Value, value]);
 
@@ -127,8 +115,9 @@ export function AddressAutocompleteInput({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(prospectToken ? { 'X-Prospect-Token': prospectToken } : {}),
         },
-        body: JSON.stringify({ input }),
+        body: JSON.stringify({ input, ...(prospectToken ? { prospectToken } : {}) }),
       });
       
       if (response.ok) {
@@ -151,8 +140,13 @@ export function AddressAutocompleteInput({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(prospectToken ? { 'X-Prospect-Token': prospectToken } : {}),
         },
-        body: JSON.stringify({ address: suggestion.description }),
+        body: JSON.stringify({
+          address: suggestion.description,
+          placeId: suggestion.place_id,
+          ...(prospectToken ? { prospectToken } : {}),
+        }),
       });
       
       if (response.ok) {
@@ -392,18 +386,7 @@ export function AddressAutocompleteInput({
       </div>
 
       {/* Expanded address fields - show when address is validated OR has initial values */}
-      {(() => {
-        const shouldShow = showExpandedFields && (validationStatus === 'valid' || addressDetails.city || addressDetails.state || addressDetails.zipCode);
-        console.log('👁️ Should show expanded fields?', {
-          showExpandedFields: showExpandedFields,
-          validationStatus: validationStatus,
-          'addressDetails.city': addressDetails.city,
-          'addressDetails.state': addressDetails.state,
-          'addressDetails.zipCode': addressDetails.zipCode,
-          shouldShow: shouldShow
-        });
-        return shouldShow;
-      })() && (
+      {showExpandedFields && (validationStatus === 'valid' || addressDetails.city || addressDetails.state || addressDetails.zipCode) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="address-city" className="text-sm font-semibold text-gray-900">
