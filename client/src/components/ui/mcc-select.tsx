@@ -6,7 +6,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MCC_CODES, MCC_CATEGORIES, getMCCByCode, getMCCsByCategory, searchMCCs, getPopularMCCs, type MCCCode } from '@shared/mccCodes';
 
@@ -133,15 +132,14 @@ export function MCCSelect({
             </div>
 
             {/* MCC Lists */}
-            <div className="flex-1 overflow-hidden">
-              <Tabs defaultValue="popular" className="h-full flex flex-col">
-                <TabsList className="grid w-full grid-cols-2 m-2">
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <Tabs defaultValue="popular" className="h-full flex flex-col min-h-0">
+                <TabsList className="grid w-full grid-cols-2 m-2 shrink-0">
                   <TabsTrigger value="popular">Popular</TabsTrigger>
                   <TabsTrigger value="all">All Categories</TabsTrigger>
                 </TabsList>
-                
-                <TabsContent value="popular" className="flex-1 m-0">
-                  <ScrollArea className="h-full px-2">
+
+                <TabsContent value="popular" className="flex-1 min-h-0 m-0 overflow-y-auto px-2 overscroll-contain" data-testid="mcc-list-popular">
                     <div className="space-y-1 p-2">
                       {(searchTerm ? filteredMCCs.slice(0, 20) : popularMCCs).map((mcc) => (
                         <button
@@ -175,11 +173,9 @@ export function MCCSelect({
                         </div>
                       )}
                     </div>
-                  </ScrollArea>
                 </TabsContent>
 
-                <TabsContent value="all" className="flex-1 m-0">
-                  <ScrollArea className="h-full px-2">
+                <TabsContent value="all" className="flex-1 min-h-0 m-0 overflow-y-auto px-2 overscroll-contain" data-testid="mcc-list-all">
                     <div className="p-2">
                       {Object.entries(mccsByCategory).map(([category, mccs]) => (
                         <div key={category} className="mb-6">
@@ -212,7 +208,6 @@ export function MCCSelect({
                         </div>
                       ))}
                     </div>
-                  </ScrollArea>
                 </TabsContent>
               </Tabs>
             </div>
