@@ -236,6 +236,8 @@ export default function EnhancedPdfWizard() {
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [validationModalOpen, setValidationModalOpen] = useState(false);
   const [validationModalMessage, setValidationModalMessage] = useState('');
+  const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [revealedSensitive, setRevealedSensitive] = useState<Set<string>>(new Set());
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -1297,6 +1299,45 @@ export default function EnhancedPdfWizard() {
     return value;
   };
 
+  // Detect sensitive fields (Tax ID / EIN / SSN / bank account / routing) by name
+  const isSensitiveField = (fieldName: string): boolean => {
+    const n = fieldName.toLowerCase();
+    return (
+      n.endsWith('taxid') ||
+      n === 'ein' || n.endsWith('.ein') ||
+      n.includes('einssn') ||
+      n.endsWith('ssn') ||
+      n.includes('socialsecurity') ||
+      n.includes('accountnumber') ||
+      n.includes('routingnumber') ||
+      n.includes('bankaccount')
+    );
+  };
+
+  // Mask a sensitive value, showing only the last 4 characters of the digit content
+  const maskSensitiveValue = (value: string): string => {
+    if (!value) return '';
+    const str = String(value);
+    const digits = str.replace(/\D/g, '');
+    if (digits.length <= 4) {
+      return '•'.repeat(Math.max(0, str.length - digits.length)) + digits;
+    }
+    const last4 = digits.slice(-4);
+    // Preserve formatting characters (e.g., XX-XXXXXXX, XXX-XX-XXXX) by replacing all but the last 4 digits
+    let kept = 0;
+    const totalDigits = digits.length;
+    return str
+      .split('')
+      .map((ch) => {
+        if (/\d/.test(ch)) {
+          kept += 1;
+          return kept > totalDigits - 4 ? ch : '•';
+        }
+        return ch;
+      })
+      .join('');
+  };
+
   // Progressive phone formatter - formats as the user types
   const formatPhoneInput = (value: string): string => {
     const cleaned = value.replace(/\D/g, '').slice(0, 10);
@@ -1855,16 +1896,35 @@ export default function EnhancedPdfWizard() {
               <Input
                 id={field.fieldName}
                 type={field.fieldType === 'email' ? 'email' : field.fieldType === 'phone' ? 'tel' : 'text'}
-                value={value}
+                value={(() => {
+                  const sensitive = isSensitiveField(field.fieldName);
+                  const isFocused = focusedField === field.fieldName;
+                  const isRevealed = revealedSensitive.has(field.fieldName);
+                  if (sensitive && !isFocused && !isRevealed && value) {
+                    return maskSensitiveValue(String(value));
+                  }
+                  return value;
+                })()}
                 onChange={(e) => {
                   const raw = e.target.value;
                   const next = field.fieldType === 'phone' ? formatPhoneInput(raw) : raw;
                   handleFieldChange(field.fieldName, next);
                 }}
+                onFocus={() => setFocusedField(field.fieldName)}
                 onBlur={(e) => {
                   handlePhoneBlur(field.fieldName, e.target.value);
                   handleEINBlur(field.fieldName, e.target.value);
+                  setFocusedField((curr) => (curr === field.fieldName ? null : curr));
+                  if (isSensitiveField(field.fieldName)) {
+                    setRevealedSensitive((prev) => {
+                      if (!prev.has(field.fieldName)) return prev;
+                      const next = new Set(prev);
+                      next.delete(field.fieldName);
+                      return next;
+                    });
+                  }
                 }}
+                autoComplete={isSensitiveField(field.fieldName) ? 'off' : undefined}
                 className={`${hasError ? 'border-red-500' : ''} ${
                   isProspectMode && field.fieldName === 'companyEmail' ? 'bg-gray-50 cursor-not-allowed' : ''
                 } ${
