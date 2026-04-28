@@ -3161,16 +3161,33 @@ export default function EnhancedPdfWizard() {
             {field.description && <p className="text-xs text-gray-500">{field.description}</p>}
             <Input
               id={field.fieldName}
+              data-testid={`input-${field.fieldName}`}
               type="text"
               inputMode="numeric"
               maxLength={11}
-              value={value}
+              value={(() => {
+                const isFocused = focusedField === field.fieldName;
+                const isRevealed = revealedSensitive.has(field.fieldName);
+                if (!isFocused && !isRevealed && value) {
+                  return maskSensitiveValue(String(value));
+                }
+                return value;
+              })()}
               onChange={(e) => {
                 let raw = e.target.value.replace(/\D/g, '').slice(0, 9);
                 let formatted = raw;
                 if (raw.length > 5) formatted = `${raw.slice(0,3)}-${raw.slice(3,5)}-${raw.slice(5)}`;
                 else if (raw.length > 3) formatted = `${raw.slice(0,3)}-${raw.slice(3)}`;
                 handleFieldChange(field.fieldName, formatted);
+              }}
+              onFocus={() => setFocusedField(field.fieldName)}
+              onBlur={() => {
+                setFocusedField(null);
+                setRevealedSensitive((prev) => {
+                  const n = new Set(prev);
+                  n.delete(field.fieldName);
+                  return n;
+                });
               }}
               className={hasError ? 'border-red-500' : ''}
               placeholder="XXX-XX-XXXX"
@@ -3189,14 +3206,31 @@ export default function EnhancedPdfWizard() {
             {field.description && <p className="text-xs text-gray-500">{field.description}</p>}
             <Input
               id={field.fieldName}
+              data-testid={`input-${field.fieldName}`}
               type="text"
               inputMode="numeric"
               maxLength={10}
-              value={value}
+              value={(() => {
+                const isFocused = focusedField === field.fieldName;
+                const isRevealed = revealedSensitive.has(field.fieldName);
+                if (!isFocused && !isRevealed && value) {
+                  return maskSensitiveValue(String(value));
+                }
+                return value;
+              })()}
               onChange={(e) => {
                 let raw = e.target.value.replace(/\D/g, '').slice(0, 9);
                 let formatted = raw.length > 2 ? `${raw.slice(0,2)}-${raw.slice(2)}` : raw;
                 handleFieldChange(field.fieldName, formatted);
+              }}
+              onFocus={() => setFocusedField(field.fieldName)}
+              onBlur={() => {
+                setFocusedField(null);
+                setRevealedSensitive((prev) => {
+                  const n = new Set(prev);
+                  n.delete(field.fieldName);
+                  return n;
+                });
               }}
               className={hasError ? 'border-red-500' : ''}
               placeholder="XX-XXXXXXX"
@@ -3240,13 +3274,30 @@ export default function EnhancedPdfWizard() {
             {field.description && <p className="text-xs text-gray-500">{field.description}</p>}
             <Input
               id={field.fieldName}
+              data-testid={`input-${field.fieldName}`}
               type="text"
               inputMode="numeric"
               maxLength={17}
-              value={value}
+              value={(() => {
+                const isFocused = focusedField === field.fieldName;
+                const isRevealed = revealedSensitive.has(field.fieldName);
+                if (!isFocused && !isRevealed && value) {
+                  return maskSensitiveValue(String(value));
+                }
+                return value;
+              })()}
               onChange={(e) => {
                 const raw = e.target.value.replace(/\D/g, '').slice(0, 17);
                 handleFieldChange(field.fieldName, raw);
+              }}
+              onFocus={() => setFocusedField(field.fieldName)}
+              onBlur={() => {
+                setFocusedField(null);
+                setRevealedSensitive((prev) => {
+                  const n = new Set(prev);
+                  n.delete(field.fieldName);
+                  return n;
+                });
               }}
               className={hasError ? 'border-red-500' : ''}
               placeholder="Account number"
@@ -3265,13 +3316,30 @@ export default function EnhancedPdfWizard() {
             {field.description && <p className="text-xs text-gray-500">{field.description}</p>}
             <Input
               id={field.fieldName}
+              data-testid={`input-${field.fieldName}`}
               type="text"
               inputMode="numeric"
               maxLength={9}
-              value={value}
+              value={(() => {
+                const isFocused = focusedField === field.fieldName;
+                const isRevealed = revealedSensitive.has(field.fieldName);
+                if (!isFocused && !isRevealed && value) {
+                  return maskSensitiveValue(String(value));
+                }
+                return value;
+              })()}
               onChange={(e) => {
                 const raw = e.target.value.replace(/\D/g, '').slice(0, 9);
                 handleFieldChange(field.fieldName, raw);
+              }}
+              onFocus={() => setFocusedField(field.fieldName)}
+              onBlur={() => {
+                setFocusedField(null);
+                setRevealedSensitive((prev) => {
+                  const n = new Set(prev);
+                  n.delete(field.fieldName);
+                  return n;
+                });
               }}
               className={hasError ? 'border-red-500' : ''}
               placeholder="9-digit routing number"
