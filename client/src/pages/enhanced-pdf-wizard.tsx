@@ -238,6 +238,8 @@ export default function EnhancedPdfWizard() {
   const [validationModalMessage, setValidationModalMessage] = useState('');
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [revealedSensitive, setRevealedSensitive] = useState<Set<string>>(new Set());
+  // Maps a target address fieldName -> source address fieldName it should mirror.
+  const [linkedAddresses, setLinkedAddresses] = useState<Record<string, string>>({});
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -1028,6 +1030,84 @@ export default function EnhancedPdfWizard() {
       }
     ];
   }
+
+  // All template-driven address fields in document order. Used to render
+  // "Same as <previous address>" checkboxes above each non-first address.
+  const addressFieldsInOrder = React.useMemo(() => {
+    const all: Array<{ fieldName: string; fieldLabel: string }> = [];
+    sections.forEach((s) => {
+      s.fields.forEach((f) => {
+        if (f.fieldType === 'address' && f.fieldName !== 'address') {
+          all.push({ fieldName: f.fieldName, fieldLabel: f.fieldLabel });
+        }
+      });
+    });
+    return all;
+  }, [sections]);
+
+  // Stable signature of all address-related formData so we can use a
+  // fixed-size dependency array on the sync effect below.
+  const addressDataSignature = React.useMemo(() => {
+    return addressFieldsInOrder
+      .map((f) => [
+        formData[f.fieldName] ?? '',
+        formData[`${f.fieldName}.city`] ?? '',
+        formData[`${f.fieldName}.state`] ?? '',
+        formData[`${f.fieldName}.zipCode`] ?? '',
+        formData[`${f.fieldName}.street2`] ?? '',
+      ].join('|'))
+      .join('||');
+  }, [addressFieldsInOrder, formData]);
+
+  // Keep linked address targets in sync whenever the source address changes.
+  useEffect(() => {
+    const targets = Object.keys(linkedAddresses);
+    if (targets.length === 0) return;
+    setFormData((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const target of targets) {
+        const source = linkedAddresses[target];
+        if (!source) continue;
+        const pairs: Array<[string, string]> = [
+          [source, target],
+          [`${source}.city`, `${target}.city`],
+          [`${source}.state`, `${target}.state`],
+          [`${source}.zipCode`, `${target}.zipCode`],
+          [`${source}.street2`, `${target}.street2`],
+        ];
+        for (const [from, to] of pairs) {
+          if ((prev[from] ?? '') !== (prev[to] ?? '')) {
+            next[to] = prev[from] ?? '';
+            changed = true;
+          }
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [linkedAddresses, addressDataSignature]);
+
+  // Toggle a "same as" link between a target address field and a source one.
+  const toggleAddressLink = (target: string, source: string) => {
+    setLinkedAddresses((prev) => {
+      const next = { ...prev };
+      if (next[target] === source) {
+        delete next[target];
+      } else {
+        next[target] = source;
+        // Immediately copy the source values so the UI reflects the link.
+        setFormData((fd) => ({
+          ...fd,
+          [target]: fd[source] ?? '',
+          [`${target}.city`]: fd[`${source}.city`] ?? '',
+          [`${target}.state`]: fd[`${source}.state`] ?? '',
+          [`${target}.zipCode`]: fd[`${source}.zipCode`] ?? '',
+          [`${target}.street2`]: fd[`${source}.street2`] ?? '',
+        }));
+      }
+      return next;
+    });
+  };
 
   // Fetch address suggestions using Google Places Autocomplete API
   const fetchAddressSuggestions = async (input: string) => {
@@ -1840,40 +1920,101 @@ export default function EnhancedPdfWizard() {
       const stateKey = `${field.fieldName}.state`;
       const zipKey = `${field.fieldName}.zipCode`;
       const street2Key = `${field.fieldName}.street2`;
+      // Address fields that appear before this one (in template order) are
+      // candidates for "Same as ..." links.
+      const idx = addressFieldsInOrder.findIndex(f => f.fieldName === field.fieldName);
+      const previousAddressFields = idx > 0 ? addressFieldsInOrder.slice(0, idx) : [];
+      const linkedSource = linkedAddresses[field.fieldName];
+      const linkedSourceLabel = linkedSource
+        ? (addressFieldsInOrder.find(f => f.fieldName === linkedSource)?.fieldLabel ?? linkedSource)
+        : null;
       return (
         <div className="space-y-2">
           <Label className="text-sm font-medium text-gray-700">
             {field.fieldLabel}
             {field.isRequired && <span className="text-red-500 ml-1">*</span>}
           </Label>
-          <AddressAutocompleteInput
-            value={value}
-            streetLabel={field.fieldLabel}
-            prospectToken={prospectToken || undefined}
-            dataTestId={`address-${field.fieldName}`}
-            initialValues={{
-              city: formData[cityKey] || '',
-              state: formData[stateKey] || '',
-              zipCode: formData[zipKey] || '',
-              street2: formData[street2Key] || '',
-            }}
-            onChange={(v) => handleFieldChange(field.fieldName, v)}
-            onAddressSelect={(addr) => {
-              setFormData(prev => ({
-                ...prev,
-                [field.fieldName]: addr.street,
-                [cityKey]: addr.city,
-                [stateKey]: addr.state,
-                [zipKey]: addr.zipCode,
-                [street2Key]: addr.street2 || prev[street2Key] || '',
-              }));
-              handleFieldInteraction(field.fieldName, addr.street);
-            }}
-            onCityChange={(v) => handleFieldChange(cityKey, v)}
-            onStateChange={(v) => handleFieldChange(stateKey, v)}
-            onZipCodeChange={(v) => handleFieldChange(zipKey, v)}
-            onStreet2Change={(v) => handleFieldChange(street2Key, v)}
-          />
+          {previousAddressFields.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pb-1">
+              {previousAddressFields.map((src) => {
+                const checked = linkedSource === src.fieldName;
+                return (
+                  <label
+                    key={src.fieldName}
+                    className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none"
+                    data-testid={`same-as-${field.fieldName}-${src.fieldName}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleAddressLink(field.fieldName, src.fieldName)}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    Same as {src.fieldLabel}
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          {linkedSource ? (
+            <div
+              className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-gray-800"
+              data-testid={`address-linked-${field.fieldName}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-0.5">
+                  <div className="text-xs font-medium uppercase tracking-wide text-blue-700">
+                    Using {linkedSourceLabel}
+                  </div>
+                  <div className="font-medium">
+                    {formData[field.fieldName] || <span className="italic text-gray-400">Not yet entered</span>}
+                  </div>
+                  {(formData[cityKey] || formData[stateKey] || formData[zipKey]) && (
+                    <div className="text-gray-600">
+                      {[formData[cityKey], formData[stateKey], formData[zipKey]].filter(Boolean).join(', ')}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleAddressLink(field.fieldName, linkedSource)}
+                  className="shrink-0 text-xs font-medium text-blue-700 hover:text-blue-900 underline"
+                  data-testid={`unlink-${field.fieldName}`}
+                >
+                  Edit independently
+                </button>
+              </div>
+            </div>
+          ) : (
+            <AddressAutocompleteInput
+              value={value}
+              streetLabel={field.fieldLabel}
+              prospectToken={prospectToken || undefined}
+              dataTestId={`address-${field.fieldName}`}
+              initialValues={{
+                city: formData[cityKey] || '',
+                state: formData[stateKey] || '',
+                zipCode: formData[zipKey] || '',
+                street2: formData[street2Key] || '',
+              }}
+              onChange={(v) => handleFieldChange(field.fieldName, v)}
+              onAddressSelect={(addr) => {
+                setFormData(prev => ({
+                  ...prev,
+                  [field.fieldName]: addr.street,
+                  [cityKey]: addr.city,
+                  [stateKey]: addr.state,
+                  [zipKey]: addr.zipCode,
+                  [street2Key]: addr.street2 || prev[street2Key] || '',
+                }));
+                handleFieldInteraction(field.fieldName, addr.street);
+              }}
+              onCityChange={(v) => handleFieldChange(cityKey, v)}
+              onStateChange={(v) => handleFieldChange(stateKey, v)}
+              onZipCodeChange={(v) => handleFieldChange(zipKey, v)}
+              onStreet2Change={(v) => handleFieldChange(street2Key, v)}
+            />
+          )}
           {hasError && <p className="text-xs text-red-500">{hasError}</p>}
         </div>
       );
