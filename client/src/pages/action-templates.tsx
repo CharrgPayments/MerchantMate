@@ -628,8 +628,14 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
     if (actionType !== 'webhook') return;
     // When a registry endpoint is selected, detect route params from the
     // endpoint's URL instead of the (now hidden) inline url field.
-    const selected = endpointId ? externalEndpoints.find(ep => ep.id === endpointId) : null;
+    const selected = endpointId
+      ? (externalEndpoints.find(ep => ep.id === endpointId) || selectedEndpointDirect)
+      : null;
     const url = selected?.url || configFields.url || '';
+    // If we have an endpointId but no resolved URL yet (registry list/single
+    // queries still loading), don't touch routeParams — otherwise we'd wipe
+    // the saved defaults before the URL becomes available.
+    if (endpointId && !selected) return;
     const detected = extractRouteParamNames(url);
     const existing: RouteParam[] = configFields.routeParams || [];
 
@@ -647,7 +653,7 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
       setConfigFields((prev: any) => ({ ...prev, routeParams: merged }));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [configFields.url, actionType, endpointId, externalEndpoints]);
+  }, [configFields.url, actionType, endpointId, externalEndpoints, selectedEndpointDirect]);
 
   const handlePreview = () => {
     const variables = extractVariables();
