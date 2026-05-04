@@ -691,7 +691,7 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
         // registry — only require body / route-param resolution here. Server
         // resolves the rest.
         const selectedEp = endpointId
-          ? externalEndpoints.find(ep => ep.id === endpointId)
+          ? (externalEndpoints.find(ep => ep.id === endpointId) || selectedEndpointDirect)
           : null;
         const transportSourceUrl = selectedEp?.url || configFields.url || '';
         if (!transportSourceUrl) {
@@ -1612,7 +1612,7 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
                         type="button"
                         size="sm"
                         onClick={() => runWebhookTest('live')}
-                        disabled={testLoading || !configFields.url}
+                        disabled={testLoading || (!configFields.url && !endpointId)}
                         data-testid="button-run-live-request"
                       >
                         {testLoading ? <Loader2 className="h-3 w-3 mr-2 animate-spin" /> : <Play className="h-3 w-3 mr-2" />}
