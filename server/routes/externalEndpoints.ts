@@ -12,9 +12,21 @@ import { applyAuth } from "../lib/endpointTransport";
 const AUTH_TYPES = ["none", "api_key", "bearer", "basic"] as const;
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 
+// URLs may contain {{...}} template tokens (e.g. {{$CHARRG_DEVELOPMENT_URL}}
+// or {skip}/{take} route params) that are resolved at send time. Accept any
+// non-empty string ≤2048 chars that either parses as a URL or contains a
+// template token. Final validation happens after substitution at send time.
+const urlSchema = z.string().min(1).max(2048).refine(
+  (v) => {
+    if (/\{\{.+?\}\}/.test(v) || /\{[^/]+\}/.test(v)) return true;
+    try { new URL(v); return true; } catch { return false; }
+  },
+  { message: "Must be a valid URL or contain a {{template}} token" },
+);
+
 const baseEndpointSchema = insertExternalEndpointSchema.extend({
   name: z.string().min(1).max(255),
-  url: z.string().url().max(2048),
+  url: urlSchema,
   method: z.enum(HTTP_METHODS).default("POST"),
   authType: z.enum(AUTH_TYPES).default("none"),
   headers: z.record(z.string()).optional().nullable(),
@@ -27,7 +39,7 @@ const baseEndpointSchema = insertExternalEndpointSchema.extend({
 const updateEndpointSchema = baseEndpointSchema.partial();
 
 const testSendSchema = z.object({
-  url: z.string().url().max(2048).optional(),
+  url: urlSchema.optional(),
   method: z.enum(HTTP_METHODS).optional(),
   headers: z.record(z.string()).optional(),
   authType: z.enum(AUTH_TYPES).optional(),
