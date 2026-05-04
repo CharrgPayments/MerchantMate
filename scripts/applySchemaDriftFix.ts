@@ -287,6 +287,154 @@ const PHASE_5_UNIQUES: Stmt[] = [
     sql: `ALTER TABLE "external_endpoints" ADD CONSTRAINT "external_endpoints_name_unique" UNIQUE("name")` },
 ];
 
+
+// ------------------------------------------------------------------ Phase 6
+// FKs that were declared in earlier schema versions but later removed from
+// shared/schema.ts. Dev DB still carries them (drizzle-kit push never drops
+// constraints without explicit data-loss confirmation), so dev had 50 extra
+// FKs vs schema (141 vs 81). Re-added to schema.ts and now to test/prod so
+// all environments enforce the same referential integrity.
+const PHASE_6_FKS: Stmt[] = [
+  { label: "action_activity.action_template_id → action_templates.id (NO ACTION)",
+    sql: "ALTER TABLE \"action_activity\" ADD CONSTRAINT \"action_activity_action_template_id_action_templates_id_fk\" FOREIGN KEY (\"action_template_id\") REFERENCES \"action_templates\"(\"id\") ON DELETE NO ACTION ON UPDATE NO ACTION" },
+  { label: "action_activity.trigger_action_id → trigger_actions.id (NO ACTION)",
+    sql: "ALTER TABLE \"action_activity\" ADD CONSTRAINT \"action_activity_trigger_action_id_trigger_actions_id_fk\" FOREIGN KEY (\"trigger_action_id\") REFERENCES \"trigger_actions\"(\"id\") ON DELETE NO ACTION ON UPDATE NO ACTION" },
+  { label: "action_activity.trigger_id → trigger_catalog.id (NO ACTION)",
+    sql: "ALTER TABLE \"action_activity\" ADD CONSTRAINT \"action_activity_trigger_id_trigger_catalog_id_fk\" FOREIGN KEY (\"trigger_id\") REFERENCES \"trigger_catalog\"(\"id\") ON DELETE NO ACTION ON UPDATE NO ACTION" },
+  { label: "agents.company_id → companies.id (CASCADE)",
+    sql: "ALTER TABLE \"agents\" ADD CONSTRAINT \"agents_company_id_companies_id_fk\" FOREIGN KEY (\"company_id\") REFERENCES \"companies\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "agents.parent_agent_id → agents.id (SET NULL)",
+    sql: "ALTER TABLE \"agents\" ADD CONSTRAINT \"agents_parent_agent_id_agents_id_fk\" FOREIGN KEY (\"parent_agent_id\") REFERENCES \"agents\"(\"id\") ON DELETE SET NULL ON UPDATE NO ACTION" },
+  { label: "campaign_fee_values.fee_group_fee_item_id → fee_group_fee_items.id (CASCADE)",
+    sql: "ALTER TABLE \"campaign_fee_values\" ADD CONSTRAINT \"campaign_fee_values_fee_group_fee_item_id_fee_group_fee_items_i\" FOREIGN KEY (\"fee_group_fee_item_id\") REFERENCES \"fee_group_fee_items\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "campaigns.acquirer_id → acquirers.id (NO ACTION)",
+    sql: "ALTER TABLE \"campaigns\" ADD CONSTRAINT \"campaigns_acquirer_id_acquirers_id_fk\" FOREIGN KEY (\"acquirer_id\") REFERENCES \"acquirers\"(\"id\") ON DELETE NO ACTION ON UPDATE NO ACTION" },
+  { label: "company_addresses.address_id → addresses.id (CASCADE)",
+    sql: "ALTER TABLE \"company_addresses\" ADD CONSTRAINT \"company_addresses_address_id_addresses_id_fk\" FOREIGN KEY (\"address_id\") REFERENCES \"addresses\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "company_addresses.company_id → companies.id (CASCADE)",
+    sql: "ALTER TABLE \"company_addresses\" ADD CONSTRAINT \"company_addresses_company_id_companies_id_fk\" FOREIGN KEY (\"company_id\") REFERENCES \"companies\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "disclosure_acknowledgments.prospect_id → merchant_prospects.id (CASCADE)",
+    sql: "ALTER TABLE \"disclosure_acknowledgments\" ADD CONSTRAINT \"disclosure_acknowledgments_prospect_id_merchant_prospects_id_fk\" FOREIGN KEY (\"prospect_id\") REFERENCES \"merchant_prospects\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "disclosure_contents.company_id → companies.id (CASCADE)",
+    sql: "ALTER TABLE \"disclosure_contents\" ADD CONSTRAINT \"disclosure_contents_company_id_companies_id_fk\" FOREIGN KEY (\"company_id\") REFERENCES \"companies\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "disclosure_definitions.company_id → companies.id (CASCADE)",
+    sql: "ALTER TABLE \"disclosure_definitions\" ADD CONSTRAINT \"disclosure_definitions_company_id_companies_id_fk\" FOREIGN KEY (\"company_id\") REFERENCES \"companies\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "disclosure_signatures.disclosure_version_id → disclosure_versions.id (RESTRICT)",
+    sql: "ALTER TABLE \"disclosure_signatures\" ADD CONSTRAINT \"disclosure_signatures_disclosure_version_id_disclosure_versions\" FOREIGN KEY (\"disclosure_version_id\") REFERENCES \"disclosure_versions\"(\"id\") ON DELETE RESTRICT ON UPDATE NO ACTION" },
+  { label: "disclosure_signatures.prospect_id → merchant_prospects.id (SET NULL)",
+    sql: "ALTER TABLE \"disclosure_signatures\" ADD CONSTRAINT \"disclosure_signatures_prospect_id_merchant_prospects_id_fk\" FOREIGN KEY (\"prospect_id\") REFERENCES \"merchant_prospects\"(\"id\") ON DELETE SET NULL ON UPDATE NO ACTION" },
+  { label: "disclosure_signatures.revoked_by → users.id (NO ACTION)",
+    sql: "ALTER TABLE \"disclosure_signatures\" ADD CONSTRAINT \"disclosure_signatures_revoked_by_users_id_fk\" FOREIGN KEY (\"revoked_by\") REFERENCES \"users\"(\"id\") ON DELETE NO ACTION ON UPDATE NO ACTION" },
+  { label: "disclosure_signatures.template_id → acquirer_application_templates.id (SET NULL)",
+    sql: "ALTER TABLE \"disclosure_signatures\" ADD CONSTRAINT \"disclosure_signatures_template_id_acquirer_application_template\" FOREIGN KEY (\"template_id\") REFERENCES \"acquirer_application_templates\"(\"id\") ON DELETE SET NULL ON UPDATE NO ACTION" },
+  { label: "disclosure_signatures.user_id → users.id (SET NULL)",
+    sql: "ALTER TABLE \"disclosure_signatures\" ADD CONSTRAINT \"disclosure_signatures_user_id_users_id_fk\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE SET NULL ON UPDATE NO ACTION" },
+  { label: "fee_items.fee_item_group_id → fee_item_groups.id (CASCADE)",
+    sql: "ALTER TABLE \"fee_items\" ADD CONSTRAINT \"fee_items_fee_item_group_id_fee_item_groups_id_fk\" FOREIGN KEY (\"fee_item_group_id\") REFERENCES \"fee_item_groups\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "locations.company_id → companies.id (CASCADE)",
+    sql: "ALTER TABLE \"locations\" ADD CONSTRAINT \"locations_company_id_companies_id_fk\" FOREIGN KEY (\"company_id\") REFERENCES \"companies\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "merchant_prospects.user_id → users.id (SET NULL)",
+    sql: "ALTER TABLE \"merchant_prospects\" ADD CONSTRAINT \"merchant_prospects_user_id_users_id_fk\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE SET NULL ON UPDATE NO ACTION" },
+  { label: "merchants.company_id → companies.id (CASCADE)",
+    sql: "ALTER TABLE \"merchants\" ADD CONSTRAINT \"merchants_company_id_companies_id_fk\" FOREIGN KEY (\"company_id\") REFERENCES \"companies\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "merchants.parent_merchant_id → merchants.id (SET NULL)",
+    sql: "ALTER TABLE \"merchants\" ADD CONSTRAINT \"merchants_parent_merchant_id_merchants_id_fk\" FOREIGN KEY (\"parent_merchant_id\") REFERENCES \"merchants\"(\"id\") ON DELETE SET NULL ON UPDATE NO ACTION" },
+  { label: "password_history.user_id → users.id (CASCADE)",
+    sql: "ALTER TABLE \"password_history\" ADD CONSTRAINT \"password_history_user_id_users_id_fk\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "permission_audit_log.actor_user_id → users.id (NO ACTION)",
+    sql: "ALTER TABLE \"permission_audit_log\" ADD CONSTRAINT \"permission_audit_log_actor_user_id_users_id_fk\" FOREIGN KEY (\"actor_user_id\") REFERENCES \"users\"(\"id\") ON DELETE NO ACTION ON UPDATE NO ACTION" },
+  { label: "permission_audit_log.resource_id → rbac_resources.id (NO ACTION)",
+    sql: "ALTER TABLE \"permission_audit_log\" ADD CONSTRAINT \"permission_audit_log_resource_id_rbac_resources_id_fk\" FOREIGN KEY (\"resource_id\") REFERENCES \"rbac_resources\"(\"id\") ON DELETE NO ACTION ON UPDATE NO ACTION" },
+  { label: "pricing_type_fee_items.fee_group_id → fee_groups.id (CASCADE)",
+    sql: "ALTER TABLE \"pricing_type_fee_items\" ADD CONSTRAINT \"pricing_type_fee_items_fee_group_id_fee_groups_id_fk\" FOREIGN KEY (\"fee_group_id\") REFERENCES \"fee_groups\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "prospect_documents.prospect_id → merchant_prospects.id (CASCADE)",
+    sql: "ALTER TABLE \"prospect_documents\" ADD CONSTRAINT \"prospect_documents_prospect_id_merchant_prospects_id_fk\" FOREIGN KEY (\"prospect_id\") REFERENCES \"merchant_prospects\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "prospect_documents.uploaded_by → users.id (NO ACTION)",
+    sql: "ALTER TABLE \"prospect_documents\" ADD CONSTRAINT \"prospect_documents_uploaded_by_users_id_fk\" FOREIGN KEY (\"uploaded_by\") REFERENCES \"users\"(\"id\") ON DELETE NO ACTION ON UPDATE NO ACTION" },
+  { label: "prospect_messages.agent_id → agents.id (SET NULL)",
+    sql: "ALTER TABLE \"prospect_messages\" ADD CONSTRAINT \"prospect_messages_agent_id_agents_id_fk\" FOREIGN KEY (\"agent_id\") REFERENCES \"agents\"(\"id\") ON DELETE SET NULL ON UPDATE NO ACTION" },
+  { label: "prospect_messages.sender_id → users.id (CASCADE)",
+    sql: "ALTER TABLE \"prospect_messages\" ADD CONSTRAINT \"prospect_messages_sender_id_users_id_fk\" FOREIGN KEY (\"sender_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "prospect_notifications.created_by → users.id (NO ACTION)",
+    sql: "ALTER TABLE \"prospect_notifications\" ADD CONSTRAINT \"prospect_notifications_created_by_users_id_fk\" FOREIGN KEY (\"created_by\") REFERENCES \"users\"(\"id\") ON DELETE NO ACTION ON UPDATE NO ACTION" },
+  { label: "prospect_notifications.prospect_id → merchant_prospects.id (CASCADE)",
+    sql: "ALTER TABLE \"prospect_notifications\" ADD CONSTRAINT \"prospect_notifications_prospect_id_merchant_prospects_id_fk\" FOREIGN KEY (\"prospect_id\") REFERENCES \"merchant_prospects\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "role_permissions.granted_by → users.id (NO ACTION)",
+    sql: "ALTER TABLE \"role_permissions\" ADD CONSTRAINT \"role_permissions_granted_by_users_id_fk\" FOREIGN KEY (\"granted_by\") REFERENCES \"users\"(\"id\") ON DELETE NO ACTION ON UPDATE NO ACTION" },
+  { label: "role_permissions.resource_id → rbac_resources.id (CASCADE)",
+    sql: "ALTER TABLE \"role_permissions\" ADD CONSTRAINT \"role_permissions_resource_id_rbac_resources_id_fk\" FOREIGN KEY (\"resource_id\") REFERENCES \"rbac_resources\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "signature_captures.application_id → prospect_applications.id (CASCADE)",
+    sql: "ALTER TABLE \"signature_captures\" ADD CONSTRAINT \"signature_captures_application_id_prospect_applications_id_fk\" FOREIGN KEY (\"application_id\") REFERENCES \"prospect_applications\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "signature_captures.prospect_id → merchant_prospects.id (CASCADE)",
+    sql: "ALTER TABLE \"signature_captures\" ADD CONSTRAINT \"signature_captures_prospect_id_merchant_prospects_id_fk\" FOREIGN KEY (\"prospect_id\") REFERENCES \"merchant_prospects\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "signature_disclosure_links.disclosure_definition_id → disclosure_definitions.id (NO ACTION)",
+    sql: "ALTER TABLE \"signature_disclosure_links\" ADD CONSTRAINT \"signature_disclosure_links_disclosure_definition_id_disclosure_\" FOREIGN KEY (\"disclosure_definition_id\") REFERENCES \"disclosure_definitions\"(\"id\") ON DELETE NO ACTION ON UPDATE NO ACTION" },
+  { label: "signature_disclosure_links.disclosure_version_id → disclosure_versions.id (NO ACTION)",
+    sql: "ALTER TABLE \"signature_disclosure_links\" ADD CONSTRAINT \"signature_disclosure_links_disclosure_version_id_disclosure_ver\" FOREIGN KEY (\"disclosure_version_id\") REFERENCES \"disclosure_versions\"(\"id\") ON DELETE NO ACTION ON UPDATE NO ACTION" },
+  { label: "signature_disclosure_links.signature_capture_id → signature_captures.id (CASCADE)",
+    sql: "ALTER TABLE \"signature_disclosure_links\" ADD CONSTRAINT \"signature_disclosure_links_signature_capture_id_signature_captu\" FOREIGN KEY (\"signature_capture_id\") REFERENCES \"signature_captures\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "signature_requests.application_id → prospect_applications.id (CASCADE)",
+    sql: "ALTER TABLE \"signature_requests\" ADD CONSTRAINT \"signature_requests_application_id_prospect_applications_id_fk\" FOREIGN KEY (\"application_id\") REFERENCES \"prospect_applications\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "signature_requests.created_by → users.id (NO ACTION)",
+    sql: "ALTER TABLE \"signature_requests\" ADD CONSTRAINT \"signature_requests_created_by_users_id_fk\" FOREIGN KEY (\"created_by\") REFERENCES \"users\"(\"id\") ON DELETE NO ACTION ON UPDATE NO ACTION" },
+  { label: "signature_requests.signature_capture_id → signature_captures.id (CASCADE)",
+    sql: "ALTER TABLE \"signature_requests\" ADD CONSTRAINT \"signature_requests_signature_capture_id_signature_captures_id_f\" FOREIGN KEY (\"signature_capture_id\") REFERENCES \"signature_captures\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "stage_api_configs.created_by → users.id (NO ACTION)",
+    sql: "ALTER TABLE \"stage_api_configs\" ADD CONSTRAINT \"stage_api_configs_created_by_users_id_fk\" FOREIGN KEY (\"created_by\") REFERENCES \"users\"(\"id\") ON DELETE NO ACTION ON UPDATE NO ACTION" },
+  { label: "stage_api_configs.integration_id → api_integration_configs.id (NO ACTION)",
+    sql: "ALTER TABLE \"stage_api_configs\" ADD CONSTRAINT \"stage_api_configs_integration_id_api_integration_configs_id_fk\" FOREIGN KEY (\"integration_id\") REFERENCES \"api_integration_configs\"(\"id\") ON DELETE NO ACTION ON UPDATE NO ACTION" },
+  { label: "stage_api_configs.stage_id → workflow_stages.id (CASCADE)",
+    sql: "ALTER TABLE \"stage_api_configs\" ADD CONSTRAINT \"stage_api_configs_stage_id_workflow_stages_id_fk\" FOREIGN KEY (\"stage_id\") REFERENCES \"workflow_stages\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "user_alerts.action_activity_id → action_activity.id (CASCADE)",
+    sql: "ALTER TABLE \"user_alerts\" ADD CONSTRAINT \"user_alerts_action_activity_id_action_activity_id_fk\" FOREIGN KEY (\"action_activity_id\") REFERENCES \"action_activity\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "user_alerts.user_id → users.id (CASCADE)",
+    sql: "ALTER TABLE \"user_alerts\" ADD CONSTRAINT \"user_alerts_user_id_users_id_fk\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "user_company_associations.company_id → companies.id (CASCADE)",
+    sql: "ALTER TABLE \"user_company_associations\" ADD CONSTRAINT \"user_company_associations_company_id_companies_id_fk\" FOREIGN KEY (\"company_id\") REFERENCES \"companies\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "user_company_associations.user_id → users.id (CASCADE)",
+    sql: "ALTER TABLE \"user_company_associations\" ADD CONSTRAINT \"user_company_associations_user_id_users_id_fk\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+  { label: "workflow_stages.workflow_definition_id → workflow_definitions.id (CASCADE)",
+    sql: "ALTER TABLE \"workflow_stages\" ADD CONSTRAINT \"workflow_stages_workflow_definition_id_workflow_definitions_id_\" FOREIGN KEY (\"workflow_definition_id\") REFERENCES \"workflow_definitions\"(\"id\") ON DELETE CASCADE ON UPDATE NO ACTION" },
+];
+
+
+
+// ------------------------------------------------------------------ Phase 7
+// Duplicate FK cleanup. dev and test have legacy duplicate FK constraints
+// (the same column→column relationship enforced twice with different names).
+// Drop the older "_fkey" / short variants, keeping the canonical drizzle "_fk"
+// name that matches schema.ts. Idempotent via "IF EXISTS".
+const PHASE_7_DROP_DUPS: Stmt[] = [
+  { label: "drop dup FK action_templates.action_templates_endpoint_id_fkey",
+    sql: "ALTER TABLE \"action_templates\" DROP CONSTRAINT IF EXISTS \"action_templates_endpoint_id_fkey\"" },
+  { label: "drop dup FK agent_hierarchy.agent_hierarchy_ancestor_id_fkey",
+    sql: "ALTER TABLE \"agent_hierarchy\" DROP CONSTRAINT IF EXISTS \"agent_hierarchy_ancestor_id_fkey\"" },
+  { label: "drop dup FK agent_hierarchy.agent_hierarchy_descendant_id_fkey",
+    sql: "ALTER TABLE \"agent_hierarchy\" DROP CONSTRAINT IF EXISTS \"agent_hierarchy_descendant_id_fkey\"" },
+  { label: "drop dup FK agents.agents_parent_agent_fk",
+    sql: "ALTER TABLE \"agents\" DROP CONSTRAINT IF EXISTS \"agents_parent_agent_fk\"" },
+  { label: "drop dup FK merchant_hierarchy.merchant_hierarchy_ancestor_id_fkey",
+    sql: "ALTER TABLE \"merchant_hierarchy\" DROP CONSTRAINT IF EXISTS \"merchant_hierarchy_ancestor_id_fkey\"" },
+  { label: "drop dup FK merchant_hierarchy.merchant_hierarchy_descendant_id_fkey",
+    sql: "ALTER TABLE \"merchant_hierarchy\" DROP CONSTRAINT IF EXISTS \"merchant_hierarchy_descendant_id_fkey\"" },
+  { label: "drop dup FK merchants.merchants_parent_merchant_fk",
+    sql: "ALTER TABLE \"merchants\" DROP CONSTRAINT IF EXISTS \"merchants_parent_merchant_fk\"" },
+  { label: "drop dup FK password_history.password_history_user_id_fkey",
+    sql: "ALTER TABLE \"password_history\" DROP CONSTRAINT IF EXISTS \"password_history_user_id_fkey\"" },
+  { label: "drop dup FK portal_magic_links.portal_magic_links_prospect_id_fkey",
+    sql: "ALTER TABLE \"portal_magic_links\" DROP CONSTRAINT IF EXISTS \"portal_magic_links_prospect_id_fkey\"" },
+  { label: "drop dup FK pricing_type_fee_items.pricing_type_fee_items_fee_group_id_fkey",
+    sql: "ALTER TABLE \"pricing_type_fee_items\" DROP CONSTRAINT IF EXISTS \"pricing_type_fee_items_fee_group_id_fkey\"" },
+  { label: "drop dup FK prospect_file_requests.prospect_file_requests_prospect_id_fkey",
+    sql: "ALTER TABLE \"prospect_file_requests\" DROP CONSTRAINT IF EXISTS \"prospect_file_requests_prospect_id_fkey\"" },
+  { label: "drop dup FK scheduled_report_runs.scheduled_report_runs_report_id_fkey",
+    sql: "ALTER TABLE \"scheduled_report_runs\" DROP CONSTRAINT IF EXISTS \"scheduled_report_runs_report_id_fkey\"" },
+  { label: "drop dup FK stage_api_configs.stage_api_configs_endpoint_id_fkey",
+    sql: "ALTER TABLE \"stage_api_configs\" DROP CONSTRAINT IF EXISTS \"stage_api_configs_endpoint_id_fkey\"" },
+  { label: "drop dup FK workflow_environment_configs.workflow_environment_configs_workflow_id_fkey",
+    sql: "ALTER TABLE \"workflow_environment_configs\" DROP CONSTRAINT IF EXISTS \"workflow_environment_configs_workflow_id_fkey\"" },
+];
+
 const PHASES: Record<string, { name: string; stmts: Stmt[] }> = {
   "1": { name: "Additive constraints (FKs / PKs / indexes / defaults)",
          stmts: [...PHASE_1_FKS, ...PHASE_1_PKS, ...PHASE_1_INDEXES, ...PHASE_1_DEFAULTS] },
@@ -294,6 +442,8 @@ const PHASES: Record<string, { name: string; stmts: Stmt[] }> = {
   "3": { name: "fee_* serial sequence alignment", stmts: PHASE_3_SERIAL },
   "4": { name: "Numeric precision (empty-table tightening)", stmts: PHASE_4_NUMERIC },
   "5": { name: "Unique constraints", stmts: PHASE_5_UNIQUES },
+  "6": { name: "Re-introduced FKs (dev had, schema lost)", stmts: PHASE_6_FKS },
+  "7": { name: "Drop duplicate FKs (older _fkey / short names)", stmts: PHASE_7_DROP_DUPS },
 };
 
 // db-tier-allow: schema migration script
@@ -327,7 +477,7 @@ async function reportDriftCounts(env: Env) {
 
 async function main() {
   const env = (process.argv[2] as Env) || "development";
-  const phaseList = (process.argv[3] || "1,2,3,4").split(",").map(s => s.trim());
+  const phaseList = (process.argv[3] || "1,2,3,4,5,6,7").split(",").map(s => s.trim());
   if (!["development", "test", "production"].includes(env)) {
     console.error(`Invalid env "${env}" (development | test | production)`); process.exit(2);
   }

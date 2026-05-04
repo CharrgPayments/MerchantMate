@@ -21,6 +21,8 @@ import {
   twoFactorCodes,
   users,
   agents,
+  acquirers,
+  acquirerApplicationTemplates,
   workflowTickets,
   workflowTicketStages,
   workflowDefinitions,
@@ -92,6 +94,19 @@ async function main(): Promise<number> {
       return 1;
     }
 
+    // Look up real acquirer + template ids (FKs now enforced — can't hardcode 1).
+    const [tplRow] = await db.select({ id: acquirerApplicationTemplates.id, acquirerId: acquirerApplicationTemplates.acquirerId })
+      .from(acquirerApplicationTemplates).limit(1);
+    if (!tplRow) {
+      record("setup:any-template-exists", false, "no acquirer_application_templates rows seeded");
+      return 1;
+    }
+    const [acqRow] = await db.select({ id: acquirers.id }).from(acquirers).where(eq(acquirers.id, tplRow.acquirerId)).limit(1);
+    if (!acqRow) {
+      record("setup:any-acquirer-exists", false, `acquirer ${tplRow.acquirerId} (referenced by template ${tplRow.id}) not found`);
+      return 1;
+    }
+
     // ── SETUP: prospect + application ──
     const [prospect] = await db.insert(merchantProspects).values({
       firstName: "QueueE2E",
@@ -105,8 +120,8 @@ async function main(): Promise<number> {
 
     const [app] = await db.insert(prospectApplications).values({
       prospectId,
-      acquirerId: 1,
-      templateId: 1,
+      acquirerId: acqRow.id,
+      templateId: tplRow.id,
       templateVersion: "v1",
       status: "CUW",
       pathway: "traditional",

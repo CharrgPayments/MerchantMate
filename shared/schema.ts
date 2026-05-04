@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, decimal, varchar, jsonb, index, unique, real, numeric, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, decimal, varchar, jsonb, index, unique, real, numeric, primaryKey, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -11,7 +11,7 @@ export const merchants = pgTable("merchants", {
   email: text("email").notNull().unique(),
   phone: text("phone").notNull(),
   agentId: integer("agent_id"),
-  parentMerchantId: integer("parent_merchant_id"),
+  parentMerchantId: integer("parent_merchant_id").references((): AnyPgColumn => merchants.id, { onDelete: "set null" }),
   processingFee: decimal("processing_fee", { precision: 5, scale: 2 }).default("2.50").notNull(),
   status: text("status").notNull().default("active"), // active, pending, suspended
   monthlyVolume: decimal("monthly_volume", { precision: 12, scale: 2 }).default("0").notNull(),
@@ -23,7 +23,7 @@ export const merchants = pgTable("merchants", {
   website: text("website"),
   industry: text("industry"),
   updatedAt: timestamp("updated_at", { withTimezone: true }),
-  companyId: integer("company_id").notNull(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
   notes: text("notes"),
 });
 
@@ -39,7 +39,7 @@ export const locations = pgTable("locations", {
   operatingHours: jsonb("operating_hours"), // Store days/hours as JSON
   createdAt: timestamp("created_at").defaultNow().notNull(),
 
-  companyId: integer("company_id"),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }),
 }, (t) => ({
   merchantIdIdx: index("locations_merchant_id_idx").on(t.merchantId),
 }));
@@ -75,11 +75,11 @@ export const agents = pgTable("agents", {
   territory: text("territory"),
   commissionRate: decimal("commission_rate", { precision: 5, scale: 2 }).default("5.00"),
   status: text("status").notNull().default("active"), // active, inactive
-  parentAgentId: integer("parent_agent_id"),
+  parentAgentId: integer("parent_agent_id").references((): AnyPgColumn => agents.id, { onDelete: "set null" }),
   defaultCampaignId: integer("default_campaign_id"), // FK to campaigns.id (no .references — campaigns table defined later)
   createdAt: timestamp("created_at").defaultNow(),
 
-  companyId: integer("company_id").notNull(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
 });
 
 // Hierarchy closure tables. depth=0 row is the self-row.
@@ -135,7 +135,7 @@ export const merchantProspects = pgTable("merchant_prospects", {
   agentSignature: text("agent_signature"),
   agentSignatureType: text("agent_signature_type"),
   agentSignedAt: timestamp("agent_signed_at"),
-  userId: varchar("user_id"),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
   databaseEnv: text("database_env").default("development"),
 }, (t) => ({
   agentIdIdx: index("merchant_prospects_agent_id_idx").on(t.agentId),
@@ -145,8 +145,8 @@ export const merchantProspects = pgTable("merchant_prospects", {
 export const prospectMessages = pgTable("prospect_messages", {
   id: serial("id").primaryKey(),
   prospectId: integer("prospect_id").notNull().references(() => merchantProspects.id, { onDelete: 'cascade' }),
-  agentId: integer("agent_id"),
-  senderId: varchar("sender_id").notNull(), // userId or prospect email
+  agentId: integer("agent_id").references(() => agents.id, { onDelete: "set null" }),
+  senderId: varchar("sender_id").references(() => users.id, { onDelete: "cascade" }).notNull(), // userId or prospect email
   senderType: text("sender_type").notNull(), // "prospect" | "agent"
   subject: text("subject").notNull().default(""),
   message: text("message").notNull(),
@@ -522,13 +522,13 @@ export type InsertUserPreference = typeof userPreferences.$inferInsert;
 // User alerts / notification table
 export const userAlerts = pgTable("user_alerts", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   message: text("message").notNull(),
   type: varchar("type").notNull().default("info"), // info, warning, error, success
   isRead: boolean("is_read").notNull().default(false),
   readAt: timestamp("read_at"),
   actionUrl: text("action_url"),
-  actionActivityId: integer("action_activity_id"),
+  actionActivityId: integer("action_activity_id").references(() => actionActivity.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -771,7 +771,7 @@ export const feeItems = pgTable("fee_items", {
   // Legacy direct association (predates the fee_group_fee_items junction).
   // Storage code still filters by this for the standard fee-group/item read.
   feeGroupId: integer("fee_group_id"),
-  feeItemGroupId: integer("fee_item_group_id"),
+  feeItemGroupId: integer("fee_item_group_id").references(() => feeItemGroups.id, { onDelete: "cascade" }),
 }, (t) => ({
   feeGroupIdIdx: index("fee_items_fee_group_id_idx").on(t.feeGroupId),
   feeItemGroupIdIdx: index("fee_items_fee_item_group_id_idx").on(t.feeItemGroupId),
@@ -810,7 +810,7 @@ export const pricingTypeFeeItems = pgTable("pricing_type_fee_items", {
   displayOrder: integer("display_order").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 
-  feeGroupId: integer("fee_group_id"),
+  feeGroupId: integer("fee_group_id").references(() => feeGroups.id, { onDelete: "cascade" }),
 }, (table) => ({
   uniquePricingTypeFeeItem: unique().on(table.pricingTypeId, table.feeItemId),
 }));
@@ -862,7 +862,7 @@ export const campaigns = pgTable("campaigns", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 
-  acquirerId: integer("acquirer_id").notNull(),
+  acquirerId: integer("acquirer_id").references(() => acquirers.id, { onDelete: "no action" }).notNull(),
 });
 
 // Campaign Fee Values table - stores the actual fee values for each campaign
@@ -875,7 +875,7 @@ export const campaignFeeValues = pgTable("campaign_fee_values", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 
-  feeGroupFeeItemId: integer("fee_group_fee_item_id"),
+  feeGroupFeeItemId: integer("fee_group_fee_item_id").references(() => feeGroupFeeItems.id, { onDelete: "cascade" }),
 }, (table) => ({
   uniqueCampaignFeeItem: unique().on(table.campaignId, table.feeItemId),
 }));
@@ -1645,7 +1645,7 @@ export const disclosureDefinitions = pgTable("disclosure_definitions", {
   displayName: text("display_name").notNull(),
   description: text("description"),
   category: text("category").notNull().default("general"),
-  companyId: integer("company_id"),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }),
   isActive: boolean("is_active").notNull().default(true),
   requiresSignature: boolean("requires_signature").notNull().default(false),
   requiresInitials: boolean("requires_initials").notNull().default(false),
@@ -1734,9 +1734,9 @@ export const triggerActions = pgTable("trigger_actions", {
 
 export const actionActivity = pgTable("action_activity", {
   id: serial("id").primaryKey(),
-  triggerActionId: integer("trigger_action_id"),
-  triggerId: integer("trigger_id"),
-  actionTemplateId: integer("action_template_id"),
+  triggerActionId: integer("trigger_action_id").references(() => triggerActions.id, { onDelete: "no action" }),
+  triggerId: integer("trigger_id").references(() => triggerCatalog.id, { onDelete: "no action" }),
+  actionTemplateId: integer("action_template_id").references(() => actionTemplates.id, { onDelete: "no action" }),
   actionType: varchar("action_type").notNull(),
   recipient: varchar("recipient").notNull(),
   recipientName: varchar("recipient_name"),
@@ -2012,8 +2012,8 @@ export const companies = pgTable("companies", {
 
 export const companyAddresses = pgTable("company_addresses", {
   id: serial("id").primaryKey(),
-  companyId: integer("company_id").notNull(),
-  addressId: integer("address_id").notNull(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
+  addressId: integer("address_id").references(() => addresses.id, { onDelete: "cascade" }).notNull(),
   type: text("type").notNull().default("primary"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -2023,7 +2023,7 @@ export const disclosureAcknowledgments = pgTable("disclosure_acknowledgments", {
   disclosureContentId: integer("disclosure_content_id").notNull(),
   disclosureVersion: text("disclosure_version").notNull(),
   prospectApplicationId: integer("prospect_application_id"),
-  prospectId: integer("prospect_id"),
+  prospectId: integer("prospect_id").references(() => merchantProspects.id, { onDelete: "cascade" }),
   scrollStartedAt: timestamp("scroll_started_at"),
   scrollCompletedAt: timestamp("scroll_completed_at"),
   scrollDurationMs: integer("scroll_duration_ms"),
@@ -2048,16 +2048,16 @@ export const disclosureContents = pgTable("disclosure_contents", {
   version: text("version").notNull().default("1.0"),
   isActive: boolean("is_active").notNull().default(true),
   requiresSignature: boolean("requires_signature").notNull().default(true),
-  companyId: integer("company_id"),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 export const disclosureSignatures = pgTable("disclosure_signatures", {
   id: serial("id").primaryKey(),
-  disclosureVersionId: integer("disclosure_version_id").notNull(),
-  prospectId: integer("prospect_id"),
-  userId: varchar("user_id"),
+  disclosureVersionId: integer("disclosure_version_id").references(() => disclosureVersions.id, { onDelete: "restrict" }).notNull(),
+  prospectId: integer("prospect_id").references(() => merchantProspects.id, { onDelete: "set null" }),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
   signerName: text("signer_name").notNull(),
   signerEmail: text("signer_email"),
   signerTitle: text("signer_title"),
@@ -2073,10 +2073,10 @@ export const disclosureSignatures = pgTable("disclosure_signatures", {
   contentHashAtSigning: text("content_hash_at_signing"),
   isRevoked: boolean("is_revoked").notNull().default(false),
   revokedAt: timestamp("revoked_at"),
-  revokedBy: varchar("revoked_by"),
+  revokedBy: varchar("revoked_by").references(() => users.id, { onDelete: "no action" }),
   revokedReason: text("revoked_reason"),
   applicationId: integer("application_id"),
-  templateId: integer("template_id"),
+  templateId: integer("template_id").references(() => acquirerApplicationTemplates.id, { onDelete: "set null" }),
   metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -2099,16 +2099,16 @@ export const emailWrappers = pgTable("email_wrappers", {
 
 export const passwordHistory = pgTable("password_history", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   passwordHash: varchar("password_hash").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const permissionAuditLog = pgTable("permission_audit_log", {
   id: serial("id").primaryKey(),
-  actorUserId: varchar("actor_user_id").notNull(),
+  actorUserId: varchar("actor_user_id").references(() => users.id, { onDelete: "no action" }).notNull(),
   roleKey: text("role_key").notNull(),
-  resourceId: integer("resource_id").notNull(),
+  resourceId: integer("resource_id").references(() => rbacResources.id, { onDelete: "no action" }).notNull(),
   action: text("action").notNull(),
   changeType: text("change_type").notNull(),
   previousValue: boolean("previous_value"),
@@ -2120,14 +2120,14 @@ export const permissionAuditLog = pgTable("permission_audit_log", {
 
 export const prospectDocuments = pgTable("prospect_documents", {
   id: serial("id").primaryKey(),
-  prospectId: integer("prospect_id").notNull(),
+  prospectId: integer("prospect_id").references(() => merchantProspects.id, { onDelete: "cascade" }).notNull(),
   fileName: text("file_name").notNull(),
   originalFileName: text("original_file_name").notNull(),
   fileType: text("file_type").notNull(),
   fileSize: integer("file_size").notNull(),
   storageKey: text("storage_key").notNull(),
   category: text("category").notNull().default("general"),
-  uploadedBy: varchar("uploaded_by"),
+  uploadedBy: varchar("uploaded_by").references(() => users.id, { onDelete: "no action" }),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -2135,13 +2135,13 @@ export const prospectDocuments = pgTable("prospect_documents", {
 
 export const prospectNotifications = pgTable("prospect_notifications", {
   id: serial("id").primaryKey(),
-  prospectId: integer("prospect_id").notNull(),
+  prospectId: integer("prospect_id").references(() => merchantProspects.id, { onDelete: "cascade" }).notNull(),
   subject: text("subject").notNull(),
   message: text("message").notNull(),
   type: text("type").notNull().default("info"),
   isRead: boolean("is_read").notNull().default(false),
   readAt: timestamp("read_at"),
-  createdBy: varchar("created_by").notNull(),
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "no action" }).notNull(),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -2164,11 +2164,11 @@ export const rbacResources = pgTable("rbac_resources", {
 export const rolePermissions = pgTable("role_permissions", {
   id: serial("id").primaryKey(),
   roleKey: text("role_key").notNull(),
-  resourceId: integer("resource_id").notNull(),
+  resourceId: integer("resource_id").references(() => rbacResources.id, { onDelete: "cascade" }).notNull(),
   action: text("action").notNull().default("view"),
   isGranted: boolean("is_granted").notNull().default(true),
   grantedAt: timestamp("granted_at").notNull().defaultNow(),
-  grantedBy: varchar("granted_by"),
+  grantedBy: varchar("granted_by").references(() => users.id, { onDelete: "no action" }),
   notes: text("notes"),
 });
 
@@ -2183,8 +2183,8 @@ export const schemaMigrations = pgTable("schema_migrations", {
 
 export const signatureCaptures = pgTable("signature_captures", {
   id: serial("id").primaryKey(),
-  applicationId: integer("application_id"),
-  prospectId: integer("prospect_id"),
+  applicationId: integer("application_id").references(() => prospectApplications.id, { onDelete: "cascade" }),
+  prospectId: integer("prospect_id").references(() => merchantProspects.id, { onDelete: "cascade" }),
   roleKey: text("role_key").notNull(),
   signerType: text("signer_type").notNull(),
   signerName: text("signer_name"),
@@ -2206,10 +2206,10 @@ export const signatureCaptures = pgTable("signature_captures", {
 
 export const signatureDisclosureLinks = pgTable("signature_disclosure_links", {
   id: serial("id").primaryKey(),
-  signatureCaptureId: integer("signature_capture_id").notNull(),
+  signatureCaptureId: integer("signature_capture_id").references(() => signatureCaptures.id, { onDelete: "cascade" }).notNull(),
   disclosureFieldName: text("disclosure_field_name").notNull(),
-  disclosureDefinitionId: integer("disclosure_definition_id"),
-  disclosureVersionId: integer("disclosure_version_id"),
+  disclosureDefinitionId: integer("disclosure_definition_id").references(() => disclosureDefinitions.id, { onDelete: "no action" }),
+  disclosureVersionId: integer("disclosure_version_id").references(() => disclosureVersions.id, { onDelete: "no action" }),
   isRequired: boolean("is_required").notNull().default(true),
   signerRole: text("signer_role"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -2217,8 +2217,8 @@ export const signatureDisclosureLinks = pgTable("signature_disclosure_links", {
 
 export const signatureRequests = pgTable("signature_requests", {
   id: serial("id").primaryKey(),
-  signatureCaptureId: integer("signature_capture_id").notNull(),
-  applicationId: integer("application_id"),
+  signatureCaptureId: integer("signature_capture_id").references(() => signatureCaptures.id, { onDelete: "cascade" }).notNull(),
+  applicationId: integer("application_id").references(() => prospectApplications.id, { onDelete: "cascade" }),
   requestToken: text("request_token").notNull(),
   signerEmail: text("signer_email").notNull(),
   signerName: text("signer_name").notNull(),
@@ -2231,13 +2231,13 @@ export const signatureRequests = pgTable("signature_requests", {
   reminderCount: integer("reminder_count").notNull().default(0),
   lastReminderAt: timestamp("last_reminder_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-  createdBy: varchar("created_by"),
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "no action" }),
 });
 
 export const stageApiConfigs = pgTable("stage_api_configs", {
   id: serial("id").primaryKey(),
-  stageId: integer("stage_id").notNull(),
-  integrationId: integer("integration_id"),
+  stageId: integer("stage_id").references(() => workflowStages.id, { onDelete: "cascade" }).notNull(),
+  integrationId: integer("integration_id").references(() => apiIntegrationConfigs.id, { onDelete: "no action" }),
   // FK to the shared external_endpoints registry. Transport
   // (url/method/headers/auth) is loaded from the registry row.
   endpointId: integer("endpoint_id").references((): any => externalEndpoints.id, { onDelete: "set null" }),
@@ -2253,15 +2253,15 @@ export const stageApiConfigs = pgTable("stage_api_configs", {
   isActive: boolean("is_active").notNull().default(true),
   testMode: boolean("test_mode").notNull().default(false),
   mockResponse: jsonb("mock_response"),
-  createdBy: varchar("created_by"),
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "no action" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 export const userCompanyAssociations = pgTable("user_company_associations", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull(),
-  companyId: integer("company_id").notNull(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  companyId: integer("company_id").references(() => companies.id, { onDelete: "cascade" }).notNull(),
   companyRole: text("company_role").notNull(),
   permissions: jsonb("permissions").default(sql`'{}'::jsonb`),
   title: text("title"),
@@ -2358,7 +2358,7 @@ export const workflowNotes = pgTable("workflow_notes", {
 
 export const workflowStages = pgTable("workflow_stages", {
   id: serial("id").primaryKey(),
-  workflowDefinitionId: integer("workflow_definition_id").notNull(),
+  workflowDefinitionId: integer("workflow_definition_id").references(() => workflowDefinitions.id, { onDelete: "cascade" }).notNull(),
   code: varchar("code", { length: 50 }).notNull(),
   name: text("name").notNull(),
   description: text("description"),
