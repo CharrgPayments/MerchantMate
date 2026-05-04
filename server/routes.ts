@@ -10714,6 +10714,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: secretErr.message });
         }
 
+        // Substitute single-brace route params ({name}) using defaults from
+        // the template's saved config OR the inline draft cfg. Mirrors the
+        // behavior of GET /api/action-templates/:id/data.
+        const cfgForParams: any = storedTemplate?.config ?? cfg ?? {};
+        const routeParams: Array<{ name: string; defaultValue?: string }> =
+          (cfgForParams.routeParams as any[]) || [];
+        for (const param of routeParams) {
+          if (param.defaultValue === undefined || param.defaultValue === '') continue;
+          const re = new RegExp(`\\{${param.name}\\}`, 'g');
+          url = url.replace(re, encodeURIComponent(String(param.defaultValue)));
+          for (const k of Object.keys(finalHeaders)) {
+            finalHeaders[k] = finalHeaders[k].replace(re, String(param.defaultValue));
+          }
+          if (bodyStr) bodyStr = bodyStr.replace(re, String(param.defaultValue));
+        }
+        if (/\{[^{}]+\}/.test(url)) {
+          return res.status(400).json({ message: `URL has unresolved route parameters: ${url}. Set default values on the template.` });
+        }
+
         const fetchOptions: RequestInit = { method, headers: finalHeaders };
         if (method !== 'GET' && method !== 'HEAD' && bodyStr) {
           fetchOptions.body = bodyStr;
