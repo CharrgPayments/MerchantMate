@@ -2546,6 +2546,7 @@ export class DatabaseStorage implements IStorage {
       roles: ['agent'],
       status: 'active' as const,
       emailVerified: true, // Auto-verify for system-created accounts
+      emailVerifiedAt: new Date(),
     };
     
     const user = await this.createUser(userData);
@@ -2583,6 +2584,7 @@ export class DatabaseStorage implements IStorage {
       roles: ['merchant'],
       status: 'active' as const,
       emailVerified: true, // Auto-verify for system-created accounts
+      emailVerifiedAt: new Date(),
     };
     
     const user = await this.createUser(userData);

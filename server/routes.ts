@@ -2168,6 +2168,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update validation timestamp for first-time validation
       await storage.updateMerchantProspect(prospect.id, {
         validatedAt: new Date(),
+        validatedIp: req.ip ?? req.socket?.remoteAddress ?? null,
+        validatedUserAgent: req.get('user-agent') ?? null,
         status: 'contacted'
       });
 
@@ -2215,6 +2217,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!prospect.validatedAt) {
         await storage.updateMerchantProspect(prospect.id, {
           validatedAt: new Date(),
+          validatedIp: req.ip ?? req.socket?.remoteAddress ?? null,
+          validatedUserAgent: req.get('user-agent') ?? null,
           status: 'contacted'
         });
       }
@@ -4581,6 +4585,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           roles: ["merchant"],
           status: "active" as const,
           emailVerified: true,
+          emailVerifiedAt: new Date(),
         }).returning();
 
         const [merchant] = await tx.insert(merchants).values({
@@ -4690,6 +4695,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           roles: ['agent'],
           status: 'active' as const,
           emailVerified: true,
+          emailVerifiedAt: new Date(),
         };
         
         const [user] = await tx.insert(users).values(userData).returning();

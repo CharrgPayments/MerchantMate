@@ -753,6 +753,7 @@ export class AuthService {
 
       await storage.updateUser(user.id, {
         emailVerified: true,
+        emailVerifiedAt: new Date(),
         emailVerificationToken: null,
       });
 

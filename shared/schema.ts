@@ -117,6 +117,11 @@ export const merchantProspects = pgTable("merchant_prospects", {
   status: text("status").notNull().default("pending"), // pending, contacted, in_progress, applied, approved, rejected
   validationToken: text("validation_token").unique(), // Token for email validation
   validatedAt: timestamp("validated_at"),
+  // SOC2 audit context captured at the moment the prospect proves control of
+  // their email by following the validation link. Useful for verification
+  // disputes ("we never received it", "someone else clicked it").
+  validatedIp: varchar("validated_ip"),
+  validatedUserAgent: text("validated_user_agent"),
   applicationStartedAt: timestamp("application_started_at"),
   formData: text("form_data"), // JSON string of form data for resuming applications
   currentStep: integer("current_step").default(0), // Current step in the application form
@@ -382,6 +387,7 @@ export const users = pgTable("users", {
   passwordResetToken: varchar("password_reset_token"),
   passwordResetExpires: timestamp("password_reset_expires"),
   emailVerified: boolean("email_verified").default(false),
+  emailVerifiedAt: timestamp("email_verified_at"),
   emailVerificationToken: varchar("email_verification_token"),
   phone: varchar("phone"),
   communicationPreference: varchar("communication_preference").default("email"), // email, sms, both
