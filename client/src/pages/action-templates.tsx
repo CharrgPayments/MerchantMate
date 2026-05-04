@@ -241,6 +241,19 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
     staleTime: 30_000,
     enabled: open,
   });
+  // Direct fetch of the currently-selected endpoint by id. Acts as a robust
+  // fallback when the list query above hasn't resolved yet (or returned an
+  // incomplete set), so the trigger label always reflects the saved endpoint.
+  const { data: selectedEndpointDirect } = useQuery<EndpointShape>({
+    queryKey: ["/api/external-endpoints", endpointId],
+    queryFn: async () => {
+      const res = await fetch(`/api/external-endpoints/${endpointId}`, { credentials: "include" });
+      if (!res.ok) throw new Error(`Failed to fetch endpoint ${endpointId}`);
+      return res.json();
+    },
+    staleTime: 30_000,
+    enabled: open && !!endpointId,
+  });
   const [endpointDialogOpen, setEndpointDialogOpen] = useState(false);
   const [editingEndpoint, setEditingEndpoint] = useState<EndpointShape | null>(null);
 
@@ -900,7 +913,7 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
         const routeParams: RouteParam[] = configFields.routeParams || [];
         // eslint-disable-next-line no-case-declarations
         const selectedEndpoint = endpointId
-          ? externalEndpoints.find(ep => ep.id === endpointId)
+          ? (externalEndpoints.find(ep => ep.id === endpointId) || selectedEndpointDirect)
           : null;
         // eslint-disable-next-line no-case-declarations
         const effectiveUrl = selectedEndpoint?.url || configFields.url || '';
@@ -934,7 +947,13 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
                     }}
                   >
                     <SelectTrigger data-testid="select-webhook-endpoint">
-                      <SelectValue placeholder="Choose an endpoint or define inline" />
+                      <SelectValue placeholder="Choose an endpoint or define inline">
+                        {endpointId
+                          ? (selectedEndpoint
+                              ? selectedEndpoint.name
+                              : `Endpoint #${endpointId}`)
+                          : 'Define inline (no registry)'}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__inline__">Define inline (no registry)</SelectItem>
