@@ -435,6 +435,27 @@ const PHASE_7_DROP_DUPS: Stmt[] = [
     sql: "ALTER TABLE \"workflow_environment_configs\" DROP CONSTRAINT IF EXISTS \"workflow_environment_configs_workflow_id_fkey\"" },
 ];
 
+
+// ------------------------------------------------------------------ Phase 8
+// Backfill 6 unique constraints that exist in dev (and in shared/schema.ts via
+// .unique() modifiers) but were never propagated to test/prod. Verified zero
+// duplicate values in test and prod before adding. Idempotent via DO block
+// guard on pg_constraint.conname.
+const PHASE_8_UNIQUES: Stmt[] = [
+  { label: "add unique disclosure_contents(slug) as disclosure_contents_slug_unique",
+    sql: "ALTER TABLE \"disclosure_contents\" ADD CONSTRAINT \"disclosure_contents_slug_unique\" UNIQUE (\"slug\")" },
+  { label: "add unique disclosure_contents(slug, version) as disclosure_contents_slug_version_unique",
+    sql: "ALTER TABLE \"disclosure_contents\" ADD CONSTRAINT \"disclosure_contents_slug_version_unique\" UNIQUE (\"slug\", \"version\")" },
+  { label: "add unique prospect_documents(storage_key) as prospect_documents_storage_key_unique",
+    sql: "ALTER TABLE \"prospect_documents\" ADD CONSTRAINT \"prospect_documents_storage_key_unique\" UNIQUE (\"storage_key\")" },
+  { label: "add unique schema_migrations(migration_id) as schema_migrations_migration_id_key",
+    sql: "ALTER TABLE \"schema_migrations\" ADD CONSTRAINT \"schema_migrations_migration_id_key\" UNIQUE (\"migration_id\")" },
+  { label: "add unique signature_captures(request_token) as signature_captures_request_token_unique",
+    sql: "ALTER TABLE \"signature_captures\" ADD CONSTRAINT \"signature_captures_request_token_unique\" UNIQUE (\"request_token\")" },
+  { label: "add unique signature_requests(request_token) as signature_requests_request_token_unique",
+    sql: "ALTER TABLE \"signature_requests\" ADD CONSTRAINT \"signature_requests_request_token_unique\" UNIQUE (\"request_token\")" },
+];
+
 const PHASES: Record<string, { name: string; stmts: Stmt[] }> = {
   "1": { name: "Additive constraints (FKs / PKs / indexes / defaults)",
          stmts: [...PHASE_1_FKS, ...PHASE_1_PKS, ...PHASE_1_INDEXES, ...PHASE_1_DEFAULTS] },
@@ -444,6 +465,7 @@ const PHASES: Record<string, { name: string; stmts: Stmt[] }> = {
   "5": { name: "Unique constraints", stmts: PHASE_5_UNIQUES },
   "6": { name: "Re-introduced FKs (dev had, schema lost)", stmts: PHASE_6_FKS },
   "7": { name: "Drop duplicate FKs (older _fkey / short names)", stmts: PHASE_7_DROP_DUPS },
+  "8": { name: "Backfill missing unique constraints in test/prod", stmts: PHASE_8_UNIQUES },
 };
 
 // db-tier-allow: schema migration script
@@ -477,7 +499,7 @@ async function reportDriftCounts(env: Env) {
 
 async function main() {
   const env = (process.argv[2] as Env) || "development";
-  const phaseList = (process.argv[3] || "1,2,3,4,5,6,7").split(",").map(s => s.trim());
+  const phaseList = (process.argv[3] || "1,2,3,4,5,6,7,8").split(",").map(s => s.trim());
   if (!["development", "test", "production"].includes(env)) {
     console.error(`Invalid env "${env}" (development | test | production)`); process.exit(2);
   }
