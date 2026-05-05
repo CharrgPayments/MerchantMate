@@ -1127,6 +1127,52 @@ function TemplateModal({ open, onClose, template, mode }: TemplateModalProps) {
               </div>
             )}
 
+            {/* Route Parameters editor — also shown for registry-backed endpoints
+                so users can supply default values for {param} tokens detected in
+                the registry URL. */}
+            {endpointId && routeParams.length > 0 && (
+              <div className="space-y-2" data-testid="route-params-section-registry">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Route Parameters</span>
+                  <Badge variant="secondary" className="text-xs">{routeParams.length} detected</Badge>
+                </div>
+                <div className="rounded-md border divide-y text-sm" data-testid="route-params-table-registry">
+                  <div className="grid grid-cols-[140px_1fr_1fr] gap-2 px-3 py-2 bg-muted/50 text-xs font-medium text-muted-foreground">
+                    <span>Parameter</span>
+                    <span>Default Value</span>
+                    <span>Description</span>
+                  </div>
+                  {routeParams.map((param, idx) => (
+                    <div key={param.name} className="grid grid-cols-[140px_1fr_1fr] gap-2 px-3 py-2 items-center" data-testid={`route-param-row-${param.name}`}>
+                      <code className="font-mono text-xs font-semibold text-violet-600 dark:text-violet-400 truncate">
+                        {'{' + param.name + '}'}
+                      </code>
+                      <Input
+                        value={param.defaultValue || ''}
+                        onChange={(e) => {
+                          const updated = routeParams.map((p, i) => i === idx ? { ...p, defaultValue: e.target.value } : p);
+                          setConfigFields({ ...configFields, routeParams: updated });
+                        }}
+                        placeholder="Enter default value"
+                        className="h-7 text-xs"
+                        data-testid={`route-param-default-${param.name}`}
+                      />
+                      <Input
+                        value={param.description || ''}
+                        onChange={(e) => {
+                          const updated = routeParams.map((p, i) => i === idx ? { ...p, description: e.target.value } : p);
+                          setConfigFields({ ...configFields, routeParams: updated });
+                        }}
+                        placeholder="e.g. Records to skip"
+                        className="h-7 text-xs"
+                        data-testid={`route-param-desc-${param.name}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Secrets Reference Panel */}
             {secretsData && secretsData.secrets.length > 0 && (
               <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/30 p-3 space-y-2">
