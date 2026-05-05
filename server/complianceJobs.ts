@@ -459,14 +459,37 @@ export async function detectSchemaDrift(): Promise<{ alerts: number }> {
       const t = await getSchemaSnapshot(target);
       if (!t) continue;
       const diffs = diffSchemas(base, t);
-      if (diffs.length === 0) continue;
-      // Dedup: only alert if no unacknowledged alert already exists for this pair.
+      if (diffs.length === 0) {
+        // Drift is gone — auto-resolve any open alerts for this env pair so
+        // the UI no longer shows them as Open.
+        await db.update(schemaDriftAlerts).set({
+          acknowledged: true,
+          acknowledgedBy: "system-auto-resolved",
+          acknowledgedAt: new Date(),
+        }).where(and(
+          eq(schemaDriftAlerts.acknowledged, false),
+          eq(schemaDriftAlerts.baseEnvironment, "production"),
+          eq(schemaDriftAlerts.targetEnvironment, target),
+        ));
+        continue;
+      }
+      // Dedup: if an unacknowledged alert already exists for this pair, refresh
+      // its detectedAt + differences so each scan reflects when drift was last
+      // observed. Only insert a brand-new row when there is no open alert.
       const existing = await db.select().from(schemaDriftAlerts).where(and(
         eq(schemaDriftAlerts.acknowledged, false),
         eq(schemaDriftAlerts.baseEnvironment, "production"),
         eq(schemaDriftAlerts.targetEnvironment, target),
       )).limit(1);
-      if (existing.length > 0) continue;
+      if (existing.length > 0) {
+        await db.update(schemaDriftAlerts).set({
+          detectedAt: new Date(),
+          differenceCount: diffs.length,
+          differences: diffs,
+        }).where(eq(schemaDriftAlerts.id, existing[0].id));
+        alerts += 1;
+        continue;
+      }
       await db.insert(schemaDriftAlerts).values({
         baseEnvironment: "production",
         targetEnvironment: target,
