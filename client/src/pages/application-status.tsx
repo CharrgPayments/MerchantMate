@@ -25,9 +25,10 @@ export default function ApplicationStatus() {
 
   // Fetch prospect data by token
   const { data: prospect, isLoading, error } = useQuery({
-    queryKey: [`/api/prospects/status/${token}`],
+    queryKey: [`/api/prospects/status/${token}`, dbEnv],
     queryFn: async () => {
-      const response = await fetch(`/api/prospects/status/${token}`);
+      const url = dbEnv ? `/api/prospects/status/${token}?db=${dbEnv}` : `/api/prospects/status/${token}`;
+      const response = await fetch(url);
       if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       return response.json();
     },

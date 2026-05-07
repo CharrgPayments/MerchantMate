@@ -3719,35 +3719,162 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validationErrors: string[] = [];
       const missingSignatures: any[] = [];
 
-      // Required field validation
-      const requiredFields = [
-        { field: 'companyName', label: 'Company Name' },
-        { field: 'companyEmail', label: 'Company Email' },
-        { field: 'companyPhone', label: 'Company Phone' },
-        { field: 'address', label: 'Business Address' },
-        { field: 'city', label: 'City' },
-        { field: 'state', label: 'State' },
-        { field: 'zipCode', label: 'ZIP Code' },
-        { field: 'federalTaxId', label: 'Federal Tax ID' },
-        { field: 'businessType', label: 'Business Type' },
-        { field: 'yearsInBusiness', label: 'Years in Business' },
-        { field: 'businessDescription', label: 'Business Description' },
-        { field: 'productsServices', label: 'Products/Services' },
-        { field: 'processingMethod', label: 'Processing Method' },
-        { field: 'monthlyVolume', label: 'Monthly Volume' },
-        { field: 'averageTicket', label: 'Average Ticket' },
-        { field: 'highestTicket', label: 'Highest Ticket' }
-      ];
+      // Try to load the same template the wizard rendered, so we honor
+      // template-driven required fields and disclosure signatures rather than
+      // a hardcoded list. Falls back to the static list below if no template
+      // is configured for the prospect's campaign.
+      type TemplateField = {
+        fieldName: string;
+        fieldType: string;
+        fieldLabel: string;
+        isRequired: boolean;
+        requiresSignature: boolean;
+        maxSigners: number;
+        signerLabel: string | null;
+        conditional: any;
+      };
+      let templateFields: TemplateField[] | null = null;
+      try {
+        const assignment = await storage.getProspectCampaignAssignment(prospectId);
+        if (assignment) {
+          const dbToUse = getRequestDB(req);
+          const { campaignApplicationTemplates: catTable, acquirerApplicationTemplates: aatTable } =
+            await import("@shared/schema");
+          const links = await dbToUse.select({
+            templateId: catTable.templateId,
+            isPrimary: catTable.isPrimary,
+            displayOrder: catTable.displayOrder,
+          }).from(catTable).where(eq(catTable.campaignId, assignment.campaignId));
+          if (links.length > 0) {
+            const chosen = links.find((l: any) => l.isPrimary) ??
+              [...links].sort((a: any, b: any) => a.displayOrder - b.displayOrder)[0];
+            const [tpl] = await dbToUse.select().from(aatTable)
+              .where(and(eq(aatTable.id, chosen.templateId), eq(aatTable.isActive, true)))
+              .limit(1);
+            if (tpl) {
+              const fc: any = (tpl.fieldConfiguration as any) || {};
+              const reqIds = new Set<string>(Array.isArray(tpl.requiredFields) ? tpl.requiredFields : []);
+              const out: TemplateField[] = [];
+              for (const section of (fc.sections || [])) {
+                for (const f of (section.fields || [])) {
+                  const fid = f.id || f.pdfFieldId;
+                  if (!fid) continue;
+                  out.push({
+                    fieldName: fid,
+                    fieldType: f.type === 'tel' ? 'phone' : f.type === 'radio' ? 'select' : (f.type || 'text'),
+                    fieldLabel: f.label || fid,
+                    isRequired: reqIds.has(fid) || !!f.required || !!f.isRequired,
+                    requiresSignature: !!f.requiresSignature,
+                    maxSigners: Math.max(1, Number(f.maxSigners) || 1),
+                    signerLabel: f.signerLabel ?? null,
+                    conditional: f.conditional ?? null,
+                  });
+                }
+              }
+              templateFields = out;
+            }
+          }
+        }
+      } catch (tmplErr) {
+        console.warn('[submit-application] Could not load template for validation:', tmplErr);
+      }
 
-      // Check for missing required fields
-      for (const { field, label } of requiredFields) {
-        if (!formData || !formData[field] || formData[field] === '') {
-          validationErrors.push(`${label} is required`);
+      // Mirrors the wizard's isFieldVisible() conditional evaluator so we
+      // never block submission on hidden fields.
+      const isFieldVisible = (field: TemplateField, all: TemplateField[]): boolean => {
+        if (!field.conditional) return true;
+        const { action, when } = field.conditional;
+        if (!when?.field) return true;
+        const src = all.find((f) => f.fieldName === when.field || String(f.fieldName) === String(when.field));
+        if (!src) return true;
+        const sv = formData?.[src.fieldName];
+        const tv = when.value;
+        let met = false;
+        switch (when.operator) {
+          case 'equals': met = String(sv ?? '') === String(tv ?? ''); break;
+          case 'not_equals': met = String(sv ?? '') !== String(tv ?? ''); break;
+          case 'contains': met = String(sv ?? '').toLowerCase().includes(String(tv ?? '').toLowerCase()); break;
+          case 'is_checked': met = sv === true || sv === 'true' || sv === 'yes' || sv === 'Yes'; break;
+          case 'is_not_checked': met = !sv || sv === false || sv === 'false' || sv === 'no' || sv === 'No'; break;
+          case 'is_not_empty': met = !!sv && String(sv).trim().length > 0; break;
+          default: met = true;
+        }
+        return action === 'show' ? met : !met;
+      };
+
+      const isEmptyValue = (v: any): boolean =>
+        v === undefined || v === null || v === '' ||
+        (Array.isArray(v) && v.length === 0) ||
+        (typeof v === 'string' && v.trim() === '');
+
+      if (templateFields && templateFields.length > 0) {
+        for (const field of templateFields) {
+          if (!field.isRequired) continue;
+          if (!isFieldVisible(field, templateFields)) continue;
+
+          // Disclosure signatures: ensure each required disclosure has the
+          // expected number of completed signatures. This catches Bank
+          // Disclosure / Site Inspection / Beneficial Owners / Guarantor /
+          // ISO disclosures that the old hardcoded validator ignored.
+          if (field.fieldType === 'disclosure' && field.requiresSignature) {
+            const key = `${field.fieldName}_signatures`;
+            const sigs = Array.isArray(formData?.[key]) ? formData[key] : [];
+            const valid = sigs.filter((s: any) =>
+              s && typeof s.signature === 'string' && s.signature.trim().length > 0
+            );
+            const need = field.maxSigners;
+            if (valid.length < need) {
+              const noun = field.signerLabel ? `${field.signerLabel} signature` : 'Signature';
+              validationErrors.push(
+                need === 1
+                  ? `${noun} is required for "${field.fieldLabel}"`
+                  : `${need} ${noun}s required for "${field.fieldLabel}" (${valid.length} provided)`
+              );
+            }
+            continue;
+          }
+
+          // Owners are validated by the dedicated block below.
+          if (field.fieldType === 'ownership' || field.fieldName === 'owners') continue;
+
+          // Display-only / computed field types — nothing to validate.
+          if (['readonly', 'campaign', 'equipment', 'disclosure'].includes(field.fieldType)) continue;
+
+          if (isEmptyValue(formData?.[field.fieldName])) {
+            validationErrors.push(`${field.fieldLabel} is required`);
+          }
+        }
+      } else {
+        // Fallback: prospect's campaign has no application template configured.
+        const requiredFields = [
+          { field: 'companyName', label: 'Company Name' },
+          { field: 'companyEmail', label: 'Company Email' },
+          { field: 'companyPhone', label: 'Company Phone' },
+          { field: 'address', label: 'Business Address' },
+          { field: 'city', label: 'City' },
+          { field: 'state', label: 'State' },
+          { field: 'zipCode', label: 'ZIP Code' },
+          { field: 'federalTaxId', label: 'Federal Tax ID' },
+          { field: 'businessType', label: 'Business Type' },
+          { field: 'yearsInBusiness', label: 'Years in Business' },
+          { field: 'businessDescription', label: 'Business Description' },
+          { field: 'productsServices', label: 'Products/Services' },
+          { field: 'processingMethod', label: 'Processing Method' },
+          { field: 'monthlyVolume', label: 'Monthly Volume' },
+          { field: 'averageTicket', label: 'Average Ticket' },
+          { field: 'highestTicket', label: 'Highest Ticket' },
+        ];
+        for (const { field, label } of requiredFields) {
+          if (!formData || isEmptyValue(formData[field])) {
+            validationErrors.push(`${label} is required`);
+          }
         }
       }
 
-      // Validate business ownership totals 100%
-      if (formData && formData.owners && Array.isArray(formData.owners)) {
+      // Validate business ownership totals 100% and required owner signatures.
+      // This runs regardless of whether a template was loaded — owner sigs
+      // and percentage rules are universal.
+      if (formData && formData.owners && Array.isArray(formData.owners) && formData.owners.length > 0) {
         const totalOwnership = formData.owners.reduce((sum: number, owner: any) => {
           return sum + (parseFloat(owner.percentage) || 0);
         }, 0);
@@ -3756,7 +3883,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           validationErrors.push(`Total ownership must equal 100% (currently ${totalOwnership}%)`);
         }
 
-        // Check for required signatures
         const ownersRequiringSignatures = formData.owners.filter((owner: any) => {
           const percentage = parseFloat(owner.percentage) || 0;
           return percentage >= 25;
@@ -3770,12 +3896,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           missingSignatures.push(...ownersWithoutSignatures.map((owner: any) => ({
             name: owner.name,
             email: owner.email,
-            percentage: owner.percentage
+            percentage: owner.percentage,
           })));
           validationErrors.push(`Signatures required for owners with 25% or more ownership`);
         }
       } else {
-        validationErrors.push('At least one business owner is required');
+        // Only require an owner if the template (or fallback) expects one.
+        const ownersFieldRequired = !templateFields ||
+          templateFields.some((f) => f.isRequired && (f.fieldType === 'ownership' || f.fieldName === 'owners'));
+        if (ownersFieldRequired) {
+          validationErrors.push('At least one business owner is required');
+        }
       }
 
       // Return validation errors if any exist

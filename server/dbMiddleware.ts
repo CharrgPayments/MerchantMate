@@ -57,7 +57,11 @@ export const dbEnvironmentMiddleware = (req: RequestWithDB, res: Response, next:
   }
 
   // 2. Session value wins on all other domains (test-crm.charrg.com, *.replit.app, localhost)
-  const sessionDbEnv = req.session?.dbEnv;
+  // Prospect-portal sessions store their env under `portalDbEnv` so they don't
+  // collide with staff sessions. Honour either so /api/portal/* requests stay
+  // on the same database the prospect signed up in, even after the user
+  // navigates to a portal page that no longer carries `?db=` in the URL.
+  const sessionDbEnv = req.session?.dbEnv ?? req.session?.portalDbEnv;
   if (sessionDbEnv && ['test', 'development', 'dev', 'production'].includes(sessionDbEnv)) {
     req.dbEnv = sessionDbEnv;
     req.dynamicDB = getDynamicDatabase(sessionDbEnv);
